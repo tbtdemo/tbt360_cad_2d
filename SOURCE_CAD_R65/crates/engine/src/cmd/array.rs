@@ -185,8 +185,9 @@ fn run_arrayitemremove(s: &mut Session, p: &Value) -> Result<Value> {
         return Err(bad("arrayitemremove", "that array item is already suppressed"));
     }
     a.suppressed.push(cadcraft_doc::ArrayItemRef { i: item.0, j: item.1, level: item.2 });
-    rebuild(s, h, a, None)?;
-    let d = s.doc()?;
+    rebuild(s,h,a,None)?;
+    s.doc_mut()?.modify_entity(h,|e|super::modify::bump_tbt360_bim_revision(&mut e.common,h))?;
+    let d=s.doc()?;
     let e = d.entity(h).ok_or_else(|| bad("arrayitemremove", "array disappeared after rebuild"))?;
     let a = d.array_params(e).ok_or_else(|| bad("arrayitemremove", "array metadata was lost after rebuild"))?;
     Ok(json!({ "handle": h.hex(), "item": [item.0, item.1, item.2], "visibleItemCount": a.visible_item_count() }))
@@ -219,9 +220,10 @@ fn run_arrayitemrestore(s: &mut Session, p: &Value) -> Result<Value> {
     if restored == 0 {
         return Ok(json!({ "handle": h.hex(), "restored": 0, "visibleItemCount": a.visible_item_count() }));
     }
-    rebuild(s, h, a, None)?;
-    let d = s.doc()?;
-    let e = d.entity(h).ok_or_else(|| bad("arrayitemrestore", "array disappeared after rebuild"))?;
+    rebuild(s,h,a,None)?;
+    s.doc_mut()?.modify_entity(h,|e|super::modify::bump_tbt360_bim_revision(&mut e.common,h))?;
+    let d=s.doc()?;
+    let e=d.entity(h).ok_or_else(||bad("arrayitemrestore","array disappeared after rebuild"))?;
     let a = d.array_params(e).ok_or_else(|| bad("arrayitemrestore", "array metadata was lost after rebuild"))?;
     Ok(json!({ "handle": h.hex(), "restored": restored, "visibleItemCount": a.visible_item_count() }))
 }
@@ -287,6 +289,10 @@ pub(crate) fn make_assoc(s: &mut Session, objs: &[Handle], base: Vec2, mut p: Ar
     if ents.is_empty() {
         return Err(other("No objects to array (objects on locked layers are left out)."));
     }
+    let shared_bim_scope_source=ents.first().and_then(|first|{
+        let key=super::modify::tbt360_bim_scope_key(&first.common)?;
+        ents.iter().all(|e|super::modify::tbt360_bim_scope_key(&e.common).as_deref()==Some(key.as_str())).then(||first.common.clone())
+    });
     // The array adds two levels of block references (array block, then source block).
     let refs: Vec<&Entity> = ents.iter().collect();
     if nesting(d, &refs, &mut HashMap::new(), 0) + 2 > MAX_BLOCK_DEPTH {
@@ -301,6 +307,7 @@ pub(crate) fn make_assoc(s: &mut Session, objs: &[Handle], base: Vec2, mut p: Ar
     let to_local = Mat3::translate(-base);
     for mut e in ents {
         e.handle = d.new_handle();
+        super::modify::refresh_tbt360_bim_copy_identity(&mut e.common,e.handle);
         e.kind.transform(&to_local);
         src.entities.push(e);
     }
@@ -317,7 +324,7 @@ pub(crate) fn make_assoc(s: &mut Session, objs: &[Handle], base: Vec2, mut p: Ar
     for h in &objs {
         d.remove_entity(*h);
     }
-    s.add_entity(EntityKind::Insert(Insert {
+    let h=s.add_entity(EntityKind::Insert(Insert {
         block: name,
         insert: v3(base),
         scale: Vec3::new(1.0, 1.0, 1.0),
@@ -327,7 +334,11 @@ pub(crate) fn make_assoc(s: &mut Session, objs: &[Handle], base: Vec2, mut p: Ar
         rows: 1,
         col_spacing: 0.0,
         row_spacing: 0.0,
-    }))
+    }))?;
+    if let Some(source)=shared_bim_scope_source {
+        s.doc_mut()?.modify_entity(h,|entity|super::modify::copy_tbt360_bim_scope(&source,&mut entity.common,h))?;
+    }
+    Ok(h)
 }
 
 /// Create the array: associative (one block reference) or separate copies. Returns the JSON

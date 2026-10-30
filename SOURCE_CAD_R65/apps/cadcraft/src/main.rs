@@ -25,6 +25,19 @@ mod spacemouse;
 mod system_animations;
 mod workspace;
 mod takeoff;
+mod bim_collab;
+mod bim_sync;
+mod bim_domain;
+mod bim_presence;
+mod bim_federation;
+mod bim_api;
+mod bim_offline;
+mod bim_workset;
+mod bim_access;
+mod bim_coordinates;
+mod bim_viewport;
+mod bim_coordination;
+mod bim_clash;
 
 use cadcraft_engine::Session;
 use cadcraft_ui_egui::{CadApp, Services, i18n};
@@ -36,12 +49,14 @@ enum MainTab {
     Takeoff,
     Pdf,
     Model3d,
+    BimCollab,
 }
 
 struct App {
     cad: CadApp,
     active_tab: MainTab,
     takeoff_state: takeoff::State,
+    bim_collab_state: bim_collab::State,
     spacemouse: spacemouse::SpaceMouse,
     /// The desktop's light/dark choice where winit reports none (Linux, the BSDs).
     desktop_theme: desktop_theme::DesktopTheme,
@@ -91,6 +106,7 @@ impl eframe::App for App {
     /// eframe logic callback: syncs the OS animation setting and runs `CadApp::logic`; when the pass index is 0 (the first pass or a hidden tick) it also installs/polls the macOS native menu, polls the spacemouse and persists the workspace; a quit request closes the viewport.
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.cad.system_animations = self.system_animations.current();
+        bim_collab::sync_render_filters(&mut self.cad, &self.bim_collab_state);
         // Consume control/open/screenshot queues and time-based autosave, including hidden ticks.
         self.cad.logic(ctx);
         // Host frame work runs here, once per frame, and so also on a hidden logic-only tick (which
@@ -127,11 +143,26 @@ impl eframe::App for App {
             ui.selectable_value(&mut self.active_tab, MainTab::Takeoff, "ĐO BÓC");
             ui.selectable_value(&mut self.active_tab, MainTab::Pdf, "PDF / BẢN VẼ");
             ui.selectable_value(&mut self.active_tab, MainTab::Model3d, "3D / IFC");
+            ui.selectable_value(&mut self.active_tab, MainTab::BimCollab, "BIM CỘNG TÁC");
         });
         ui.separator();
         match self.active_tab {
-            MainTab::Cad => self.cad.ui(ui),
-            MainTab::Takeoff => takeoff::panel(ui, &self.cad, &mut self.takeoff_state),
+            MainTab::Cad => {
+                self.cad.ui(ui);
+                bim_collab::enforce_selection_scope(&mut self.cad, &self.bim_collab_state);
+            }
+            MainTab::Takeoff => {
+                ui.columns(2, |columns| {
+                    self.cad.ui(&mut columns[0]);
+                    bim_collab::enforce_selection_scope(&mut self.cad, &self.bim_collab_state);
+                    let qto_scope=takeoff::Scope {
+                        floor_id: Some(self.bim_collab_state.active_floor_id),
+                        discipline: Some(self.bim_collab_state.active_discipline.code().to_string()),
+                        owner_account_id: Some(self.bim_collab_state.current_account_id.clone()),
+                    };
+                    takeoff::panel(&mut columns[1], &self.cad, &mut self.takeoff_state, &qto_scope);
+                });
+            }
             MainTab::Pdf => {
                 ui.heading("PDF / BẢN VẼ");
                 ui.label("Khu vực tích hợp PDF nhiều trang, hiệu chỉnh theo trang, overlay và annotation. Chức năng đang được chuyển từ QTO R134 sang native.");
@@ -140,6 +171,7 @@ impl eframe::App for App {
                 ui.heading("3D / IFC");
                 ui.label("Khu vực tích hợp IFC/Solid/Volume và đối chiếu khối lượng 2D/3D. Chưa được đánh dấu hoàn thành.");
             }
+            MainTab::BimCollab => bim_collab::panel(ui, &mut self.cad, &mut self.bim_collab_state),
         }
         #[cfg(target_os = "macos")]
         craft_window::title_bar::sync_movable(ui.ctx(), &mut self.movable);
@@ -218,9 +250,8 @@ fn filters_for_save(name: &str) -> [(&'static str, &'static str); 6] {
     filters
 }
 
-/// The per-user settings directory (it holds `logs/` and `autosave/`): `CADCRAFT_CONFIG_DIR` if set, else
-/// `$XDG_CONFIG_HOME/cadcraft` or `~/.config/cadcraft` on Linux and the BSDs,
-/// `~/Library/Application Support/CADCraft` on macOS, `%APPDATA%\CADCraft` on Windows.
+/// The per-user settings directory (it holds `logs/` and `autosave/`): `TBT360_CONFIG_DIR` if set,
+/// then legacy `CADCRAFT_CONFIG_DIR`, else the platform TBT360 settings directory.
 fn config_dir() -> Option<std::path::PathBuf> {
     config_dir_from(|k| std::env::var_os(k))
 }
@@ -229,7 +260,7 @@ fn config_dir() -> Option<std::path::PathBuf> {
 /// counts as unset, so a blank value never means the working directory.
 fn config_dir_from(var: impl Fn(&str) -> Option<std::ffi::OsString>) -> Option<std::path::PathBuf> {
     let set = |k: &str| var(k).filter(|v| !v.is_empty()).map(std::path::PathBuf::from);
-    if let Some(dir) = set("CADCRAFT_CONFIG_DIR") {
+    if let Some(dir) = set("TBT360_CONFIG_DIR").or_else(|| set("CADCRAFT_CONFIG_DIR")) {
         return Some(dir);
     }
     if cfg!(target_os = "macos") {
@@ -314,7 +345,7 @@ fn main() -> eframe::Result {
             Some(Err(e)) => log::warn!("no log file: {e}"),
             None => {
                 logger.stderr_only();
-                log::warn!("no log file: no settings directory (set CADCRAFT_CONFIG_DIR)");
+                log::warn!("no log file: no settings directory (set TBT360_CONFIG_DIR)");
             }
         }
     }
@@ -438,6 +469,7 @@ fn main() -> eframe::Result {
                 cad: app,
                 active_tab: MainTab::default(),
                 takeoff_state: takeoff::State::default(),
+                bim_collab_state: bim_collab::State::default(),
                 spacemouse: spacemouse::SpaceMouse::start(cc.egui_ctx.clone()),
                 workspace,
                 workspace_error,
@@ -498,8 +530,10 @@ mod tests {
 
     #[test]
     fn the_override_variable_wins_and_empty_values_are_unset() {
-        let vars = [("CADCRAFT_CONFIG_DIR", "/tmp/cc"), ("HOME", "/home/u"), ("XDG_CONFIG_HOME", "/x"), ("APPDATA", "C:\\a")];
-        assert_eq!(config_dir_from(env(&vars)), Some(PathBuf::from("/tmp/cc")));
+        let vars = [("TBT360_CONFIG_DIR", "/tmp/tbt"), ("CADCRAFT_CONFIG_DIR", "/tmp/cc"), ("HOME", "/home/u"), ("XDG_CONFIG_HOME", "/x"), ("APPDATA", "C:\\a")];
+        assert_eq!(config_dir_from(env(&vars)), Some(PathBuf::from("/tmp/tbt")));
+        let legacy = [("CADCRAFT_CONFIG_DIR", "/tmp/cc")];
+        assert_eq!(config_dir_from(env(&legacy)), Some(PathBuf::from("/tmp/cc")));
         let empty = [("CADCRAFT_CONFIG_DIR", ""), ("HOME", ""), ("XDG_CONFIG_HOME", ""), ("APPDATA", "")];
         assert_eq!(config_dir_from(env(&empty)), None, "no usable variable means no directory, not the working directory");
         assert_eq!(config_dir_from(env(&[])), None);

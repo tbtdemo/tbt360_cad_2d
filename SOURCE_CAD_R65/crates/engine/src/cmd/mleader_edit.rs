@@ -97,9 +97,10 @@ fn add_leaders(s: &mut Session, h: Handle, pts: &[Vec2]) -> Result<()> {
     if locked(s, h) {
         return Err(bad("mleaderedit", "the multileader is on a locked layer"));
     }
-    s.doc_mut()?.modify_entity(h, |e| {
-        if let EntityKind::MLeader(m) = &mut e.kind {
-            m.leaders.extend(pts.iter().map(|p| vec![v3(*p)]));
+    s.doc_mut()?.modify_entity(h,|e|{
+        if let EntityKind::MLeader(m)=&mut e.kind {
+            m.leaders.extend(pts.iter().map(|p|vec![v3(*p)]));
+            crate::cmd::modify::bump_tbt360_bim_revision(&mut e.common,h);
         }
     })?;
     Ok(())
@@ -113,16 +114,15 @@ fn remove_leaders(s: &mut Session, h: Handle, idx: &[usize]) -> Result<()> {
     if let Some(i) = idx.iter().find(|i| **i >= m.leaders.len()) {
         return Err(bad("mleaderedit", format!("no leader {i} (the multileader has {})", m.leaders.len())));
     }
-    s.doc_mut()?.modify_entity(h, |e| {
-        if let EntityKind::MLeader(m) = &mut e.kind {
-            let mut sorted: Vec<usize> = idx.to_vec();
+    s.doc_mut()?.modify_entity(h,|e|{
+        if let EntityKind::MLeader(m)=&mut e.kind {
+            let mut sorted:Vec<usize>=idx.to_vec();
             sorted.sort_unstable();
             sorted.dedup();
             for i in sorted.into_iter().rev() {
-                if i < m.leaders.len() {
-                    m.leaders.remove(i);
-                }
+                if i<m.leaders.len() { m.leaders.remove(i); }
             }
+            crate::cmd::modify::bump_tbt360_bim_revision(&mut e.common,h);
         }
     })?;
     Ok(())
@@ -285,9 +285,10 @@ fn move_content(s: &mut Session, moves: &[(Handle, Vec2)]) -> Result<()> {
         if !delta.is_finite() {
             continue;
         }
-        d.modify_entity(*h, |e| {
-            if let EntityKind::MLeader(m) = &mut e.kind {
-                shift_content(m, *delta);
+        d.modify_entity(*h,|e|{
+            if let EntityKind::MLeader(m)=&mut e.kind {
+                shift_content(m,*delta);
+                crate::cmd::modify::bump_tbt360_bim_revision(&mut e.common,*h);
             }
         })?;
     }
@@ -669,7 +670,10 @@ fn collect(s: &mut Session, hs: &[Handle], at: Vec2, layout: Layout, spacing: Op
     let common = s.doc()?.entity(first_h).map(|e| e.common.clone());
     {
         let d = s.doc_mut()?;
-        d.modify_entity(first_h, |e| e.kind = EntityKind::MLeader(merged))?;
+        d.modify_entity(first_h,|e|{
+            e.kind=EntityKind::MLeader(merged);
+            crate::cmd::modify::bump_tbt360_bim_revision(&mut e.common,first_h);
+        })?;
         for (h, _) in items.iter().skip(1) {
             d.remove_entity(*h);
         }
@@ -678,8 +682,11 @@ fn collect(s: &mut Session, hs: &[Handle], at: Vec2, layout: Layout, spacing: Op
     let mut extra = Vec::new();
     for ins in rest.drain(..) {
         let h = s.add_entity(EntityKind::Insert(ins))?;
-        if let Some(c) = &common {
-            s.doc_mut()?.modify_entity(h, |e| e.common = c.clone())?;
+        if let Some(c)=&common {
+            s.doc_mut()?.modify_entity(h,|e|{
+                e.common=c.clone();
+                crate::cmd::modify::refresh_tbt360_bim_copy_identity(&mut e.common,h);
+            })?;
         }
         extra.push(h.hex());
     }

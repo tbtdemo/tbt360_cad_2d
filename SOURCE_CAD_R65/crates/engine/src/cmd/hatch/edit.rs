@@ -130,14 +130,18 @@ fn separate(s: &mut Session, handle: Handle) -> Result<Vec<Handle>> {
     for loops in rest {
         let mut nh = Hatch { loops, ..h.clone() };
         nh.associative = h.associative && nh.loops.iter().all(|l| !l.sources.is_empty());
-        let n = d.add(&space, common.clone(), EntityKind::Hatch(nh))?;
-        if let Some(st) = d.space_mut(&space) {
+        let n=d.add(&space,common.clone(),EntityKind::Hatch(nh))?;
+        d.modify_entity(n,|e|crate::cmd::modify::refresh_tbt360_bim_copy_identity(&mut e.common,n))?;
+        if let Some(st)=d.space_mut(&space) {
             st.send_to_back(n);
         }
         out.push(n);
     }
     let kept = Hatch { loops: first, ..h };
-    d.modify_entity(handle, |e| e.kind = EntityKind::Hatch(kept))?;
+    d.modify_entity(handle,|e|{
+        e.kind=EntityKind::Hatch(kept);
+        crate::cmd::modify::bump_tbt360_bim_revision(&mut e.common,handle);
+    })?;
     Ok(out)
 }
 
@@ -420,7 +424,9 @@ pub(super) fn run_hatchedit(s: &mut Session, p: &Value) -> Result<Value> {
     let mut notes = Vec::new();
     let mut budget = MAX_LOOPS;
     for handle in &hs {
-        let Some(EntityKind::Hatch(mut h)) = s.doc()?.entity(*handle).map(|e| e.kind.clone()) else { continue };
+        let Some(source_entity)=s.doc()?.entity(*handle).map(|e|(**e).clone()) else { continue };
+        let EntityKind::Hatch(mut h)=source_entity.kind.clone() else { continue };
+        let source_common=source_entity.common.clone();
         if let Some(source) = &inherited {
             // Inherit display properties only; target loops and associativity stay intact.
             h.pattern = source.pattern.clone();
@@ -467,7 +473,8 @@ pub(super) fn run_hatchedit(s: &mut Session, p: &Value) -> Result<Value> {
         }
         if recreate {
             if recreate_region {
-                let n = s.add_entity(EntityKind::Region(cadcraft_doc::Region { loops: h.loops.clone() }))?;
+                let n=s.add_entity(EntityKind::Region(cadcraft_doc::Region{loops:h.loops.clone()}))?;
+                s.doc_mut()?.modify_entity(n,|e|crate::cmd::modify::copy_tbt360_bim_scope(&source_common,&mut e.common,n))?;
                 created.push(n);
                 if associate {
                     notes.push(format!("Hatch {}: REGION boundary was created; associative linking is only supported for polylines.", handle.hex()));
@@ -475,7 +482,9 @@ pub(super) fn run_hatchedit(s: &mut Session, p: &Value) -> Result<Value> {
             } else {
                 let mut new = Vec::new();
                 for l in &h.loops {
-                    new.push(s.add_entity(lwpoly(l.vertices.clone(), true))?);
+                    let n=s.add_entity(lwpoly(l.vertices.clone(),true))?;
+                    s.doc_mut()?.modify_entity(n,|e|crate::cmd::modify::copy_tbt360_bim_scope(&source_common,&mut e.common,n))?;
+                    new.push(n);
                 }
                 if associate {
                     for (l, n) in h.loops.iter_mut().zip(&new) {
@@ -486,7 +495,10 @@ pub(super) fn run_hatchedit(s: &mut Session, p: &Value) -> Result<Value> {
                 created.extend(new);
             }
         }
-        s.doc_mut()?.modify_entity(*handle, |e| e.kind = EntityKind::Hatch(h))?;
+        s.doc_mut()?.modify_entity(*handle,|e|{
+            e.kind=EntityKind::Hatch(h);
+            crate::cmd::modify::bump_tbt360_bim_revision(&mut e.common,*handle);
+        })?;
         if bool_or(p, "separate", false) {
             created.extend(separate(s, *handle)?);
         }
