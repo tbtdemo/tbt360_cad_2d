@@ -141,6 +141,18 @@ mod tests {
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
+    #[test]
+    fn failed_destination_keeps_original_bytes() {
+        let dir = std::env::temp_dir().join(format!("cadcraft-aw-failure-{}-{}", std::process::id(), SEQ.fetch_add(1, Ordering::Relaxed)));
+        std::fs::create_dir_all(&dir).unwrap();
+        let original = dir.join("source.bin");
+        std::fs::write(&original, b"original").unwrap();
+        let missing_parent = dir.join("missing").join("source.bin");
+        assert!(write_atomic(&missing_parent, b"replacement").is_err());
+        assert_eq!(std::fs::read(&original).unwrap(), b"original");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
     #[cfg(unix)]
     #[test]
     fn does_not_follow_a_planted_temp_symlink() {
