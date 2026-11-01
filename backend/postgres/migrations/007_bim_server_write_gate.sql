@@ -74,3 +74,41 @@ $$;
 
 COMMENT ON FUNCTION bim_update_design_object(uuid,uuid,uuid,bigint,jsonb) IS
 'Server-only write gate. The account argument MUST come from validated TBT.Auth token claims. Restrict EXECUTE privileges to trusted API DB role.';
+
+-- Soft-delete with identical authorization, lease and stale-revision checks.
+-- Preserve entity and audit history for recovery instead of physically deleting geometry.
+CREATE OR REPLACE FUNCTION bim_delete_design_object(
+  p_project uuid, p_object uuid, p_authenticated_account uuid, p_expected_revision bigint)
+RETURNS bigint LANGUAGE plpgsql AS $$
+DECLARE
+  v_object bim_design_objects%ROWTYPE;
+  v_new_revision bigint;
+BEGIN
+  IF p_project IS NULL OR p_object IS NULL OR p_authenticated_account IS NULL
+     OR p_expected_revision IS NULL OR p_expected_revision < 1 THEN
+    RAISE EXCEPTION 'invalid delete request' USING ERRCODE='22023';
+  END IF;
+  SELECT * INTO v_object FROM bim_design_objects
+    WHERE id=p_object AND project_id=p_project AND NOT deleted FOR UPDATE;
+  IF NOT FOUND THEN RAISE EXCEPTION 'design object not found' USING ERRCODE='P0002'; END IF;
+  IF NOT bim_can_edit_object(p_project,p_authenticated_account,v_object.floor_id,v_object.discipline,v_object.owner_account_id) THEN
+    RAISE EXCEPTION 'write permission denied' USING ERRCODE='42501';
+  END IF;
+  IF v_object.revision <> p_expected_revision THEN
+    RAISE EXCEPTION 'stale object revision' USING ERRCODE='40001';
+  END IF;
+  IF EXISTS (SELECT 1 FROM bim_object_leases l WHERE l.project_id=p_project
+    AND l.design_object_id=p_object AND l.expires_at > now()
+    AND l.account_id <> p_authenticated_account) THEN
+    RAISE EXCEPTION 'object is locked by another editor' USING ERRCODE='55P03';
+  END IF;
+  UPDATE bim_design_objects SET deleted=true,revision=revision+1,updated_at=now()
+    WHERE id=p_object AND project_id=p_project RETURNING revision INTO v_new_revision;
+  UPDATE bim_projects SET revision=revision+1,updated_at=now() WHERE id=p_project;
+  INSERT INTO bim_audit_log(project_id,account_id,action,design_object_id,source_handle,base_revision,result_revision)
+    VALUES(p_project,p_authenticated_account,'DELETE',p_object,v_object.source_handle,p_expected_revision,v_new_revision);
+  RETURN v_new_revision;
+END;
+$$;
+COMMENT ON FUNCTION bim_delete_design_object(uuid,uuid,uuid,bigint) IS
+'Server-only soft delete. Authenticated account must come from validated TBT.Auth token claims.';
