@@ -35,3 +35,8 @@ RETURNS boolean LANGUAGE sql STABLE AS $$
           AND d.discipline IS NULL AND d.workset_id IS NULL
     );
 $$;
+
+-- Narrow-scoped grants do not become project-wide edit permissions.
+-- The caller must identify the authenticated principal; never trust a body-supplied user ID.
+COMMENT ON FUNCTION bim_can_edit_project(uuid, uuid) IS
+'Fail-closed project-wide edit check; null identities and scoped-only grants cannot elevate access. Enforce per-object rights separately at every write endpoint.';
