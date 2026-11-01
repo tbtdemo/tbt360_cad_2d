@@ -40,3 +40,9 @@ $$;
 -- The caller must identify the authenticated principal; never trust a body-supplied user ID.
 COMMENT ON FUNCTION bim_can_edit_project(uuid, uuid) IS
 'Fail-closed project-wide edit check; null identities and scoped-only grants cannot elevate access. Enforce per-object rights separately at every write endpoint.';
+
+-- Indexed read-path for deny-first project-level decisions.
+CREATE INDEX IF NOT EXISTS ix_bim_access_grants_project_decision
+ON bim_access_grants(project_id, viewer_account_id, deny, can_edit)
+WHERE source_owner_account_id IS NULL AND building_id IS NULL AND zone_id IS NULL
+  AND floor_id IS NULL AND discipline IS NULL AND workset_id IS NULL;
