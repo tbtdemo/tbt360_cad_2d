@@ -165,6 +165,19 @@ mod tests {
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
+    #[test]
+    fn successive_saves_leave_last_complete_version() {
+        let dir = std::env::temp_dir().join(format!("cadcraft-aw-repeat-{}-{}", std::process::id(), SEQ.fetch_add(1, Ordering::Relaxed)));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("drawing.dxf");
+        for n in 0..25 {
+            let contents = vec![n as u8; 1024 + n];
+            write_atomic(&file, &contents).unwrap();
+            assert_eq!(std::fs::read(&file).unwrap(), contents);
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     #[cfg(unix)]
     #[test]
     fn does_not_follow_a_planted_temp_symlink() {
