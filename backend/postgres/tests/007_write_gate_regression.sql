@@ -84,6 +84,37 @@ BEGIN
     IF bim_can_edit_object(v_project,second_id,floor_id,'ARCH',owner_id) THEN
         RAISE EXCEPTION 'revoked member can still edit';
     END IF;
+    -- DELETE uses the same permission, revision and lease gate as UPDATE.
+    denied := false;
+    BEGIN
+        PERFORM bim_delete_design_object(v_project,object_id,viewer_id,2);
+    EXCEPTION WHEN insufficient_privilege THEN denied := true;
+    END;
+    IF NOT denied THEN RAISE EXCEPTION 'viewer soft-deleted object'; END IF;
+
+    conflict := false;
+    BEGIN
+        PERFORM bim_delete_design_object(v_project,object_id,owner_id,1);
+    EXCEPTION WHEN serialization_failure THEN conflict := true;
+    END;
+    IF NOT conflict THEN RAISE EXCEPTION 'stale delete was accepted'; END IF;
+
+    DELETE FROM bim_object_leases l WHERE l.project_id=v_project AND l.design_object_id=object_id;
+    new_rev := bim_delete_design_object(v_project,object_id,owner_id,2);
+    IF new_rev <> 3 OR NOT (SELECT d.deleted FROM bim_design_objects d WHERE d.id=object_id) THEN
+        RAISE EXCEPTION 'soft delete did not preserve tombstone and revision';
+    END IF;
+    IF (SELECT count(*) FROM bim_audit_log a WHERE a.project_id=v_project AND a.action='DELETE') <> 1 THEN
+        RAISE EXCEPTION 'successful delete missing audit entry';
+    END IF;
+    IF (SELECT p.revision FROM bim_projects p WHERE p.id=v_project) <> 2 THEN
+        RAISE EXCEPTION 'soft delete did not increment project revision';
+    END IF;
+    BEGIN
+        PERFORM bim_delete_design_object(v_project,object_id,owner_id,3);
+        RAISE EXCEPTION 'second delete should not succeed';
+    EXCEPTION WHEN no_data_found THEN NULL;
+    END;
     RAISE NOTICE 'CAD360 write gate PostgreSQL regression passed';
 END $$;
 ROLLBACK;
