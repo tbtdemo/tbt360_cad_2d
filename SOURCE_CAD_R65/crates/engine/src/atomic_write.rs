@@ -116,6 +116,31 @@ mod tests {
         std::fs::remove_dir_all(&dir).ok();
     }
 
+    #[test]
+    fn concurrent_writers_never_publish_partial_content() {
+        let dir = std::env::temp_dir().join(format!("cadcraft-aw-race-{}-{}", std::process::id(), SEQ.fetch_add(1, Ordering::Relaxed)));
+        std::fs::create_dir_all(&dir).unwrap();
+        let dest = dir.join("drawing.dxf");
+        let payload_a = vec![b'A'; 32 * 1024];
+        let payload_b = vec![b'B'; 32 * 1024];
+        std::fs::write(&dest, &payload_a).unwrap();
+        std::thread::scope(|scope| {
+            for payload in [&payload_a, &payload_b] {
+                let dest = &dest;
+                scope.spawn(move || {
+                    for _ in 0..20 {
+                        write_atomic(dest, payload).unwrap();
+                    }
+                });
+            }
+        });
+        let got = std::fs::read(&dest).unwrap();
+        assert!(got == payload_a || got == payload_b, "partial or mixed write was published");
+        let leftovers: Vec<_> = std::fs::read_dir(&dir).unwrap().flatten().filter(|e| e.file_name().to_string_lossy().starts_with(".cadcraft-tmp")).collect();
+        assert!(leftovers.is_empty());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
     #[cfg(unix)]
     #[test]
     fn does_not_follow_a_planted_temp_symlink() {
