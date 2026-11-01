@@ -46,5 +46,8 @@ jobs:
           psql -v ON_ERROR_STOP=1 -f backend/postgres/migrations/001_bim_building_zone_level.sql
           psql -v ON_ERROR_STOP=1 -f backend/postgres/migrations/002_bim_hierarchical_permissions.sql
           psql -v ON_ERROR_STOP=1 -f backend/postgres/migrations/007_bim_server_write_gate.sql
+          psql -v ON_ERROR_STOP=1 -f backend/postgres/migrations/008_bim_project_change_feed.sql
       - name: Verify authorization, CAS, leases and audit in real PostgreSQL
-        run: psql -v ON_ERROR_STOP=1 -f backend/postgres/tests/007_write_gate_regression.sql
+        run: |
+          psql -v ON_ERROR_STOP=1 -f backend/postgres/tests/007_write_gate_regression.sql
+          psql -v ON_ERROR_STOP=1 -f backend/postgres/tests/008_change_feed_regression.sql
