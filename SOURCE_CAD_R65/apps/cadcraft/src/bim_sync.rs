@@ -423,6 +423,30 @@ mod tests {
     }
 
     #[test]
+    fn five_projects_with_same_handle_remain_independent() {
+        let mut transport = MemoryTransport::default();
+        for id in 0..5 {
+            let project = format!("site-{id}");
+            let result = transport.push_changes(&project, &[change(1, "A", 0, 1)]).unwrap();
+            assert_eq!(result.project_revision, 1);
+            assert_eq!(transport.pull_changes(&project, 0).unwrap().1.len(), 1);
+        }
+        for id in 0..5 {
+            let project = format!("site-{id}");
+            assert_eq!(transport.bootstrap(&project).unwrap().project_revision, 1);
+        }
+    }
+
+    #[test]
+    fn mixed_replay_and_new_batch_cannot_partially_commit() {
+        let mut transport = MemoryTransport::default();
+        transport.push_changes("shared", &[change(1, "A", 0, 1)]).unwrap();
+        assert!(transport.push_changes("shared", &[change(1, "A", 0, 1), change(2, "B", 0, 1)]).is_err());
+        assert_eq!(transport.pull_changes("shared", 0).unwrap().1.len(), 1);
+        assert_eq!(transport.bootstrap("shared").unwrap().project_revision, 1);
+    }
+
+    #[test]
     fn sync_runtime_reports_conflict_state() {
         let mut runtime = SyncRuntime::default();
         runtime.apply_push_result(&PushResult {
