@@ -226,3 +226,12 @@ fn undo_group_with_no_edits_does_not_create_history() {
     assert_eq!(s.state().unwrap().undo.len(), depth);
     assert_eq!(s.state().unwrap().undo_ctl.group, None);
 }
+
+#[test]
+fn undo_mark_without_geometry_edits_must_not_add_snapshot() {
+    let mut s = Session::new();
+    let before = s.state().unwrap().undo.len();
+    s.execute("undo", &json!({ "mode": "mark" })).unwrap();
+    assert_eq!(s.state().unwrap().undo.len(), before);
+    assert_eq!(s.state().unwrap().undo_marks(), 1);
+}
