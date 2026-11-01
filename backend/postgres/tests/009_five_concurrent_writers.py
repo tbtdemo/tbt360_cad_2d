@@ -1,6 +1,6 @@
--- PostgreSQL concurrent-writer test. Run with python3 and psycopg installed.
--- Environment: PGHOST PGPORT PGDATABASE PGUSER PGPASSWORD.
--- Apply migrations 001,002,007,008 before running.
+# PostgreSQL concurrent-writer test. Run with python3 and psycopg installed.
+# Environment: PGHOST PGPORT PGDATABASE PGUSER PGPASSWORD.
+# Apply migrations 001,002,007,008 before running.
 import concurrent.futures
 import os
 import threading
