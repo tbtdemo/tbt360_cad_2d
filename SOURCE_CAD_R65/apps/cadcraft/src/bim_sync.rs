@@ -135,6 +135,7 @@ pub struct MemoryTransport {
     scoped_leases: std::collections::BTreeMap<(String, String), String>,
     applied_changes: std::collections::BTreeMap<(String, u64), ChangeEnvelope>,
     scoped_presences: std::collections::BTreeMap<(String, String), PresenceDto>,
+    change_journal: std::collections::BTreeMap<String, Vec<(u64, ChangeEnvelope)>>,
 }
 
 impl CollaborationTransport for MemoryTransport {
@@ -145,7 +146,8 @@ impl CollaborationTransport for MemoryTransport {
     fn pull_changes(&mut self, project_id: &str, after_revision: u64) -> Result<(u64, Vec<ChangeEnvelope>), String> {
         let current = self.project_revisions.get(project_id).copied().unwrap_or(0);
         if after_revision > current { return Err("cursor is ahead of current project revision".into()); }
-        Ok((current, Vec::new()))
+        let changes = self.change_journal.get(project_id).map(|entries| entries.iter().filter(|(revision, _)| *revision > after_revision).map(|(_, change)| change.clone()).collect()).unwrap_or_default();
+        Ok((current, changes))
     }
 
     fn push_changes(&mut self, project_id: &str, changes: &[ChangeEnvelope]) -> Result<PushResult, String> {
@@ -201,7 +203,11 @@ impl CollaborationTransport for MemoryTransport {
             }
         }
         let revision = self.project_revisions.entry(project_id.to_string()).or_default();
-        *revision += changes.len() as u64;
+        let journal = self.change_journal.entry(project_id.to_string()).or_default();
+        for change in changes {
+            *revision += 1;
+            journal.push((*revision, change.clone()));
+        }
         self.project_revision = self.project_revision.max(*revision);
         Ok(PushResult {
             accepted_change_set_ids: changes.iter().map(|change| change.id).collect(),
@@ -272,7 +278,7 @@ mod tests {
     #[test]
     fn lease_denies_second_editor_until_release() {
         let mut transport = MemoryTransport::default();
-        assert!(transport.acquire_lease("p1", "A", 1).unwrap().granted);
+        assert!(transport.acquire_lease("p1", "A", 0).unwrap().granted);
         assert!(!transport.acquire_lease("p1", "A", 1).unwrap().granted);
         transport.release_lease("p1", "A").unwrap();
         assert!(transport.acquire_lease("p1", "A", 1).unwrap().granted);
@@ -365,6 +371,36 @@ mod tests {
         transport.update_presence("project-b", &p).unwrap();
         assert_eq!(transport.scoped_presences.get(&("project-a".into(), "engineer".into())).unwrap().floor_id, "L1");
         assert_eq!(transport.scoped_presences.get(&("project-b".into(), "engineer".into())).unwrap().floor_id, "L10");
+    }
+
+    #[test]
+    fn pull_returns_only_committed_changes_after_cursor_per_project() {
+        let mut transport = MemoryTransport::default();
+        let a = change(1, "A", 0, 1);
+        let b = change(2, "B", 0, 1);
+        transport.push_changes("p-a", &[a.clone(), b.clone()]).unwrap();
+        transport.push_changes("p-b", &[change(1, "Z", 0, 1)]).unwrap();
+        let (head, all) = transport.pull_changes("p-a", 0).unwrap();
+        assert_eq!(head, 2);
+        assert_eq!(all, vec![a.clone(), b.clone()]);
+        let (head, tail) = transport.pull_changes("p-a", 1).unwrap();
+        assert_eq!(head, 2);
+        assert_eq!(tail, vec![b]);
+        assert_eq!(transport.pull_changes("p-b", 0).unwrap().1.len(), 1);
+        assert!(transport.pull_changes("p-a", 3).is_err());
+        transport.push_changes("p-a", &[a]).unwrap();
+        assert_eq!(transport.pull_changes("p-a", 0).unwrap().1.len(), 2, "idempotent replay must not append the journal");
+    }
+
+    #[test]
+    fn rejected_batch_never_enters_pull_journal() {
+        let mut transport = MemoryTransport::default();
+        transport.push_changes("p-a", &[change(1, "A", 0, 1)]).unwrap();
+        let stale = transport.push_changes("p-a", &[change(2, "B", 0, 1), change(3, "A", 0, 2)]).unwrap();
+        assert_eq!(stale.conflicts.len(), 1);
+        let (_, changes) = transport.pull_changes("p-a", 0).unwrap();
+        assert_eq!(changes.len(), 1);
+        assert_eq!(changes[0].id, 1);
     }
 
     #[test]
