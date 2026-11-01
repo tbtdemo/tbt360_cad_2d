@@ -23,13 +23,13 @@ CREATE OR REPLACE FUNCTION bim_can_edit_project(p_project_id uuid, p_account_id 
 RETURNS boolean LANGUAGE sql STABLE AS $$
     SELECT EXISTS (
         SELECT 1 FROM bim_access_grants g
-        WHERE g.project_id = p_project_id AND g.viewer_account_id = p_account_id
+        WHERE p_project_id IS NOT NULL AND p_account_id IS NOT NULL AND g.project_id = p_project_id AND g.viewer_account_id = p_account_id
           AND g.can_edit AND NOT g.deny AND g.source_owner_account_id IS NULL
           AND g.building_id IS NULL AND g.zone_id IS NULL AND g.floor_id IS NULL
           AND g.discipline IS NULL AND g.workset_id IS NULL
     ) AND NOT EXISTS (
         SELECT 1 FROM bim_access_grants d
-        WHERE d.project_id = p_project_id AND d.viewer_account_id = p_account_id
+        WHERE p_project_id IS NOT NULL AND p_account_id IS NOT NULL AND d.project_id = p_project_id AND d.viewer_account_id = p_account_id
           AND d.deny AND d.source_owner_account_id IS NULL
           AND d.building_id IS NULL AND d.zone_id IS NULL AND d.floor_id IS NULL
           AND d.discipline IS NULL AND d.workset_id IS NULL
