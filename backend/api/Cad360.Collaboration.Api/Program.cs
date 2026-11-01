@@ -95,7 +95,86 @@ app.MapGet("/api/bim/projects/{project:guid}/changes", async (Guid project, long
     }
     catch (Exception ex) when (ex is PostgresException or UnauthorizedAccessException) { return Fail(ex); }
 }).RequireAuthorization();
+
+// Batched writes are serialized by project row. Each failure rolls back all edits,
+// audit, change feed and the idempotency receipt in the same transaction.
+app.MapPost("/api/bim/projects/{project:guid}/changesets", async (Guid project, ChangeBatch body, ClaimsPrincipal principal, NpgsqlDataSource db, CancellationToken ct) =>
+{
+    try
+    {
+        var actor = AuthenticatedAccount(principal);
+        if (project == Guid.Empty || body.BatchId == Guid.Empty || body.Items is null || body.Items.Count is < 1 or > 100) return Results.BadRequest();
+        var canonical = JsonSerializer.Serialize(body.Items);
+        var hash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(canonical)));
+        await using var conn = await db.OpenConnectionAsync(ct);
+        await using var tx = await conn.BeginTransactionAsync(ct);
+        await using (var lockCmd = new NpgsqlCommand("SELECT revision FROM bim_projects WHERE id=@project FOR UPDATE", conn, tx))
+        {
+            lockCmd.Parameters.AddWithValue("project", project);
+            if (await lockCmd.ExecuteScalarAsync(ct) is null) return Results.NotFound();
+        }
+        await using (var prior = new NpgsqlCommand("SELECT request_sha256,response_json::text FROM bim_change_batch_receipts WHERE project_id=@project AND account_id=@actor AND client_batch_id=@batch", conn, tx))
+        {
+            prior.Parameters.AddWithValue("project", project);
+            prior.Parameters.AddWithValue("actor", actor);
+            prior.Parameters.AddWithValue("batch", body.BatchId);
+            await using var reader = await prior.ExecuteReaderAsync(ct);
+            if (await reader.ReadAsync(ct))
+            {
+                var matched = reader.GetString(0) == hash;
+                var saved = reader.GetString(1);
+                await reader.CloseAsync();
+                return matched ? Results.Content(saved, "application/json") : Results.Conflict(new { error = "batch id reused for different payload" });
+            }
+        }
+        var accepted = new List<object>();
+        foreach (var item in body.Items)
+        {
+            var operation = item.Operation?.ToUpperInvariant();
+            string sql = operation switch
+            {
+                "CREATE" => "SELECT bim_create_design_object(@project,@object,@actor,@floor,@discipline,@handle,@kind,@payload)",
+                "UPDATE" => "SELECT bim_update_design_object(@project,@object,@actor,@revision,@payload)",
+                "DELETE" => "SELECT bim_delete_design_object(@project,@object,@actor,@revision)",
+                _ => throw new ArgumentException("Unsupported operation")
+            };
+            await using var command = new NpgsqlCommand(sql, conn, tx);
+            command.Parameters.AddWithValue("project", project);
+            command.Parameters.AddWithValue("object", item.ObjectId);
+            command.Parameters.AddWithValue("actor", actor);
+            if (operation == "CREATE")
+            {
+                command.Parameters.AddWithValue("floor", item.FloorId);
+                command.Parameters.AddWithValue("discipline", item.Discipline ?? "");
+                command.Parameters.AddWithValue("handle", item.SourceHandle ?? "");
+                command.Parameters.AddWithValue("kind", item.EntityType ?? "");
+            }
+            else command.Parameters.AddWithValue("revision", item.ExpectedRevision);
+            if (operation != "DELETE") command.Parameters.Add("payload", NpgsqlDbType.Jsonb).Value = item.Geometry.GetRawText();
+            accepted.Add(new { item.ObjectId, operation, revision = Convert.ToInt64(await command.ExecuteScalarAsync(ct)) });
+        }
+        var response = JsonSerializer.Serialize(new { batchId = body.BatchId, accepted });
+        await using (var receipt = new NpgsqlCommand("INSERT INTO bim_change_batch_receipts(project_id,account_id,client_batch_id,request_sha256,response_json) VALUES(@project,@actor,@batch,@hash,@response)", conn, tx))
+        {
+            receipt.Parameters.AddWithValue("project", project);
+            receipt.Parameters.AddWithValue("actor", actor);
+            receipt.Parameters.AddWithValue("batch", body.BatchId);
+            receipt.Parameters.AddWithValue("hash", hash);
+            receipt.Parameters.Add("response", NpgsqlDbType.Jsonb).Value = response;
+            await receipt.ExecuteNonQueryAsync(ct);
+        }
+        await tx.CommitAsync(ct);
+        return Results.Content(response, "application/json");
+    }
+    catch (ArgumentException) { return Results.BadRequest(); }
+    catch (Exception ex) when (ex is PostgresException or UnauthorizedAccessException) { return Fail(ex); }
+}).RequireAuthorization();
+
 app.Run();
+
 
 public record CreateObject(Guid ObjectId, Guid FloorId, string Discipline, string SourceHandle, string EntityType, JsonElement Geometry);
 public record EditObject(long ExpectedRevision, JsonElement Geometry);
+
+public record ChangeBatch(Guid BatchId, List<BatchItem> Items);
+public record BatchItem(string? Operation, Guid ObjectId, Guid FloorId, string? Discipline, string? SourceHandle, string? EntityType, long ExpectedRevision, JsonElement Geometry);
