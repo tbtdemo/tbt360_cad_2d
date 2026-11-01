@@ -115,6 +115,21 @@ BEGIN
         RAISE EXCEPTION 'second delete should not succeed';
     EXCEPTION WHEN no_data_found THEN NULL;
     END;
+    -- Null identities and missing project membership must fail closed.
+    IF bim_can_edit_object(v_project,NULL,floor_id,'ARCH',owner_id) THEN
+        RAISE EXCEPTION 'null identity elevated to edit permission';
+    END IF;
+    IF bim_can_edit_object(NULL,owner_id,floor_id,'ARCH',owner_id) THEN
+        RAISE EXCEPTION 'null project elevated to edit permission';
+    END IF;
+
+    -- A soft-deleted object must remain unavailable to regular UPDATE.
+    BEGIN
+        PERFORM bim_update_design_object(v_project,object_id,owner_id,3,'{"revive":true}'::jsonb);
+        RAISE EXCEPTION 'tombstone was unexpectedly editable';
+    EXCEPTION WHEN no_data_found THEN NULL;
+    END;
+
     RAISE NOTICE 'CAD360 write gate PostgreSQL regression passed';
 END $$;
 ROLLBACK;
