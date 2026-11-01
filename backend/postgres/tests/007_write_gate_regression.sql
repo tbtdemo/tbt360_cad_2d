@@ -130,6 +130,29 @@ BEGIN
     EXCEPTION WHEN no_data_found THEN NULL;
     END;
 
+    -- CREATE: deny viewer; allow owner; never overwrite duplicated handle.
+    DECLARE
+      created_id uuid := gen_random_uuid();
+      new_project_rev bigint;
+      create_denied boolean := false;
+      duplicate_rejected boolean := false;
+    BEGIN
+      BEGIN
+        PERFORM bim_create_design_object(v_project,gen_random_uuid(),viewer_id,floor_id,'ARCH','VIEWER1','LINE','{}'::jsonb);
+      EXCEPTION WHEN insufficient_privilege THEN create_denied := true;
+      END;
+      IF NOT create_denied THEN RAISE EXCEPTION 'unauthorized CREATE accepted'; END IF;
+      new_project_rev := bim_create_design_object(v_project,created_id,owner_id,floor_id,'ARCH','NEW1','LINE','{}'::jsonb);
+      IF new_project_rev <> 3 THEN RAISE EXCEPTION 'CREATE failed project revision'; END IF;
+      BEGIN
+        PERFORM bim_create_design_object(v_project,gen_random_uuid(),owner_id,floor_id,'ARCH','NEW1','LINE','{}'::jsonb);
+      EXCEPTION WHEN unique_violation THEN duplicate_rejected := true;
+      END;
+      IF NOT duplicate_rejected THEN RAISE EXCEPTION 'duplicate source handle accepted'; END IF;
+      IF (SELECT count(*) FROM bim_audit_log a WHERE a.project_id=v_project AND a.action='CREATE') <> 1 THEN
+        RAISE EXCEPTION 'CREATE audit missing or duplicated';
+      END IF;
+    END;
     RAISE NOTICE 'CAD360 write gate PostgreSQL regression passed';
 END $$;
 ROLLBACK;
