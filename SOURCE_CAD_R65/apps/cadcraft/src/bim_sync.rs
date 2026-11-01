@@ -173,7 +173,7 @@ impl CollaborationTransport for MemoryTransport {
         let mut staged = self.scoped_objects.clone();
         let mut conflicts = Vec::new();
         for change in changes {
-            if change.account_id.trim().is_empty() || change.items.is_empty() { return Err("invalid change envelope".into()); }
+            if change.account_id.trim().is_empty() || change.device_id.trim().is_empty() || change.items.is_empty() { return Err("invalid change envelope".into()); }
             for item in &change.items {
                 if item.source_handle.trim().is_empty() || item.local_revision <= item.base_revision { return Err("invalid object revision".into()); }
                 let key = (project_id.to_string(), item.source_handle.clone());
