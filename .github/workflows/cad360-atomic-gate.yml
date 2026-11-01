@@ -18,5 +18,5 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: SOURCE_CAD_R65
-      - name: Test atomic save without full workspace regression
+      - name: Test atomic save after Engine test compile repairs
         run: cargo test --locked -p cadcraft-engine atomic_write --lib -- --nocapture
