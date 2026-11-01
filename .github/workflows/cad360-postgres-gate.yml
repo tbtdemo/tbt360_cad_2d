@@ -1,0 +1,50 @@
+name: CAD360 PostgreSQL Write Gate
+on:
+  push:
+    branches:
+      - 'feat/cad360-server-write-gate-*'
+    paths:
+      - 'backend/postgres/**'
+      - '.github/workflows/cad360-postgres-gate.yml'
+  workflow_dispatch:
+
+jobs:
+  postgres-write-gate:
+    name: PostgreSQL permission CAS and audit regression
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: cad360_ci
+          POSTGRES_USER: cad360
+          POSTGRES_PASSWORD: ci_only_password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U cad360 -d cad360_ci"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGHOST: localhost
+      PGPORT: 5432
+      PGDATABASE: cad360_ci
+      PGUSER: cad360
+      PGPASSWORD: ci_only_password
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install PostgreSQL client
+        run: |
+          if ! command -v psql >/dev/null; then
+            sudo apt-get update
+            sudo apt-get install -y postgresql-client
+          fi
+      - name: Apply base schema and permission migrations
+        run: |
+          psql -v ON_ERROR_STOP=1 -f backend/postgres/BIM_COLLABORATION_SCHEMA.sql
+          psql -v ON_ERROR_STOP=1 -f backend/postgres/migrations/001_bim_building_zone_level.sql
+          psql -v ON_ERROR_STOP=1 -f backend/postgres/migrations/002_bim_hierarchical_permissions.sql
+          psql -v ON_ERROR_STOP=1 -f backend/postgres/migrations/007_bim_server_write_gate.sql
+      - name: Verify authorization, CAS, leases and audit in real PostgreSQL
+        run: psql -v ON_ERROR_STOP=1 -f backend/postgres/tests/007_write_gate_regression.sql
