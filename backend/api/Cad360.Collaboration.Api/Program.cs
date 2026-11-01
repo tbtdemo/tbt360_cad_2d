@@ -104,6 +104,9 @@ app.MapPost("/api/bim/projects/{project:guid}/changesets", async (Guid project, 
     {
         var actor = AuthenticatedAccount(principal);
         if (project == Guid.Empty || body.BatchId == Guid.Empty || body.Items is null || body.Items.Count is < 1 or > 100) return Results.BadRequest();
+        if (body.Items.Any(item => item.ObjectId == Guid.Empty || item.Operation is null || !new[] { "CREATE", "UPDATE", "DELETE" }.Contains(item.Operation.ToUpperInvariant()))) return Results.BadRequest();
+        if (body.Items.Select(item => item.ObjectId).Distinct().Count() != body.Items.Count) return Results.BadRequest(new { error = "duplicate object id in batch" });
+        if (body.Items.Any(item => item.Operation!.ToUpperInvariant() != "CREATE" && item.ExpectedRevision < 1)) return Results.BadRequest(new { error = "invalid expected revision" });
         var canonical = JsonSerializer.Serialize(body.Items);
         var hash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(canonical)));
         await using var conn = await db.OpenConnectionAsync(ct);
