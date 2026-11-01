@@ -1,0 +1,101 @@
+using System.Security.Claims;
+using System.Text.Json;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.IdentityModel.Tokens;
+using Npgsql;
+using NpgsqlTypes;
+
+var builder = WebApplication.CreateBuilder(args);
+var issuer = builder.Configuration["Auth:Authority"] ?? throw new InvalidOperationException("Auth:Authority is required");
+var audience = builder.Configuration["Auth:Audience"] ?? throw new InvalidOperationException("Auth:Audience is required");
+var connectionString = builder.Configuration.GetConnectionString("Cad360") ?? throw new InvalidOperationException("ConnectionStrings:Cad360 is required");
+if (!Uri.TryCreate(issuer, UriKind.Absolute, out var authorityUri) || authorityUri.Scheme != Uri.UriSchemeHttps) throw new InvalidOperationException("Auth authority must use HTTPS");
+builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJwtBearer(options =>
+{
+    options.Authority = issuer;
+    options.Audience = audience;
+    options.RequireHttpsMetadata = true;
+    options.MapInboundClaims = false;
+    options.TokenValidationParameters = new TokenValidationParameters { ValidateIssuer = true, ValidateAudience = true, ValidateLifetime = true, ValidateIssuerSigningKey = true, NameClaimType = "sub" };
+});
+builder.Services.AddAuthorization();
+builder.Services.AddNpgsqlDataSource(connectionString);
+var app = builder.Build();
+app.UseAuthentication();
+app.UseAuthorization();
+
+static Guid AuthenticatedAccount(ClaimsPrincipal principal)
+{
+    var sub = principal.FindFirstValue("sub");
+    if (!Guid.TryParse(sub, out var account) || account == Guid.Empty) throw new UnauthorizedAccessException("Invalid authenticated subject");
+    return account;
+}
+static IResult Fail(Exception error) => error switch
+{
+    UnauthorizedAccessException => Results.Unauthorized(),
+    PostgresException { SqlState: "42501" } => Results.StatusCode(403),
+    PostgresException { SqlState: "P0002" } => Results.NotFound(),
+    PostgresException { SqlState: "23505" or "40001" } => Results.Conflict(new { error = "conflict" }),
+    PostgresException { SqlState: "55P03" } => Results.StatusCode(423),
+    PostgresException { SqlState: "22023" } => Results.BadRequest(new { error = "invalid request" }),
+    _ => Results.Problem(statusCode: 500, title: "Storage operation failed")
+};
+static async Task<IResult> ExecuteWrite(NpgsqlDataSource source, ClaimsPrincipal principal, Guid project, Guid obj, string sql, Action<NpgsqlCommand> bind, CancellationToken ct)
+{
+    try
+    {
+        var actor = AuthenticatedAccount(principal);
+        if (project == Guid.Empty || obj == Guid.Empty) return Results.BadRequest();
+        await using var conn = await source.OpenConnectionAsync(ct);
+        await using var cmd = new NpgsqlCommand(sql, conn);
+        cmd.Parameters.AddWithValue("project", project);
+        cmd.Parameters.AddWithValue("object", obj);
+        cmd.Parameters.AddWithValue("actor", actor);
+        bind(cmd);
+        var result = await cmd.ExecuteScalarAsync(ct);
+        return Results.Ok(new { revision = Convert.ToInt64(result) });
+    }
+    catch (Exception ex) when (ex is PostgresException or UnauthorizedAccessException) { return Fail(ex); }
+}
+app.MapPost("/api/bim/projects/{project:guid}/objects", async (Guid project, CreateObject body, NpgsqlDataSource db, ClaimsPrincipal principal, CancellationToken ct) =>
+    await ExecuteWrite(db, principal, project, body.ObjectId,
+        "SELECT bim_create_design_object(@project,@object,@actor,@floor,@discipline,@handle,@kind,@payload)", cmd =>
+        {
+            cmd.Parameters.AddWithValue("floor", body.FloorId);
+            cmd.Parameters.AddWithValue("discipline", body.Discipline);
+            cmd.Parameters.AddWithValue("handle", body.SourceHandle);
+            cmd.Parameters.AddWithValue("kind", body.EntityType);
+            cmd.Parameters.Add("payload", NpgsqlDbType.Jsonb).Value = body.Geometry.GetRawText();
+        }, ct)).RequireAuthorization();
+app.MapPut("/api/bim/projects/{project:guid}/objects/{obj:guid}", async (Guid project, Guid obj, EditObject body, NpgsqlDataSource db, ClaimsPrincipal principal, CancellationToken ct) =>
+    await ExecuteWrite(db, principal, project, obj,
+        "SELECT bim_update_design_object(@project,@object,@actor,@revision,@payload)", cmd =>
+        {
+            cmd.Parameters.AddWithValue("revision", body.ExpectedRevision);
+            cmd.Parameters.Add("payload", NpgsqlDbType.Jsonb).Value = body.Geometry.GetRawText();
+        }, ct)).RequireAuthorization();
+app.MapDelete("/api/bim/projects/{project:guid}/objects/{obj:guid}", async (Guid project, Guid obj, long expectedRevision, NpgsqlDataSource db, ClaimsPrincipal principal, CancellationToken ct) =>
+    await ExecuteWrite(db, principal, project, obj,
+        "SELECT bim_delete_design_object(@project,@object,@actor,@revision)", cmd => cmd.Parameters.AddWithValue("revision", expectedRevision), ct)).RequireAuthorization();
+app.MapGet("/api/bim/projects/{project:guid}/changes", async (Guid project, long afterRevision, int? limit, ClaimsPrincipal principal, NpgsqlDataSource db, CancellationToken ct) =>
+{
+    try
+    {
+        var actor = AuthenticatedAccount(principal);
+        await using var connection = await db.OpenConnectionAsync(ct);
+        await using var command = new NpgsqlCommand("SELECT project_revision,design_object_id,source_handle,operation,object_revision,actor_account_id,occurred_at FROM bim_pull_project_changes(@project,@actor,@cursor,@limit)", connection);
+        command.Parameters.AddWithValue("project", project);
+        command.Parameters.AddWithValue("actor", actor);
+        command.Parameters.AddWithValue("cursor", afterRevision);
+        command.Parameters.AddWithValue("limit", limit ?? 500);
+        await using var reader = await command.ExecuteReaderAsync(ct);
+        var items = new List<object>();
+        while (await reader.ReadAsync(ct)) items.Add(new { projectRevision = reader.GetInt64(0), objectId = reader.GetGuid(1), sourceHandle = reader.GetString(2), operation = reader.GetString(3), objectRevision = reader.GetInt64(4), actorAccountId = reader.GetGuid(5), occurredAt = reader.GetDateTime(6) });
+        return Results.Ok(items);
+    }
+    catch (Exception ex) when (ex is PostgresException or UnauthorizedAccessException) { return Fail(ex); }
+}).RequireAuthorization();
+app.Run();
+
+public record CreateObject(Guid ObjectId, Guid FloorId, string Discipline, string SourceHandle, string EntityType, JsonElement Geometry);
+public record EditObject(long ExpectedRevision, JsonElement Geometry);
