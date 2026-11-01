@@ -3,7 +3,7 @@ name: CAD 360 Viet Nam - TBT Windows CI
 on:
   workflow_dispatch:
   push:
-    branches: [main, fix/undo-control-regression-20261101, fix/cad360-four-gates-20261101]
+    branches: [main, fix/undo-control-regression-20261101, fix/cad360-four-gates-20261101, fix/cad360-four-stream-b2-20261101]
     paths:
       - 'SOURCE_CAD_R65/**'
       - 'installer/**'
