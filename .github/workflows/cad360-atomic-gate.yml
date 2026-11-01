@@ -1,0 +1,22 @@
+name: CAD360 Atomic Save Fast Gate
+on:
+  push:
+    branches: ['fix/cad360-windows-regression-*']
+    paths:
+      - 'SOURCE_CAD_R65/crates/engine/src/atomic_write.rs'
+      - '.github/workflows/cad360-atomic-gate.yml'
+  workflow_dispatch:
+jobs:
+  atomic-save-windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: SOURCE_CAD_R65
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: SOURCE_CAD_R65
+      - name: Test atomic save without full workspace regression
+        run: cargo test --locked -p cadcraft-engine atomic_write --lib -- --nocapture
