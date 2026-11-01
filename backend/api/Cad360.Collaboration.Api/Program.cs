@@ -119,6 +119,13 @@ app.MapPost("/api/bim/projects/{project:guid}/changesets", async (Guid project, 
             lockCmd.Parameters.AddWithValue("project", project);
             if (await lockCmd.ExecuteScalarAsync(ct) is null) return Results.NotFound();
         }
+        // Replays must not bypass current project membership after access is revoked.
+        await using (var access = new NpgsqlCommand("SELECT EXISTS(SELECT 1 FROM bim_project_members WHERE project_id=@project AND account_id=@actor)", conn, tx))
+        {
+            access.Parameters.AddWithValue("project", project);
+            access.Parameters.AddWithValue("actor", actor);
+            if (await access.ExecuteScalarAsync(ct) is not true) return Results.Forbid();
+        }
         await using (var prior = new NpgsqlCommand("SELECT request_sha256,response_json::text FROM bim_change_batch_receipts WHERE project_id=@project AND account_id=@actor AND client_batch_id=@batch", conn, tx))
         {
             prior.Parameters.AddWithValue("project", project);
