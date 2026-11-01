@@ -19,7 +19,7 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJw
     options.TokenValidationParameters = new TokenValidationParameters { ValidateIssuer = true, ValidateAudience = true, ValidateLifetime = true, ValidateIssuerSigningKey = true, NameClaimType = "sub" };
 });
 builder.Services.AddAuthorization();
-builder.Services.AddNpgsqlDataSource(connectionString);
+builder.Services.AddSingleton(NpgsqlDataSource.Create(connectionString));
 var app = builder.Build();
 app.UseAuthentication();
 app.UseAuthorization();
