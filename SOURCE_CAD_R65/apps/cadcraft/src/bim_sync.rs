@@ -133,6 +133,7 @@ pub struct MemoryTransport {
     project_revisions: std::collections::BTreeMap<String, u64>,
     scoped_objects: std::collections::BTreeMap<(String, String), u64>,
     scoped_leases: std::collections::BTreeMap<(String, String), String>,
+    applied_changes: std::collections::BTreeMap<(String, u64), ChangeEnvelope>,
 }
 
 impl CollaborationTransport for MemoryTransport {
@@ -146,6 +147,23 @@ impl CollaborationTransport for MemoryTransport {
 
     fn push_changes(&mut self, project_id: &str, changes: &[ChangeEnvelope]) -> Result<PushResult, String> {
         if project_id.trim().is_empty() { return Err("project_id is required".into()); }
+        if changes.is_empty() {
+            return Ok(PushResult { accepted_change_set_ids: Vec::new(), project_revision: self.project_revisions.get(project_id).copied().unwrap_or(0), conflicts: Vec::new() });
+        }
+        let mut unique_ids = std::collections::BTreeSet::new();
+        for change in changes {
+            if !unique_ids.insert(change.id) { return Err("duplicate change id in batch".into()); }
+            if let Some(previous) = self.applied_changes.get(&(project_id.to_string(), change.id)) {
+                if previous != change { return Err("change id reused with different content".into()); }
+            }
+        }
+        let all_replayed = changes.iter().all(|change| self.applied_changes.contains_key(&(project_id.to_string(), change.id)));
+        if all_replayed {
+            return Ok(PushResult { accepted_change_set_ids: changes.iter().map(|c| c.id).collect(), project_revision: self.project_revisions.get(project_id).copied().unwrap_or(0), conflicts: Vec::new() });
+        }
+        if changes.iter().any(|change| self.applied_changes.contains_key(&(project_id.to_string(), change.id))) {
+            return Err("mixed replay and new changes require separate batches".into());
+        }
         // Stage revisions first: a rejected batch must not partially modify the project.
         let mut staged = self.scoped_objects.clone();
         let mut conflicts = Vec::new();
@@ -173,6 +191,7 @@ impl CollaborationTransport for MemoryTransport {
         }
         // Commit only after every object and revision in the batch was validated.
         self.scoped_objects = staged;
+        for change in changes { self.applied_changes.insert((project_id.to_string(), change.id), change.clone()); }
         for change in changes {
             if project_id == "p1" {
                 for item in &change.items { self.object_revisions.insert(item.source_handle.clone(), item.local_revision); }
@@ -293,6 +312,28 @@ mod tests {
         assert_eq!(result.conflicts.len(), 1);
         assert_eq!(transport.scoped_objects.get(&("shared".into(), "A".into())), None);
         assert_eq!(transport.project_revisions.get("shared").copied(), Some(1));
+    }
+
+    #[test]
+    fn replayed_batch_is_idempotent_and_empty_batch_is_noop() {
+        let mut transport = MemoryTransport::default();
+        let a = change(7, "A", 0, 1);
+        let first = transport.push_changes("shared", &[a.clone()]).unwrap();
+        let retry = transport.push_changes("shared", &[a]).unwrap();
+        let empty = transport.push_changes("shared", &[]).unwrap();
+        assert_eq!(first.project_revision, 1);
+        assert_eq!(retry.project_revision, 1);
+        assert_eq!(retry.accepted_change_set_ids, vec![7]);
+        assert_eq!(empty.project_revision, 1);
+    }
+
+    #[test]
+    fn changed_duplicate_id_is_rejected_without_mutation() {
+        let mut transport = MemoryTransport::default();
+        transport.push_changes("shared", &[change(7, "A", 0, 1)]).unwrap();
+        assert!(transport.push_changes("shared", &[change(7, "B", 0, 1)]).is_err());
+        assert_eq!(transport.project_revisions.get("shared"), Some(&1));
+        assert!(!transport.scoped_objects.contains_key(&("shared".into(), "B".into())));
     }
 
     #[test]
