@@ -111,6 +111,14 @@ impl DocState {
         }
     }
 
+    #[cfg(test)]
+    fn validate_undo_bounds(&self) {
+        assert!(self.undo.len() <= MAX_UNDO);
+        assert!(self.undo_ctl.marks.len() <= MAX_MARKS);
+        assert!(self.undo_ctl.marks.iter().all(|m| *m <= self.undo.len()));
+        assert!(self.undo_ctl.group.is_none_or(|g| g <= self.undo.len()));
+    }
+
     /// UNDO Mark at the current depth. Returns the number of marks.
     pub fn undo_mark(&mut self) -> usize {
         let depth = self.undo.len();
