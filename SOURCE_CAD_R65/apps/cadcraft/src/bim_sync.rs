@@ -145,37 +145,47 @@ impl CollaborationTransport for MemoryTransport {
     }
 
     fn push_changes(&mut self, project_id: &str, changes: &[ChangeEnvelope]) -> Result<PushResult, String> {
-        let mut accepted = Vec::new();
+        if project_id.trim().is_empty() { return Err("project_id is required".into()); }
+        // Stage revisions first: a rejected batch must not partially modify the project.
+        let mut staged = self.scoped_objects.clone();
         let mut conflicts = Vec::new();
         for change in changes {
-            let mut change_conflict = false;
+            if change.account_id.trim().is_empty() || change.items.is_empty() { return Err("invalid change envelope".into()); }
             for item in &change.items {
+                if item.source_handle.trim().is_empty() || item.local_revision <= item.base_revision { return Err("invalid object revision".into()); }
                 let key = (project_id.to_string(), item.source_handle.clone());
-                let remote_revision = self.scoped_objects.get(&key).copied().or_else(|| if project_id == "p1" { self.object_revisions.get(&item.source_handle).copied() } else { None }).unwrap_or(0);
-                if remote_revision != item.base_revision {
+                let remote = staged.get(&key).copied().or_else(|| if project_id == "p1" { self.object_revisions.get(&item.source_handle).copied() } else { None }).unwrap_or(0);
+                if remote != item.base_revision {
                     conflicts.push(RemoteConflict {
                         source_handle: item.source_handle.clone(),
                         base_revision: item.base_revision,
                         local_revision: item.local_revision,
-                        remote_revision,
+                        remote_revision: remote,
                         remote_updated_by: "remote-user".into(),
                     });
-                    change_conflict = true;
+                } else {
+                    staged.insert(key, item.local_revision);
                 }
             }
-            if change_conflict {
-                continue;
-            }
-            for item in &change.items {
-                self.scoped_objects.insert((project_id.to_string(), item.source_handle.clone()), item.local_revision);
-                if project_id == "p1" { self.object_revisions.insert(item.source_handle.clone(), item.local_revision); }
-            }
-            accepted.push(change.id);
-            let rev = self.project_revisions.entry(project_id.to_string()).or_default();
-            *rev += 1;
-            self.project_revision = self.project_revision.max(*rev);
         }
-        Ok(PushResult { accepted_change_set_ids: accepted, project_revision: self.project_revisions.get(project_id).copied().unwrap_or(0), conflicts })
+        if !conflicts.is_empty() {
+            return Ok(PushResult { accepted_change_set_ids: Vec::new(), project_revision: self.project_revisions.get(project_id).copied().unwrap_or(0), conflicts });
+        }
+        // Commit only after every object and revision in the batch was validated.
+        self.scoped_objects = staged;
+        for change in changes {
+            if project_id == "p1" {
+                for item in &change.items { self.object_revisions.insert(item.source_handle.clone(), item.local_revision); }
+            }
+        }
+        let revision = self.project_revisions.entry(project_id.to_string()).or_default();
+        *revision += changes.len() as u64;
+        self.project_revision = self.project_revision.max(*revision);
+        Ok(PushResult {
+            accepted_change_set_ids: changes.iter().map(|change| change.id).collect(),
+            project_revision: *revision,
+            conflicts: Vec::new(),
+        })
     }
 
     fn update_presence(&mut self, _project_id: &str, presence: &PresenceDto) -> Result<(), String> {
@@ -272,6 +282,17 @@ mod tests {
         assert_eq!(accepted, 1, "only one editor may commit a matching base revision");
         let state = transport.lock().unwrap();
         assert_eq!(state.project_revisions.get("shared").copied().unwrap_or(0), 1);
+    }
+
+    #[test]
+    fn conflicting_batch_does_not_commit_earlier_changes() {
+        let mut transport = MemoryTransport::default();
+        transport.push_changes("shared", &[change(1, "B", 0, 1)]).unwrap();
+        let result = transport.push_changes("shared", &[change(2, "A", 0, 1), change(3, "B", 0, 2)]).unwrap();
+        assert!(result.accepted_change_set_ids.is_empty());
+        assert_eq!(result.conflicts.len(), 1);
+        assert_eq!(transport.scoped_objects.get(&("shared".into(), "A".into())), None);
+        assert_eq!(transport.project_revisions.get("shared").copied(), Some(1));
     }
 
     #[test]
