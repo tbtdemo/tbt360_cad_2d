@@ -82,6 +82,8 @@ impl Session {
     pub fn undo(&mut self) -> Result<Option<String>> {
         let st = self.state_mut()?;
         let Some(snap) = st.undo.pop() else { return Ok(None) };
+        let depth = st.undo.len();
+        st.undo_ctl.marks.retain(|m| *m <= depth);
         let cur = Snapshot { label: snap.label.clone(), doc: st.doc.clone(), selection: st.selection.clone() };
         st.doc = snap.doc;
         st.follow_layout(&cur.doc);

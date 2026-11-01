@@ -338,6 +338,14 @@ impl Session {
     }
 
     fn finish(&mut self, run: Running, cancelled: bool) {
+        // History commands must never run geometry post-processing or create a new
+        // undo snapshot. Their implementations already manage undo/redo state.
+        if matches!(run.id.as_str(), "u" | "undo" | "redo" | "mredo") {
+            self.pending_window = None;
+            self.select_mode = None;
+            self.select_single = false;
+            return;
+        }
         // A typed selection mode or SIngle never outlives its command.
         self.select_mode = None;
         self.select_single = false;

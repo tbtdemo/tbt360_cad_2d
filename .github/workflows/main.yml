@@ -3,7 +3,7 @@ name: CAD 360 Viet Nam - TBT Windows CI
 on:
   workflow_dispatch:
   push:
-    branches: [main]
+    branches: [main, fix/undo-control-regression-20261101]
     paths:
       - 'SOURCE_CAD_R65/**'
       - 'installer/**'
@@ -113,6 +113,12 @@ jobs:
         run: cargo test --locked -p cadcraft-io --test it -- --nocapture
       - name: Test Undo Redo control
         run: cargo test --locked -p cadcraft-engine --test undo_control -- --nocapture
+      - name: Test atomic save and concurrent writers
+        run: cargo test --locked -p cadcraft-engine atomic_write::tests -- --nocapture
+      - name: Test CAD project permissions
+        run: cargo test --locked -p cadcraft bim_collab::tests -- --nocapture
+      - name: Test multi-project sync isolation
+        run: cargo test --locked -p cadcraft bim_sync::tests -- --nocapture
       - name: Test complete workspace
         run: cargo test --workspace --locked --no-fail-fast
 

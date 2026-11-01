@@ -16,3 +16,22 @@ CREATE TABLE IF NOT EXISTS bim_access_grants (
 );
 
 CREATE INDEX IF NOT EXISTS ix_bim_access_grants_lookup ON bim_access_grants(project_id, viewer_account_id, source_owner_account_id, floor_id, discipline);
+
+-- Read-only policy helper; callers must supply the authenticated account identity.
+-- Explicit deny takes precedence over grants. Default is no permission.
+CREATE OR REPLACE FUNCTION bim_can_edit_project(p_project_id uuid, p_account_id uuid)
+RETURNS boolean LANGUAGE sql STABLE AS $$
+    SELECT EXISTS (
+        SELECT 1 FROM bim_access_grants g
+        WHERE g.project_id = p_project_id AND g.viewer_account_id = p_account_id
+          AND g.can_edit AND NOT g.deny AND g.source_owner_account_id IS NULL
+          AND g.building_id IS NULL AND g.zone_id IS NULL AND g.floor_id IS NULL
+          AND g.discipline IS NULL AND g.workset_id IS NULL
+    ) AND NOT EXISTS (
+        SELECT 1 FROM bim_access_grants d
+        WHERE d.project_id = p_project_id AND d.viewer_account_id = p_account_id
+          AND d.deny AND d.source_owner_account_id IS NULL
+          AND d.building_id IS NULL AND d.zone_id IS NULL AND d.floor_id IS NULL
+          AND d.discipline IS NULL AND d.workset_id IS NULL
+    );
+$$;

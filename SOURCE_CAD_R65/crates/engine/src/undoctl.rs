@@ -111,6 +111,14 @@ impl DocState {
         }
     }
 
+    #[cfg(test)]
+    fn validate_undo_bounds(&self) {
+        assert!(self.undo.len() <= MAX_UNDO);
+        assert!(self.undo_ctl.marks.len() <= MAX_MARKS);
+        assert!(self.undo_ctl.marks.iter().all(|m| *m <= self.undo.len()));
+        assert!(self.undo_ctl.group.is_none_or(|g| g <= self.undo.len()));
+    }
+
     /// UNDO Mark at the current depth. Returns the number of marks.
     pub fn undo_mark(&mut self) -> usize {
         let depth = self.undo.len();
@@ -156,8 +164,16 @@ impl DocState {
     /// UNDO Control: All, None (drops all undo information) or One (keeps only the last step).
     /// Any open group and all marks are dropped when leaving All.
     pub fn set_undo_control(&mut self, c: Control) {
+        let previous = self.undo_ctl.control;
         self.undo_ctl.control = c;
         if c == Control::All {
+            // The history from single-step mode must not leak into full recording.
+            if previous == Control::One {
+                self.undo.clear();
+                self.redo.clear();
+                self.undo_ctl.marks.clear();
+                self.undo_ctl.group = None;
+            }
             return;
         }
         self.undo_ctl.group = None;
