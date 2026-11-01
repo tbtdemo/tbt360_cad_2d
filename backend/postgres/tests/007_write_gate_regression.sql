@@ -17,7 +17,7 @@ DECLARE
 BEGIN
     INSERT INTO bim_projects(id,name,owner_account_id) VALUES(v_project,'write gate test',owner_id);
     INSERT INTO bim_project_members(project_id,account_id,role,can_edit)
-      VALUES(v_project,owner_id,'OWNER',true),(project_id,viewer_id,'VIEWER',false),(project_id,second_id,'DESIGNER',true);
+      VALUES(v_project,owner_id,'OWNER',true),(v_project,viewer_id,'VIEWER',false),(v_project,second_id,'DESIGNER',true);
     INSERT INTO bim_floors(id,project_id,code,name,sort_order,elevation_m,height_m)
       VALUES(floor_id,v_project,'L1','Level 1',1,0,3);
     INSERT INTO bim_design_objects(id,project_id,source_handle,floor_id,discipline,owner_account_id,entity_type,revision)
