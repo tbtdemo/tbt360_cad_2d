@@ -46,6 +46,7 @@ static async Task<IResult> ExecuteWrite(NpgsqlDataSource source, ClaimsPrincipal
     {
         var actor = AuthenticatedAccount(principal);
         if (project == Guid.Empty || obj == Guid.Empty) return Results.BadRequest();
+
         await using var conn = await source.OpenConnectionAsync(ct);
         await using var cmd = new NpgsqlCommand(sql, conn);
         cmd.Parameters.AddWithValue("project", project);
@@ -58,7 +59,7 @@ static async Task<IResult> ExecuteWrite(NpgsqlDataSource source, ClaimsPrincipal
     catch (Exception ex) when (ex is PostgresException or UnauthorizedAccessException) { return Fail(ex); }
 }
 app.MapPost("/api/bim/projects/{project:guid}/objects", async (Guid project, CreateObject body, NpgsqlDataSource db, ClaimsPrincipal principal, CancellationToken ct) =>
-    await ExecuteWrite(db, principal, project, body.ObjectId,
+    body.Geometry.ValueKind != JsonValueKind.Object ? Results.BadRequest(new { error = "geometry must be JSON object" }) : await ExecuteWrite(db, principal, project, body.ObjectId,
         "SELECT bim_create_design_object(@project,@object,@actor,@floor,@discipline,@handle,@kind,@payload)", cmd =>
         {
             cmd.Parameters.AddWithValue("floor", body.FloorId);
@@ -68,7 +69,7 @@ app.MapPost("/api/bim/projects/{project:guid}/objects", async (Guid project, Cre
             cmd.Parameters.Add("payload", NpgsqlDbType.Jsonb).Value = body.Geometry.GetRawText();
         }, ct)).RequireAuthorization();
 app.MapPut("/api/bim/projects/{project:guid}/objects/{obj:guid}", async (Guid project, Guid obj, EditObject body, NpgsqlDataSource db, ClaimsPrincipal principal, CancellationToken ct) =>
-    await ExecuteWrite(db, principal, project, obj,
+    body.Geometry.ValueKind != JsonValueKind.Object ? Results.BadRequest(new { error = "geometry must be JSON object" }) : await ExecuteWrite(db, principal, project, obj,
         "SELECT bim_update_design_object(@project,@object,@actor,@revision,@payload)", cmd =>
         {
             cmd.Parameters.AddWithValue("revision", body.ExpectedRevision);
@@ -107,6 +108,8 @@ app.MapPost("/api/bim/projects/{project:guid}/changesets", async (Guid project, 
         if (body.Items.Any(item => item.ObjectId == Guid.Empty || item.Operation is null || !new[] { "CREATE", "UPDATE", "DELETE" }.Contains(item.Operation.ToUpperInvariant()))) return Results.BadRequest();
         if (body.Items.Select(item => item.ObjectId).Distinct().Count() != body.Items.Count) return Results.BadRequest(new { error = "duplicate object id in batch" });
         if (body.Items.Any(item => item.Operation!.ToUpperInvariant() != "CREATE" && item.ExpectedRevision < 1)) return Results.BadRequest(new { error = "invalid expected revision" });
+        if (body.Items.Any(item => item.Operation!.ToUpperInvariant() != "DELETE" && item.Geometry.ValueKind != JsonValueKind.Object)) return Results.BadRequest(new { error = "geometry must be JSON object" });
+        if (body.Items.Any(item => item.Operation!.ToUpperInvariant() == "CREATE" && (item.FloorId == Guid.Empty || string.IsNullOrWhiteSpace(item.Discipline) || string.IsNullOrWhiteSpace(item.SourceHandle) || string.IsNullOrWhiteSpace(item.EntityType)))) return Results.BadRequest(new { error = "incomplete create scope" });
         var canonical = JsonSerializer.Serialize(body.Items);
         var hash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(canonical)));
         await using var conn = await db.OpenConnectionAsync(ct);
