@@ -216,3 +216,13 @@ fn hostile_undo_params_never_panic() {
     }
     assert!(getvar(&mut s, "UNDOMARKS").as_u64().unwrap() <= 1000);
 }
+
+#[test]
+fn undo_group_with_no_edits_does_not_create_history() {
+    let mut s = Session::new();
+    let depth = s.state().unwrap().undo.len();
+    s.cmdline("undo be").unwrap();
+    s.cmdline("undo e").unwrap();
+    assert_eq!(s.state().unwrap().undo.len(), depth);
+    assert_eq!(s.state().unwrap().undo_ctl.group, None);
+}
