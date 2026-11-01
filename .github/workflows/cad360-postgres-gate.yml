@@ -51,6 +51,7 @@ jobs:
         run: |
           psql -v ON_ERROR_STOP=1 -f backend/postgres/tests/007_write_gate_regression.sql
           psql -v ON_ERROR_STOP=1 -f backend/postgres/tests/008_change_feed_regression.sql
+          psql -v ON_ERROR_STOP=1 -f backend/postgres/tests/010_rollback_and_isolation.sql
 
       - name: Install concurrent PostgreSQL test dependency
         run: python3 -m pip install --user "psycopg[binary]>=3.2,<4"
