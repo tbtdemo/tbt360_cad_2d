@@ -8,6 +8,8 @@ RETURNS boolean LANGUAGE sql STABLE AS $$
   SELECT p_project IS NOT NULL AND p_account IS NOT NULL AND p_floor IS NOT NULL
     AND EXISTS (SELECT 1 FROM bim_projects p WHERE p.id=p_project)
     AND EXISTS (SELECT 1 FROM bim_floors f WHERE f.project_id=p_project AND f.id=p_floor)
+    AND EXISTS (SELECT 1 FROM bim_project_members m WHERE m.project_id=p_project AND m.account_id=p_account)
+    AND p_discipline IS NOT NULL AND length(btrim(p_discipline)) > 0
     AND (
       EXISTS (SELECT 1 FROM bim_project_members m WHERE m.project_id=p_project
               AND m.account_id=p_account AND m.can_edit)
@@ -38,7 +40,9 @@ DECLARE
   v_object bim_design_objects%ROWTYPE;
   v_new_revision bigint;
 BEGIN
-  IF p_payload IS NULL OR jsonb_typeof(p_payload) <> 'object' OR p_expected_revision < 1 THEN
+  IF p_project IS NULL OR p_object IS NULL OR p_authenticated_account IS NULL
+     OR p_payload IS NULL OR jsonb_typeof(p_payload) <> 'object'
+     OR p_expected_revision IS NULL OR p_expected_revision < 1 THEN
     RAISE EXCEPTION 'invalid geometry payload or revision' USING ERRCODE='22023';
   END IF;
 
