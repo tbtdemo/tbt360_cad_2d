@@ -1,0 +1,24 @@
+name: CAD360 Fast Rust Syntax Gate
+on:
+  push:
+    branches: ['fix/cad360-windows-regression-*']
+    paths:
+      - 'SOURCE_CAD_R65/**'
+      - '.github/workflows/cad360-fast-syntax.yml'
+  workflow_dispatch:
+jobs:
+  parse-engine-regression:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Parse edited Rust tests before expensive Windows compilation
+        shell: bash
+        run: |
+          set -euo pipefail
+          for file in SOURCE_CAD_R65/crates/engine/tests/it/viewport_clip.rs SOURCE_CAD_R65/crates/engine/src/cmd/modify2/tests.rs SOURCE_CAD_R65/crates/engine/tests/undo_control.rs; do
+            rustfmt --edition 2021 --emit stdout "$file" > /dev/null
+          done
+          echo 'PASS: regression Rust sources parse'
