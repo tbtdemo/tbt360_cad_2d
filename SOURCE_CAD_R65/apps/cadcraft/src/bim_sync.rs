@@ -413,6 +413,16 @@ mod tests {
     }
 
     #[test]
+    fn duplicate_ids_in_same_batch_are_rejected_without_side_effects() {
+        let mut transport = MemoryTransport::default();
+        let a = change(1, "A", 0, 1);
+        let b = change(1, "B", 0, 1);
+        assert!(transport.push_changes("shared", &[a, b]).is_err());
+        assert!(transport.pull_changes("shared", 0).unwrap().1.is_empty());
+        assert_eq!(transport.bootstrap("shared").unwrap().project_revision, 0);
+    }
+
+    #[test]
     fn sync_runtime_reports_conflict_state() {
         let mut runtime = SyncRuntime::default();
         runtime.apply_push_result(&PushResult {
