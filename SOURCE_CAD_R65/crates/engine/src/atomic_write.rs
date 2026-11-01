@@ -153,6 +153,18 @@ mod tests {
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
+    #[test]
+    fn failed_write_cannot_replace_a_directory_with_drawing_bytes() {
+        let dir = std::env::temp_dir().join(format!("cadcraft-aw-dir-{}-{}", std::process::id(), SEQ.fetch_add(1, Ordering::Relaxed)));
+        std::fs::create_dir_all(&dir).unwrap();
+        let destination = dir.join("drawing.dxf");
+        std::fs::create_dir_all(&destination).unwrap();
+        let result = write_atomic(&destination, b"not-a-directory");
+        assert!(result.is_err());
+        assert!(destination.is_dir());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
     #[cfg(unix)]
     #[test]
     fn does_not_follow_a_planted_temp_symlink() {
