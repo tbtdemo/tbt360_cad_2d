@@ -130,24 +130,28 @@ pub struct MemoryTransport {
     pub object_revisions: std::collections::BTreeMap<String, u64>,
     pub presences: std::collections::BTreeMap<String, PresenceDto>,
     pub leases: std::collections::BTreeMap<String, String>,
+    project_revisions: std::collections::BTreeMap<String, u64>,
+    scoped_objects: std::collections::BTreeMap<(String, String), u64>,
+    scoped_leases: std::collections::BTreeMap<(String, String), String>,
 }
 
 impl CollaborationTransport for MemoryTransport {
     fn bootstrap(&mut self, project_id: &str) -> Result<Bootstrap, String> {
-        Ok(Bootstrap { project_id: project_id.to_string(), project_revision: self.project_revision, floors: Vec::new(), permissions: Vec::new() })
+        Ok(Bootstrap { project_id: project_id.to_string(), project_revision: *self.project_revisions.get(project_id).unwrap_or(&0), floors: Vec::new(), permissions: Vec::new() })
     }
 
-    fn pull_changes(&mut self, _project_id: &str, after_revision: u64) -> Result<(u64, Vec<ChangeEnvelope>), String> {
-        Ok((self.project_revision.max(after_revision), Vec::new()))
+    fn pull_changes(&mut self, project_id: &str, after_revision: u64) -> Result<(u64, Vec<ChangeEnvelope>), String> {
+        Ok((self.project_revisions.get(project_id).copied().unwrap_or(0).max(after_revision), Vec::new()))
     }
 
-    fn push_changes(&mut self, _project_id: &str, changes: &[ChangeEnvelope]) -> Result<PushResult, String> {
+    fn push_changes(&mut self, project_id: &str, changes: &[ChangeEnvelope]) -> Result<PushResult, String> {
         let mut accepted = Vec::new();
         let mut conflicts = Vec::new();
         for change in changes {
             let mut change_conflict = false;
             for item in &change.items {
-                let remote_revision = self.object_revisions.get(&item.source_handle).copied().unwrap_or(0);
+                let key = (project_id.to_string(), item.source_handle.clone());
+                let remote_revision = self.scoped_objects.get(&key).copied().or_else(|| if project_id == "p1" { self.object_revisions.get(&item.source_handle).copied() } else { None }).unwrap_or(0);
                 if remote_revision != item.base_revision {
                     conflicts.push(RemoteConflict {
                         source_handle: item.source_handle.clone(),
@@ -163,12 +167,15 @@ impl CollaborationTransport for MemoryTransport {
                 continue;
             }
             for item in &change.items {
-                self.object_revisions.insert(item.source_handle.clone(), item.local_revision);
+                self.scoped_objects.insert((project_id.to_string(), item.source_handle.clone()), item.local_revision);
+                if project_id == "p1" { self.object_revisions.insert(item.source_handle.clone(), item.local_revision); }
             }
             accepted.push(change.id);
-            self.project_revision += 1;
+            let rev = self.project_revisions.entry(project_id.to_string()).or_default();
+            *rev += 1;
+            self.project_revision = self.project_revision.max(*rev);
         }
-        Ok(PushResult { accepted_change_set_ids: accepted, project_revision: self.project_revision, conflicts })
+        Ok(PushResult { accepted_change_set_ids: accepted, project_revision: self.project_revisions.get(project_id).copied().unwrap_or(0), conflicts })
     }
 
     fn update_presence(&mut self, _project_id: &str, presence: &PresenceDto) -> Result<(), String> {
@@ -176,18 +183,21 @@ impl CollaborationTransport for MemoryTransport {
         Ok(())
     }
 
-    fn acquire_lease(&mut self, _project_id: &str, source_handle: &str, _revision: u64) -> Result<LeaseResult, String> {
-        match self.leases.get(source_handle) {
+    fn acquire_lease(&mut self, project_id: &str, source_handle: &str, revision: u64) -> Result<LeaseResult, String> {
+        let key = (project_id.to_string(), source_handle.to_string());
+        let remote = self.scoped_objects.get(&key).copied().or_else(|| if project_id == "p1" { self.object_revisions.get(source_handle).copied() } else { None }).unwrap_or(0);
+        if remote != revision && remote != 0 { return Ok(LeaseResult { granted: false, owner_account_id: None, expires_unix_ms: None }); }
+        match self.scoped_leases.get(&key) {
             Some(owner) => Ok(LeaseResult { granted: false, owner_account_id: Some(owner.clone()), expires_unix_ms: None }),
             None => {
-                self.leases.insert(source_handle.to_string(), "local-user".into());
+                self.scoped_leases.insert(key, "local-user".into());
                 Ok(LeaseResult { granted: true, owner_account_id: Some("local-user".into()), expires_unix_ms: None })
             }
         }
     }
 
-    fn release_lease(&mut self, _project_id: &str, source_handle: &str) -> Result<(), String> {
-        self.leases.remove(source_handle);
+    fn release_lease(&mut self, project_id: &str, source_handle: &str) -> Result<(), String> {
+        self.scoped_leases.remove(&(project_id.to_string(), source_handle.to_string()));
         Ok(())
     }
 }
@@ -231,6 +241,17 @@ mod tests {
         assert!(!transport.acquire_lease("p1", "A", 1).unwrap().granted);
         transport.release_lease("p1", "A").unwrap();
         assert!(transport.acquire_lease("p1", "A", 1).unwrap().granted);
+    }
+
+    #[test]
+    fn independent_projects_cannot_share_object_revisions_or_leases() {
+        let mut transport = MemoryTransport::default();
+        assert_eq!(transport.push_changes("p1", &[change(1, "A", 0, 1)]).unwrap().project_revision, 1);
+        assert_eq!(transport.push_changes("p2", &[change(1, "A", 0, 1)]).unwrap().project_revision, 1);
+        assert!(transport.acquire_lease("p1", "A", 1).unwrap().granted);
+        assert!(transport.acquire_lease("p2", "A", 1).unwrap().granted);
+        assert!(!transport.acquire_lease("p1", "A", 1).unwrap().granted);
+        assert_eq!(transport.bootstrap("p2").unwrap().project_revision, 1);
     }
 
     #[test]
