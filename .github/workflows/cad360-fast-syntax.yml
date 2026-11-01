@@ -20,7 +20,7 @@ jobs:
           set -euo pipefail
           count=0
           while IFS= read -r -d '' file; do
-            rustfmt --edition 2021 --emit stdout "$file" > /dev/null
+            rustfmt --edition 2024 --emit stdout "$file" > /dev/null
             count=$((count+1))
           done < <(find SOURCE_CAD_R65/crates/engine/src/cmd SOURCE_CAD_R65/crates/engine/tests -type f -name '*.rs' -print0)
           echo "PASS: $count Engine command and regression Rust files parse"
