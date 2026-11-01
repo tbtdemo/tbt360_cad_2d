@@ -112,3 +112,34 @@ END;
 $$;
 COMMENT ON FUNCTION bim_delete_design_object(uuid,uuid,uuid,bigint) IS
 'Server-only soft delete. Authenticated account must come from validated TBT.Auth token claims.';
+
+-- Creation is serialized on the parent project to maintain a monotonic project revision.
+CREATE OR REPLACE FUNCTION bim_create_design_object(
+  p_project uuid, p_object uuid, p_authenticated_account uuid, p_floor uuid,
+  p_discipline text, p_source_handle text, p_entity_type text, p_payload jsonb)
+RETURNS bigint LANGUAGE plpgsql AS $$
+DECLARE
+  v_owner uuid;
+  v_revision bigint;
+BEGIN
+  IF p_project IS NULL OR p_object IS NULL OR p_authenticated_account IS NULL OR p_floor IS NULL
+     OR p_discipline IS NULL OR p_source_handle IS NULL OR btrim(p_source_handle)=''
+     OR p_entity_type IS NULL OR btrim(p_entity_type)=''
+     OR p_payload IS NULL OR jsonb_typeof(p_payload) <> 'object' THEN
+    RAISE EXCEPTION 'invalid create request' USING ERRCODE='22023';
+  END IF;
+  PERFORM 1 FROM bim_projects WHERE id=p_project FOR UPDATE;
+  IF NOT FOUND THEN RAISE EXCEPTION 'project not found' USING ERRCODE='P0002'; END IF;
+  IF NOT bim_can_edit_object(p_project,p_authenticated_account,p_floor,p_discipline,p_authenticated_account) THEN
+    RAISE EXCEPTION 'write permission denied' USING ERRCODE='42501';
+  END IF;
+  INSERT INTO bim_design_objects(id,project_id,source_handle,floor_id,discipline,owner_account_id,entity_type,geometry_payload)
+    VALUES(p_object,p_project,p_source_handle,p_floor,p_discipline,p_authenticated_account,p_entity_type,p_payload);
+  UPDATE bim_projects SET revision=revision+1,updated_at=now() WHERE id=p_project RETURNING revision INTO v_revision;
+  INSERT INTO bim_audit_log(project_id,account_id,action,design_object_id,source_handle,base_revision,result_revision)
+    VALUES(p_project,p_authenticated_account,'CREATE',p_object,p_source_handle,0,1);
+  RETURN v_revision;
+END;
+$$;
+COMMENT ON FUNCTION bim_create_design_object(uuid,uuid,uuid,uuid,text,text,text,jsonb) IS
+'API-only creation. Authenticated account is supplied by verified TBT.Auth principal, never request body.';
