@@ -65,6 +65,20 @@ BEGIN
         RAISE EXCEPTION 'explicit deny failed to override role';
     END IF;
 
+    -- A different project cannot address this object's revision or geometry.
+    DECLARE
+        other_project uuid := gen_random_uuid();
+        cross_project_rejected boolean := false;
+    BEGIN
+        INSERT INTO bim_projects(id,name,owner_account_id) VALUES(other_project,'isolation',owner_id);
+        INSERT INTO bim_project_members(project_id,account_id,role,can_edit) VALUES(other_project,owner_id,'OWNER',true);
+        BEGIN
+            PERFORM bim_update_design_object(other_project,object_id,owner_id,2,'{"foreign":true}'::jsonb);
+        EXCEPTION WHEN no_data_found THEN cross_project_rejected := true;
+        END;
+        IF NOT cross_project_rejected THEN RAISE EXCEPTION 'cross-project object update was accepted'; END IF;
+    END;
+
     -- Membership revocation closes the gate.
     DELETE FROM bim_project_members m WHERE m.project_id=v_project AND m.account_id=second_id;
     IF bim_can_edit_object(v_project,second_id,floor_id,'ARCH',owner_id) THEN
