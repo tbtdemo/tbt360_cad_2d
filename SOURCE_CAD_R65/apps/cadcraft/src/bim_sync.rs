@@ -255,6 +255,26 @@ mod tests {
     }
 
     #[test]
+    fn five_parallel_editors_cannot_overwrite_same_revision() {
+        use std::sync::{Arc, Mutex, Barrier};
+        let transport = Arc::new(Mutex::new(MemoryTransport::default()));
+        let gate = Arc::new(Barrier::new(5));
+        let threads: Vec<_> = (0..5).map(|id| {
+            let transport = Arc::clone(&transport);
+            let gate = Arc::clone(&gate);
+            std::thread::spawn(move || {
+                gate.wait();
+                let result = transport.lock().unwrap().push_changes("shared", &[change(id + 1, "same-object", 0, 1)]).unwrap();
+                result.accepted_change_set_ids.len()
+            })
+        }).collect();
+        let accepted: usize = threads.into_iter().map(|t| t.join().unwrap()).sum();
+        assert_eq!(accepted, 1, "only one editor may commit a matching base revision");
+        let state = transport.lock().unwrap();
+        assert_eq!(state.project_revisions.get("shared").copied().unwrap_or(0), 1);
+    }
+
+    #[test]
     fn sync_runtime_reports_conflict_state() {
         let mut runtime = SyncRuntime::default();
         runtime.apply_push_result(&PushResult {
