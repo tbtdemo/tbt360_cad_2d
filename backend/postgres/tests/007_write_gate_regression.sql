@@ -32,7 +32,7 @@ BEGIN
 
     new_rev := bim_update_design_object(project_id,object_id,owner_id,1,'{"points":[1]}'::jsonb);
     IF new_rev <> 2 THEN RAISE EXCEPTION 'first update revision incorrect'; END IF;
-    SELECT revision INTO project_rev FROM bim_projects WHERE id=project_id;
+    SELECT p.revision INTO project_rev FROM bim_projects p WHERE p.id=project_id;
     IF project_rev <> 1 THEN RAISE EXCEPTION 'project revision increment incorrect'; END IF;
 
     -- Stale writer cannot overwrite a newer revision.
@@ -51,10 +51,10 @@ BEGIN
     END;
     IF NOT locked THEN RAISE EXCEPTION 'leased object was updated by another editor'; END IF;
 
-    IF (SELECT count(*) FROM bim_audit_log WHERE project_id=project_id AND action='UPDATE') <> 1 THEN
+    IF (SELECT count(*) FROM bim_audit_log a WHERE a.project_id=project_id AND a.action='UPDATE') <> 1 THEN
         RAISE EXCEPTION 'failed writes modified audit log';
     END IF;
-    IF (SELECT revision FROM bim_design_objects WHERE id=object_id) <> 2 THEN
+    IF (SELECT revision FROM bim_design_objects d WHERE d.id=object_id) <> 2 THEN
         RAISE EXCEPTION 'failed writes modified object revision';
     END IF;
 
@@ -66,7 +66,7 @@ BEGIN
     END IF;
 
     -- Membership revocation closes the gate.
-    DELETE FROM bim_project_members WHERE project_id=project_id AND account_id=second_id;
+    DELETE FROM bim_project_members m WHERE m.project_id=project_id AND m.account_id=second_id;
     IF bim_can_edit_object(project_id,second_id,floor_id,'ARCH',owner_id) THEN
         RAISE EXCEPTION 'revoked member can still edit';
     END IF;
