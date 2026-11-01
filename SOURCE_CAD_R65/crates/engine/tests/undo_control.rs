@@ -95,6 +95,8 @@ fn group_from_a_script_and_nested_begin() {
     // BEgin inside a group ends that group and starts a new one.
     eprintln!("UNDO_TRACE post_script depth={} now={} group={:?} labels={:?}", depth, s.state().unwrap().undo.len(), s.state().unwrap().undo_ctl.group, s.state().unwrap().undo.iter().map(|x| x.label.as_str()).collect::<Vec<_>>());
     assert_eq!(s.state().unwrap().undo.len(), depth + 2);
+    assert_eq!(s.state().unwrap().undo_ctl.group, None);
+    assert_eq!(s.state().unwrap().undo.iter().skip(depth).map(|step| step.label.as_str()).collect::<Vec<_>>(), vec!["Group", "Group"]);
     s.cmdline("undo 1").unwrap();
     assert_eq!(circles(&s), base + 1);
     // UNDO inside an open group undoes the whole group so far.
