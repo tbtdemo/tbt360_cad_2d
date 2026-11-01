@@ -134,6 +134,7 @@ pub struct MemoryTransport {
     scoped_objects: std::collections::BTreeMap<(String, String), u64>,
     scoped_leases: std::collections::BTreeMap<(String, String), String>,
     applied_changes: std::collections::BTreeMap<(String, u64), ChangeEnvelope>,
+    scoped_presences: std::collections::BTreeMap<(String, String), PresenceDto>,
 }
 
 impl CollaborationTransport for MemoryTransport {
@@ -142,7 +143,9 @@ impl CollaborationTransport for MemoryTransport {
     }
 
     fn pull_changes(&mut self, project_id: &str, after_revision: u64) -> Result<(u64, Vec<ChangeEnvelope>), String> {
-        Ok((self.project_revisions.get(project_id).copied().unwrap_or(0).max(after_revision), Vec::new()))
+        let current = self.project_revisions.get(project_id).copied().unwrap_or(0);
+        if after_revision > current { return Err("cursor is ahead of current project revision".into()); }
+        Ok((current, Vec::new()))
     }
 
     fn push_changes(&mut self, project_id: &str, changes: &[ChangeEnvelope]) -> Result<PushResult, String> {
@@ -207,15 +210,18 @@ impl CollaborationTransport for MemoryTransport {
         })
     }
 
-    fn update_presence(&mut self, _project_id: &str, presence: &PresenceDto) -> Result<(), String> {
-        self.presences.insert(presence.account_id.clone(), presence.clone());
+    fn update_presence(&mut self, project_id: &str, presence: &PresenceDto) -> Result<(), String> {
+        if project_id.trim().is_empty() || presence.account_id.trim().is_empty() { return Err("project and account are required".into()); }
+        self.scoped_presences.insert((project_id.to_string(), presence.account_id.clone()), presence.clone());
+        if project_id == "p1" { self.presences.insert(presence.account_id.clone(), presence.clone()); }
         Ok(())
     }
 
     fn acquire_lease(&mut self, project_id: &str, source_handle: &str, revision: u64) -> Result<LeaseResult, String> {
+        if project_id.trim().is_empty() || source_handle.trim().is_empty() { return Err("project and object are required".into()); }
         let key = (project_id.to_string(), source_handle.to_string());
         let remote = self.scoped_objects.get(&key).copied().or_else(|| if project_id == "p1" { self.object_revisions.get(source_handle).copied() } else { None }).unwrap_or(0);
-        if remote != revision && remote != 0 { return Ok(LeaseResult { granted: false, owner_account_id: None, expires_unix_ms: None }); }
+        if remote != revision { return Ok(LeaseResult { granted: false, owner_account_id: None, expires_unix_ms: None }); }
         match self.scoped_leases.get(&key) {
             Some(owner) => Ok(LeaseResult { granted: false, owner_account_id: Some(owner.clone()), expires_unix_ms: None }),
             None => {
@@ -334,6 +340,31 @@ mod tests {
         assert!(transport.push_changes("shared", &[change(7, "B", 0, 1)]).is_err());
         assert_eq!(transport.project_revisions.get("shared"), Some(&1));
         assert!(!transport.scoped_objects.contains_key(&("shared".into(), "B".into())));
+    }
+
+    #[test]
+    fn a_future_pull_cursor_is_rejected_instead_of_falsifying_server_revision() {
+        let mut transport = MemoryTransport::default();
+        assert!(transport.pull_changes("shared", 7).is_err());
+        assert_eq!(transport.pull_changes("shared", 0).unwrap().0, 0);
+    }
+
+    #[test]
+    fn lease_requires_exact_revision_even_for_a_new_object() {
+        let mut transport = MemoryTransport::default();
+        assert!(!transport.acquire_lease("shared", "A", 50).unwrap().granted);
+        assert!(transport.acquire_lease("shared", "A", 0).unwrap().granted);
+    }
+
+    #[test]
+    fn presence_is_isolated_by_project_even_for_same_account() {
+        let mut transport = MemoryTransport::default();
+        let mut p = PresenceDto { account_id: "engineer".into(), floor_id: "L1".into(), discipline: "ARCH".into(), selected_object_id: None };
+        transport.update_presence("project-a", &p).unwrap();
+        p.floor_id = "L10".into();
+        transport.update_presence("project-b", &p).unwrap();
+        assert_eq!(transport.scoped_presences.get(&("project-a".into(), "engineer".into())).unwrap().floor_id, "L1");
+        assert_eq!(transport.scoped_presences.get(&("project-b".into(), "engineer".into())).unwrap().floor_id, "L10");
     }
 
     #[test]
