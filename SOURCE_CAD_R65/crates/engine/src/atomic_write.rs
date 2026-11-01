@@ -178,6 +178,17 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
+    #[test]
+    fn saving_unchanged_content_is_safe_and_leaves_no_temp_file() {
+        let dir = std::env::temp_dir().join(format!("cadcraft-aw-same-{}-{}", std::process::id(), SEQ.fetch_add(1, Ordering::Relaxed)));
+        std::fs::create_dir_all(&dir).unwrap();
+        let destination = dir.join("drawing.dxf");
+        for _ in 0..10 { write_atomic(&destination, b"stable drawing").unwrap(); }
+        assert_eq!(std::fs::read(&destination).unwrap(), b"stable drawing");
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 1);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     #[cfg(unix)]
     #[test]
     fn does_not_follow_a_planted_temp_symlink() {
