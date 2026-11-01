@@ -404,6 +404,15 @@ mod tests {
     }
 
     #[test]
+    fn change_without_device_id_is_rejected_without_journal_entry() {
+        let mut transport = MemoryTransport::default();
+        let mut envelope = change(1, "A", 0, 1);
+        envelope.device_id.clear();
+        assert!(transport.push_changes("shared", &[envelope]).is_err());
+        assert!(transport.pull_changes("shared", 0).unwrap().1.is_empty());
+    }
+
+    #[test]
     fn sync_runtime_reports_conflict_state() {
         let mut runtime = SyncRuntime::default();
         runtime.apply_push_result(&PushResult {
