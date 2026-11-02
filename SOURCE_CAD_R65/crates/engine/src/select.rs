@@ -483,6 +483,20 @@ mod tests {
         assert!(select_window(&d, &Space::Model, full, false).contains(&handle));
     }
 
+    #[test]
+    fn invalid_mouse_coordinates_and_apertures_never_select_entities() {
+        let mut d = Drawing::new_metric();
+        d.add(&Space::Model, Common::default(), EntityKind::Line(cadcraft_doc::Line { a: Vec3::new(0.0, 0.0, 0.0), b: Vec3::new(10.0, 0.0, 0.0) })).unwrap();
+        for aperture in [0.0, -1.0, f64::NAN, f64::INFINITY] {
+            assert_eq!(pick(&d, &Space::Model, Vec2::new(5.0, 0.0), aperture), None);
+            assert!(pick_all(&d, &Space::Model, Vec2::new(5.0, 0.0), aperture).is_empty());
+        }
+        for point in [Vec2::new(f64::NAN, 0.0), Vec2::new(0.0, f64::INFINITY)] {
+            assert_eq!(pick(&d, &Space::Model, point, 0.2), None);
+            assert!(pick_all(&d, &Space::Model, point, 0.2).is_empty());
+        }
+    }
+
     fn fence_hits(kind: EntityKind, fence: [(f64, f64); 2]) -> usize {
         let mut d = Drawing::new_metric();
         d.add(&Space::Model, Common::default(), kind).unwrap();
