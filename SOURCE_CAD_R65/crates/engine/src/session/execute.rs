@@ -48,7 +48,7 @@ impl Session {
             (_, r) => r,
         };
         // Opening or closing the Block Editor swaps the whole drawing: nothing in it changed.
-        if self.state().is_ok_and(|s| s.block_edit.is_some()) == editing {
+        if self.state().is_ok_and(|s| s.block_edit.is_some()) == editing && !matches!(spec.id, "undo" | "u" | "redo" | "mredo") {
             self.after_command(before.as_ref().map(|b| &b.0), before.as_ref().map(|b| b.2), spec.undoable && result.is_ok());
         }
         let result = match (result, &before) {
