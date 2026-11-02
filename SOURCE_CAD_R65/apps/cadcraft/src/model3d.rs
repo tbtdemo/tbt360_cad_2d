@@ -1,5 +1,6 @@
 //! IFC inspection preview. Full tessellation requires a separately packaged IfcConvert runtime.
 use crate::ifc_catalog;
+use crate::bounded_io::read_bounded_line;
 use std::{collections::{BTreeMap, BTreeSet}, io::{BufRead, BufReader}, path::PathBuf};
 
 const MAX_IFC_PREVIEW_FILE_BYTES: u64 = 512 * 1024 * 1024;
@@ -32,42 +33,6 @@ pub struct State {
     catalog_error: Option<String>,
     conversion: Option<std::sync::mpsc::Receiver<Result<crate::ifc_mesh::Mesh, String>>>,
     cancel_conversion: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
-}
-
-fn read_bounded_line<Reader: BufRead>(
-    reader: &mut Reader,
-    destination: &mut Vec<u8>,
-    maxBytes: usize,
-) -> Result<usize, String>
-{
-    destination.clear();
-    loop
-    {
-        let available = reader
-            .fill_buf()
-            .map_err(|error| format!("Không đọc được dữ liệu: {error}"))?;
-
-        if available.is_empty()
-        {
-            return Ok(destination.len());
-        }
-
-        let newline = available.iter().position(|byte| *byte == b'\n');
-        let bytesToCopy = newline.map_or(available.len(), |index| index + 1);
-
-        if destination.len().saturating_add(bytesToCopy) > maxBytes
-        {
-            return Err(format!("Dòng dữ liệu vượt giới hạn {maxBytes} bytes"));
-        }
-
-        destination.extend_from_slice(&available[..bytesToCopy]);
-        reader.consume(bytesToCopy);
-
-        if newline.is_some()
-        {
-            return Ok(destination.len());
-        }
-    }
 }
 
 fn point_from_step(line: &str) -> Option<[f32; 3]> {
