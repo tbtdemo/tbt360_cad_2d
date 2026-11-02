@@ -2239,6 +2239,25 @@ mod tests {
     }
 
     #[test]
+    fn issue_close_rejects_invalid_due_date_without_changing_state() {
+        let mut state = State::default();
+        state.create_issue_from_selection(None, Discipline::Structure);
+        let id = state.issues.last().unwrap().id;
+        let issue = state.issues.last_mut().unwrap();
+        issue.assigned_to = "designer".into();
+        issue.status = IssueStatus::Resolved;
+        issue.due_at = "2026-02-29".into();
+        state.current_account_id = "reviewer".into();
+        let audit_before = state.audit_log.len();
+        assert!(state.confirm_close_issue(id).is_err());
+        assert_eq!(state.issues.last().unwrap().status, IssueStatus::Resolved);
+        assert!(state.issues.last().unwrap().confirmed_by.is_none());
+        assert_eq!(state.audit_log.len(), audit_before);
+        state.issues.last_mut().unwrap().due_at = "2028-02-29".into();
+        assert!(state.confirm_close_issue(id).is_ok());
+    }
+
+    #[test]
     fn collaboration_workspace_has_five_business_tabs() {
         assert_eq!(CollaborationTab::ALL.len(), 5);
         assert_eq!(CollaborationTab::Issues.title(), "ISSUE / CLASH");
