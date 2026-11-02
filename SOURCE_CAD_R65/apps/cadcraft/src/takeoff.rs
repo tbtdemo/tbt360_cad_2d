@@ -1437,6 +1437,16 @@ mod tests {
         assert_eq!(state.next_audit_sequence, u64::MAX);
     }
 
+    #[test]
+    fn qto_audit_capacity_blocks_new_measurement_without_partial_write() {
+        let mut state = State::default();
+        state.next_audit_sequence = u64::MAX;
+        assert!(state.add_measurement(MeasureKind::Count, vec![], 1.0, "QTO".into()).is_err());
+        assert!(state.records.is_empty());
+        assert!(state.undo.is_empty());
+        assert!(state.audit.is_empty());
+    }
+
     fn block_member_fixture()->(cadcraft_doc::Drawing,cadcraft_doc::Handle,cadcraft_doc::Handle) {
         let mut d=cadcraft_doc::Drawing::new_metric();
         let member=cadcraft_doc::Handle(0x20);
