@@ -235,7 +235,7 @@ pub fn panel(ui: &mut egui::Ui, state: &mut State) {
                 let c = project(&mesh.vertices[triangle[2]]);
                 if !triangle_visible_on_screen(a, b, c, rect) { continue; }
                 if let Some(pointer) = click { if point_in_triangle(pointer, a, b, c) { picked = Some(index); } }
-                let selected = state.selected_triangle.is_some_and(|selected| { selected == index || (state.select_group && mesh.face_groups.get(selected) == mesh.face_groups.get(index)) });
+                let selected = state.selected_triangle.is_some_and(|selected| { selected == index || (state.select_group && mesh.face_groups.get(selected).zip(mesh.face_groups.get(index)).is_some_and(|(a,b)| a == b)) });
                 if selected { painter.add(egui::Shape::convex_polygon(vec![a, b, c], egui::Color32::from_rgba_unmultiplied(240, 180, 45, 150), egui::Stroke::new(2.0, egui::Color32::YELLOW))); continue; }
                 if state.wireframe {
                     for (u, v) in [(a, b), (b, c), (c, a)] { painter.line_segment([u, v], egui::Stroke::new(0.7, egui::Color32::from_rgb(130, 195, 240))); }
@@ -243,7 +243,7 @@ pub fn panel(ui: &mut egui::Ui, state: &mut State) {
                     painter.add(egui::Shape::convex_polygon(vec![a, b, c], egui::Color32::from_rgba_unmultiplied(52, 120, 165, 90), egui::Stroke::new(0.5, egui::Color32::from_rgb(105, 185, 230))));
                 }
             }
-            if click.is_some() { state.selected_triangle = picked; }
+            if click.is_some() { state.selected_triangle = picked; ui.ctx().request_repaint(); }
             if state.show_points { for p in displayed.iter().take(20_000) { let pos = project(p); if rect.contains(pos) { painter.circle_filled(pos, 1.0, egui::Color32::from_rgb(245, 205, 110)); } } }
         } else {
             for p in displayed { let pos = project(p); if rect.contains(pos) { painter.circle_filled(pos, 1.3, egui::Color32::from_rgb(90, 194, 245)); } }
@@ -252,6 +252,23 @@ pub fn panel(ui: &mut egui::Ui, state: &mut State) {
         painter.text(rect.center(), egui::Align2::CENTER_CENTER, "Không tìm thấy IFCCARTESIANPOINT 3D trong tệp", egui::FontId::proportional(14.0), egui::Color32::LIGHT_GRAY);
     }
     if let (Some(mesh), Some(index)) = (&state.mesh, state.selected_triangle) { if let Some(face) = mesh.faces.get(index) { let group = mesh.face_groups.get(index).and_then(|id| mesh.groups.get(*id)).map(String::as_str).unwrap_or("Mặc định"); ui.label(format!("Đã chọn mặt #{} • nhóm OBJ: {} • đỉnh {:?}", index + 1, group, face)); ui.small("Tên nhóm OBJ chưa được xác thực là IFC GlobalId."); } }
+    if state.mesh.is_some() {
+        ui.collapsing("Quản lý hiển thị nhóm OBJ", |ui| {
+            let mesh = state.mesh.as_ref().expect("Mesh đã được kiểm tra");
+            let mut unhide = None;
+            egui::ScrollArea::vertical().max_height(180.0).show(ui, |ui| {
+                for (group, name) in mesh.groups.iter().enumerate() {
+                    let visible = group_is_visible(group, &state.hidden_groups, state.isolated_group);
+                    ui.horizontal(|ui| {
+                        ui.label(format!("{} {}", if visible { "●" } else { "○" }, name));
+                        if state.hidden_groups.contains(&group) && ui.small_button("Hiện").clicked() { unhide = Some(group); }
+                        if state.isolated_group == Some(group) && ui.small_button("Thoát cô lập").clicked() { state.isolated_group = None; }
+                    });
+                }
+            });
+            if let Some(group) = unhide { state.hidden_groups.remove(&group); }
+        });
+    }
     egui::ScrollArea::vertical().max_height(160.0).show(ui, |ui| {
         ui.collapsing("Thống kê IFC Entities", |ui| {
             for (kind, count) in &state.counts { ui.label(format!("{kind}: {count}")); }
