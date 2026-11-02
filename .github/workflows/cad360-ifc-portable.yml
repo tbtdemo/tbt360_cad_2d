@@ -92,6 +92,15 @@ jobs:
         run: |
           python -m py_compile apps/cadcraft/tools/export_ifc_obj_mapping.py
           python -m unittest discover -s apps/cadcraft/tools -p "test_export_ifc_obj_mapping.py" -v
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: SOURCE_CAD_R65
+      - name: Confirm Rust compiler and Cargo lockfile
+        shell: pwsh
+        run: |
+          rustc --version
+          cargo --version
+          if (!(Test-Path 'Cargo.lock')) { throw 'Cargo.lock is missing' }
       - name: Check IFC desktop code
         run: cargo check -p cadcraft --bin cadcraft --locked
       - name: Test IFC desktop module
