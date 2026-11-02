@@ -4,7 +4,7 @@ use std::{io::{BufRead, BufReader, Read}, path::Path};
 const MAX_OBJ_LINE: usize = 4_000_000;
 
 #[derive(Clone, Default)]
-pub struct Mesh { pub vertices: Vec<[f32;3]>, pub faces: Vec<[usize;3]> }
+pub struct Mesh { pub vertices: Vec<[f32;3]>, pub faces: Vec<[usize;3]>, pub face_groups: Vec<usize>, pub groups: Vec<String> }
 
 fn face_index(token: &str, count: usize) -> Option<usize> {
     let value: isize = token.split('/').next()?.parse().ok()?;
@@ -20,6 +20,8 @@ impl Mesh {
 
     fn read_from<R: BufRead>(mut reader: R) -> Result<Self, String> {
         let mut mesh = Self::default();
+        mesh.groups.push("Mặc định".into());
+        let mut current_group = 0usize;
         let mut line = Vec::new();
         loop {
             line.clear();
@@ -29,6 +31,10 @@ impl Mesh {
             let line = std::str::from_utf8(&line).map_err(|_| "OBJ không phải UTF-8 hợp lệ")?;
             let mut parts = line.split_whitespace();
             match parts.next() {
+                Some("o" | "g") => {
+                    let name = parts.collect::<Vec<_>>().join(" ");
+                    if !name.is_empty() && mesh.groups.len() < 100_000 { mesh.groups.push(name); current_group = mesh.groups.len()-1; }
+                }
                 Some("v") => {
                     if mesh.vertices.len() >= 1_000_000 { return Err("OBJ vượt giới hạn 1 triệu đỉnh".into()); }
                     let values: Vec<f32> = parts.take(3).map(str::parse::<f32>).collect::<Result<_,_>>().map_err(|_| "OBJ có đỉnh không hợp lệ")?;
@@ -49,6 +55,7 @@ impl Mesh {
                         if !area_sq.is_finite() || area_sq <= 1e-24 { continue; }
                         if mesh.faces.len() >= 2_000_000 { return Err("OBJ vượt giới hạn 2 triệu tam giác".into()); }
                         mesh.faces.push([ids[0],ids[i],ids[i+1]]);
+                        mesh.face_groups.push(current_group);
                     }
                 }
                 _ => {}
@@ -61,6 +68,15 @@ impl Mesh {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test] fn preserves_obj_group_for_every_triangulated_face() {
+        let data = b"v 0 0 0\nv 1 0 0\nv 1 1 0\nv 0 1 0\no Beam-A\nf 1 2 3 4\ng Column-B\nf 1 3 4\n";
+        let mesh = Mesh::read_from(std::io::Cursor::new(data)).unwrap();
+        assert_eq!(mesh.faces.len(), 3);
+        assert_eq!(mesh.face_groups.len(), mesh.faces.len());
+        assert_eq!(mesh.groups[mesh.face_groups[0]], "Beam-A");
+        assert_eq!(mesh.groups[mesh.face_groups[1]], "Beam-A");
+        assert_eq!(mesh.groups[mesh.face_groups[2]], "Column-B");
+    }
     #[test] fn parses_valid_quad_and_skips_degenerate_face() {
         let obj = b"v 0 0 0\nv 1 0 0\nv 1 1 0\nv 0 1 0\nf 1 2 3 4\nf 1 2 2\n";
         // The duplicate-index face is rejected; valid quads still triangulate.
