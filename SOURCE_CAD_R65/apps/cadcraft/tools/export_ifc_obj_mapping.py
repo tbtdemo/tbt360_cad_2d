@@ -20,7 +20,27 @@ def entities(path):
     data = path.read_text(encoding="utf-8-sig", errors="strict")
     if "ISO-10303-21" not in data[:256].upper():
         raise ValueError("Not a STEP IFC file")
-    return {eid: (kind.upper(), args) for eid, kind, args in ENTITY.findall(data)}
+    found = {}
+    # IFC STEP arguments contain nested parentheses; a non-greedy regex stops too early.
+    for match in re.finditer(r"#(\\d+)\\s*=\\s*(IFC[A-Z0-9_]+)\\s*\\(", data, re.I):
+        depth, quoted, pos = 1, False, match.end()
+        start = pos
+        while pos < len(data) and depth:
+            ch = data[pos]
+            if ch == "'":
+                if quoted and pos + 1 < len(data) and data[pos + 1] == "'":
+                    pos += 2
+                    continue
+                quoted = not quoted
+            elif not quoted:
+                if ch == "(":
+                    depth += 1
+                elif ch == ")":
+                    depth -= 1
+            pos += 1
+        if depth == 0 and data[pos:].lstrip().startswith(";"):
+            found[match.group(1)] = (match.group(2).upper(), data[start:pos - 1])
+    return found
 
 def extract(ifc_path, obj_path, discipline):
     ifc = entities(ifc_path)
