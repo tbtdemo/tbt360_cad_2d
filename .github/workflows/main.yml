@@ -10,8 +10,8 @@ on:
       - '.github/workflows/main.yml'
 
 concurrency:
-  group: cad360-release-v2-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: false
+  group: cad360-release-v3-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
   build-core:
