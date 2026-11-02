@@ -2122,6 +2122,23 @@ mod tests {
     }
 
     #[test]
+    fn coordination_issue_priority_type_and_due_date_survive_workspace_roundtrip() {
+        let mut state = State::default();
+        state.create_issue_from_selection(None, Discipline::Structure);
+        let issue = state.issues.last_mut().unwrap();
+        issue.issue_type = "Clash".into();
+        issue.priority = "P0".into();
+        issue.due_at = "2026-11-20".into();
+        let snapshot = state.snapshot_json();
+        let mut restored = State::default();
+        restored.load_snapshot_json(&snapshot).unwrap();
+        let issue = restored.issues.last().unwrap();
+        assert_eq!(issue.issue_type, "Clash");
+        assert_eq!(issue.priority, "P0");
+        assert_eq!(issue.due_at, "2026-11-20");
+    }
+
+    #[test]
     fn collaboration_workspace_has_five_business_tabs() {
         assert_eq!(CollaborationTab::ALL.len(), 5);
         assert_eq!(CollaborationTab::Issues.title(), "ISSUE / CLASH");
