@@ -162,6 +162,18 @@ impl CollaborationTransport for MemoryTransport {
             if change_conflict {
                 continue;
             }
+            // Reject duplicate handles in one changeset: otherwise the last item silently wins.
+            let mut handles = std::collections::BTreeSet::new();
+            if change.items.iter().any(|item| !handles.insert(item.source_handle.as_str())) {
+                conflicts.push(RemoteConflict {
+                    source_handle: change.items.iter().find(|item| change.items.iter().filter(|other| other.source_handle == item.source_handle).count() > 1).map(|item| item.source_handle.clone()).unwrap_or_default(),
+                    base_revision: 0,
+                    local_revision: 0,
+                    remote_revision: 0,
+                    remote_updated_by: "duplicate-handle-in-batch".into(),
+                });
+                continue;
+            }
             for item in &change.items {
                 self.object_revisions.insert(item.source_handle.clone(), item.local_revision);
             }
@@ -250,4 +262,16 @@ mod tests {
         assert_eq!(runtime.health, SyncHealth::Conflict);
         assert_eq!(runtime.project_revision, 5);
     }
+    #[test]
+    fn duplicate_object_handle_in_one_changeset_is_rejected_atomically() {
+        let mut transport = MemoryTransport::default();
+        let mut batch = change(3, "A", 0, 1);
+        batch.items.push(ChangeEnvelopeItem { source_handle: "A".into(), operation: "UPDATE".into(), base_revision: 0, local_revision: 2, payload_json: "{}".into() });
+        let result = transport.push_changes("p1", &[batch]).unwrap();
+        assert!(result.accepted_change_set_ids.is_empty());
+        assert_eq!(result.conflicts.len(), 1);
+        assert!(!transport.object_revisions.contains_key("A"));
+        assert_eq!(transport.project_revision, 0);
+    }
+
 }
