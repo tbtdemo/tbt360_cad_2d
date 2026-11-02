@@ -1426,7 +1426,7 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
         if ui.button("Sao chép CSV tổng hợp Layer").clicked() {
             let mut csv = String::from("layer,entity_count,line_length,arc_length,polyline_length,closed_polyline_area,circle_area,unmeasured_count,length_unit,area_unit\n");
             for (layer, q) in &groups {
-                let safe = format!("\"{}\"", layer.replace('"', "\"\""));
+                let safe = csv_safe_cell(layer);
                 csv.push_str(&format!("{},{},{:.6},{:.6},{:.6},{:.6},{:.6},{},{},{}\n",
                     safe, q.count, q.line_length * lf, q.arc_length * lf, q.polyline_length * lf, q.closed_area * af, q.circle_area * af, q.unsupported, length_unit, area_unit));
             }
