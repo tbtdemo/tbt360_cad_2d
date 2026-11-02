@@ -52,6 +52,33 @@ try:
             cur.execute("SELECT count(*) FROM bim_audit_log WHERE project_id=%s AND action='UPDATE'", (project,))
             assert cur.fetchone()[0] == 1
     print("PASS: 5 concurrent PostgreSQL writers, 1 commit, 4 CAS conflicts, 1 feed event")
+    # A second concurrent wave starts from the newly committed revision.
+    # Proves that persisted CAS state remains correct across consecutive waves.
+    second_barrier = threading.Barrier(10)
+    def second_writer(idx):
+        second_barrier.wait(timeout=20)
+        try:
+            with psycopg.connect(conninfo) as conn:
+                with conn.cursor() as cur:
+                    cur.execute("SELECT bim_update_design_object(%s,%s,%s,2,%s::jsonb)", (project,obj,accounts[idx % len(accounts)],'{"second_wave_editor":%d}' % idx))
+                    return ("accepted", cur.fetchone()[0])
+        except psycopg.Error as exc:
+            return (exc.sqlstate, None)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as pool:
+        second = list(pool.map(second_writer, range(10)))
+    assert sum(status == "accepted" for status, _ in second) == 1, second
+    assert sum(status == "40001" for status, _ in second) == 9, second
+    with psycopg.connect(conninfo) as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT revision FROM bim_design_objects WHERE id=%s", (obj,))
+            assert cur.fetchone()[0] == 3
+            cur.execute("SELECT revision FROM bim_projects WHERE id=%s", (project,))
+            assert cur.fetchone()[0] == 2
+            cur.execute("SELECT count(*) FROM bim_project_change_feed WHERE project_id=%s", (project,))
+            assert cur.fetchone()[0] == 2
+            cur.execute("SELECT count(*) FROM bim_audit_log WHERE project_id=%s AND action='UPDATE'", (project,))
+            assert cur.fetchone()[0] == 2
+    print("PASS: 10 concurrent second-wave writers, 1 commit, 9 CAS conflicts, 2 total audited revisions")
 finally:
     with psycopg.connect(conninfo) as conn:
         with conn.cursor() as cur:
