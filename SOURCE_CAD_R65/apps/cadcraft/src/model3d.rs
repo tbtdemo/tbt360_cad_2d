@@ -118,12 +118,12 @@ pub fn panel(ui: &mut egui::Ui, state: &mut State) {
     }
     if let Some(error) = &state.error { ui.colored_label(egui::Color32::LIGHT_RED, error); }
     if let Some(error) = &state.mesh_error { ui.colored_label(egui::Color32::LIGHT_RED, error); }
-    if state.path.is_none() {
+    if state.path.is_none() && state.mesh.is_none() {
         ui.label("Chọn tệp .ifc để đọc danh mục đối tượng, tọa độ và xem sơ bộ phân bố điểm.");
-        ui.label("Để hiển thị Solid/Mesh thực, cần cài đặt IfcConvert từ IfcOpenShell và tích hợp renderer.");
+        ui.label("Có thể nạp trực tiếp OBJ hoặc dùng IfcConvert để tạo mesh từ IFC.");
         return;
     }
-    ui.label(format!("Tệp: {}", state.file_name));
+    if !state.file_name.is_empty() { ui.label(format!("Tệp: {}", state.file_name)); }
     if let Some(mesh) = &state.mesh { ui.label(format!("Mesh: {} đỉnh • {} tam giác", mesh.vertices.len(), mesh.faces.len())); }
     ui.horizontal(|ui| {
         ui.label(format!("Loại IFC: {}", state.counts.len()));
@@ -164,7 +164,12 @@ pub fn panel(ui: &mut egui::Ui, state: &mut State) {
             pos
         };
         if let Some(mesh) = &state.mesh {
-            for triangle in mesh.faces.iter().take(100_000) {
+            let mut faces = mesh.faces.iter().take(100_000).map(|triangle| {
+                let depth = triangle.iter().map(|&i| { let p = mesh.vertices[i]; let x = p[0]-center[0]; let y = p[1]-center[1]; let z = p[2]-center[2]; let ry = x*sy+y*cy; ry*cp+z*sp }).sum::<f32>() / 3.0;
+                (depth, triangle)
+            }).collect::<Vec<_>>();
+            faces.sort_by(|a,b| a.0.total_cmp(&b.0));
+            for (_, triangle) in faces {
                 let a = project(&mesh.vertices[triangle[0]]);
                 let b = project(&mesh.vertices[triangle[1]]);
                 let c = project(&mesh.vertices[triangle[2]]);
