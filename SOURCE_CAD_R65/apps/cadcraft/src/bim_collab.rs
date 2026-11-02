@@ -2211,6 +2211,8 @@ mod tests {
     #[test]
     fn issue_close_requires_independent_confirmation_and_persists() {
         let mut state = State::default();
+        let mut reviewer = state.users[0].clone(); reviewer.account_id = "reviewer".into(); state.users.push(reviewer);
+        let mut coordinator = state.users[0].clone(); coordinator.account_id = "coordinator".into(); state.users.push(coordinator);
         state.current_account_id = "reviewer".into();
         state.create_issue_from_selection(None, Discipline::Structure);
         let id = state.issues.last().unwrap().id;
@@ -2282,6 +2284,8 @@ mod tests {
     #[test]
     fn issue_close_rejects_invalid_due_date_without_changing_state() {
         let mut state = State::default();
+        let mut reviewer = state.users[0].clone(); reviewer.account_id = "reviewer".into(); state.users.push(reviewer);
+        let mut coordinator = state.users[0].clone(); coordinator.account_id = "coordinator".into(); state.users.push(coordinator);
         state.create_issue_from_selection(None, Discipline::Structure);
         let id = state.issues.last().unwrap().id;
         let issue = state.issues.last_mut().unwrap();
