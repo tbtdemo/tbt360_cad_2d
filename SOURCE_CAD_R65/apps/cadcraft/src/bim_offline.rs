@@ -106,6 +106,12 @@ impl OfflineSyncState {
         true
     }
 
+    pub fn mark_pulled(&mut self, revision: u64) -> bool {
+        if revision < self.checkpoint.last_pulled_revision || revision > self.checkpoint.remote_project_revision { return false; }
+        self.checkpoint.last_pulled_revision = revision;
+        true
+    }
+
     pub fn pending_count(&self) -> usize {
         self.queue.iter().filter(|i| !matches!(i.state, QueueState::Synced | QueueState::Rejected)).count()
     }
@@ -202,6 +208,17 @@ mod tests {
         assert_eq!(s.checkpoint.local_sequence, first);
         assert_eq!(s.enqueue("  ".into()), 0);
         assert_eq!(s.queue.len(), 1);
+    }
+
+    #[test]
+    fn pulled_revision_must_be_monotonic_and_not_exceed_remote() {
+        let mut s = OfflineSyncState::default();
+        s.mark_online(20);
+        assert!(s.mark_pulled(15));
+        assert!(!s.mark_pulled(14));
+        assert!(!s.mark_pulled(21));
+        assert_eq!(s.checkpoint.last_pulled_revision, 15);
+        assert!(s.mark_pulled(20));
     }
 
 }
