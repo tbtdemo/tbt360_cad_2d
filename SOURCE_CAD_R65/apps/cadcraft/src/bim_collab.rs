@@ -958,6 +958,19 @@ impl State {
     }
 
     fn queue_update(&mut self, handle: cadcraft_doc::Handle, base_revision: u64, local_revision: u64) {
+        if self.auth.status == AuthStatus::SignedOut
+            || self.auth.account_id != self.current_account_id
+            || self.current_account_id.trim().is_empty()
+        {
+            log::warn!("BIM change rejected: no valid authenticated session");
+            return;
+        }
+
+        if local_revision <= base_revision {
+            log::warn!("BIM change rejected: revision must increase");
+            return;
+        }
+
         let change = ChangeSet {
             id: self.next_change_set_id,
             account_id: self.current_account_id.clone(),
