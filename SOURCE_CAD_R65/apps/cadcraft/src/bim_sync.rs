@@ -142,6 +142,19 @@ impl CollaborationTransport for MemoryTransport {
     }
 
     fn push_changes(&mut self, _project_id: &str, changes: &[ChangeEnvelope]) -> Result<PushResult, String> {
+        for change in changes {
+            if change.account_id.trim().is_empty() || change.device_id.trim().is_empty() {
+                return Err("Missing account or device identity".into());
+            }
+            for item in &change.items {
+                if item.source_handle.trim().is_empty() || !matches!(item.operation.as_str(), "CREATE" | "UPDATE" | "DELETE") {
+                    return Err("Invalid object identity or operation".into());
+                }
+                if item.base_revision.checked_add(1) != Some(item.local_revision) {
+                    return Err("Object revision must advance exactly once".into());
+                }
+            }
+        }
         // Validate the whole request before mutating any revision.
         if let Some(invalid) = changes.iter().find(|change| change.base_project_revision > self.project_revision) {
             return Err(format!("Future project revision {} (server {})", invalid.base_project_revision, self.project_revision));
