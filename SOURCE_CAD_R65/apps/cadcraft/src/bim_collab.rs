@@ -1089,12 +1089,13 @@ impl State {
 
             let mut change_conflicts = Vec::new();
             let mut staged_revisions = Vec::new();
+            let mut seen_handles = std::collections::HashSet::new();
 
             for item in &change.items {
                 let remote_revision = staged_remote_revisions.get(&item.handle).copied().unwrap_or(0);
 
-                if item.local_revision <= item.base_revision {
-                    log::warn!("BIM sync rejected change with non-increasing revision");
+                if !seen_handles.insert(item.handle) || item.local_revision <= item.base_revision {
+                    log::warn!("BIM sync rejected duplicate entity handle or invalid revision");
                     change_conflicts.push(SyncConflict {
                         handle: item.handle,
                         base_revision: item.base_revision,
