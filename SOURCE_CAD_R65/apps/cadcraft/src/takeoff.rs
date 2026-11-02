@@ -540,12 +540,14 @@ impl State {
                 audit.push(AuditEntry { sequence, record_id, action, before, after });
             }
         }
+        let next_record_id = records.iter().map(|r| r.id).max().unwrap_or(0).checked_add(1).ok_or_else(|| "Hết ID phép đo QTO".to_string())?;
+        let next_audit_sequence = audit.iter().map(|a| a.sequence).max().unwrap_or(0).checked_add(1).ok_or_else(|| "Hết ID lịch sử QTO".to_string())?;
         self.drawing_distance = drawing_distance;
         self.real_distance_m = real_distance_m;
         self.records = records;
         self.audit = audit;
-        self.next_record_id = self.records.iter().map(|r| r.id).max().unwrap_or(0).checked_add(1).ok_or_else(|| "Hết ID phép đo QTO".to_string())?;
-        self.next_audit_sequence = self.audit.iter().map(|a| a.sequence).max().unwrap_or(0).checked_add(1).ok_or_else(|| "Hết ID lịch sử QTO".to_string())?;
+        self.next_record_id = next_record_id;
+        self.next_audit_sequence = next_audit_sequence;
         self.undo.clear();
         self.redo.clear();
         self.selected_record_id = None;
