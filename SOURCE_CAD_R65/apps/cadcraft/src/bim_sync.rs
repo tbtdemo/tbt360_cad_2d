@@ -169,7 +169,7 @@ impl CollaborationTransport for MemoryTransport {
             }
         }
         // Reserve revision capacity for the entire request; do not allow rollover in a long batch.
-        let candidate_count = u64::try_from(changes.iter().filter(|change| !change.items.is_empty() && !self.change_history.iter().any(|(_, recorded)| recorded == change)).count()).map_err(|_| "Too many changesets")?;
+        let candidate_count = u64::try_from(changes.iter().filter(|change| !change.items.is_empty() && !self.change_history.iter().any(|(_, recorded)| recorded.eq(*change))).count()).map_err(|_| "Too many changesets")?;
         if self.project_revision.checked_add(candidate_count).is_none() { return Err("Project revision overflow".into()); }
         // Validate the whole request before mutating any revision.
         if let Some(invalid) = changes.iter().find(|change| change.base_project_revision > self.project_revision) {
