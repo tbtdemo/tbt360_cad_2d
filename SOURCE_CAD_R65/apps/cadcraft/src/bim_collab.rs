@@ -1642,8 +1642,8 @@ pub fn panel(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut 
                         for v in state.issue_viewpoints.iter().filter(|v| v.issue_id == id) {
                             ui.label(format!("Camera: {:.2}, {:.2}, {:.2} • Đối tượng: {}", v.position[0], v.position[1], v.position[2], v.selected.join(", ")));
                         }
-                        ui.label("Lưu góc nhìn kiểm tra: tọa độ camera và đối tượng CAD đang chọn.");
-                        if ui.button("Lưu viewpoint hiện hành").clicked() {
+                        ui.label("Lưu tập đối tượng đang chọn; camera thực sẽ được kết nối với viewport CAD ở bước tích hợp tiếp theo.");
+                        if ui.button("Lưu tập đối tượng (camera tạm)").clicked() {
                             let selected = app.session.selection().iter().map(|h| h.hex()).collect();
                             let v = crate::bim_bcf_viewpoints::Viewpoint { issue_id: id, position: [0.0, 0.0, 0.0], direction: [0.0, 0.0, -1.0], selected };
                             if crate::bim_bcf_viewpoints::validate_viewpoint(&v).is_ok() { state.issue_viewpoints.push(v); }
