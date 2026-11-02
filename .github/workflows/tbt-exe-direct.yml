@@ -1,0 +1,69 @@
+name: TBT CAD360 Direct EXE Build
+
+on:
+  push:
+    branches:
+      - feature/bim-issue-audit
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-exe:
+    name: TBT CAD360 Windows Setup
+    runs-on: windows-latest
+    timeout-minutes: 120
+    defaults:
+      run:
+        working-directory: SOURCE_CAD_R65
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.95.0'
+          targets: x86_64-pc-windows-msvc
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: SOURCE_CAD_R65
+      - name: Build CAD360 native release
+        run: cargo build --release --locked -p cadcraft -p cadcraft-cli
+      - name: Verify native binaries
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          foreach ($bin in @('cadcraft.exe', 'cadcraft-cli.exe')) {
+            $file = "target/release/$bin"
+            if (!(Test-Path $file)) { throw "Missing $file" }
+            if ((Get-Item $file).Length -lt 100000) { throw "Incomplete $file" }
+          }
+      - name: Install Inno Setup
+        shell: pwsh
+        run: |
+          $iscc = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6/ISCC.exe'
+          if (!(Test-Path $iscc)) {
+            choco install innosetup --yes --no-progress
+            if ($LASTEXITCODE -ne 0) { throw 'Could not install Inno Setup' }
+          }
+          if (!(Test-Path $iscc)) { throw 'ISCC.exe missing' }
+      - name: Compile TBT installer
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $iscc = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6/ISCC.exe'
+          & $iscc '/Qp' '../installer/CAD360_TBT_Windows.iss'
+          if ($LASTEXITCODE -ne 0) { throw 'Installer compilation failed' }
+          $setup = '../dist/CAD360_VietNam_TBT_Setup.exe'
+          if (!(Test-Path $setup)) { throw 'Setup EXE was not generated' }
+          if ((Get-Item $setup).Length -lt 100000) { throw 'Setup EXE too small' }
+          $hash = (Get-FileHash -Algorithm SHA256 -Path $setup).Hash.ToLowerInvariant()
+          "$hash  CAD360_VietNam_TBT_Setup.exe" | Set-Content -Encoding ascii '../dist/SHA256SUMS.txt'
+      - name: Upload TBT Windows installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: CAD360-VietNam-TBT-Setup-x64
+          path: |
+            dist/CAD360_VietNam_TBT_Setup.exe
+            dist/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 30
