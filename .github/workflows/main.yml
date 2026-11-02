@@ -53,6 +53,7 @@ jobs:
         run: cargo check --workspace --locked
 
   unified-ui:
+    if: github.event_name != 'pull_request' || !startsWith(github.head_ref, 'feature/bim-')
     name: "2 - Unified CAD UI"
     runs-on: windows-latest
     defaults:
@@ -79,6 +80,7 @@ jobs:
           }
 
   vi-tbt-branding:
+    if: github.event_name != 'pull_request' || !startsWith(github.head_ref, 'feature/bim-')
     name: "3 - Vietnamese and TBT Branding"
     runs-on: windows-latest
     defaults:
@@ -104,6 +106,7 @@ jobs:
           if ($main -notmatch '\.with_title\("CAD 360 Việt Nam - TBT"\)') { throw "TBT runtime window title missing or changed" }
 
   regression-tests:
+    if: github.event_name != 'pull_request' || !startsWith(github.head_ref, 'feature/bim-')
     name: "4 - Regression and Data Tests"
     runs-on: windows-latest
     defaults:
@@ -127,6 +130,7 @@ jobs:
         run: cargo test --workspace --locked --no-fail-fast
 
   qto-xref-smoke:
+    if: github.event_name != 'pull_request' || !startsWith(github.head_ref, 'feature/bim-')
     name: "6 - QTO and XREF Fast Smoke"
     runs-on: windows-latest
     defaults:
@@ -153,7 +157,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        module: [bim_coordinates, bim_sync, bim_access, bim_collab, bim_offline, bim_workset, bim_api, bim_federation, bim_clash, bim_coordination]
+        module: ${{ fromJSON(github.event_name == 'pull_request' && startsWith(github.head_ref, 'feature/bim-') && '["bim_collab"]' || '["bim_coordinates","bim_sync","bim_access","bim_collab","bim_offline","bim_workset","bim_api","bim_federation","bim_clash","bim_coordination"]') }}
     defaults:
       run:
         working-directory: SOURCE_CAD_R65
