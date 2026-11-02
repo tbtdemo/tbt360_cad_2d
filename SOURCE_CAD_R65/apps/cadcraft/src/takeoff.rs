@@ -1362,6 +1362,22 @@ mod tests {
     use cadcraft_doc::geom::PolyVertex;
     use cadcraft_doc::geom::Vec2;
 
+    #[test]
+    fn qto_rejects_nan_and_infinite_measurement_coordinates() {
+        let mut state = State::default();
+        assert!(state.add_measurement(MeasureKind::Length, vec![[f64::NAN, 0.0]], 1.0, "L".into()).is_err());
+        assert!(state.add_measurement(MeasureKind::Area, vec![[0.0, f64::INFINITY]], 1.0, "L".into()).is_err());
+        assert!(state.records.is_empty());
+        assert!(state.undo.is_empty());
+    }
+
+    #[test]
+    fn qto_rejects_overflowed_calibration_without_changing_scale() {
+        let mut state = State::default();
+        assert!(state.calibrate_two_points([-1.0e308, 0.0], [1.0e308, 0.0], 10.0).is_err());
+        assert!(state.scale_to_m().is_none());
+    }
+
     fn block_member_fixture()->(cadcraft_doc::Drawing,cadcraft_doc::Handle,cadcraft_doc::Handle) {
         let mut d=cadcraft_doc::Drawing::new_metric();
         let member=cadcraft_doc::Handle(0x20);
