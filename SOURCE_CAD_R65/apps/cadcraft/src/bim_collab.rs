@@ -1648,7 +1648,7 @@ pub fn panel(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut 
                         let is_open = issue.status != IssueStatus::Closed;
                         if ui.add_enabled(is_open, egui::Button::new("Gửi bình luận")).clicked() {
                             let seq = state.issue_comments.iter().map(|item| item.sequence).max().unwrap_or(0).saturating_add(1);
-                            match crate::bim_rfi_comments::post_comment(id, &state.current_account_id, &draft, seq) {
+                            match crate::bim_rfi_comments::post_comment_to_issue(true, issue.status == IssueStatus::Closed, id, &state.current_account_id, &draft, seq) {
                                 Ok(comment) => { state.issue_comments.push(comment); draft.clear(); }
                                 Err(message) => { ui.colored_label(egui::Color32::LIGHT_RED, format!("Không gửi được bình luận: {message}")); }
                             }
