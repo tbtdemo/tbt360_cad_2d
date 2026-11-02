@@ -253,6 +253,7 @@ pub fn select_window(d: &Drawing, space: &Space, bx: Bounds2, crossing: bool) ->
 }
 
 pub(crate) fn select_window_with(d: &Drawing, space: &Space, ix: &Option<std::sync::Arc<SpatialIndex>>, bx: Bounds2, crossing: bool) -> Vec<Handle> {
+    if ![bx.min.x, bx.min.y, bx.max.x, bx.max.y].iter().all(|v| v.is_finite()) { return Vec::new(); }
     let Some(cands) = candidates(d, space, ix, &bx, crossing, false) else { return Vec::new() };
     let tol = window_tol(&bx);
     cands.filter(|(e, known)| selectable(d, e) && in_window(d, e, *known, &bx, crossing, tol)).map(|(e, _)| e.handle).collect()
@@ -494,6 +495,16 @@ mod tests {
         for point in [Vec2::new(f64::NAN, 0.0), Vec2::new(0.0, f64::INFINITY)] {
             assert_eq!(pick(&d, &Space::Model, point, 0.2), None);
             assert!(pick_all(&d, &Space::Model, point, 0.2).is_empty());
+        }
+    }
+
+    #[test]
+    fn invalid_window_bounds_do_not_select_or_panic() {
+        let mut d = Drawing::new_metric();
+        d.add(&Space::Model, Common::default(), EntityKind::Line(cadcraft_doc::Line { a: Vec3::new(0.0, 0.0, 0.0), b: Vec3::new(10.0, 0.0, 0.0) })).unwrap();
+        for invalid in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            let bx = Bounds2::new(Vec2::new(invalid, -1.0), Vec2::new(11.0, 1.0));
+            assert!(select_window(&d, &Space::Model, bx, false).is_empty());
         }
     }
 
