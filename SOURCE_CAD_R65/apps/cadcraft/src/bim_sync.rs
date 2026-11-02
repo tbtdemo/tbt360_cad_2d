@@ -247,12 +247,14 @@ impl CollaborationTransport for MemoryTransport {
 
     fn update_presence(&mut self, project_id: &str, presence: &PresenceDto) -> Result<(), String> {
         self.bind_project(project_id)?;
+        if presence.account_id.trim().is_empty() || presence.floor_id.trim().is_empty() || presence.discipline.trim().is_empty() { return Err("Incomplete presence identity or scope".into()); }
         self.presences.insert(presence.account_id.clone(), presence.clone());
         Ok(())
     }
 
     fn acquire_lease(&mut self, project_id: &str, source_handle: &str, _revision: u64) -> Result<LeaseResult, String> {
         self.bind_project(project_id)?;
+        if source_handle.trim().is_empty() { return Err("Lease object handle missing".into()); }
         match self.leases.get(source_handle) {
             Some(owner) => Ok(LeaseResult { granted: false, owner_account_id: Some(owner.clone()), expires_unix_ms: None }),
             None => {
