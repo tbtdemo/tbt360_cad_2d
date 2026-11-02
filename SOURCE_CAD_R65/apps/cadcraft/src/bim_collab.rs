@@ -2369,6 +2369,16 @@ mod tests {
     }
 
     #[test]
+    fn bcf_viewpoint_orphan_is_rejected_and_reported() {
+        let mut saved = State::default().snapshot_json();
+        saved["issue_viewpoints"] = serde_json::json!([{"issue_id": 9999, "position": [0.0, 0.0, 1.0], "direction": [0.0, 0.0, -1.0], "selected": []}]);
+        let mut state = State::default();
+        state.load_snapshot_json(&saved).unwrap();
+        assert!(state.issue_viewpoints.is_empty());
+        assert!(state.audit_log.iter().any(|entry| entry.action == "WORKSPACE_DATA_REJECTED" && entry.detail.contains("issue_viewpoints")));
+    }
+
+    #[test]
     fn collaboration_workspace_has_five_business_tabs() {
         assert_eq!(CollaborationTab::ALL.len(), 5);
         assert_eq!(CollaborationTab::Issues.title(), "ISSUE / CLASH");
