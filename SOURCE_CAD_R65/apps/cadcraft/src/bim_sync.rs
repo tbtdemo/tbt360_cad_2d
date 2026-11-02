@@ -329,8 +329,8 @@ mod tests {
     fn non_increasing_object_revision_is_rejected() {
         let mut transport = MemoryTransport::default();
         transport.object_revisions.insert("A".into(), 3);
-        let result = transport.push_changes("p1", &[change(8, "A", 3, 3)]).unwrap();
-        assert!(result.accepted_change_set_ids.is_empty());
+        let result = transport.push_changes("p1", &[change(8, "A", 3, 3)]);
+        assert!(result.is_err());
         assert_eq!(transport.object_revisions["A"], 3);
         assert_eq!(transport.project_revision, 0);
     }
