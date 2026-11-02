@@ -101,8 +101,9 @@ pub fn validate_levels(levels: &[Level]) -> Result<(), String> {
             return Err(format!("Level {} có cao độ/chiều cao không hợp lệ", l.code));
         }
     }
-    let mut sorted = levels.to_vec();
-    sorted.sort_by(|a,b| a.elevation_m.total_cmp(&b.elevation_m));
+    // Group by building first: a level from another building must never hide an overlap.
+    let mut sorted = levels.iter().collect::<Vec<_>>();
+    sorted.sort_by(|a,b| a.building_id.cmp(&b.building_id).then_with(|| a.elevation_m.total_cmp(&b.elevation_m)));
     for pair in sorted.windows(2) {
         if pair[0].building_id == pair[1].building_id && pair[1].elevation_m < pair[0].elevation_m + pair[0].height_m - 1e-9 {
             return Err(format!("Level {} chồng cao độ với {}", pair[0].code, pair[1].code));
@@ -146,4 +147,33 @@ mod tests {
         assert!((p.y - 6.0).abs() < 1e-10);
         assert!((p.z - 15.0).abs() < 1e-10);
     }
+    #[test]
+    fn overlapping_levels_in_same_building_are_detected_even_with_interleaved_buildings() {
+        let level = |building: &str, code: &str, elevation: f64, height: f64| Level {
+            id: code.into(), building_id: building.into(), zone_id: None, code: code.into(),
+            name: code.into(), elevation_m: elevation, height_m: height,
+        };
+        // In elevation-only order: A0, B1, A2. Previous adjacent-window logic missed A0/A2.
+        let levels = vec![level("A", "A0", 0.0, 3.0), level("B", "B1", 1.0, 3.0), level("A", "A2", 2.0, 3.0)];
+        assert!(validate_levels(&levels).is_err());
+    }
+
+    #[test]
+    fn overlapping_elevations_in_different_buildings_are_allowed() {
+        let levels = vec![
+            Level { id: "1".into(), building_id: "A".into(), zone_id: None, code: "L1".into(), name: "L1".into(), elevation_m: 0.0, height_m: 3.0 },
+            Level { id: "2".into(), building_id: "B".into(), zone_id: None, code: "L1".into(), name: "L1".into(), elevation_m: 0.0, height_m: 3.0 },
+        ];
+        assert!(validate_levels(&levels).is_ok());
+    }
+
+    #[test]
+    fn touching_levels_in_one_building_are_allowed() {
+        let levels = vec![
+            Level { id: "1".into(), building_id: "A".into(), zone_id: None, code: "L1".into(), name: "L1".into(), elevation_m: 0.0, height_m: 3.0 },
+            Level { id: "2".into(), building_id: "A".into(), zone_id: None, code: "L2".into(), name: "L2".into(), elevation_m: 3.0, height_m: 3.0 },
+        ];
+        assert!(validate_levels(&levels).is_ok());
+    }
+
 }
