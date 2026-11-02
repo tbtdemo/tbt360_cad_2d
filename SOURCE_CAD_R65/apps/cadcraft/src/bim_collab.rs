@@ -1641,9 +1641,9 @@ pub fn panel(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut 
                         ui.add(egui::TextEdit::multiline(&mut draft).desired_rows(2).hint_text("Nhập nội dung trao đổi..."));
                         if ui.button("Gửi bình luận").clicked() {
                             let seq = state.issue_comments.iter().map(|item| item.sequence).max().unwrap_or(0).saturating_add(1);
-                            if let Ok(comment) = crate::bim_rfi_comments::post_comment(id, &state.current_account_id, &draft, seq) {
-                                state.issue_comments.push(comment);
-                                draft.clear();
+                            match crate::bim_rfi_comments::post_comment(id, &state.current_account_id, &draft, seq) {
+                                Ok(comment) => { state.issue_comments.push(comment); draft.clear(); }
+                                Err(message) => { ui.colored_label(egui::Color32::LIGHT_RED, format!("Không gửi được bình luận: {message}")); }
                             }
                         }
                         ui.ctx().data_mut(|data| data.insert_temp(input_id, draft));
