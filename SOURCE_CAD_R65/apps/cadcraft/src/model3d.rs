@@ -13,6 +13,8 @@ pub struct State {
     yaw: f32,
     pitch: f32,
     zoom: f32,
+    wireframe: bool,
+    show_points: bool,
     conversion: Option<std::sync::mpsc::Receiver<Result<crate::ifc_mesh::Mesh, String>>>,
 }
 
@@ -66,12 +68,12 @@ impl State {
 pub fn panel(ui: &mut egui::Ui, state: &mut State) {
     ui.horizontal_wrapped(|ui| {
         ui.heading("3D / IFC");
-        if ui.button("Mở tệp IFC...").clicked() {
+        if ui.add_enabled(state.conversion.is_none(), egui::Button::new("Mở tệp IFC...")).clicked() {
             if let Some(path) = rfd::FileDialog::new().add_filter("Industry Foundation Classes", &["ifc"]).pick_file() {
                 if let Err(error) = state.open(path) { state.error = Some(error); }
             }
         }
-        if ui.button("Nạp mesh OBJ...").clicked() {
+        if ui.add_enabled(state.conversion.is_none(), egui::Button::new("Nạp mesh OBJ...")).clicked() {
             if let Some(path) = rfd::FileDialog::new().add_filter("Wavefront OBJ", &["obj"]).pick_file() {
                 match crate::ifc_mesh::Mesh::read(&path) {
                     Ok(mesh) => { state.mesh = Some(mesh); state.mesh_error = None; }
@@ -106,6 +108,8 @@ pub fn panel(ui: &mut egui::Ui, state: &mut State) {
                 }
             }
         }
+        ui.checkbox(&mut state.wireframe, "Khung dây");
+        ui.checkbox(&mut state.show_points, "Hiển thị đỉnh");
         if ui.button("Đặt lại góc nhìn").clicked() { state.yaw = 0.5; state.pitch = 0.35; state.zoom = 1.0; }
     });
     if let Some(receiver) = &state.conversion {
@@ -173,8 +177,13 @@ pub fn panel(ui: &mut egui::Ui, state: &mut State) {
                 let a = project(&mesh.vertices[triangle[0]]);
                 let b = project(&mesh.vertices[triangle[1]]);
                 let c = project(&mesh.vertices[triangle[2]]);
-                painter.add(egui::Shape::convex_polygon(vec![a, b, c], egui::Color32::from_rgba_unmultiplied(52, 120, 165, 90), egui::Stroke::new(0.5, egui::Color32::from_rgb(105, 185, 230))));
+                if state.wireframe {
+                    for (u, v) in [(a, b), (b, c), (c, a)] { painter.line_segment([u, v], egui::Stroke::new(0.7, egui::Color32::from_rgb(130, 195, 240))); }
+                } else {
+                    painter.add(egui::Shape::convex_polygon(vec![a, b, c], egui::Color32::from_rgba_unmultiplied(52, 120, 165, 90), egui::Stroke::new(0.5, egui::Color32::from_rgb(105, 185, 230))));
+                }
             }
+            if state.show_points { for p in displayed.iter().take(20_000) { let pos = project(p); if rect.contains(pos) { painter.circle_filled(pos, 1.0, egui::Color32::from_rgb(245, 205, 110)); } } }
         } else {
             for p in displayed { let pos = project(p); if rect.contains(pos) { painter.circle_filled(pos, 1.3, egui::Color32::from_rgb(90, 194, 245)); } }
         }
