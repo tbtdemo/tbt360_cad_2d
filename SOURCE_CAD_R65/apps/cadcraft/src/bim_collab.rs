@@ -1479,6 +1479,12 @@ fn issue_matches_filters(issue: &CoordinationIssue, query: &str, status: u8, pri
     needle.is_empty() || [format!("#{:04}", issue.id), issue.issue_type.clone(), issue.description.clone(), issue.assigned_to.clone(), issue.target_discipline.label().into()].iter().any(|v| v.to_lowercase().contains(&needle))
 }
 
+fn issue_audit_entries<'a>(entries: &'a [AuditEntry], issue_id: u64) -> Vec<&'a AuditEntry> {
+    let prefix = format!("Issue #{issue_id}:");
+    let closed = format!("Issue #{issue_id} confirmed ");
+    entries.iter().filter(|entry| (entry.action == "ISSUE_UPDATED" && entry.detail.starts_with(&prefix)) || (entry.action == "ISSUE_CONFIRMED_CLOSED" && entry.detail.starts_with(&closed))).collect()
+}
+
 pub fn panel(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut State) {
     let tab_id = egui::Id::new("tbt360_bim_collaboration_active_tab");
     let mut tab = ui.ctx().data_mut(|data| data.get_temp::<u8>(tab_id).unwrap_or(2));
@@ -1623,6 +1629,14 @@ pub fn panel(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut 
                     ui.label(format!("SLA: {}", issue_due_label(issue, &today)));
                     ui.label(format!("Loại: {} • Ưu tiên: {} • Hạn xử lý: {}", issue.issue_type, issue.priority, if issue.due_at.is_empty() { "Chưa đặt" } else { &issue.due_at }));
                     if let Some(reviewer) = &issue.confirmed_by { ui.label(format!("Xác nhận đóng bởi: {reviewer}")); }
+                    ui.collapsing("LỊCH SỬ THAY ĐỔI ISSUE", |ui| {
+                        let history = issue_audit_entries(&state.audit_log, issue.id);
+                        if history.is_empty() { ui.label("Chưa có lịch sử chỉnh sửa cho Issue này"); }
+                        egui::ScrollArea::vertical().max_height(200.0).show(ui, |ui| {
+                            for entry in history.iter().rev() { ui.label(format!("#{} • {} • {}", entry.sequence, entry.account_id, entry.detail)); }
+                        });
+                    });
+
                     if let Some(handle) = issue.handle {
                         if ui.button(format!("Chọn đối tượng CAD {}", handle.hex())).clicked() { app.session.set_selection(vec![handle]); }
                     }
