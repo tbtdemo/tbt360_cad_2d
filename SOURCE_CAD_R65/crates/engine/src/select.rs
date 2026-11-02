@@ -188,7 +188,7 @@ pub fn pick(d: &Drawing, space: &Space, p: Vec2, aperture: f64) -> Option<Handle
 }
 
 pub(crate) fn pick_with(d: &Drawing, space: &Space, ix: &Option<std::sync::Arc<SpatialIndex>>, p: Vec2, aperture: f64) -> Option<Handle> {
-    if !p.x.is_finite() || !p.y.is_finite() || !aperture.is_finite() || aperture <= 0.0 { return None; }
+    if !valid_pick_input(p, aperture) { return None; }
     let probe = Bounds2::new(p, p).expand(aperture);
     let mut best: Option<(f64, Handle)> = None;
     for (e, known) in candidates(d, space, ix, &probe.expand(aperture), true, true)? {
@@ -210,10 +210,16 @@ pub(crate) fn pick_with(d: &Drawing, space: &Space, ix: &Option<std::sync::Arc<S
     best.map(|(_, h)| h)
 }
 
+fn valid_pick_input(p: Vec2, aperture: f64) -> bool {
+    p.x.is_finite() && p.y.is_finite() && aperture.is_finite() && aperture > 0.0 &&
+    (p.x - aperture).is_finite() && (p.x + aperture).is_finite() &&
+    (p.y - aperture).is_finite() && (p.y + aperture).is_finite()
+}
+
 /// Every entity within `aperture` of `p`, nearest first and topmost among equals (so the first is
 /// what [`pick`] chooses): the objects selection cycling lists.
 pub fn pick_all(d: &Drawing, space: &Space, p: Vec2, aperture: f64) -> Vec<Handle> {
-    if !p.x.is_finite() || !p.y.is_finite() || !aperture.is_finite() || aperture <= 0.0 { return Vec::new(); }
+    if !valid_pick_input(p, aperture) { return Vec::new(); }
     let ix = spatial::index(d, space);
     let probe = Bounds2::new(p, p).expand(aperture);
     let Some(cands) = candidates(d, space, &ix, &probe.expand(aperture), true, true) else { return Vec::new() };
