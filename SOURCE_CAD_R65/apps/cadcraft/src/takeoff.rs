@@ -207,6 +207,7 @@ impl State {
         };
         let (scope,revision)=scope_from_entity_or_active(app,root,active_scope);
         let signature=geometry_signature(&current);
+        if self.records.iter().any(|r| r.source_path.as_ref() == Some(&path) && r.kind == current.kind && r.source_geometry_signature.as_deref() == Some(signature.as_str())) { return Err("Phép đo Block/Array này đã tồn tại trong QTO".into()); }
         if self.next_audit_sequence.max(1).checked_add(3).is_none() { return Err("Không đủ ID nhật ký QTO cho block CAD".into()); }
         let id=self.add_measurement_scoped(current.kind,current.points,current.raw_value,current.layer,&scope)?;
         if let Some(record)=self.records.iter_mut().find(|r|r.id==id) {
