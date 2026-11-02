@@ -1554,6 +1554,18 @@ mod tests {
         assert_eq!(state.records.len(), 1);
     }
 
+    #[test]
+    fn qto_detail_csv_exports_vietnamese_metadata_and_converted_quantity() {
+        let mut state = State::default();
+        let id = state.add_measurement(MeasureKind::Length, vec![[0.0, 0.0], [5.0, 0.0]], 5.0, "A-WALL".into()).unwrap();
+        state.edit_metadata(id, "Kết cấu".into(), "BT.001".into(), "Dầm tầng 2".into(), "Ghi chú".into());
+        let csv = qto_detail_csv(&state, &SourceValidation::default(), 2.0, 4.0, "m", "m²");
+        assert!(csv.contains("BT.001"));
+        assert!(csv.contains("Dầm tầng 2"));
+        assert!(csv.contains("10.000000"));
+        assert_eq!(csv.lines().count(), 2);
+    }
+
     fn block_member_fixture()->(cadcraft_doc::Drawing,cadcraft_doc::Handle,cadcraft_doc::Handle) {
         let mut d=cadcraft_doc::Drawing::new_metric();
         let member=cadcraft_doc::Handle(0x20);
