@@ -222,7 +222,8 @@ pub fn panel(ui: &mut egui::Ui, state: &mut State) {
     }
     let painter = ui.painter_at(rect).with_clip_rect(rect);
     painter.rect_filled(rect, 4.0, egui::Color32::from_rgb(18, 25, 35));
-    let displayed: &[[f32; 3]] = state.mesh.as_ref().map(|m| m.vertices.as_slice()).unwrap_or(&state.points);
+    let has_ifc_filter = !state.global_id_filter.is_empty() || !state.storey_filter.is_empty() || !state.discipline_filter.is_empty();
+    let displayed: &[[f32; 3]] = state.mesh.as_ref().map(|m| m.vertices.as_slice()).unwrap_or_else(|| if has_ifc_filter { &[] } else { &state.points });
     if !displayed.is_empty() {
         let mut lo = [f32::INFINITY; 3];
         let mut hi = [f32::NEG_INFINITY; 3];
@@ -272,7 +273,7 @@ pub fn panel(ui: &mut egui::Ui, state: &mut State) {
             for p in displayed { let pos = project(p); if rect.contains(pos) { painter.circle_filled(pos, 1.3, egui::Color32::from_rgb(90, 194, 245)); } }
         }
     } else {
-        painter.text(rect.center(), egui::Align2::CENTER_CENTER, "Không tìm thấy IFCCARTESIANPOINT 3D trong tệp", egui::FontId::proportional(14.0), egui::Color32::LIGHT_GRAY);
+        painter.text(rect.center(), egui::Align2::CENTER_CENTER, if has_ifc_filter && state.mesh.is_none() { "Cần nạp mesh có ánh xạ IFC trước khi lọc cấu kiện" } else { "Không tìm thấy IFCCARTESIANPOINT 3D trong tệp" }, egui::FontId::proportional(14.0), egui::Color32::LIGHT_GRAY);
     }
     if let (Some(mesh), Some(index)) = (&state.mesh, state.selected_triangle) { if let Some(face) = mesh.faces.get(index) { let group = mesh.face_groups.get(index).and_then(|id| mesh.groups.get(*id)).map(String::as_str).unwrap_or("Mặc định"); ui.label(format!("Đã chọn mặt #{} • nhóm OBJ: {} • đỉnh {:?}", index + 1, group, face)); if let Some(info) = state.catalog.get(group) { ui.label(format!("IFC GlobalId: {} • {} • {} • {}", info.global_id, info.ifc_type, info.storey, info.discipline)); } else { ui.small("Nhóm OBJ chưa có ánh xạ IFC GlobalId đã xác minh."); } } }
     if state.mesh.is_some() {
