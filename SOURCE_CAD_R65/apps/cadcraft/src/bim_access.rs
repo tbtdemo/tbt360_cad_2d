@@ -41,6 +41,7 @@ fn matches(expected: &Option<String>, actual: &Option<String>) -> bool {
 }
 
 pub fn authorize(principal: &Principal, scope: &Scope, grants: &[Grant], edit: bool, publish: bool) -> bool {
+    if principal.account_id.trim().is_empty() || scope.project_id.trim().is_empty() { return false; }
     if principal.role == ProjectRole::Owner { return true; }
     if principal.role == ProjectRole::Viewer && (edit || publish) { return false; }
     let relevant = |g: &&Grant| {
@@ -105,6 +106,16 @@ mod tests {
         assert!(authorize(&principal, &scope, &[allow, deny], true, false));
         scope.project_id = "OTHER".into();
         assert!(!authorize(&principal, &scope, &[], true, false));
+    }
+
+    #[test]
+    fn owner_cannot_bypass_missing_identity_or_project_scope() {
+        let principal = Principal { account_id: " ".into(), role: ProjectRole::Owner };
+        let scope = Scope { project_id: "P".into(), building_id: None, zone_id: None, floor_id: None, discipline: None, workset_id: None, owner_account_id: None };
+        assert!(!authorize(&principal, &scope, &[], true, true));
+        let valid = Principal { account_id: "owner".into(), role: ProjectRole::Owner };
+        let empty_scope = Scope { project_id: " ".into(), ..scope };
+        assert!(!authorize(&valid, &empty_scope, &[], true, true));
     }
 
 }
