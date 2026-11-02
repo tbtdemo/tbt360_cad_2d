@@ -2334,6 +2334,19 @@ mod tests {
     }
 
     #[test]
+    fn issue_viewpoints_persist_on_workspace_reload() {
+        let mut state = State::default();
+        state.create_issue_from_selection(None, Discipline::Structure);
+        let id = state.issues.last().unwrap().id;
+        state.issue_viewpoints.push(crate::bim_bcf_viewpoints::Viewpoint { issue_id: id, position: [0.0, 1.0, 2.0], direction: [0.0, 0.0, -1.0], selected: vec!["A10".into()] });
+        let saved = state.snapshot_json();
+        let mut reopened = State::default();
+        reopened.load_snapshot_json(&saved).unwrap();
+        assert_eq!(reopened.issue_viewpoints.len(), 1);
+        assert_eq!(reopened.issue_viewpoints[0].issue_id, id);
+    }
+
+    #[test]
     fn collaboration_workspace_has_five_business_tabs() {
         assert_eq!(CollaborationTab::ALL.len(), 5);
         assert_eq!(CollaborationTab::Issues.title(), "ISSUE / CLASH");
