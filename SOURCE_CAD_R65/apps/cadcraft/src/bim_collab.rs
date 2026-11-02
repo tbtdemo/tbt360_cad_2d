@@ -1006,7 +1006,14 @@ impl State {
                 self.audit("CONFLICT_ACCEPT_THEIRS", Some(self.active_floor_id), Some(self.active_discipline), Some(handle), format!("Accepted remote revision {}", conflict.remote_revision));
             }
             ConflictResolution::DuplicateMine => {
-                self.audit("CONFLICT_DUPLICATE_MINE", Some(self.active_floor_id), Some(self.active_discipline), Some(handle), "Geometry duplication requires CAD clone command integration");
+                self.audit(
+                    "CONFLICT_DUPLICATE_UNAVAILABLE",
+                    Some(self.active_floor_id),
+                    Some(self.active_discipline),
+                    Some(handle),
+                    "Cần tích hợp lệnh nhân bản CAD trước khi giải quyết xung đột này",
+                );
+                return;
             }
         }
         self.conflicts.retain(|c| c.handle != handle);
@@ -1016,29 +1023,48 @@ impl State {
     fn sync_pending_changes(&mut self) {
         self.conflicts.clear();
         let mut accepted = Vec::new();
+
         for change in &self.pending_changes {
-            if change.synced { continue; }
-            let mut change_conflicts = false;
-            for item in &change.items {
-                let remote = self.remote_revision(item.handle);
-                if let Some(conflict) = detect_conflict(item, remote) {
-                    self.conflicts.push(conflict);
-                    change_conflicts = true;
-                } else {
-                    accepted.push((change.id, item.handle, item.local_revision));
-                }
-            }
-            if change_conflicts {
+            if change.synced {
                 continue;
             }
+
+            let mut change_conflicts = Vec::new();
+            let mut staged_revisions = Vec::new();
+
+            for item in &change.items {
+                let remote_revision = self.remote_revision(item.handle);
+
+                if let Some(conflict) = detect_conflict(item, remote_revision) {
+                    change_conflicts.push(conflict);
+                } else {
+                    staged_revisions.push((item.handle, item.local_revision));
+                }
+            }
+
+            if !change_conflicts.is_empty() {
+                self.conflicts.extend(change_conflicts);
+                continue;
+            }
+
+            accepted.push((change.id, staged_revisions));
         }
-        for (change_id, handle, revision) in accepted {
-            self.set_remote_revision(handle, revision);
-            if let Some(change) = self.pending_changes.iter_mut().find(|c| c.id == change_id) {
+
+        for (change_id, revisions) in accepted {
+            for (handle, revision) in revisions {
+                self.set_remote_revision(handle, revision);
+            }
+
+            if let Some(change) = self.pending_changes.iter_mut().find(|change| change.id == change_id) {
                 change.synced = true;
             }
         }
-        self.dirty_local_changes = self.pending_changes.iter().filter(|c| !c.synced).map(|c| c.items.len()).sum();
+
+        self.dirty_local_changes = self.pending_changes
+            .iter()
+            .filter(|change| !change.synced)
+            .map(|change| change.items.len())
+            .sum();
     }
 
     fn snapshot_json(&self) -> serde_json::Value {
