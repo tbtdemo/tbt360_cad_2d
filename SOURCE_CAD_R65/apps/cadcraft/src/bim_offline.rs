@@ -76,6 +76,7 @@ impl OfflineSyncState {
 
     pub fn retry_delay_seconds(&self, local_sequence: u64) -> Option<u64> {
         let item = self.queue.iter().find(|i| i.local_sequence == local_sequence)?;
+        if !matches!(item.state, QueueState::Local | QueueState::Pending) { return None; }
         Some((1u64 << item.retry_count.min(6)).min(60))
     }
 
@@ -219,6 +220,19 @@ mod tests {
         assert!(!s.mark_pulled(21));
         assert_eq!(s.checkpoint.last_pulled_revision, 15);
         assert!(s.mark_pulled(20));
+    }
+
+    #[test]
+    fn completed_or_conflicted_entries_do_not_receive_retry_schedules() {
+        let mut s = OfflineSyncState::default();
+        let done = s.enqueue("done".into());
+        let blocked = s.enqueue("blocked".into());
+        s.acknowledge_synced(done, 1);
+        s.mark_conflict(blocked, "revision mismatch".into());
+        assert_eq!(s.retry_delay_seconds(done), None);
+        assert_eq!(s.retry_delay_seconds(blocked), None);
+        assert!(s.resolve_conflict_for_retry(blocked));
+        assert_eq!(s.retry_delay_seconds(blocked), Some(1));
     }
 
 }
