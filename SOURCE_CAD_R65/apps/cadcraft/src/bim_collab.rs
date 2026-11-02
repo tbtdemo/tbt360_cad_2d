@@ -858,9 +858,12 @@ impl State {
     fn confirm_close_issue(&mut self, id: u64) -> Result<(), String> {
         let account = self.current_account_id.trim().to_string();
         if account.is_empty() { return Err("Cần đăng nhập trước khi xác nhận đóng Issue".into()); }
+        let (floor_id, discipline) = self.issues.iter().find(|item| item.id == id).map(|item| (item.floor_id, item.source_discipline)).ok_or_else(|| "Không tìm thấy Issue".to_string())?;
+        if !self.users.iter().any(|u| u.account_id == account && u.can_edit) || !self.has_scope_access(&account, floor_id, discipline, true) { return Err("Không có quyền xác nhận đóng Issue".into()); }
         let issue = self.issues.iter_mut().find(|item| item.id == id).ok_or_else(|| "Không tìm thấy Issue".to_string())?;
         if issue.status != IssueStatus::Resolved { return Err("Chỉ Issue đã xử lý mới được xác nhận đóng".into()); }
         if issue.assigned_to == account { return Err("Người xử lý không được tự xác nhận đóng Issue".into()); }
+        if !crate::bim_issue_workflow::can_transition(crate::bim_issue_workflow::Status::Resolved, crate::bim_issue_workflow::Status::Closed, &account, &issue.assigned_to) { return Err("Không đủ điều kiện duyệt đóng".into()); }
         if !issue.due_at.is_empty() && !issue_due_date_valid(&issue.due_at) { return Err("Hạn xử lý Issue không đúng định dạng YYYY-MM-DD".into()); }
         issue.status = IssueStatus::Closed;
         issue.confirmed_by = Some(account.clone());
@@ -2209,6 +2212,7 @@ mod tests {
     #[test]
     fn issue_close_requires_independent_confirmation_and_persists() {
         let mut state = State::default();
+        for account in ["reviewer", "coordinator"] { let mut user = state.users[0].clone(); user.account_id = account.into(); state.users.push(user); let mut rule = state.access_rules[0].clone(); rule.account_id = account.into(); state.access_rules.push(rule); }
         state.current_account_id = "reviewer".into();
         state.create_issue_from_selection(None, Discipline::Structure);
         let id = state.issues.last().unwrap().id;
@@ -2280,6 +2284,7 @@ mod tests {
     #[test]
     fn issue_close_rejects_invalid_due_date_without_changing_state() {
         let mut state = State::default();
+        for account in ["reviewer", "coordinator"] { let mut user = state.users[0].clone(); user.account_id = account.into(); state.users.push(user); let mut rule = state.access_rules[0].clone(); rule.account_id = account.into(); state.access_rules.push(rule); }
         state.create_issue_from_selection(None, Discipline::Structure);
         let id = state.issues.last().unwrap().id;
         let issue = state.issues.last_mut().unwrap();
