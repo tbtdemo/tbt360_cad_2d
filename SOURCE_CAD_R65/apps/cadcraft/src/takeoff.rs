@@ -1067,6 +1067,12 @@ fn quantities(app: &CadApp) -> BTreeMap<String, Quantity> {
     groups
 }
 
+fn csv_safe_cell(value: &str) -> String {
+    let clean = value.replace('\r', " ").replace('\n', " ");
+    let cell = if matches!(clean.chars().next(), Some('=' | '+' | '-' | '@' | '\t')) { format!("'{clean}") } else { clean };
+    format!("\"{}\"", cell.replace('"', "\"\""))
+}
+
 fn measurement_matches_filter(record: &MeasurementRecord, search: &str, status_filter: u8) -> bool {
     let status_ok = match status_filter { 1 => record.status == MeasureStatus::Review, 2 => record.status == MeasureStatus::Confirmed, 3 => record.status == MeasureStatus::Excluded, _ => true };
     if !status_ok { return false; }
@@ -1085,7 +1091,7 @@ fn qto_detail_csv(state: &State, source_validation: &SourceValidation, lf: f64, 
                 };
                 if !converted.is_finite() { continue; }
                 let unit = match record.kind { MeasureKind::Area => area_unit, MeasureKind::Length | MeasureKind::Perimeter => length_unit, MeasureKind::Count => "count" };
-                let esc = |v:&str| format!("\"{}\"", v.replace('"', "\"\""));
+                let esc = csv_safe_cell;
                 csv.push_str(&format!("{},{},{},{},{},{},{},{},{},{},{},{},{:.6},{:.6},{},{}\n",
                     record.id,
                     esc(record.source_handle.as_deref().unwrap_or("")),
@@ -1395,7 +1401,7 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
         if ui.button("Sao chép CSV tổng hợp nghiệp vụ").clicked() {
             let mut csv = String::from("work_group,work_code,layer,review_records,confirmed_records,excluded_records,length,perimeter,area,count,length_unit,area_unit\n");
             for ((work_group, work_code, layer), q) in &business_groups {
-                let esc = |v:&str| format!("\"{}\"", v.replace('"', "\"\""));
+                let esc = csv_safe_cell;
                 csv.push_str(&format!("{},{},{},{},{},{},{:.6},{:.6},{:.6},{:.6},{},{}\n",
                     esc(work_group), esc(work_code), esc(layer), q.review_records, q.confirmed_records, q.excluded_records,
                     q.length, q.perimeter, q.area, q.count, length_unit, area_unit));
