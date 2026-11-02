@@ -26,6 +26,60 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: SOURCE_CAD_R65
+      - name: Preflight real build environment and source inputs
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $report = Join-Path $env:GITHUB_WORKSPACE 'TBT_BUILD_PREFLIGHT.txt'
+          $checks = @(
+            'Cargo.toml',
+            'Cargo.lock',
+            'apps/cadcraft/Cargo.toml',
+            'apps/cadcraft/src/main.rs',
+            'apps/cadcraft-cli/Cargo.toml',
+            'crates/ui-egui/src/i18n/vi.tsv',
+            'assets/app-icon/tbt360.ico',
+            '../installer/CAD360_TBT_Windows.iss'
+          )
+          @(
+            "Commit: $env:GITHUB_SHA",
+            "OS: $([Environment]::OSVersion.VersionString)",
+            "Rust: $(rustc --version)",
+            "Cargo: $(cargo --version)",
+            "Workspace: $(Get-Location)"
+          ) | Set-Content $report
+          $missing = @()
+          foreach ($item in $checks) {
+            if (!(Test-Path $item -PathType Leaf)) {
+              $missing += $item
+              "MISSING: $item" | Add-Content $report
+            } else {
+              $size = (Get-Item $item).Length
+              "PRESENT: $item ($size bytes)" | Add-Content $report
+              if ($size -eq 0) { $missing += $item }
+            }
+          }
+          $tracked = @(git ls-files).Count
+          $rustFiles = @(git ls-files '*.rs').Count
+          $cargoFiles = @(git ls-files '*Cargo.toml').Count
+          "Tracked workspace files: $tracked" | Add-Content $report
+          "Rust files: $rustFiles" | Add-Content $report
+          "Cargo manifests: $cargoFiles" | Add-Content $report
+          if ($LASTEXITCODE -ne 0 -or $tracked -eq 0 -or $rustFiles -eq 0 -or $cargoFiles -eq 0) {
+            throw 'Repository checkout is empty or incomplete'
+          }
+          if ($missing.Count -gt 0) { throw "Missing or empty required files: $($missing -join ', ')" }
+          cargo metadata --locked --offline --no-deps --format-version 1 | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw 'Cargo manifest/lockfile verification failed' }
+          Get-Content $report | Write-Host
+      - name: Upload build preflight report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: TBT-Build-Preflight
+          path: TBT_BUILD_PREFLIGHT.txt
+          if-no-files-found: warn
+          retention-days: 30
       - name: Build CAD360 native release
         run: cargo build --release --locked -p cadcraft -p cadcraft-cli
       - name: Verify native binaries
