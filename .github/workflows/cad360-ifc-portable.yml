@@ -24,6 +24,10 @@ on:
       - 'installer/**'
       - '.github/workflows/cad360-ifc-portable.yml'
 
+concurrency:
+  group: cad360-ifc-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
