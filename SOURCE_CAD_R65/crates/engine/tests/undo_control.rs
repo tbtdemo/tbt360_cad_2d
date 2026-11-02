@@ -231,3 +231,21 @@ fn new_cad_edit_after_undo_discards_redo_without_losing_prior_geometry() {
     s.execute("redo", &json!({ "count": 2 })).unwrap();
     assert_eq!(circles(&s), base + 2);
 }
+
+#[test]
+fn grouped_geometry_undo_then_new_edit_keeps_group_atomic() {
+    let mut s = Session::new();
+    let base = circles(&s);
+    s.execute("undo", &json!({ "mode": "begin" })).unwrap();
+    for x in [1.0, 2.0, 3.0] { circle(&mut s, x); }
+    s.execute("undo", &json!({ "mode": "end" })).unwrap();
+    assert_eq!(circles(&s), base + 3);
+    s.execute("u", &json!({})).unwrap();
+    assert_eq!(circles(&s), base, "group undo removes all grouped entities");
+    circle(&mut s, 99.0);
+    assert_eq!(circles(&s), base + 1);
+    s.execute("u", &json!({})).unwrap();
+    assert_eq!(circles(&s), base, "new edit remains an individual undo step");
+    s.execute("redo", &json!({})).unwrap();
+    assert_eq!(circles(&s), base + 1);
+}
