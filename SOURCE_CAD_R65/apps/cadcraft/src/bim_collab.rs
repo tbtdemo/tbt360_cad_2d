@@ -3200,6 +3200,23 @@ mod tests {
     }
 
     #[test]
+    fn accept_remote_without_local_edit_keeps_conflict_open() {
+        let mut state = State::default();
+        let handle = cadcraft_doc::Handle(98001);
+        state.conflicts.push(SyncConflict {
+            handle,
+            base_revision: 1,
+            local_revision: 2,
+            remote_revision: 3,
+        });
+
+        state.resolve_conflict(handle, ConflictResolution::AcceptTheirs);
+
+        assert_eq!(state.conflicts.len(), 1);
+        assert_eq!(state.remote_revision(handle), 0);
+    }
+
+    #[test]
     fn accept_remote_does_not_remove_other_account_changes() {
         let mut state = State::default();
         let handle = cadcraft_doc::Handle(97001);
