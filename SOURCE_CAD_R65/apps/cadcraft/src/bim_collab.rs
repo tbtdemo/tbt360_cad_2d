@@ -2321,6 +2321,21 @@ mod tests {
     }
 
     #[test]
+    fn issue_audit_uses_exact_structured_id_after_workspace_roundtrip() {
+        let mut state = State::default();
+        state.audit("ISSUE_UPDATED", None, None, None, "Issue #10: ambiguous description");
+        state.audit_log.last_mut().unwrap().issue_id = Some(1);
+        state.audit("ISSUE_UPDATED", None, None, None, "Issue #1: misleading text");
+        state.audit_log.last_mut().unwrap().issue_id = Some(10);
+        let mut restored = State::default();
+        restored.load_snapshot_json(&state.snapshot_json()).unwrap();
+        let one = issue_audit_entries(&restored.audit_log, 1);
+        assert_eq!(one.len(), 1);
+        assert_eq!(one[0].issue_id, Some(1));
+        assert_eq!(issue_audit_entries(&restored.audit_log, 10).len(), 1);
+    }
+
+    #[test]
     fn collaboration_workspace_has_five_business_tabs() {
         assert_eq!(CollaborationTab::ALL.len(), 5);
         assert_eq!(CollaborationTab::Issues.title(), "ISSUE / CLASH");
