@@ -131,7 +131,7 @@ jobs:
         with:
           workspaces: SOURCE_CAD_R65
       - name: Compile native QTO and XREF tests
-        run: cargo test --locked --no-run -p cadcraft -p cadcraft-engine --test xref
+        run: cargo test --locked --no-run -p cadcraft-engine --test xref
       - name: Run direct measurement regressions
         run: cargo test --locked -p cadcraft takeoff::tests -- --nocapture
       - name: Run external reference regressions
