@@ -998,12 +998,24 @@ impl State {
             }
             ConflictResolution::AcceptTheirs => {
                 for change in &mut self.pending_changes {
-                    if change.items.iter().any(|i| i.handle == handle) {
+                    if change.synced {
+                        continue;
+                    }
+
+                    change.items.retain(|item| item.handle != handle);
+                    if change.items.is_empty() {
                         change.synced = true;
                     }
                 }
+
                 self.set_remote_revision(handle, conflict.remote_revision);
-                self.audit("CONFLICT_ACCEPT_THEIRS", Some(self.active_floor_id), Some(self.active_discipline), Some(handle), format!("Accepted remote revision {}", conflict.remote_revision));
+                self.audit(
+                    "CONFLICT_ACCEPT_THEIRS",
+                    Some(self.active_floor_id),
+                    Some(self.active_discipline),
+                    Some(handle),
+                    format!("Accepted remote revision {}", conflict.remote_revision),
+                );
             }
             ConflictResolution::DuplicateMine => {
                 self.audit(
@@ -2975,6 +2987,46 @@ mod tests {
         assert_eq!(state.remote_revision(second_handle), 2);
         assert_eq!(state.conflicts.len(), 1);
         assert_eq!(state.dirty_local_changes, 2);
+    }
+
+    #[test]
+    fn accept_remote_keeps_unrelated_pending_entities() {
+        let mut state = State::default();
+        let conflicted_handle = cadcraft_doc::Handle(91001);
+        let unaffected_handle = cadcraft_doc::Handle(91002);
+
+        state.pending_changes.push(ChangeSet {
+            id: 910,
+            account_id: state.current_account_id.clone(),
+            items: vec![
+                ChangeItem {
+                    handle: conflicted_handle,
+                    operation: ChangeOperation::Update,
+                    base_revision: 0,
+                    local_revision: 1,
+                },
+                ChangeItem {
+                    handle: unaffected_handle,
+                    operation: ChangeOperation::Update,
+                    base_revision: 0,
+                    local_revision: 1,
+                },
+            ],
+            synced: false,
+        });
+        state.conflicts.push(SyncConflict {
+            handle: conflicted_handle,
+            base_revision: 0,
+            local_revision: 1,
+            remote_revision: 2,
+        });
+
+        state.resolve_conflict(conflicted_handle, ConflictResolution::AcceptTheirs);
+
+        assert!(!state.pending_changes[0].synced);
+        assert_eq!(state.pending_changes[0].items.len(), 1);
+        assert_eq!(state.pending_changes[0].items[0].handle, unaffected_handle);
+        assert_eq!(state.dirty_local_changes, 1);
     }
 
     #[test]
