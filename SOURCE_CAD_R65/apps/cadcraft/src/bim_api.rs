@@ -221,4 +221,12 @@ mod tests {
         assert!(req.validate().is_err());
     }
 
+    #[test]
+    fn payload_validation_rejects_non_object_json() {
+        let mut request = PushChangeSetRequest { project_id:"P".into(), account_id:"u1".into(), device_id:"pc".into(), client_change_set_id:"payload-test".into(), base_project_revision:0, items:vec![ChangeItemDto { object_id:"o1".into(), source_handle:"A".into(), scope:scope(), operation:ChangeOperationDto::Update, base_revision:1, local_revision:2, payload_json:"[]".into() }] };
+        assert!(request.validate().is_err());
+        request.items[0].payload_json = "{}".into();
+        assert!(request.validate().is_ok());
+    }
+
 }
