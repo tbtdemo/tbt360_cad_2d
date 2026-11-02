@@ -259,7 +259,7 @@ pub fn select_window(d: &Drawing, space: &Space, bx: Bounds2, crossing: bool) ->
 }
 
 pub(crate) fn select_window_with(d: &Drawing, space: &Space, ix: &Option<std::sync::Arc<SpatialIndex>>, bx: Bounds2, crossing: bool) -> Vec<Handle> {
-    if ![bx.min.x, bx.min.y, bx.max.x, bx.max.y].iter().all(|v| v.is_finite()) { return Vec::new(); }
+    if ![bx.min.x, bx.min.y, bx.max.x, bx.max.y, bx.width(), bx.height()].iter().all(|v| v.is_finite()) { return Vec::new(); }
     let Some(cands) = candidates(d, space, ix, &bx, crossing, false) else { return Vec::new() };
     let tol = window_tol(&bx);
     cands.filter(|(e, known)| selectable(d, e) && in_window(d, e, *known, &bx, crossing, tol)).map(|(e, _)| e.handle).collect()
@@ -524,6 +524,15 @@ mod tests {
         }
         assert!(pick(&d, &Space::Model, Vec2::new(5.0, 0.0), 0.2).is_some());
         assert_eq!(pick_all(&d, &Space::Model, Vec2::new(5.0, 0.0), 0.2).len(), 1);
+    }
+
+    #[test]
+    fn crossing_and_window_reject_overflowed_dimensions() {
+        let mut d = Drawing::new_metric();
+        d.add(&Space::Model, Common::default(), EntityKind::Line(cadcraft_doc::Line { a: Vec3::new(0.0, 0.0, 0.0), b: Vec3::new(10.0, 0.0, 0.0) })).unwrap();
+        let bounds = Bounds2::new(Vec2::new(-f64::MAX, -1.0), Vec2::new(f64::MAX, 1.0));
+        assert!(select_window(&d, &Space::Model, bounds, false).is_empty());
+        assert!(select_window(&d, &Space::Model, bounds, true).is_empty());
     }
 
     fn fence_hits(kind: EntityKind, fence: [(f64, f64); 2]) -> usize {
