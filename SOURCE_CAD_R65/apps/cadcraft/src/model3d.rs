@@ -10,6 +10,8 @@ pub struct State {
     points: Vec<[f32; 3]>,
     mesh: Option<crate::ifc_mesh::Mesh>,
     mesh_error: Option<String>,
+    gpu_batch: Option<crate::ifc_gpu::Batch>,
+    gpu_error: Option<String>,
     error: Option<String>,
     yaw: f32,
     pitch: f32,
@@ -69,6 +71,8 @@ impl State {
         self.counts = counts;
         self.points = points;
         self.mesh = None;
+        self.gpu_batch = None;
+        self.gpu_error = None;
         self.selected_triangle = None;
         self.hidden_groups.clear();
         self.isolated_group = None;
@@ -122,7 +126,7 @@ pub fn panel(ui: &mut egui::Ui, state: &mut State) {
         if ui.add_enabled(state.conversion.is_none(), egui::Button::new("Nạp mesh OBJ...")).clicked() {
             if let Some(path) = rfd::FileDialog::new().add_filter("Wavefront OBJ", &["obj"]).pick_file() {
                 match crate::ifc_mesh::Mesh::read(&path) {
-                    Ok(mesh) => { state.mesh = Some(mesh); state.path = None; state.file_name = path.file_name().map(|p| p.to_string_lossy().into_owned()).unwrap_or_default(); state.counts.clear(); state.points.clear(); state.selected_triangle = None; state.hidden_groups.clear(); state.isolated_group = None; state.catalog = ifc_catalog::Catalog::default(); state.catalog_error = None; state.global_id_filter.clear(); state.storey_filter.clear(); state.discipline_filter.clear(); state.zoom = 1.0; state.mesh_error = None; state.error = None; }
+                    Ok(mesh) => { state.gpu_batch = crate::ifc_gpu::Batch::from_mesh(&mesh).ok(); state.gpu_error = None; state.mesh = Some(mesh); state.path = None; state.file_name = path.file_name().map(|p| p.to_string_lossy().into_owned()).unwrap_or_default(); state.counts.clear(); state.points.clear(); state.selected_triangle = None; state.hidden_groups.clear(); state.isolated_group = None; state.catalog = ifc_catalog::Catalog::default(); state.catalog_error = None; state.global_id_filter.clear(); state.storey_filter.clear(); state.discipline_filter.clear(); state.zoom = 1.0; state.mesh_error = None; state.error = None; }
                     Err(error) => state.mesh_error = Some(error),
                 }
             }
@@ -185,7 +189,7 @@ pub fn panel(ui: &mut egui::Ui, state: &mut State) {
     });
     if let Some(receiver) = &state.conversion {
         match receiver.try_recv() {
-            Ok(Ok(mesh)) => { state.mesh = Some(mesh); state.selected_triangle = None; state.hidden_groups.clear(); state.isolated_group = None; state.mesh_error = None; state.conversion = None; state.cancel_conversion = None; }
+            Ok(Ok(mesh)) => { state.gpu_batch = crate::ifc_gpu::Batch::from_mesh(&mesh).ok(); state.gpu_error = None; state.mesh = Some(mesh); state.selected_triangle = None; state.hidden_groups.clear(); state.isolated_group = None; state.mesh_error = None; state.conversion = None; state.cancel_conversion = None; }
             Ok(Err(error)) => { state.mesh_error = Some(error); state.conversion = None; state.cancel_conversion = None; }
             Err(std::sync::mpsc::TryRecvError::Disconnected) => { state.mesh_error = Some("Tiến trình chuyển đổi IFC bị ngắt".into()); state.conversion = None; state.cancel_conversion = None; }
             Err(std::sync::mpsc::TryRecvError::Empty) => { ui.spinner(); ui.label("Đang chuyển IFC thành mesh, giao diện vẫn có thể thao tác..."); ui.ctx().request_repaint_after(std::time::Duration::from_millis(150)); }
@@ -193,6 +197,7 @@ pub fn panel(ui: &mut egui::Ui, state: &mut State) {
     }
     if let Some(error) = &state.error { ui.colored_label(egui::Color32::LIGHT_RED, error); }
     if let Some(error) = &state.mesh_error { ui.colored_label(egui::Color32::LIGHT_RED, error); }
+    if let Some(batch) = &state.gpu_batch { ui.small(format!("GPU staging: {} đỉnh, {} chỉ số, origin [{:.2}, {:.2}, {:.2}] (chưa upload wgpu)", batch.positions.len(), batch.indices.len(), batch.origin[0], batch.origin[1], batch.origin[2])); }
     if let Some(error) = &state.catalog_error { ui.colored_label(egui::Color32::LIGHT_RED, error); }
     ui.horizontal_wrapped(|ui| { ui.label("IFC GlobalId"); ui.add(egui::TextEdit::singleline(&mut state.global_id_filter).desired_width(150.0)); ui.label("Tầng"); ui.add(egui::TextEdit::singleline(&mut state.storey_filter).desired_width(110.0)); ui.label("Bộ môn"); ui.add(egui::TextEdit::singleline(&mut state.discipline_filter).desired_width(120.0)); if ui.button("Xóa lọc").clicked() { state.global_id_filter.clear(); state.storey_filter.clear(); state.discipline_filter.clear(); } });
     if state.catalog.by_group.is_empty() { ui.small("Chưa có ánh xạ IFC: khi lọc, các nhóm OBJ chưa được định danh sẽ bị ẩn. Tải JSON xuất từ pipeline IFC để đối chiếu chính xác."); }
