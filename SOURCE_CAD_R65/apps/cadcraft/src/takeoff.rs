@@ -100,6 +100,8 @@ pub struct State {
     undo: Vec<Vec<MeasurementRecord>>,
     redo: Vec<Vec<MeasurementRecord>>,
     selected_record_id: Option<u64>,
+    search_text: String,
+    status_filter: u8,
     edit_work_group: String,
     edit_work_code: String,
     edit_description: String,
@@ -1060,6 +1062,13 @@ fn quantities(app: &CadApp) -> BTreeMap<String, Quantity> {
     groups
 }
 
+fn measurement_matches_filter(record: &MeasurementRecord, search: &str, status_filter: u8) -> bool {
+    let status_ok = match status_filter { 1 => record.status == MeasureStatus::Review, 2 => record.status == MeasureStatus::Confirmed, 3 => record.status == MeasureStatus::Excluded, _ => true };
+    if !status_ok { return false; }
+    let term = search.trim().to_lowercase();
+    term.is_empty() || [record.layer.as_str(), record.work_code.as_str(), record.work_group.as_str(), record.description.as_str(), record.source_handle.as_deref().unwrap_or("")].iter().any(|value| value.to_lowercase().contains(&term))
+}
+
 fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Scope) {
     let groups = quantities(app);
     ui.heading("Đo bóc khối lượng — CAD native");
@@ -1193,12 +1202,22 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
 
     if !state.records.is_empty() {
         ui.strong("Phép đo nghiệp vụ");
+        ui.horizontal_wrapped(|ui| {
+            ui.label("Tìm theo Layer / Mã CT / Diễn giải / Handle:");
+            ui.text_edit_singleline(&mut state.search_text);
+            ui.label("Trạng thái:");
+            ui.selectable_value(&mut state.status_filter, 0, "Tất cả");
+            ui.selectable_value(&mut state.status_filter, 1, "Cần rà soát");
+            ui.selectable_value(&mut state.status_filter, 2, "Đã xác nhận");
+            ui.selectable_value(&mut state.status_filter, 3, "Đã loại");
+        });
         let mut action: Option<(u64, u8)> = None;
         egui::ScrollArea::horizontal().show(ui, |ui| {
             egui::Grid::new("native_qto_measurements").striped(true).show(ui, |ui| {
                 for h in ["ID","Handle nguồn","Nguồn","Tầng","Bộ môn","Owner","Loại","Layer","Nhóm","Mã CT","Diễn giải","Giá trị","Trạng thái","Thao tác"] { ui.strong(h); }
                 ui.end_row();
                 for record in &state.records {
+                    if !measurement_matches_filter(record, &state.search_text, state.status_filter) { continue; }
                     let value = match record.kind {
                         MeasureKind::Area => record.raw_value * af,
                         MeasureKind::Length | MeasureKind::Perimeter => record.raw_value * lf,
