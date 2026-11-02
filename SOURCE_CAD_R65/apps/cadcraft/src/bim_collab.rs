@@ -858,7 +858,8 @@ impl State {
     fn confirm_close_issue(&mut self, id: u64) -> Result<(), String> {
         let account = self.current_account_id.trim().to_string();
         if account.is_empty() { return Err("Cần đăng nhập trước khi xác nhận đóng Issue".into()); }
-        let can_edit = self.users.iter().any(|user| user.account_id == account && user.can_edit);
+        let (floor_id, discipline) = self.issues.iter().find(|item| item.id == id).map(|item| (item.floor_id, item.source_discipline)).ok_or_else(|| "Không tìm thấy Issue".to_string())?;
+        let can_edit = self.users.iter().any(|user| user.account_id == account && user.can_edit) && self.has_scope_access(&account, floor_id, discipline, true);
         let issue = self.issues.iter_mut().find(|item| item.id == id).ok_or_else(|| "Không tìm thấy Issue".to_string())?;
         if issue.status != IssueStatus::Resolved { return Err("Chỉ Issue đã xử lý mới được xác nhận đóng".into()); }
         crate::bim_sync_permissions::ensure_edit(can_edit, false, 0, 0).map_err(|_| "Không có quyền thao tác Issue".to_string())?;
