@@ -1643,11 +1643,8 @@ pub fn panel(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut 
                             ui.label(format!("Camera: {:.2}, {:.2}, {:.2} • Đối tượng: {}", v.position[0], v.position[1], v.position[2], v.selected.join(", ")));
                         }
                         ui.label("Lưu tập đối tượng đang chọn; camera thực sẽ được kết nối với viewport CAD ở bước tích hợp tiếp theo.");
-                        if ui.button("Lưu tập đối tượng (camera tạm)").clicked() {
-                            let selected = app.session.selection().iter().map(|h| h.hex()).collect();
-                            let v = crate::bim_bcf_viewpoints::Viewpoint { issue_id: id, position: [0.0, 0.0, 0.0], direction: [0.0, 0.0, -1.0], selected };
-                            if crate::bim_bcf_viewpoints::validate_viewpoint(&v).is_ok() { state.issue_viewpoints.push(v); }
-                        }
+                        ui.add_enabled(false, egui::Button::new("Lưu BCF Viewpoint — cần camera CAD thực"));
+                        ui.label(format!("Đối tượng CAD đang chọn: {}", app.session.selection().len()));
                     });
                     ui.collapsing("LỊCH SỬ THAY ĐỔI ISSUE", |ui| {
                         let history = issue_audit_entries(&state.audit_log, issue.id);
