@@ -157,6 +157,17 @@ impl CollaborationTransport for MemoryTransport {
                 }
             }
         }
+        // Detect idempotency collisions anywhere in the request before committing a preceding batch.
+        let mut submitted = std::collections::BTreeMap::new();
+        for change in changes {
+            let identity = (change.account_id.as_str(), change.device_id.as_str(), change.id);
+            if let Some(previous) = submitted.insert(identity, change) {
+                if previous != change { return Err("Duplicate changeset identity in request with different content".into()); }
+            }
+            if let Some((_, existing)) = self.change_history.iter().find(|(_, existing)| existing.id == change.id && existing.account_id == change.account_id && existing.device_id == change.device_id) {
+                if existing != change { return Err("Changeset identity reused with different content".into()); }
+            }
+        }
         // Reserve revision capacity for the entire request; do not allow rollover in a long batch.
         let candidate_count = u64::try_from(changes.iter().filter(|change| !change.items.is_empty()).count()).map_err(|_| "Too many changesets")?;
         if self.project_revision.checked_add(candidate_count).is_none() { return Err("Project revision overflow".into()); }
@@ -409,6 +420,18 @@ mod tests {
         assert!(transport.push_changes("p", &[altered]).is_err());
         assert_eq!(transport.project_revision, 1);
         assert_eq!(transport.change_history.len(), 1);
+    }
+
+    #[test]
+    fn later_idempotency_collision_does_not_partially_commit_earlier_changes() {
+        let mut transport = MemoryTransport::default();
+        transport.push_changes("p", &[change(81, "A", 0, 1)]).unwrap();
+        let mut collision = change(81, "A", 0, 1);
+        collision.items[0].payload_json = "different".into();
+        let result = transport.push_changes("p", &[change(82, "B", 0, 1), collision]);
+        assert!(result.is_err());
+        assert_eq!(transport.project_revision, 1);
+        assert!(!transport.object_revisions.contains_key("B"));
     }
 
 }
