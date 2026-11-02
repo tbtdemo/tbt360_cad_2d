@@ -434,4 +434,20 @@ mod tests {
         assert!(!transport.object_revisions.contains_key("B"));
     }
 
+    #[test]
+    fn sixty_four_independent_objects_roundtrip_through_change_feed() {
+        let mut transport = MemoryTransport::default();
+        let batch = (0..64).map(|i| change(1000 + i, &format!("HANDLE-{i}"), 0, 1)).collect::<Vec<_>>();
+        let first = transport.push_changes("p", &batch).unwrap();
+        assert_eq!(first.accepted_change_set_ids.len(), 64);
+        assert_eq!(transport.project_revision, 64);
+        let (_, feed) = transport.pull_changes("p", 0).unwrap();
+        assert_eq!(feed.len(), 64);
+        let replay = transport.push_changes("p", &batch).unwrap();
+        assert!(replay.accepted_change_set_ids.is_empty());
+        assert!(replay.conflicts.is_empty());
+        assert_eq!(transport.project_revision, 64);
+        assert_eq!(transport.change_history.len(), 64);
+    }
+
 }
