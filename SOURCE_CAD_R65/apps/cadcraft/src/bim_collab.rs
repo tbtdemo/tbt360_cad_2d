@@ -1483,7 +1483,7 @@ pub fn panel(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut 
         CollaborationTab::Sync => {
             ui.heading("ĐỒNG BỘ & PHIÊN LÀM VIỆC");
             ui.label(format!("Thay đổi chờ đồng bộ: {} • Conflict: {}", state.dirty_local_changes, state.conflicts.len()));
-            ui.label(format!("Người đang hiện diện: {} • Nhật ký: {}", state.presence.len(), state.audit.len()));
+            ui.label(format!("Người đang hiện diện: {} • Nhật ký: {}", state.presence.len(), state.audit_log.len()));
         }
         CollaborationTab::Permissions => {
             ui.heading("QUYỀN TRUY CẬP");
