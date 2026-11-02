@@ -1516,6 +1516,15 @@ mod tests {
         assert!(!measurement_matches_filter(&state.records[0], "", 1));
     }
 
+    #[test]
+    fn importing_same_cad_measurement_twice_does_not_double_count() {
+        let mut state = State::default();
+        let measurement = PendingMeasurement { kind: MeasureKind::Length, points: vec![[0.0, 0.0], [5.0, 0.0]], raw_value: 5.0, layer: "WALL".into(), source_handle: cadcraft_doc::Handle(0x42) };
+        assert!(state.add_measurement_from_entity(measurement.clone(), &Scope::default(), Some(1)).is_ok());
+        assert!(state.add_measurement_from_entity(measurement, &Scope::default(), Some(1)).is_err());
+        assert_eq!(state.records.len(), 1);
+    }
+
     fn block_member_fixture()->(cadcraft_doc::Drawing,cadcraft_doc::Handle,cadcraft_doc::Handle) {
         let mut d=cadcraft_doc::Drawing::new_metric();
         let member=cadcraft_doc::Handle(0x20);
