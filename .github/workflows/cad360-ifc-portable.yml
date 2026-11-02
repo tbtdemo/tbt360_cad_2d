@@ -7,6 +7,7 @@ on:
       - 'SOURCE_CAD_R65/apps/cadcraft/src/model3d.rs'
       - 'SOURCE_CAD_R65/apps/cadcraft/src/ifc_mesh.rs'
       - 'SOURCE_CAD_R65/apps/cadcraft/src/ifc_catalog.rs'
+      - 'SOURCE_CAD_R65/apps/cadcraft/tools/export_ifc_obj_mapping.py'
       - 'SOURCE_CAD_R65/apps/cadcraft/Cargo.toml'
       - '.github/workflows/cad360-ifc-portable.yml'
 
@@ -25,6 +26,10 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: '1.95.0'
+      - name: Validate Python IFC mapping export
+        shell: pwsh
+        run: |
+          python -m py_compile apps/cadcraft/tools/export_ifc_obj_mapping.py
       - name: Check IFC desktop code
         run: cargo check -p cadcraft --bin cadcraft --locked
       - name: Test IFC desktop module
@@ -39,13 +44,9 @@ jobs:
           New-Item -ItemType Directory -Force -Path $out | Out-Null
           Copy-Item 'target/release/cadcraft.exe' (Join-Path $out 'CAD360.exe')
           New-Item -ItemType Directory -Force -Path (Join-Path $out 'tools') | Out-Null
-          $converter = 'apps/cadcraft/tools/IfcConvert.exe'
-          if (Test-Path $converter) {
-            Copy-Item $converter (Join-Path $out 'tools/IfcConvert.exe')
-            Write-Host 'IfcConvert included; dependent DLLs require separate validation'
-          } else {
-            Set-Content -Path (Join-Path $out 'tools/README.txt') -Value 'IFC->OBJ conversion requires a separately built and validated IfcConvert.exe plus DLLs. OBJ viewing does not require it.'
-          }
+          Set-Content -Path (Join-Path $out 'tools/README.txt') -Value 'IfcConvert is NOT bundled unless a separately verified Windows x64 runtime package is integrated. This ZIP supports OBJ viewing; IFC to OBJ requires IfcConvert.exe and dependent DLLs.'
+          Copy-Item 'apps/cadcraft/tools/export_ifc_obj_mapping.py' (Join-Path $out 'tools/export_ifc_obj_mapping.py')
+          Write-Host 'Portable package excludes unverified IfcConvert.exe and dependent DLLs'
           Compress-Archive -Path (Join-Path $out '*') -DestinationPath (Join-Path $env:GITHUB_WORKSPACE 'CAD360-IFC-Portable.zip') -Force
       - uses: actions/upload-artifact@v4
         with:
