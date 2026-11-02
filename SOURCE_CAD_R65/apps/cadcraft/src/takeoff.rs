@@ -1414,7 +1414,7 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
         if ui.button("Xuất CSV chi tiết ra tệp").clicked() {
             if let Some(path) = rfd::FileDialog::new().add_filter("CSV Excel", &["csv"]).set_file_name("CAD360_QTO_CHI_TIET.csv").save_file() {
                 let csv = qto_detail_csv(state, &source_validation, lf, af, length_unit, area_unit);
-                match std::fs::write(&path, format!("\\u{{feff}}{csv}").replace("\\u{feff}", "\uFEFF")) {
+                match std::fs::write(&path, format!("\u{feff}{csv}")) {
                     Ok(()) => state.file_feedback = format!("Đã xuất {} phép đo: {}", state.records.len(), path.display()),
                     Err(e) => state.file_feedback = format!("Không thể xuất CSV: {e}"),
                 }
