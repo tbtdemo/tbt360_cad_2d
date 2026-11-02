@@ -39,6 +39,13 @@ impl ModelRevision {
         true
     }
 
+    pub fn approve_review(&mut self, reviewer_id: String) -> bool {
+        if self.state != RevisionState::Review || reviewer_id.trim().is_empty() { return false; }
+        if reviewer_id == self.created_by { return false; }
+        self.reviewed_by = Some(reviewer_id);
+        true
+    }
+
     pub fn publish(&mut self, account_id: String) -> bool {
         if self.state != RevisionState::Review { return false; }
         if account_id.trim().is_empty() { return false; }
@@ -106,6 +113,16 @@ mod tests {
         let next = ModelRevision { id:2, project_id:"P2".into(), workset_id:"W".into(), number:2, state:RevisionState::Published, created_by:"u".into(), reviewed_by:None, published_by:Some("u".into()) };
         assert!(!supersede_previous(&mut previous, &next));
         assert_eq!(previous.state, RevisionState::Published);
+    }
+
+    #[test]
+    fn revision_review_approval_rejects_author_self_approval() {
+        let mut revision = ModelRevision { id:11, project_id:"P".into(), workset_id:"W".into(), number:2, state:RevisionState::Working, created_by:"author".into(), reviewed_by:None, published_by:None };
+        assert!(!revision.approve_review("reviewer".into()));
+        assert!(revision.submit_for_review());
+        assert!(!revision.approve_review("author".into()));
+        assert!(revision.approve_review("reviewer".into()));
+        assert_eq!(revision.reviewed_by.as_deref(), Some("reviewer"));
     }
 
     #[test]
