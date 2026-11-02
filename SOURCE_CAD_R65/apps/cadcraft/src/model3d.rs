@@ -91,6 +91,14 @@ fn triangle_visible_on_screen(a: egui::Pos2, b: egui::Pos2, c: egui::Pos2, rect:
     egui::Rect::from_min_max(min, max).intersects(rect)
 }
 
+fn triangle_barycentric(p: egui::Pos2, a: egui::Pos2, b: egui::Pos2, c: egui::Pos2) -> Option<[f64; 3]> {
+    let cross = |u: egui::Pos2, v: egui::Pos2, w: egui::Pos2| f64::from(v.x-u.x)*f64::from(w.y-u.y)-f64::from(v.y-u.y)*f64::from(w.x-u.x);
+    let area = cross(a,b,c);
+    if !area.is_finite() || area.abs() < 1e-8 { return None; }
+    let weights = [cross(p,b,c)/area, cross(a,p,c)/area, cross(a,b,p)/area];
+    weights.iter().all(|x| x.is_finite() && *x >= -1e-6 && *x <= 1.0 + 1e-6).then_some(weights)
+}
+
 fn point_in_triangle(p: egui::Pos2, a: egui::Pos2, b: egui::Pos2, c: egui::Pos2) -> bool {
     let cross = |u: egui::Pos2, v: egui::Pos2, w: egui::Pos2| f64::from(v.x-u.x)*f64::from(w.y-u.y)-f64::from(v.y-u.y)*f64::from(w.x-u.x);
     let area = cross(a,b,c);
@@ -256,7 +264,7 @@ pub fn panel(ui: &mut egui::Ui, state: &mut State) {
             if truncated { painter.text(rect.left_top() + egui::vec2(8.0, 8.0), egui::Align2::LEFT_TOP, "Đang giới hạn 100.000 mặt hiển thị; cần GPU để xem đầy đủ", egui::FontId::proportional(12.0), egui::Color32::YELLOW); }
             faces.sort_by(|a,b| a.0.total_cmp(&b.0));
             let click = response.clicked().then(|| response.interact_pointer_pos()).flatten();
-            let mut picked = None;
+            let mut picked: Option<(f64, usize)> = None;
             for (_, index, triangle) in faces {
                 let group = mesh.face_groups.get(index).copied().unwrap_or(0);
                 if !group_is_visible(group, &state.hidden_groups, state.isolated_group) { continue; }
@@ -266,7 +274,18 @@ pub fn panel(ui: &mut egui::Ui, state: &mut State) {
                 let b = project(&mesh.vertices[triangle[1]]);
                 let c = project(&mesh.vertices[triangle[2]]);
                 if !triangle_visible_on_screen(a, b, c, rect) { continue; }
-                if let Some(pointer) = click { if point_in_triangle(pointer, a, b, c) { picked = Some(index); } }
+                if let Some(pointer) = click {
+                    if let Some(weights) = triangle_barycentric(pointer, a, b, c) {
+                        // Camera depth is interpolated per pixel, not from the triangle centroid.
+                        let depth_at = triangle.iter().zip(weights).map(|(&vertex, weight)| {
+                            let p = mesh.vertices[vertex];
+                            let x = f64::from(p[0])-center[0]; let y = f64::from(p[1])-center[1]; let z = f64::from(p[2])-center[2];
+                            let ry = x*f64::from(sy)+y*f64::from(cy);
+                            (ry*f64::from(cp)+z*f64::from(sp))*weight
+                        }).sum::<f64>();
+                        if depth_at.is_finite() && picked.is_none_or(|(current, _)| depth_at > current) { picked = Some((depth_at, index)); }
+                    }
+                }
                 let selected = state.selected_triangle.is_some_and(|selected| { selected == index || (state.select_group && mesh.face_groups.get(selected).zip(mesh.face_groups.get(index)).is_some_and(|(a,b)| a == b)) });
                 if selected { painter.add(egui::Shape::convex_polygon(vec![a, b, c], egui::Color32::from_rgba_unmultiplied(240, 180, 45, 150), egui::Stroke::new(2.0, egui::Color32::YELLOW))); continue; }
                 if state.wireframe {
@@ -275,7 +294,7 @@ pub fn panel(ui: &mut egui::Ui, state: &mut State) {
                     painter.add(egui::Shape::convex_polygon(vec![a, b, c], egui::Color32::from_rgba_unmultiplied(52, 120, 165, 90), egui::Stroke::new(0.5, egui::Color32::from_rgb(105, 185, 230))));
                 }
             }
-            if click.is_some() { state.selected_triangle = picked; ui.ctx().request_repaint(); }
+            if click.is_some() { state.selected_triangle = picked.map(|(_, index)| index); ui.ctx().request_repaint(); }
             if state.show_points { for p in displayed.iter().take(20_000) { let pos = project(p); if rect.contains(pos) { painter.circle_filled(pos, 1.0, egui::Color32::from_rgb(245, 205, 110)); } } }
         } else {
             for p in displayed { let pos = project(p); if rect.contains(pos) { painter.circle_filled(pos, 1.3, egui::Color32::from_rgb(90, 194, 245)); } }
@@ -333,6 +352,16 @@ mod tests {
         assert!(!triangle_visible_on_screen(egui::pos2(f32::NAN, 0.0), egui::pos2(10.0, 0.0), egui::pos2(0.0, 10.0), view));
     }
 
+    #[test]
+    fn barycentric_picking_is_stable_at_vertices_and_rejects_outside() {
+        let a = egui::pos2(0.0,0.0); let b = egui::pos2(10.0,0.0); let c = egui::pos2(0.0,10.0);
+        let w = triangle_barycentric(egui::pos2(2.0,3.0),a,b,c).unwrap();
+        assert!((w[0]-0.5).abs() < 1e-6);
+        assert!((w[1]-0.2).abs() < 1e-6);
+        assert!((w[2]-0.3).abs() < 1e-6);
+        assert!(triangle_barycentric(egui::pos2(8.0,8.0),a,b,c).is_none());
+        assert!(triangle_barycentric(a,a,a,a).is_none());
+    }
     #[test]
     fn triangle_pick_rejects_outside_and_degenerate_faces() {
         let a = egui::pos2(0.0,0.0); let b = egui::pos2(10.0,0.0); let c = egui::pos2(0.0,10.0);
