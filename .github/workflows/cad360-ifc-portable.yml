@@ -6,6 +6,7 @@ on:
     paths:
       - 'SOURCE_CAD_R65/apps/cadcraft/src/model3d.rs'
       - 'SOURCE_CAD_R65/apps/cadcraft/src/ifc_mesh.rs'
+      - 'SOURCE_CAD_R65/apps/cadcraft/src/bounded_io.rs'
       - 'SOURCE_CAD_R65/apps/cadcraft/src/ifc_catalog.rs'
       - 'SOURCE_CAD_R65/apps/cadcraft/src/ifc_gpu.rs'
       - 'SOURCE_CAD_R65/apps/cadcraft/src/main.rs'
