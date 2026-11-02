@@ -55,6 +55,7 @@ jobs:
           psql -v ON_ERROR_STOP=1 -f backend/postgres/tests/010_rollback_and_isolation.sql
           psql -v ON_ERROR_STOP=1 -f backend/postgres/tests/011_idempotency_schema.sql
           psql -v ON_ERROR_STOP=1 -f backend/postgres/tests/012_batch_atomic_rollback.sql
+          psql -v ON_ERROR_STOP=1 -f backend/postgres/tests/013_revocation_read_write.sql
 
       - name: Install concurrent PostgreSQL test dependency
         run: python3 -m pip install --user "psycopg[binary]>=3.2,<4"
