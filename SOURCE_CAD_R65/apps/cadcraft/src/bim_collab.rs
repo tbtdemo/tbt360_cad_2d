@@ -2333,6 +2333,19 @@ mod tests {
     }
 
     #[test]
+    fn rfi_comments_persist_and_remain_scoped_to_their_issue() {
+        let mut state = State::default();
+        state.create_issue_from_selection(None, Discipline::Structure);
+        let id = state.issues.last().unwrap().id;
+        state.issue_comments.push(crate::bim_rfi_comments::post_comment(id, "designer", "Kiểm tra cao độ", 1).unwrap());
+        let snapshot = state.snapshot_json();
+        let mut restored = State::default();
+        restored.load_snapshot_json(&snapshot).unwrap();
+        assert_eq!(crate::bim_rfi_comments::thread(&restored.issue_comments, id).len(), 1);
+        assert!(crate::bim_rfi_comments::thread(&restored.issue_comments, id + 1).is_empty());
+    }
+
+    #[test]
     fn collaboration_workspace_has_five_business_tabs() {
         assert_eq!(CollaborationTab::ALL.len(), 5);
         assert_eq!(CollaborationTab::Issues.title(), "ISSUE / CLASH");
