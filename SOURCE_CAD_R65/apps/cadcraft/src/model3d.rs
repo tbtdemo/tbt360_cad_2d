@@ -1,5 +1,5 @@
 //! IFC inspection preview. Full tessellation requires a separately packaged IfcConvert runtime.
-use std::{collections::BTreeMap, io::{BufRead, BufReader}, path::PathBuf};
+use std::{collections::{BTreeMap, BTreeSet}, io::{BufRead, BufReader}, path::PathBuf};
 
 #[derive(Default)]
 pub struct State {
@@ -17,6 +17,8 @@ pub struct State {
     show_points: bool,
     selected_triangle: Option<usize>,
     select_group: bool,
+    hidden_groups: BTreeSet<usize>,
+    isolated_group: Option<usize>,
     conversion: Option<std::sync::mpsc::Receiver<Result<crate::ifc_mesh::Mesh, String>>>,
     cancel_conversion: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
 }
@@ -62,6 +64,8 @@ impl State {
         self.points = points;
         self.mesh = None;
         self.selected_triangle = None;
+        self.hidden_groups.clear();
+        self.isolated_group = None;
         self.mesh_error = None;
         self.error = None;
         self.zoom = 1.0;
@@ -84,6 +88,10 @@ fn point_in_triangle(p: egui::Pos2, a: egui::Pos2, b: egui::Pos2, c: egui::Pos2)
     x >= -1e-6 && y >= -1e-6 && z >= -1e-6
 }
 
+fn group_is_visible(group: usize, hidden: &BTreeSet<usize>, isolated: Option<usize>) -> bool {
+    !hidden.contains(&group) && isolated.is_none_or(|active| active == group)
+}
+
 pub fn panel(ui: &mut egui::Ui, state: &mut State) {
     ui.horizontal_wrapped(|ui| {
         ui.heading("3D / IFC");
@@ -95,7 +103,7 @@ pub fn panel(ui: &mut egui::Ui, state: &mut State) {
         if ui.add_enabled(state.conversion.is_none(), egui::Button::new("Nạp mesh OBJ...")).clicked() {
             if let Some(path) = rfd::FileDialog::new().add_filter("Wavefront OBJ", &["obj"]).pick_file() {
                 match crate::ifc_mesh::Mesh::read(&path) {
-                    Ok(mesh) => { state.mesh = Some(mesh); state.selected_triangle = None; state.mesh_error = None; }
+                    Ok(mesh) => { state.mesh = Some(mesh); state.selected_triangle = None; state.hidden_groups.clear(); state.isolated_group = None; state.mesh_error = None; }
                     Err(error) => state.mesh_error = Some(error),
                 }
             }
@@ -146,11 +154,18 @@ pub fn panel(ui: &mut egui::Ui, state: &mut State) {
         ui.checkbox(&mut state.wireframe, "Khung dây");
         ui.checkbox(&mut state.show_points, "Hiển thị đỉnh");
         ui.checkbox(&mut state.select_group, "Chọn cả nhóm đối tượng");
+        if let (Some(mesh), Some(index)) = (&state.mesh, state.selected_triangle) {
+            if let Some(&group) = mesh.face_groups.get(index) {
+                if ui.button("Ẩn nhóm đã chọn").clicked() { state.hidden_groups.insert(group); state.selected_triangle = None; }
+                if ui.button("Cô lập nhóm đã chọn").clicked() { state.isolated_group = Some(group); state.hidden_groups.remove(&group); }
+            }
+        }
+        if ui.button("Hiện tất cả").clicked() { state.hidden_groups.clear(); state.isolated_group = None; }
         if ui.button("Đặt lại góc nhìn").clicked() { state.yaw = 0.5; state.pitch = 0.35; state.zoom = 1.0; }
     });
     if let Some(receiver) = &state.conversion {
         match receiver.try_recv() {
-            Ok(Ok(mesh)) => { state.mesh = Some(mesh); state.selected_triangle = None; state.mesh_error = None; state.conversion = None; state.cancel_conversion = None; }
+            Ok(Ok(mesh)) => { state.mesh = Some(mesh); state.selected_triangle = None; state.hidden_groups.clear(); state.isolated_group = None; state.mesh_error = None; state.conversion = None; state.cancel_conversion = None; }
             Ok(Err(error)) => { state.mesh_error = Some(error); state.conversion = None; state.cancel_conversion = None; }
             Err(std::sync::mpsc::TryRecvError::Disconnected) => { state.mesh_error = Some("Tiến trình chuyển đổi IFC bị ngắt".into()); state.conversion = None; state.cancel_conversion = None; }
             Err(std::sync::mpsc::TryRecvError::Empty) => { ui.spinner(); ui.label("Đang chuyển IFC thành mesh, giao diện vẫn có thể thao tác..."); ui.ctx().request_repaint_after(std::time::Duration::from_millis(150)); }
@@ -213,6 +228,8 @@ pub fn panel(ui: &mut egui::Ui, state: &mut State) {
             let click = response.clicked().then(|| response.interact_pointer_pos()).flatten();
             let mut picked = None;
             for (_, index, triangle) in faces {
+                let group = mesh.face_groups.get(index).copied().unwrap_or(0);
+                if !group_is_visible(group, &state.hidden_groups, state.isolated_group) { continue; }
                 let a = project(&mesh.vertices[triangle[0]]);
                 let b = project(&mesh.vertices[triangle[1]]);
                 let c = project(&mesh.vertices[triangle[2]]);
@@ -245,6 +262,20 @@ pub fn panel(ui: &mut egui::Ui, state: &mut State) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn group_visibility_honors_hide_isolate_and_restore() {
+        let mut hidden = BTreeSet::new();
+        assert!(group_is_visible(1, &hidden, None));
+        hidden.insert(1);
+        assert!(!group_is_visible(1, &hidden, None));
+        assert!(group_is_visible(2, &hidden, None));
+        assert!(!group_is_visible(2, &hidden, Some(1)));
+        hidden.remove(&1);
+        assert!(group_is_visible(1, &hidden, Some(1)));
+        hidden.clear();
+        assert!(group_is_visible(2, &hidden, None));
+    }
+
     #[test]
     fn viewport_culling_rejects_nonfinite_and_outside_faces() {
         let view = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(100.0, 100.0));
