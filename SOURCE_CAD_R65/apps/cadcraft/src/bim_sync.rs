@@ -523,4 +523,21 @@ mod tests {
         assert!(changes.is_empty());
     }
 
+    #[test]
+    fn two_designers_can_edit_distinct_objects_but_conflict_on_same_object() {
+        let mut transport = MemoryTransport::default();
+        let mut architect = change(1101, "WALL", 0, 1);
+        architect.account_id = "architect".into();
+        let mut electrical = change(1102, "LIGHT", 0, 1);
+        electrical.account_id = "electrical".into();
+        let result = transport.push_changes("project", &[architect, electrical]).unwrap();
+        assert_eq!(result.accepted_change_set_ids.len(), 2);
+        let mut stale = change(1103, "WALL", 0, 1);
+        stale.account_id = "electrical".into();
+        let conflict = transport.push_changes("project", &[stale]).unwrap();
+        assert!(conflict.accepted_change_set_ids.is_empty());
+        assert_eq!(conflict.conflicts[0].remote_revision, 1);
+        assert_eq!(transport.project_revision, 2);
+    }
+
 }
