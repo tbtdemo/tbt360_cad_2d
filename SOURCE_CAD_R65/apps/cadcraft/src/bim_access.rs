@@ -42,6 +42,7 @@ fn matches(expected: &Option<String>, actual: &Option<String>) -> bool {
 
 pub fn authorize(principal: &Principal, scope: &Scope, grants: &[Grant], edit: bool, publish: bool) -> bool {
     if principal.role == ProjectRole::Owner { return true; }
+    if principal.role == ProjectRole::Viewer && (edit || publish) { return false; }
     let relevant = |g: &&Grant| {
         g.viewer_account_id == principal.account_id
             && g.project_id == scope.project_id
@@ -83,4 +84,14 @@ mod tests {
         let deny=Grant{deny:true,..allow.clone()};
         assert!(!authorize(&p,&s,&[allow,deny],false,false));
     }
+    #[test]
+    fn viewer_never_gains_edit_or_publish_via_grant() {
+        let principal = Principal { account_id: "viewer".into(), role: ProjectRole::Viewer };
+        let scope = Scope { project_id: "P".into(), building_id: None, zone_id: None, floor_id: None, discipline: None, workset_id: None, owner_account_id: None };
+        let grant = Grant { viewer_account_id: "viewer".into(), source_owner_account_id: None, project_id: "P".into(), building_id: None, zone_id: None, floor_id: None, discipline: None, workset_id: None, can_view: true, can_edit: true, can_publish: true, deny: false };
+        assert!(authorize(&principal, &scope, std::slice::from_ref(&grant), false, false));
+        assert!(!authorize(&principal, &scope, std::slice::from_ref(&grant), true, false));
+        assert!(!authorize(&principal, &scope, &[grant], false, true));
+    }
+
 }
