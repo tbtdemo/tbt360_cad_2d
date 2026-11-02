@@ -1489,8 +1489,8 @@ pub fn panel(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut 
     let tab_id = egui::Id::new("tbt360_bim_collaboration_active_tab");
     let mut tab = ui.ctx().data_mut(|data| data.get_temp::<u8>(tab_id).unwrap_or(2));
     let mut selected_issue = ui.ctx().data_mut(|data| data.get_temp::<u64>(egui::Id::new("tbt360_bim_selected_issue")));
-    ui.heading("PHỐI HỢP THIẾT KẾ");
-    ui.label("BIM CỘNG TÁC • RFI / BCF • Issue / Clash • Đồng bộ");
+    ui.heading(egui::RichText::new("PHỐI HỢP THIẾT KẾ").size(22.0).strong());
+    ui.label(egui::RichText::new("BIM CỘNG TÁC • RFI / BCF • Issue / Clash • Đồng bộ").color(egui::Color32::LIGHT_GRAY));
     ui.add_space(8.0);
     ui.horizontal_wrapped(|ui| {
         for (idx, section) in CollaborationTab::ALL.iter().enumerate() {
