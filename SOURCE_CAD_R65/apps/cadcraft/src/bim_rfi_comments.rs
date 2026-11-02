@@ -26,3 +26,15 @@ pub fn thread(comments: &[Comment], id: u64) -> Vec<&Comment> { comments.iter().
   assert_eq!((comment.author.as_str(),comment.message.as_str()),("alice","hello"));
  }
 }
+#[cfg(test)]
+mod long_thread_tests {
+    use super::*;
+    #[test]
+    fn mixed_issue_threads_do_not_leak_messages() {
+        let comments = vec![post_comment(1, "a", "first", 1).unwrap(), post_comment(2, "b", "second", 2).unwrap(), post_comment(1, "c", "third", 3).unwrap()];
+        let matches = thread(&comments, 1);
+        assert_eq!(matches.len(), 2);
+        assert_eq!(matches[0].sequence, 1);
+        assert_eq!(matches[1].sequence, 3);
+    }
+}
