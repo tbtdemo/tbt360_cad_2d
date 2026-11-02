@@ -11,6 +11,82 @@ pub struct Batch {
 }
 
 impl Batch {
+  fn is_group_visible(
+    groupIndex: usize,
+    groups: &[String],
+    catalog: &crate::ifc_catalog::Catalog,
+    hiddenGroups: &std::collections::BTreeSet<usize>,
+    isolatedGroup: Option<usize>,
+    globalId: &str,
+    storey: &str,
+    discipline: &str,
+  ) -> bool
+  {
+    if isolatedGroup.is_some_and(|selectedGroup| selectedGroup != groupIndex)
+    {
+      return false;
+    }
+
+    if hiddenGroups.contains(&groupIndex)
+    {
+      return false;
+    }
+
+    let metadata = groups
+      .get(groupIndex)
+      .and_then(|groupName| catalog.get(groupName));
+
+    crate::ifc_catalog::matches(metadata, globalId, storey, discipline)
+  }
+
+  /// Count visible triangles without allocating any index or source-ID buffers.
+  pub fn filtered_triangle_count(
+    &self,
+    groups: &[String],
+    catalog: &crate::ifc_catalog::Catalog,
+    hiddenGroups: &std::collections::BTreeSet<usize>,
+    isolatedGroup: Option<usize>,
+    globalId: &str,
+    storey: &str,
+    discipline: &str,
+  ) -> usize
+  {
+    self.triangle_group
+      .iter()
+      .enumerate()
+      .filter(|(triangleIndex, groupIndex)| {
+        let indexStart = triangleIndex.saturating_mul(3);
+
+        self.indices.get(indexStart..indexStart.saturating_add(3)).is_some()
+          && Self::is_group_visible(
+            **groupIndex,
+            groups,
+            catalog,
+            hiddenGroups,
+            isolatedGroup,
+            globalId,
+            storey,
+            discipline,
+          )
+      })
+      .count()
+  }
+
+  pub fn draw_batch_count(visibleTriangleCount: usize, maxIndicesPerDraw: usize) -> usize
+  {
+    if visibleTriangleCount == 0
+    {
+      return 0;
+    }
+
+    let trianglesPerDraw = (maxIndicesPerDraw / 3)
+      .max(1)
+      .min(u32::MAX as usize / 3);
+
+    visibleTriangleCount / trianglesPerDraw
+      + usize::from(visibleTriangleCount % trianglesPerDraw != 0)
+  }
+
     /// Build a compact index stream for BIM visibility without losing the original triangle IDs.
     /// Selection and picking may use source_triangles to resolve IFC GlobalId/group metadata.
     pub fn visible_indices<F>(&self, mut visible: F) -> (Vec<u32>, Vec<usize>)
@@ -31,10 +107,17 @@ impl Batch {
     /// Materialize the same BIM/OBJ visibility rules used by the CPU renderer.
     /// Returned source IDs link the compact draw list back to the original IFC identities.
     pub fn filtered_indices(&self, groups: &[String], catalog: &crate::ifc_catalog::Catalog, hidden: &std::collections::BTreeSet<usize>, isolated: Option<usize>, guid: &str, storey: &str, discipline: &str) -> (Vec<u32>, Vec<usize>) {
-        self.visible_indices(|_, group| {
-            if isolated.is_some_and(|id| id != group) || hidden.contains(&group) { return false; }
-            let metadata = groups.get(group).and_then(|name| catalog.get(name));
-            crate::ifc_catalog::matches(metadata, guid, storey, discipline)
+        self.visible_indices(|_, groupIndex| {
+            Self::is_group_visible(
+                groupIndex,
+                groups,
+                catalog,
+                hidden,
+                isolated,
+                guid,
+                storey,
+                discipline,
+            )
         })
     }
 
@@ -132,6 +215,40 @@ mod tests {
         assert!(Batch::draw_ranges(&[], 10).is_empty());
         assert_eq!(Batch::draw_ranges(&[0,1,2], usize::MAX), vec![0..3]);
     }
+    #[test]
+    fn count_matches_filtered_indices_without_allocating_buffers()
+    {
+      let mesh = Mesh {
+        vertices: vec![[0.0; 3], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+        faces: vec![[0, 1, 2], [0, 2, 1]],
+        face_groups: vec![0, 1],
+        groups: vec!["Walls".into(), "Beams".into()],
+      };
+      let batch = Batch::from_mesh(&mesh).unwrap();
+      let mut catalog = crate::ifc_catalog::Catalog::default();
+      catalog.by_group.insert(
+        "Beams".into(),
+        crate::ifc_catalog::Item {
+          global_id: "3h7B1JG5D4QQ4W8gcZQ0Xa".into(),
+          storey: "Tầng 2".into(),
+          discipline: "Kết cấu".into(),
+          ifc_type: "IFCBEAM".into(),
+        },
+      );
+      let hidden = std::collections::BTreeSet::new();
+      let selectedIndices = batch.filtered_indices(
+        &mesh.groups, &catalog, &hidden, None, "3h7B", "Tầng 2", "Kết cấu",
+      );
+      let visibleCount = batch.filtered_triangle_count(
+        &mesh.groups, &catalog, &hidden, None, "3h7B", "Tầng 2", "Kết cấu",
+      );
+
+      assert_eq!(visibleCount, selectedIndices.0.len() / 3);
+      assert_eq!(visibleCount, 1);
+      assert_eq!(Batch::draw_batch_count(0, 150_000), 0);
+      assert_eq!(Batch::draw_batch_count(50_001, 150_000), 2);
+    }
+
     #[test]
     fn rejects_invalid_group_and_face_indices() {
         let mesh = Mesh { vertices: vec![[0.0;3]], faces: vec![[0,1,2]], face_groups: vec![0], groups: vec!["0".into()] };
