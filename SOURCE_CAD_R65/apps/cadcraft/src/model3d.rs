@@ -1,6 +1,9 @@
 //! IFC inspection preview. Full tessellation requires a separately packaged IfcConvert runtime.
 use crate::ifc_catalog;
-use std::{collections::{BTreeMap, BTreeSet}, io::{BufRead, BufReader}, path::PathBuf};
+use std::{collections::{BTreeMap, BTreeSet}, io::{BufRead, BufReader, Read}, path::PathBuf};
+
+const MAX_IFC_PREVIEW_FILE_BYTES: u64 = 512 * 1024 * 1024;
+const MAX_IFC_PREVIEW_LINE_BYTES: usize = 4 * 1024 * 1024;
 
 #[derive(Default)]
 pub struct State {
@@ -42,17 +45,55 @@ fn point_from_step(line: &str) -> Option<[f32; 3]> {
 
 impl State {
     fn open(&mut self, path: PathBuf) -> Result<(), String> {
-        let file = std::fs::File::open(&path).map_err(|e| format!("Không mở được IFC: {e}"))?;
+        let file = std::fs::File::open(&path)
+            .map_err(|error| format!("Không mở được IFC: {error}"))?;
+        let file_size = file
+            .metadata()
+            .map_err(|error| format!("Không đọc được kích thước IFC: {error}"))?
+            .len();
+
+        if file_size > MAX_IFC_PREVIEW_FILE_BYTES {
+            log::warn!("IFC preview rejected oversized file: {} bytes", file_size);
+            return Err("IFC vượt giới hạn 512 MiB cho chế độ xem sơ bộ".into());
+        }
+
         let mut reader = BufReader::new(file);
-        let mut first = String::new();
-        reader.read_line(&mut first).map_err(|e| e.to_string())?;
+        let mut first_buffer = Vec::new();
+        reader
+            .by_ref()
+            .take((MAX_IFC_PREVIEW_LINE_BYTES + 1) as u64)
+            .read_until(b'\n', &mut first_buffer)
+            .map_err(|error| format!("Không đọc được header IFC: {error}"))?;
+
+        if first_buffer.len() > MAX_IFC_PREVIEW_LINE_BYTES {
+            return Err("Header IFC vượt giới hạn 4 MiB".into());
+        }
+
+        let first = std::str::from_utf8(&first_buffer)
+            .map_err(|_| "Header IFC không phải UTF-8 hợp lệ")?;
         if !first.trim_start_matches('\u{feff}').trim().starts_with("ISO-10303-21") { return Err("Tệp không phải định dạng STEP IFC (ISO-10303-21)".into()); }
         let mut counts = BTreeMap::new();
         let mut points = Vec::new();
-        let mut line = String::new();
+        let mut line_buffer = Vec::new();
         loop {
-            line.clear();
-            if reader.read_line(&mut line).map_err(|e| e.to_string())? == 0 { break; }
+            line_buffer.clear();
+            let bytes_read = reader
+                .by_ref()
+                .take((MAX_IFC_PREVIEW_LINE_BYTES + 1) as u64)
+                .read_until(b'\n', &mut line_buffer)
+                .map_err(|error| format!("Lỗi đọc dữ liệu IFC: {error}"))?;
+
+            if bytes_read == 0 {
+                break;
+            }
+
+            if bytes_read > MAX_IFC_PREVIEW_LINE_BYTES {
+                log::warn!("IFC preview rejected a line longer than 4 MiB");
+                return Err("Dòng IFC vượt giới hạn 4 MiB".into());
+            }
+
+            let line = std::str::from_utf8(&line_buffer)
+                .map_err(|_| "Nội dung IFC không phải UTF-8 hợp lệ")?;
             let upper = line.to_ascii_uppercase();
             if let Some(pos) = upper.find("=IFC") {
                 if let Some(end) = upper[pos + 1..].find('(') {
