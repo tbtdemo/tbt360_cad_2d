@@ -95,9 +95,28 @@ jobs:
           $main = Get-Content "apps/cadcraft/src/main.rs" -Raw
           if ($main -notmatch '\.with_title\("CAD 360 Việt Nam - TBT"\)') { throw "TBT runtime window title missing or changed" }
 
-  regression-tests:
-    name: "4 - Regression and Data Tests"
+  regression-shards:
+    name: "4 - Regression / ${{ matrix.test.name }}"
     runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      max-parallel: 7
+      matrix:
+        test:
+          - name: Native Takeoff
+            command: cargo test --locked -p cadcraft takeoff::tests -- --nocapture
+          - name: DXF DWG IO
+            command: cargo test --locked -p cadcraft-io --test it -- --nocapture
+          - name: Undo Redo
+            command: cargo test --locked -p cadcraft-engine --test undo_control -- --nocapture
+          - name: Atomic Save
+            command: cargo test --locked -p cadcraft-engine atomic_write::tests -- --nocapture
+          - name: BIM Permissions
+            command: cargo test --locked -p cadcraft bim_collab::tests -- --nocapture
+          - name: BIM Sync Isolation
+            command: cargo test --locked -p cadcraft bim_sync::tests -- --nocapture
+          - name: Complete Workspace
+            command: cargo test --workspace --locked --no-fail-fast
     defaults:
       run:
         working-directory: SOURCE_CAD_R65
@@ -107,20 +126,20 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: SOURCE_CAD_R65
-      - name: Test native Takeoff
-        run: cargo test --locked -p cadcraft takeoff::tests -- --nocapture
-      - name: Test DXF/DWG IO roundtrips
-        run: cargo test --locked -p cadcraft-io --test it -- --nocapture
-      - name: Test Undo Redo control
-        run: cargo test --locked -p cadcraft-engine --test undo_control -- --nocapture
-      - name: Test atomic save and concurrent writers
-        run: cargo test --locked -p cadcraft-engine atomic_write::tests -- --nocapture
-      - name: Test CAD project permissions
-        run: cargo test --locked -p cadcraft bim_collab::tests -- --nocapture
-      - name: Test multi-project sync isolation
-        run: cargo test --locked -p cadcraft bim_sync::tests -- --nocapture
-      - name: Test complete workspace
-        run: cargo test --workspace --locked --no-fail-fast
+          key: regression-${{ matrix.test.name }}
+      - name: Test ${{ matrix.test.name }}
+        run: ${{ matrix.test.command }}
+
+  regression-tests:
+    name: "4 - Aggregate Regression Gate"
+    needs: [regression-shards]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every regression shard to pass
+        env:
+          SHARD_RESULT: ${{ needs.regression-shards.result }}
+        run: test "$SHARD_RESULT" = "success"
 
   release-windows:
     name: "Release - Single Windows Setup"
