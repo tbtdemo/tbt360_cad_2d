@@ -1,5 +1,5 @@
 //! IFC inspection preview. Full tessellation requires a separately packaged IfcConvert runtime.
-#[path = "ifc_catalog.rs"] mod ifc_catalog;
+use crate::ifc_catalog;
 use std::{collections::{BTreeMap, BTreeSet}, io::{BufRead, BufReader}, path::PathBuf};
 
 #[derive(Default)]
