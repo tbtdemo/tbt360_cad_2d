@@ -1402,6 +1402,13 @@ impl State {
     }
 
     fn acquire_lease(&mut self, handle: cadcraft_doc::Handle, revision: u64) -> Result<(), String> {
+        if self.auth.status == AuthStatus::SignedOut
+            || self.auth.account_id != self.current_account_id
+            || self.current_account_id.trim().is_empty()
+        {
+            return Err("Phiên đăng nhập không hợp lệ; không thể khóa đối tượng".into());
+        }
+
         if let Some(existing) = self.leases.iter().find(|l| l.handle == handle) {
             if existing.account_id != self.current_account_id {
                 return Err(format!("Đối tượng đang được {} chỉnh sửa", existing.account_id));
