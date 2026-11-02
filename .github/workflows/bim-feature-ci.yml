@@ -15,6 +15,22 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  rust-fast-feedback:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: SOURCE_CAD_R65
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: SOURCE_CAD_R65
+      - name: Check CAD desktop on Linux
+        run: cargo check --locked -p cadcraft
+      - name: Test CAD desktop on Linux
+        run: cargo test --locked -p cadcraft --bin cadcraft -- --nocapture
+
   validate-bim-feature:
     runs-on: windows-latest
     defaults:
