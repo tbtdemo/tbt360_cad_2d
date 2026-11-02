@@ -13,6 +13,7 @@ pub struct State {
     yaw: f32,
     pitch: f32,
     zoom: f32,
+    conversion: Option<std::sync::mpsc::Receiver<Result<crate::ifc_mesh::Mesh, String>>>,
 }
 
 fn point_from_step(line: &str) -> Option<[f32; 3]> {
@@ -78,30 +79,43 @@ pub fn panel(ui: &mut egui::Ui, state: &mut State) {
                 }
             }
         }
-        if ui.button("Chuyển IFC → Mesh").clicked() {
-            if let Some(path) = &state.path {
+        if ui.add_enabled(state.conversion.is_none() && state.path.is_some(), egui::Button::new("Chuyển IFC → Mesh")).clicked() {
+            if let Some(path) = state.path.clone() {
                 let tool = std::env::current_exe().ok().and_then(|p| p.parent().map(|d| d.join("tools").join("IfcConvert.exe")));
                 match tool.filter(|p| p.is_file()) {
-                    None => state.mesh_error = Some("Chưa có tools/IfcConvert.exe đi kèm CAD360. Phải build IfcOpenShell cho Windows trước.".into()),
+                    None => state.mesh_error = Some("Chưa có tools/IfcConvert.exe đi kèm CAD360. Cần build và đóng gói IfcOpenShell cho Windows.".into()),
                     Some(tool) => {
-                        let output = std::env::temp_dir().join(format!("cad360-ifc-{}.obj", std::process::id()));
-                        match std::process::Command::new(tool).arg(path).arg(&output).output() {
-                            Ok(result) if result.status.success() => {
-                                match crate::ifc_mesh::Mesh::read(&output) {
-                                    Ok(mesh) => { state.mesh = Some(mesh); state.mesh_error = None; }
-                                    Err(error) => state.mesh_error = Some(error),
-                                }
-                                let _ = std::fs::remove_file(output);
-                            }
-                            Ok(result) => state.mesh_error = Some(format!("IfcConvert thất bại: {}", String::from_utf8_lossy(&result.stderr).chars().take(500).collect::<String>())),
-                            Err(error) => state.mesh_error = Some(format!("Không chạy được IfcConvert: {error}")),
-                        }
+                        let (tx, rx) = std::sync::mpsc::channel();
+                        state.conversion = Some(rx);
+                        state.mesh_error = None;
+                        let context = ui.ctx().clone();
+                        std::thread::spawn(move || {
+                            let mut output = std::env::temp_dir();
+                            let serial = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|t| t.as_nanos()).unwrap_or(0);
+                            output.push(format!("cad360-ifc-{}-{serial}.obj", std::process::id()));
+                            let result = match std::process::Command::new(tool).arg(&path).arg(&output).output() {
+                                Ok(status) if status.status.success() => crate::ifc_mesh::Mesh::read(&output),
+                                Ok(status) => Err(format!("IfcConvert thất bại: {}", String::from_utf8_lossy(&status.stderr).chars().take(500).collect::<String>())),
+                                Err(error) => Err(format!("Không chạy được IfcConvert: {error}")),
+                            };
+                            let _ = std::fs::remove_file(&output);
+                            let _ = tx.send(result);
+                            context.request_repaint();
+                        });
                     }
                 }
             }
         }
         if ui.button("Đặt lại góc nhìn").clicked() { state.yaw = 0.5; state.pitch = 0.35; state.zoom = 1.0; }
     });
+    if let Some(receiver) = &state.conversion {
+        match receiver.try_recv() {
+            Ok(Ok(mesh)) => { state.mesh = Some(mesh); state.mesh_error = None; state.conversion = None; }
+            Ok(Err(error)) => { state.mesh_error = Some(error); state.conversion = None; }
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => { state.mesh_error = Some("Tiến trình chuyển đổi IFC bị ngắt".into()); state.conversion = None; }
+            Err(std::sync::mpsc::TryRecvError::Empty) => { ui.spinner(); ui.label("Đang chuyển IFC thành mesh, giao diện vẫn có thể thao tác..."); ui.ctx().request_repaint_after(std::time::Duration::from_millis(150)); }
+        }
+    }
     if let Some(error) = &state.error { ui.colored_label(egui::Color32::LIGHT_RED, error); }
     if let Some(error) = &state.mesh_error { ui.colored_label(egui::Color32::LIGHT_RED, error); }
     if state.path.is_none() {
