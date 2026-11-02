@@ -172,4 +172,14 @@ mod tests {
         assert_eq!(state.queue[0].retry_count, 1);
     }
 
+    #[test]
+    fn delayed_failure_does_not_mark_online_connection_degraded() {
+        let mut s = OfflineSyncState::default();
+        let n = s.enqueue("c".into());
+        s.mark_online(8);
+        s.acknowledge_synced(n, 9);
+        s.mark_retry_error(n, "late".into());
+        assert_eq!(s.connectivity, Connectivity::Online);
+    }
+
 }
