@@ -1569,6 +1569,23 @@ mod tests {
         assert_eq!(csv.lines().count(), 2);
     }
 
+    #[test]
+    fn confirmed_only_export_omits_review_excluded_and_stale_sources() {
+        let mut state = State::default();
+        let approved = state.add_measurement(MeasureKind::Count, vec![], 1.0, "APPROVED".into()).unwrap();
+        let stale = state.add_measurement(MeasureKind::Count, vec![], 1.0, "STALE".into()).unwrap();
+        state.add_measurement(MeasureKind::Count, vec![], 1.0, "REVIEW".into()).unwrap();
+        state.set_status(approved, MeasureStatus::Confirmed);
+        state.set_status(stale, MeasureStatus::Confirmed);
+        let mut validation = SourceValidation::default();
+        validation.invalid_record_ids.insert(stale);
+        let csv = qto_detail_csv(&state, &validation, 1.0, 1.0, "m", "m²", true);
+        assert!(csv.contains("APPROVED"));
+        assert!(!csv.contains("STALE"));
+        assert!(!csv.contains("REVIEW"));
+        assert_eq!(csv.lines().count(), 2);
+    }
+
     fn block_member_fixture()->(cadcraft_doc::Drawing,cadcraft_doc::Handle,cadcraft_doc::Handle) {
         let mut d=cadcraft_doc::Drawing::new_metric();
         let member=cadcraft_doc::Handle(0x20);
