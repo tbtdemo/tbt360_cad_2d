@@ -67,7 +67,7 @@ pub fn consume_revision(consumer_workset_id: String, source: &ModelRevision) -> 
 }
 
 pub fn supersede_previous(previous: &mut ModelRevision, next: &ModelRevision) -> bool {
-    if previous.workset_id != next.workset_id || previous.state != RevisionState::Published || next.state != RevisionState::Published || next.number <= previous.number {
+    if previous.project_id != next.project_id || previous.workset_id != next.workset_id || previous.id == next.id || previous.state != RevisionState::Published || next.state != RevisionState::Published || next.number <= previous.number {
         return false;
     }
     previous.state = RevisionState::Superseded;
@@ -97,4 +97,12 @@ mod tests {
         assert!(r.publish("u2".into()));
         assert_eq!(r.state, RevisionState::Published);
     }
+    #[test]
+    fn published_revision_cannot_be_superseded_by_another_project() {
+        let mut previous = ModelRevision { id:1, project_id:"P1".into(), workset_id:"W".into(), number:1, state:RevisionState::Published, created_by:"u".into(), reviewed_by:None, published_by:Some("u".into()) };
+        let next = ModelRevision { id:2, project_id:"P2".into(), workset_id:"W".into(), number:2, state:RevisionState::Published, created_by:"u".into(), reviewed_by:None, published_by:Some("u".into()) };
+        assert!(!supersede_previous(&mut previous, &next));
+        assert_eq!(previous.state, RevisionState::Published);
+    }
+
 }
