@@ -7,6 +7,8 @@ pub struct State {
     file_name: String,
     counts: BTreeMap<String, usize>,
     points: Vec<[f32; 3]>,
+    mesh: Option<crate::ifc_mesh::Mesh>,
+    mesh_error: Option<String>,
     error: Option<String>,
     yaw: f32,
     pitch: f32,
@@ -52,6 +54,8 @@ impl State {
         self.path = Some(path);
         self.counts = counts;
         self.points = points;
+        self.mesh = None;
+        self.mesh_error = None;
         self.error = None;
         self.zoom = 1.0;
         Ok(())
@@ -66,21 +70,53 @@ pub fn panel(ui: &mut egui::Ui, state: &mut State) {
                 if let Err(error) = state.open(path) { state.error = Some(error); }
             }
         }
+        if ui.button("Nạp mesh OBJ...").clicked() {
+            if let Some(path) = rfd::FileDialog::new().add_filter("Wavefront OBJ", &["obj"]).pick_file() {
+                match crate::ifc_mesh::Mesh::read(&path) {
+                    Ok(mesh) => { state.mesh = Some(mesh); state.mesh_error = None; }
+                    Err(error) => state.mesh_error = Some(error),
+                }
+            }
+        }
+        if ui.button("Chuyển IFC → Mesh").clicked() {
+            if let Some(path) = &state.path {
+                let tool = std::env::current_exe().ok().and_then(|p| p.parent().map(|d| d.join("tools").join("IfcConvert.exe")));
+                match tool.filter(|p| p.is_file()) {
+                    None => state.mesh_error = Some("Chưa có tools/IfcConvert.exe đi kèm CAD360. Phải build IfcOpenShell cho Windows trước.".into()),
+                    Some(tool) => {
+                        let output = std::env::temp_dir().join(format!("cad360-ifc-{}.obj", std::process::id()));
+                        match std::process::Command::new(tool).arg(path).arg(&output).output() {
+                            Ok(result) if result.status.success() => {
+                                match crate::ifc_mesh::Mesh::read(&output) {
+                                    Ok(mesh) => { state.mesh = Some(mesh); state.mesh_error = None; }
+                                    Err(error) => state.mesh_error = Some(error),
+                                }
+                                let _ = std::fs::remove_file(output);
+                            }
+                            Ok(result) => state.mesh_error = Some(format!("IfcConvert thất bại: {}", String::from_utf8_lossy(&result.stderr).chars().take(500).collect::<String>())),
+                            Err(error) => state.mesh_error = Some(format!("Không chạy được IfcConvert: {error}")),
+                        }
+                    }
+                }
+            }
+        }
         if ui.button("Đặt lại góc nhìn").clicked() { state.yaw = 0.5; state.pitch = 0.35; state.zoom = 1.0; }
     });
     if let Some(error) = &state.error { ui.colored_label(egui::Color32::LIGHT_RED, error); }
+    if let Some(error) = &state.mesh_error { ui.colored_label(egui::Color32::LIGHT_RED, error); }
     if state.path.is_none() {
         ui.label("Chọn tệp .ifc để đọc danh mục đối tượng, tọa độ và xem sơ bộ phân bố điểm.");
         ui.label("Để hiển thị Solid/Mesh thực, cần cài đặt IfcConvert từ IfcOpenShell và tích hợp renderer.");
         return;
     }
     ui.label(format!("Tệp: {}", state.file_name));
+    if let Some(mesh) = &state.mesh { ui.label(format!("Mesh: {} đỉnh • {} tam giác", mesh.vertices.len(), mesh.faces.len())); }
     ui.horizontal(|ui| {
         ui.label(format!("Loại IFC: {}", state.counts.len()));
         ui.label(format!("Điểm tọa độ đọc: {}", state.points.len()));
         ui.label("Kéo chuột để xoay, cuộn để phóng to");
     });
-    ui.colored_label(egui::Color32::YELLOW, "Chế độ xem sơ bộ tọa độ IFC — KHÔNG phải hình học Solid/Mesh hoặc kết quả đo bóc.");
+    if state.mesh.is_none() { ui.colored_label(egui::Color32::YELLOW, "Chế độ xem sơ bộ tọa độ IFC — chưa có Solid/Mesh thực."); }
     ui.separator();
     let width = ui.available_width().max(200.0);
     let height = ui.available_height().max(180.0) * 0.75;
@@ -96,21 +132,32 @@ pub fn panel(ui: &mut egui::Ui, state: &mut State) {
     }
     let painter = ui.painter_at(rect);
     painter.rect_filled(rect, 4.0, egui::Color32::from_rgb(18, 25, 35));
-    if !state.points.is_empty() {
+    let displayed: &[[f32; 3]] = state.mesh.as_ref().map(|m| m.vertices.as_slice()).unwrap_or(&state.points);
+    if !displayed.is_empty() {
         let mut lo = [f32::INFINITY; 3];
         let mut hi = [f32::NEG_INFINITY; 3];
-        for p in &state.points { for k in 0..3 { lo[k] = lo[k].min(p[k]); hi[k] = hi[k].max(p[k]); } }
+        for p in displayed { for k in 0..3 { lo[k] = lo[k].min(p[k]); hi[k] = hi[k].max(p[k]); } }
         let center = [(lo[0]+hi[0])*0.5, (lo[1]+hi[1])*0.5, (lo[2]+hi[2])*0.5];
         let span = (0..3).map(|k| hi[k] - lo[k]).fold(1.0_f32, f32::max);
         let scale = rect.width().min(rect.height()) * 0.8 * state.zoom / span;
         let (sy, cy) = state.yaw.sin_cos();
         let (sp, cp) = state.pitch.sin_cos();
-        for p in &state.points {
+        let project = |p: &[f32;3]| {
             let x = p[0] - center[0]; let y = p[1] - center[1]; let z = p[2] - center[2];
             let rx = x * cy - y * sy; let ry = x * sy + y * cy;
             let rz = z * cp - ry * sp;
             let pos = rect.center() + egui::vec2(rx * scale, -rz * scale);
-            if rect.contains(pos) { painter.circle_filled(pos, 1.3, egui::Color32::from_rgb(90, 194, 245)); }
+            pos
+        };
+        if let Some(mesh) = &state.mesh {
+            for triangle in mesh.faces.iter().take(100_000) {
+                let a = project(&mesh.vertices[triangle[0]]);
+                let b = project(&mesh.vertices[triangle[1]]);
+                let c = project(&mesh.vertices[triangle[2]]);
+                painter.add(egui::Shape::convex_polygon(vec![a, b, c], egui::Color32::from_rgba_unmultiplied(52, 120, 165, 90), egui::Stroke::new(0.5, egui::Color32::from_rgb(105, 185, 230))));
+            }
+        } else {
+            for p in displayed { let pos = project(p); if rect.contains(pos) { painter.circle_filled(pos, 1.3, egui::Color32::from_rgb(90, 194, 245)); } }
         }
     } else {
         painter.text(rect.center(), egui::Align2::CENTER_CENTER, "Không tìm thấy IFCCARTESIANPOINT 3D trong tệp", egui::FontId::proportional(14.0), egui::Color32::LIGHT_GRAY);
