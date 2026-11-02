@@ -145,10 +145,16 @@ impl CollaborationTransport for MemoryTransport {
         let mut accepted = Vec::new();
         let mut conflicts = Vec::new();
         for change in changes {
+            // An empty changeset must not increment the project revision.
+            if change.items.is_empty() { continue; }
+            // A stale project snapshot can never be newer than the server state.
+            if change.base_project_revision > self.project_revision {
+                return Err(format!("Future project revision {} (server {})", change.base_project_revision, self.project_revision));
+            }
             let mut change_conflict = false;
             for item in &change.items {
                 let remote_revision = self.object_revisions.get(&item.source_handle).copied().unwrap_or(0);
-                if remote_revision != item.base_revision {
+                if remote_revision != item.base_revision || item.local_revision <= item.base_revision {
                     conflicts.push(RemoteConflict {
                         source_handle: item.source_handle.clone(),
                         base_revision: item.base_revision,
@@ -272,6 +278,35 @@ mod tests {
         assert_eq!(result.conflicts.len(), 1);
         assert!(!transport.object_revisions.contains_key("A"));
         assert_eq!(transport.project_revision, 0);
+    }
+
+    #[test]
+    fn empty_changeset_does_not_increment_project_revision() {
+        let mut transport = MemoryTransport::default();
+        let mut empty = change(9, "A", 0, 1);
+        empty.items.clear();
+        let result = transport.push_changes("p1", &[empty]).unwrap();
+        assert!(result.accepted_change_set_ids.is_empty());
+        assert_eq!(result.project_revision, 0);
+    }
+
+    #[test]
+    fn non_increasing_object_revision_is_rejected() {
+        let mut transport = MemoryTransport::default();
+        transport.object_revisions.insert("A".into(), 3);
+        let result = transport.push_changes("p1", &[change(8, "A", 3, 3)]).unwrap();
+        assert!(result.accepted_change_set_ids.is_empty());
+        assert_eq!(transport.object_revisions["A"], 3);
+        assert_eq!(transport.project_revision, 0);
+    }
+
+    #[test]
+    fn future_project_revision_is_rejected_without_writes() {
+        let mut transport = MemoryTransport::default();
+        let mut batch = change(10, "A", 0, 1);
+        batch.base_project_revision = 99;
+        assert!(transport.push_changes("p1", &[batch]).is_err());
+        assert!(transport.object_revisions.is_empty());
     }
 
 }
