@@ -168,7 +168,10 @@ impl CollaborationTransport for MemoryTransport {
         let mut conflicts = Vec::new();
         for change in changes {
             // A repeated request must not increment revision or replay writes.
-            if self.change_history.iter().any(|(_, recorded)| recorded.id == change.id && recorded.account_id == change.account_id && recorded.device_id == change.device_id) { continue; }
+            if let Some((_, recorded)) = self.change_history.iter().find(|(_, recorded)| recorded.id == change.id && recorded.account_id == change.account_id && recorded.device_id == change.device_id) {
+                if recorded != change { return Err("Changeset identity reused with different content".into()); }
+                continue;
+            }
             // An empty changeset must not increment the project revision.
             if change.items.is_empty() { continue; }
             let mut change_conflict = false;
@@ -392,6 +395,18 @@ mod tests {
         assert_eq!(first.accepted_change_set_ids, vec![51]);
         assert!(second.accepted_change_set_ids.is_empty());
         assert!(second.conflicts.is_empty());
+        assert_eq!(transport.project_revision, 1);
+        assert_eq!(transport.change_history.len(), 1);
+    }
+
+    #[test]
+    fn replay_with_same_identity_but_different_payload_is_rejected() {
+        let mut transport = MemoryTransport::default();
+        let first = change(61, "A", 0, 1);
+        transport.push_changes("p", &[first.clone()]).unwrap();
+        let mut altered = first;
+        altered.items[0].payload_json = "{\"changed\":true}".into();
+        assert!(transport.push_changes("p", &[altered]).is_err());
         assert_eq!(transport.project_revision, 1);
         assert_eq!(transport.change_history.len(), 1);
     }
