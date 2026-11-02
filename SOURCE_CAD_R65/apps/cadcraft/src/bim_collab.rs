@@ -844,6 +844,11 @@ impl State {
         }
     }
 
+    fn audit_issue(&mut self, issue_id: u64, action: impl Into<String>, floor_id: Option<u64>, discipline: Option<Discipline>, handle: Option<cadcraft_doc::Handle>, detail: impl Into<String>) {
+        self.audit(action, floor_id, discipline, handle, detail);
+        if let Some(entry) = self.audit_log.last_mut() { entry.issue_id = Some(issue_id); }
+    }
+
     fn ensure_progress_scope(&mut self, floor_id: u64, discipline: Discipline) {
         if self.progress.iter().any(|p| p.floor_id == floor_id && p.discipline == discipline) {
             return;
@@ -869,8 +874,7 @@ impl State {
         let floor = issue.floor_id;
         let discipline = issue.source_discipline;
         let handle = issue.handle;
-        self.audit("ISSUE_CONFIRMED_CLOSED", Some(floor), Some(discipline), handle, format!("Issue #{id} confirmed by {account}"));
-        if let Some(entry) = self.audit_log.last_mut() { entry.issue_id = Some(id); }
+        self.audit_issue(id, "ISSUE_CONFIRMED_CLOSED", Some(floor), Some(discipline), handle, format!("Issue #{id} confirmed by {account}"));
         Ok(())
     }
 
@@ -1624,7 +1628,7 @@ pub fn panel(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut 
                 let diffs = crate::bim_issue_audit::changes(issue.id, &state.current_account_id, &prior, &next);
                 Some((issue.id, issue.floor_id, issue.source_discipline, issue.handle, diffs.into_iter().map(|entry| format!("{}:{}→{}", entry.field, entry.before, entry.after)).collect::<Vec<_>>().join(" | ")))
             }).collect::<Vec<_>>();
-            for (id, floor, discipline, handle, detail) in changed { state.audit("ISSUE_UPDATED", Some(floor), Some(discipline), handle, format!("Issue #{id}: {detail}")); if let Some(entry) = state.audit_log.last_mut() { entry.issue_id = Some(id); } }
+            for (id, floor, discipline, handle, detail) in changed { state.audit_issue(id, "ISSUE_UPDATED", Some(floor), Some(discipline), handle, format!("Issue #{id}: {detail}")); }
             if let Some(id) = request_close { if let Err(message) = state.confirm_close_issue(id) { ui.colored_label(egui::Color32::YELLOW, message); } }
             ui.add_space(10.0);
             if let Some(issue) = selected_issue.and_then(|id| state.issues.iter().find(|issue| issue.id == id)) {
@@ -2333,6 +2337,18 @@ mod tests {
         assert_eq!(one.len(), 1);
         assert_eq!(one[0].issue_id, Some(1));
         assert_eq!(issue_audit_entries(&restored.audit_log, 10).len(), 1);
+    }
+
+    #[test]
+    fn issue_audit_helper_keeps_identity_after_workspace_roundtrip() {
+        let mut state = State::default();
+        state.audit_issue(10, "ISSUE_UPDATED", None, None, None, "Issue #1: deliberately misleading text");
+        let mut restored = State::default();
+        restored.load_snapshot_json(&state.snapshot_json()).unwrap();
+        assert!(issue_audit_entries(&restored.audit_log, 1).is_empty());
+        let entries = issue_audit_entries(&restored.audit_log, 10);
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].issue_id, Some(10));
     }
 
     #[test]
