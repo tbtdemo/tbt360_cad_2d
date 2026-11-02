@@ -1007,15 +1007,36 @@ impl State {
         let Some(conflict) = self.conflicts.iter().find(|c| c.handle == handle).cloned() else { return };
         match resolution {
             ConflictResolution::KeepMine => {
-                if let Some(change) = self.pending_changes.iter_mut().find(|c| !c.synced && c.items.iter().any(|i| i.handle == handle)) {
-                    for item in &mut change.items {
-                        if item.handle == handle {
-                            item.base_revision = conflict.remote_revision;
-                            item.local_revision = conflict.remote_revision + 1;
-                        }
+                if self.auth.status == AuthStatus::SignedOut
+                    || self.auth.account_id != self.current_account_id
+                    || self.current_account_id.trim().is_empty()
+                {
+                    log::warn!("BIM conflict cannot be rebased without a valid session");
+                    return;
+                }
+
+                let Some(next_revision) = conflict.remote_revision.checked_add(1) else {
+                    log::warn!("BIM conflict revision overflow");
+                    return;
+                };
+
+                let Some(change) = self.pending_changes.iter_mut().find(|change| {
+                    !change.synced
+                        && change.account_id == self.current_account_id
+                        && change.items.iter().any(|item| item.handle == handle)
+                }) else {
+                    log::warn!("BIM conflict has no editable pending local change");
+                    return;
+                };
+
+                for item in &mut change.items {
+                    if item.handle == handle {
+                        item.base_revision = conflict.remote_revision;
+                        item.local_revision = next_revision;
                     }
                 }
-                self.audit("CONFLICT_KEEP_MINE", Some(self.active_floor_id), Some(self.active_discipline), Some(handle), format!("Remote r{} -> local r{}", conflict.remote_revision, conflict.remote_revision + 1));
+
+                self.audit("CONFLICT_KEEP_MINE", Some(self.active_floor_id), Some(self.active_discipline), Some(handle), format!("Remote r{} -> local r{}", conflict.remote_revision, next_revision));
             }
             ConflictResolution::AcceptTheirs => {
                 for change in &mut self.pending_changes {
