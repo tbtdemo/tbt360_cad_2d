@@ -1511,6 +1511,7 @@ pub fn panel(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut 
                 ui.label(format!("Đang xử lý: {}", state.issues.iter().filter(|issue| issue.status == IssueStatus::InProgress).count()));
                 ui.label(format!("Đã xử lý: {}", state.issues.iter().filter(|issue| issue.status == IssueStatus::Resolved).count()));
                 ui.label(format!("Đã đóng: {}", state.issues.iter().filter(|issue| issue.status == IssueStatus::Closed).count()));
+                ui.colored_label(egui::Color32::LIGHT_RED, format!("Quá hạn: {}", state.issues.iter().filter(|issue| issue_due_label(issue, &chrono::Local::now().format("%Y-%m-%d").to_string()) == "QUÁ HẠN").count()));
             });
             let today = chrono::Local::now().format("%Y-%m-%d").to_string();
             let current = app.session.selection().first().copied();
@@ -1522,7 +1523,7 @@ pub fn panel(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut 
             ui.separator();
             egui::ScrollArea::horizontal().show(ui, |ui| {
                 egui::Grid::new("tbt360_collaboration_issue_grid").striped(true).min_col_width(90.0).show(ui, |ui| {
-                    for heading in ["Mã", "Ưu tiên", "Loại", "Nguồn", "Ảnh hưởng / Bộ môn", "Nội dung", "Phụ trách", "Hạn xử lý", "Trạng thái", "Tác vụ"] { ui.strong(heading); }
+                    for heading in ["Mã", "Ưu tiên", "Loại", "Nguồn", "Ảnh hưởng / Bộ môn", "Nội dung", "Phụ trách", "Hạn xử lý", "SLA", "Trạng thái", "Tác vụ"] { ui.strong(heading); }
                     ui.end_row();
                     for issue in &mut state.issues {
                         if ui.selectable_label(selected_issue == Some(issue.id), format!("#{:04}", issue.id)).clicked() { selected_issue = Some(issue.id); }
