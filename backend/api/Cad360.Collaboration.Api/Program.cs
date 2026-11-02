@@ -110,6 +110,7 @@ app.MapPost("/api/bim/projects/{project:guid}/changesets", async (Guid project, 
         if (body.Items.Any(item => item.ObjectId == Guid.Empty || item.Operation is null || !new[] { "CREATE", "UPDATE", "DELETE" }.Contains(item.Operation.ToUpperInvariant()))) return Results.BadRequest();
         if (body.Items.Select(item => item.ObjectId).Distinct().Count() != body.Items.Count) return Results.BadRequest(new { error = "duplicate object id in batch" });
         if (body.Items.Any(item => item.Operation!.ToUpperInvariant() != "CREATE" && item.ExpectedRevision < 1)) return Results.BadRequest(new { error = "invalid expected revision" });
+        if (body.Items.Any(item => item.Operation!.ToUpperInvariant() == "CREATE" && item.ExpectedRevision != 0)) return Results.BadRequest(new { error = "create operation must not provide an existing object revision" });
         if (body.Items.Any(item => item.Operation!.ToUpperInvariant() != "DELETE" && item.Geometry.ValueKind != JsonValueKind.Object)) return Results.BadRequest(new { error = "geometry must be JSON object" });
         if (body.Items.Any(item => item.Operation!.ToUpperInvariant() == "CREATE" && (item.FloorId == Guid.Empty || string.IsNullOrWhiteSpace(item.Discipline) || string.IsNullOrWhiteSpace(item.SourceHandle) || string.IsNullOrWhiteSpace(item.EntityType)))) return Results.BadRequest(new { error = "incomplete create scope" });
         var canonical = JsonSerializer.Serialize(new { body.BaseProjectRevision, body.Items });
