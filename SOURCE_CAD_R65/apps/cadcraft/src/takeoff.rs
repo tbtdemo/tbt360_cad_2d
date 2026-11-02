@@ -1125,19 +1125,25 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
         }
         if ui.button("Đếm đối tượng CAD đang chọn").clicked() {
             let measurements=selected_count_measurements(app);
+            let mut added = 0usize;
+            let mut skipped = 0usize;
             for measurement in measurements {
                 let (entity_scope,source_revision)=scope_from_entity_or_active(app,measurement.source_handle,scope);
-                let _=state.add_measurement_from_entity(measurement,&entity_scope,source_revision);
+                if state.add_measurement_from_entity(measurement,&entity_scope,source_revision).is_ok() { added += 1; } else { skipped += 1; }
             }
+            state.import_feedback = format!("Đếm CAD: thêm {added}, bỏ qua {skipped} đối tượng trùng hoặc không hợp lệ.");
         }
         if ui.button("Thêm QTO nested từ Block/Array đang chọn").clicked() {
             let roots=app.session.selection();
+            let mut added = 0usize;
+            let mut skipped = 0usize;
             for root in roots {
                 let candidates=nested_source_candidates(app,root);
                 for (path,measurement) in candidates {
-                    let _=state.add_measurement_from_path(app,path,measurement.kind,scope);
+                    if state.add_measurement_from_path(app,path,measurement.kind,scope).is_ok() { added += 1; } else { skipped += 1; }
                 }
             }
+            state.import_feedback = format!("Đo bóc Block/Array: thêm {added}, bỏ qua {skipped} phép đo.");
         }
         ui.label(format!("Đang chọn {} đối tượng CAD", app.session.selection().len()));
     });
