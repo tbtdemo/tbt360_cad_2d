@@ -66,6 +66,13 @@ impl State {
     }
 }
 
+fn triangle_visible_on_screen(a: egui::Pos2, b: egui::Pos2, c: egui::Pos2, rect: egui::Rect) -> bool {
+    if ![a,b,c].iter().all(|p| p.x.is_finite() && p.y.is_finite()) { return false; }
+    let min = egui::pos2(a.x.min(b.x).min(c.x), a.y.min(b.y).min(c.y));
+    let max = egui::pos2(a.x.max(b.x).max(c.x), a.y.max(b.y).max(c.y));
+    egui::Rect::from_min_max(min, max).intersects(rect)
+}
+
 pub fn panel(ui: &mut egui::Ui, state: &mut State) {
     ui.horizontal_wrapped(|ui| {
         ui.heading("3D / IFC");
@@ -165,7 +172,7 @@ pub fn panel(ui: &mut egui::Ui, state: &mut State) {
         let scroll = ui.ctx().input(|input| input.raw_scroll_delta.y);
         state.zoom = (state.zoom * (1.0 + scroll * 0.001)).clamp(0.05, 30.0);
     }
-    let painter = ui.painter_at(rect);
+    let painter = ui.painter_at(rect).with_clip_rect(rect);
     painter.rect_filled(rect, 4.0, egui::Color32::from_rgb(18, 25, 35));
     let displayed: &[[f32; 3]] = state.mesh.as_ref().map(|m| m.vertices.as_slice()).unwrap_or(&state.points);
     if !displayed.is_empty() {
@@ -195,6 +202,7 @@ pub fn panel(ui: &mut egui::Ui, state: &mut State) {
                 let a = project(&mesh.vertices[triangle[0]]);
                 let b = project(&mesh.vertices[triangle[1]]);
                 let c = project(&mesh.vertices[triangle[2]]);
+                if !triangle_visible_on_screen(a, b, c, rect) { continue; }
                 if state.wireframe {
                     for (u, v) in [(a, b), (b, c), (c, a)] { painter.line_segment([u, v], egui::Stroke::new(0.7, egui::Color32::from_rgb(130, 195, 240))); }
                 } else {
@@ -218,6 +226,14 @@ pub fn panel(ui: &mut egui::Ui, state: &mut State) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn viewport_culling_rejects_nonfinite_and_outside_faces() {
+        let view = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(100.0, 100.0));
+        assert!(triangle_visible_on_screen(egui::pos2(10.0, 10.0), egui::pos2(30.0, 10.0), egui::pos2(10.0, 30.0), view));
+        assert!(!triangle_visible_on_screen(egui::pos2(120.0, 120.0), egui::pos2(140.0, 120.0), egui::pos2(120.0, 140.0), view));
+        assert!(!triangle_visible_on_screen(egui::pos2(f32::NAN, 0.0), egui::pos2(10.0, 0.0), egui::pos2(0.0, 10.0), view));
+    }
+
     #[test]
     fn parses_ifc_3d_point_and_rejects_2d() {
         assert_eq!(point_from_step("#42=IFCCARTESIANPOINT((1.5,-2,3.0));"), Some([1.5,-2.0,3.0]));
