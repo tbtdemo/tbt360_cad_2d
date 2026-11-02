@@ -157,4 +157,18 @@ mod tests {
         assert_eq!(s.checkpoint.remote_project_revision, 30);
     }
 
+    #[test]
+    fn conflict_is_not_retried_until_explicitly_resolved() {
+        let mut state = OfflineSyncState::default();
+        let sequence = state.enqueue("edit-1".into());
+        state.mark_conflict(sequence, "stale object".into());
+        state.mark_retry_error(sequence, "late network failure".into());
+        assert_eq!(state.queue[0].state, QueueState::Conflict);
+        assert_eq!(state.queue[0].retry_count, 0);
+        assert!(state.resolve_conflict_for_retry(sequence));
+        assert_eq!(state.queue[0].state, QueueState::Pending);
+        state.mark_retry_error(sequence, "temporary failure".into());
+        assert_eq!(state.queue[0].retry_count, 1);
+    }
+
 }
