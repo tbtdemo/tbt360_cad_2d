@@ -109,7 +109,8 @@ pub struct State {
 impl State {
     fn scale_to_m(&self) -> Option<f64> {
         if self.drawing_distance.is_finite() && self.real_distance_m.is_finite() && self.drawing_distance > 1e-12 && self.real_distance_m > 0.0 {
-            Some(self.real_distance_m / self.drawing_distance)
+            let scale = self.real_distance_m / self.drawing_distance;
+            (scale.is_finite() && scale > 0.0).then_some(scale)
         } else {
             None
         }
@@ -470,6 +471,7 @@ impl State {
         }
         let uncalibrated = drawing_distance.abs() <= 1e-12 && real_distance_m.abs() <= 1e-12;
         let calibrated = drawing_distance > 1e-12 && real_distance_m > 0.0;
+        if calibrated && !(real_distance_m / drawing_distance).is_finite() { return Err("Tỷ lệ hiệu chỉnh QTO không hợp lệ".into()); }
         if !uncalibrated && !calibrated {
             return Err("Dữ liệu hiệu chỉnh tỷ lệ không hợp lệ".into());
         }
