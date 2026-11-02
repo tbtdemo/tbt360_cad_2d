@@ -45,6 +45,22 @@ class ExportMappingTests(unittest.TestCase):
             self.assertEqual(catalog["objects"][0]["global_id"], GUID)
             self.assertEqual(unmatched, [])
 
+    def test_nested_step_args_and_escaped_apostrophe(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            ifc = root / "nested.ifc"
+            obj = root / "nested.obj"
+            ifc.write_text(
+                "ISO-10303-21;\nDATA;\n"
+                + f"#1=IFCBEAM('{GUID}',$,'B''(1)',$,$,$,$,$);\n"
+                + f"#2=IFCBUILDINGSTOREY('{STOREY}',$,'Level (02)',$,$,$,$,$,$);\n"
+                + f"#3=IFCRELCONTAINEDINSPATIALSTRUCTURE('{REL}',$,$,$,(#1),#2);\n"
+                + "ENDSEC;\n", encoding="utf-8")
+            obj.write_text(f"o Beam_{GUID}\n", encoding="utf-8")
+            catalog, unmatched = extract(ifc, obj, "Kết cấu")
+            self.assertEqual(catalog["objects"][0]["storey"], "Level (02)")
+            self.assertEqual(unmatched, [])
+
     def test_unmatched_groups_are_not_guessed(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
