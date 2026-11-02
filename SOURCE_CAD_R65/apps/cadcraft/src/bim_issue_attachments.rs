@@ -19,3 +19,16 @@ pub fn validate_attachment(item: &Attachment, max_size: u64) -> Result<(), &'sta
         assert!(validate_attachment(&a,10_000).is_err());
     }
 }
+
+#[cfg(test)]
+mod additional_tests {
+    use super::*;
+    #[test]
+    fn empty_names_and_zero_size_are_rejected() {
+        let mut a = Attachment { issue_id: 5, filename: String::new(), size_bytes: 100 };
+        assert!(validate_attachment(&a, 1000).is_err());
+        a.filename = "drawing.png".into();
+        a.size_bytes = 0;
+        assert!(validate_attachment(&a, 1000).is_err());
+    }
+}
