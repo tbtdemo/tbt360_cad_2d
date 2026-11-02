@@ -1,0 +1,51 @@
+name: CAD360 Legacy Compatibility Smoke
+on:
+  push:
+    branches: ['fix/cad360-windows-regression-*']
+    paths:
+      - 'SOURCE_CAD_R65/crates/engine/**'
+      - '.github/workflows/cad360-legacy-compat.yml'
+  workflow_dispatch:
+jobs:
+  legacy:
+    name: "Legacy / ${{ matrix.suite.name }}"
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        suite:
+          - name: Clipboard
+            target: clipboard
+            filter: ""
+          - name: DXF BIM XData
+            target: it
+            filter: xdata_follows_entity
+          - name: 3D Modeling
+            target: modeling3d_r16
+            filter: ""
+    defaults:
+      run:
+        working-directory: SOURCE_CAD_R65
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: SOURCE_CAD_R65
+          key: legacy-${{ matrix.suite.name }}
+      - name: Require real legacy tests to be discovered
+        shell: bash
+        env:
+          TARGET: ${{ matrix.suite.target }}
+          FILTER: ${{ matrix.suite.filter }}
+        run: |
+          set -euo pipefail
+          cargo test --locked -p cadcraft-engine --test "$TARGET" -- "$FILTER" --list > /tmp/cad360-legacy-list.txt
+          cat /tmp/cad360-legacy-list.txt
+          grep -Eq '^[[:space:]]*[1-9][0-9]* tests?, 0 benchmarks' /tmp/cad360-legacy-list.txt || { echo 'ERROR: legacy filter matched zero tests'; exit 1; }
+      - name: Run legacy compatibility tests
+        shell: bash
+        env:
+          TARGET: ${{ matrix.suite.target }}
+          FILTER: ${{ matrix.suite.filter }}
+        run: cargo test --locked -p cadcraft-engine --test "$TARGET" -- "$FILTER" --nocapture
