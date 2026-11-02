@@ -42,10 +42,11 @@ impl Mesh {
                     if ids.windows(2).any(|pair| pair[0] == pair[1]) || ids[0] == *ids.last().unwrap_or(&usize::MAX) { return Err("Mặt OBJ có các đỉnh trùng nhau".into()); }
                     for i in 1..ids.len()-1 {
                         let a = mesh.vertices[ids[0]]; let b = mesh.vertices[ids[i]]; let c = mesh.vertices[ids[i+1]];
-                        let ab = [b[0]-a[0],b[1]-a[1],b[2]-a[2]];
-                        let ac = [c[0]-a[0],c[1]-a[1],c[2]-a[2]];
+                        let ab = [f64::from(b[0])-f64::from(a[0]),f64::from(b[1])-f64::from(a[1]),f64::from(b[2])-f64::from(a[2])];
+                        let ac = [f64::from(c[0])-f64::from(a[0]),f64::from(c[1])-f64::from(a[1]),f64::from(c[2])-f64::from(a[2])];
                         let cross = [ab[1]*ac[2]-ab[2]*ac[1], ab[2]*ac[0]-ab[0]*ac[2], ab[0]*ac[1]-ab[1]*ac[0]];
-                        if !cross.iter().all(|v| v.is_finite()) || cross.iter().map(|v| (*v as f64)*(*v as f64)).sum::<f64>() <= 1e-24 { continue; }
+                        let area_sq = cross.iter().map(|v| v*v).sum::<f64>();
+                        if !area_sq.is_finite() || area_sq <= 1e-24 { continue; }
                         if mesh.faces.len() >= 2_000_000 { return Err("OBJ vượt giới hạn 2 triệu tam giác".into()); }
                         mesh.faces.push([ids[0],ids[i],ids[i+1]]);
                     }
@@ -68,6 +69,17 @@ mod tests {
         let mesh = Mesh::read_from(std::io::Cursor::new(good)).unwrap();
         assert_eq!(mesh.vertices.len(), 4);
         assert_eq!(mesh.faces.len(), 2);
+    }
+    #[test] fn skips_collinear_triangles_and_preserves_valid_faces() {
+        let data = b"v 0 0 0\nv 1 0 0\nv 2 0 0\nv 0 1 0\nf 1 2 3\nf 1 2 4\n";
+        let mesh = Mesh::read_from(std::io::Cursor::new(data)).unwrap();
+        assert_eq!(mesh.faces.len(), 1);
+        assert_eq!(mesh.faces[0], [0,1,3]);
+    }
+    #[test] fn handles_large_finite_coordinates_without_f32_cross_overflow() {
+        let data = b"v 0 0 0\nv 100000000000000000000 0 0\nv 0 100000000000000000000 0\nf 1 2 3\n";
+        let mesh = Mesh::read_from(std::io::Cursor::new(data)).unwrap();
+        assert_eq!(mesh.faces.len(), 1);
     }
     #[test] fn rejects_oversized_line_before_allocating_entire_record() {
         let input = format!("v {} 0 0\n", "1".repeat(MAX_OBJ_LINE));
