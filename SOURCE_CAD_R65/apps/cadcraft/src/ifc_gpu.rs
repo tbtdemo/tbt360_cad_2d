@@ -28,6 +28,16 @@ impl Batch {
         (indices, source_triangles)
     }
 
+    /// Materialize the same BIM/OBJ visibility rules used by the CPU renderer.
+    /// Returned source IDs link the compact draw list back to the original IFC identities.
+    pub fn filtered_indices(&self, groups: &[String], catalog: &crate::ifc_catalog::Catalog, hidden: &std::collections::BTreeSet<usize>, isolated: Option<usize>, guid: &str, storey: &str, discipline: &str) -> (Vec<u32>, Vec<usize>) {
+        self.visible_indices(|_, group| {
+            if isolated.is_some_and(|id| id != group) || hidden.contains(&group) { return false; }
+            let metadata = groups.get(group).and_then(|name| catalog.get(name));
+            crate::ifc_catalog::matches(metadata, guid, storey, discipline)
+        })
+    }
+
     pub fn from_mesh(mesh: &Mesh) -> Result<Self, String> {
         if mesh.vertices.is_empty() { return Err("Mesh không có đỉnh".into()); }
         if mesh.vertices.len() > u32::MAX as usize { return Err("Mesh vượt giới hạn GPU u32 indices".into()); }
@@ -78,6 +88,20 @@ mod tests {
         let (indices, triangles) = batch.visible_indices(|source, group| group == 2 && source != 1);
         assert_eq!(indices, vec![0,2,3]);
         assert_eq!(triangles, vec![2]);
+    }
+
+    #[test]
+    fn gpu_visibility_respects_globalid_storey_discipline_and_isolation() {
+        let mesh = Mesh { vertices: vec![[0.0;3],[1.0,0.0,0.0],[0.0,1.0,0.0]], faces: vec![[0,1,2],[0,2,1]], face_groups: vec![0,1], groups: vec!["Walls".into(),"Beams".into()] };
+        let batch = Batch::from_mesh(&mesh).unwrap();
+        let mut catalog = crate::ifc_catalog::Catalog::default();
+        catalog.by_group.insert("Beams".into(), crate::ifc_catalog::Item { global_id:"3h7B1JG5D4QQ4W8gcZQ0Xa".into(),storey:"Tầng 2".into(),discipline:"Kết cấu".into(),ifc_type:"IFCBEAM".into() });
+        let none = std::collections::BTreeSet::new();
+        let (indices, src) = batch.filtered_indices(&mesh.groups,&catalog,&none,None,"3h7B","Tầng 2","Kết cấu");
+        assert_eq!(indices, vec![0,2,1]); assert_eq!(src, vec![1]);
+        assert!(batch.filtered_indices(&mesh.groups,&catalog,&none,Some(0),"3h7B","Tầng 2","Kết cấu").0.is_empty());
+        let mut hidden = std::collections::BTreeSet::new(); hidden.insert(1);
+        assert!(batch.filtered_indices(&mesh.groups,&catalog,&hidden,None,"3h7B","Tầng 2","Kết cấu").0.is_empty());
     }
 
     #[test]
