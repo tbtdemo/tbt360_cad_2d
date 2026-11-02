@@ -144,12 +144,20 @@ impl PushChangeSetRequest {
         if self.device_id.trim().is_empty() { return Err("device_id trống".into()); }
         if self.client_change_set_id.trim().is_empty() { return Err("client_change_set_id trống".into()); }
         if self.items.is_empty() { return Err("ChangeSet không có item".into()); }
+        let mut objects = std::collections::BTreeSet::new();
+        let mut handles = std::collections::BTreeSet::new();
         for item in &self.items {
             if item.object_id.trim().is_empty() || item.source_handle.trim().is_empty() {
                 return Err("Change item thiếu object_id/source_handle".into());
             }
             if item.local_revision <= item.base_revision && item.operation != ChangeOperationDto::Delete {
                 return Err("local_revision phải lớn hơn base_revision".into());
+            }
+            if !objects.insert(item.object_id.as_str()) || !handles.insert(item.source_handle.as_str()) {
+                return Err("ChangeSet chứa object_id hoặc source_handle trùng".into());
+            }
+            if item.base_revision.checked_add(1) != Some(item.local_revision) {
+                return Err("Revision phải tăng đúng một bước".into());
             }
             if item.scope.project_id != self.project_id {
                 return Err("Scope project_id không khớp ChangeSet".into());
@@ -194,4 +202,20 @@ mod tests {
         };
         assert!(req.validate().is_ok());
     }
+    #[test]
+    fn duplicated_source_handle_is_not_allowed_in_one_changeset() {
+        let item = ChangeItemDto { object_id:"O1".into(), source_handle:"A".into(), scope:scope(), operation:ChangeOperationDto::Update, base_revision:1, local_revision:2, payload_json:"{}".into() };
+        let mut other = item.clone();
+        other.object_id = "O2".into();
+        let req = PushChangeSetRequest { project_id:"P".into(), account_id:"u1".into(), device_id:"pc".into(), client_change_set_id:"c2".into(), base_project_revision:1, items:vec![item, other] };
+        assert!(req.validate().is_err());
+    }
+
+    #[test]
+    fn skipped_revision_is_rejected_by_api_contract() {
+        let item = ChangeItemDto { object_id:"O1".into(), source_handle:"A".into(), scope:scope(), operation:ChangeOperationDto::Update, base_revision:1, local_revision:5, payload_json:"{}".into() };
+        let req = PushChangeSetRequest { project_id:"P".into(), account_id:"u1".into(), device_id:"pc".into(), client_change_set_id:"c3".into(), base_project_revision:1, items:vec![item] };
+        assert!(req.validate().is_err());
+    }
+
 }
