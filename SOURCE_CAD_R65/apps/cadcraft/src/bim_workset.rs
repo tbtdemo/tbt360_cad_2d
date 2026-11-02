@@ -58,6 +58,7 @@ pub struct ConsumedRevision {
 
 pub fn consume_revision(consumer_workset_id: String, source: &ModelRevision) -> Result<ConsumedRevision, String> {
     if consumer_workset_id.trim().is_empty() || source.project_id.trim().is_empty() || source.workset_id.trim().is_empty() { return Err("Missing workset or project identity".into()); }
+    if consumer_workset_id == source.workset_id { return Err("Workset cannot consume its own published revision".into()); }
     if source.state != RevisionState::Published {
         return Err("Chỉ được consume revision đã Published".into());
     }
@@ -121,6 +122,13 @@ mod tests {
         assert_eq!(revision.state, RevisionState::Review);
         assert!(revision.published_by.is_none());
         assert!(revision.publish("reviewer".into()));
+    }
+
+    #[test]
+    fn workset_cannot_consume_its_own_published_revision() {
+        let revision = ModelRevision { id: 5, project_id:"P".into(), workset_id:"W".into(), number:2, state:RevisionState::Published, created_by:"u1".into(), reviewed_by:None, published_by:Some("u2".into()) };
+        assert!(consume_revision("W".into(), &revision).is_err());
+        assert!(consume_revision("OTHER".into(), &revision).is_ok());
     }
 
 }
