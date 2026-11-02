@@ -1558,22 +1558,26 @@ pub fn panel(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut 
                         let is_editable = issue.status != IssueStatus::Closed;
                         if ui.selectable_label(selected_issue == Some(issue.id), format!("#{:04}", issue.id)).clicked() { selected_issue = Some(issue.id); }
                         ui.add_enabled_ui(is_editable, |ui| {
-                        egui::ComboBox::from_id_salt(("collab_priority", issue.id)).selected_text(&issue.priority).show_ui(ui, |ui| {
-                            for priority in ["P0", "P1", "P2", "P3"] { ui.selectable_value(&mut issue.priority, priority.to_string(), priority); }
+                            egui::ComboBox::from_id_salt(("collab_priority", issue.id)).selected_text(&issue.priority).show_ui(ui, |ui| {
+                                for priority in ["P0", "P1", "P2", "P3"] { ui.selectable_value(&mut issue.priority, priority.to_string(), priority); }
+                            });
                         });
-                        egui::ComboBox::from_id_salt(("collab_type", issue.id)).selected_text(&issue.issue_type).show_ui(ui, |ui| {
-                            for kind in ["Coordination", "Clash", "RFI", "Thay đổi TK"] { ui.selectable_value(&mut issue.issue_type, kind.to_string(), kind); }
+                        ui.add_enabled_ui(is_editable, |ui| {
+                            egui::ComboBox::from_id_salt(("collab_type", issue.id)).selected_text(&issue.issue_type).show_ui(ui, |ui| {
+                                for kind in ["Coordination", "Clash", "RFI", "Thay đổi TK"] { ui.selectable_value(&mut issue.issue_type, kind.to_string(), kind); }
+                            });
                         });
                         ui.label(issue.source_discipline.label());
                         ui.label(issue.target_discipline.label());
                         ui.label(&issue.description);
-                        ui.text_edit_singleline(&mut issue.assigned_to);
-                        ui.add(egui::TextEdit::singleline(&mut issue.due_at).hint_text("YYYY-MM-DD"));
+                        ui.add_enabled(is_editable, egui::TextEdit::singleline(&mut issue.assigned_to));
+                        ui.add_enabled(is_editable, egui::TextEdit::singleline(&mut issue.due_at).hint_text("YYYY-MM-DD"));
                         let due = issue_due_label(issue, &today);
                         if due == "QUÁ HẠN" || due == "Ngày không hợp lệ" { ui.colored_label(egui::Color32::LIGHT_RED, due); } else { ui.label(due); }
-                        egui::ComboBox::from_id_salt(("collab_issue_status", issue.id)).selected_text(issue.status.label()).show_ui(ui, |ui| {
-                            for status in [IssueStatus::Open, IssueStatus::InProgress, IssueStatus::Resolved] { ui.selectable_value(&mut issue.status, status, status.label()); }
-                        });
+                        ui.add_enabled_ui(is_editable, |ui| {
+                            egui::ComboBox::from_id_salt(("collab_issue_status", issue.id)).selected_text(issue.status.label()).show_ui(ui, |ui| {
+                                for status in [IssueStatus::Open, IssueStatus::InProgress, IssueStatus::Resolved] { ui.selectable_value(&mut issue.status, status, status.label()); }
+                            });
                         });
                         if ui.button("Chi tiết").clicked() { selected_issue = Some(issue.id); }
                         if issue.status == IssueStatus::Resolved && ui.button("Xác nhận đóng").clicked() { request_close = Some(issue.id); }
