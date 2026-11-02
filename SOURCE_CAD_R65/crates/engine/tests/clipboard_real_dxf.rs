@@ -58,7 +58,7 @@ fn system_clipboard_real_dxf_preserves_bim_scope_and_repairs_identity_on_paste()
     assert_eq!(b.doc().unwrap().model.iter().filter(|e| e.handle == pasted.handle).count(), 1);
     let at=pasted.common.xdata.iter().position(|t|t.code==1001&&t.value=="TBT360_BIM").unwrap();
     let payload=&pasted.common.xdata[at+1].value;
-    assert!(payload.contains("floor=2;discipline=ELEC;owner=u1;revision=7"));
+    assert!(payload.contains("floor=2;discipline=ELEC;owner=u1;revision=1"), "PASTE must retain BIM scope but initialize a new object revision; got: {payload}");
     assert!(payload.contains(&format!("entity={}",pasted.handle.hex())));
 }
 
