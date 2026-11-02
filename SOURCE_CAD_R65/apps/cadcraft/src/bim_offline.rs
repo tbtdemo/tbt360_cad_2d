@@ -44,7 +44,7 @@ pub struct OfflineSyncState {
 
 impl OfflineSyncState {
     pub fn enqueue(&mut self, change_set_id: String) -> u64 {
-        self.checkpoint.local_sequence += 1;
+        self.checkpoint.local_sequence = self.checkpoint.local_sequence.saturating_add(1);
         let seq = self.checkpoint.local_sequence;
         self.queue.push(OfflineQueueItem { local_sequence: seq, change_set_id, state: QueueState::Local, retry_count: 0, last_error: None });
         seq
@@ -83,7 +83,7 @@ impl OfflineSyncState {
             item.state = QueueState::Pending;
             item.last_error = Some(message);
         }
-        self.connectivity = Connectivity::Degraded;
+        if self.queue.iter().any(|i| i.local_sequence == local_sequence && i.state == QueueState::Pending) { self.connectivity = Connectivity::Degraded; }
     }
 
     pub fn mark_conflict(&mut self, local_sequence: u64, message: String) {
