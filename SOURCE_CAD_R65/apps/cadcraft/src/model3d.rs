@@ -1,6 +1,6 @@
 //! IFC inspection preview. Full tessellation requires a separately packaged IfcConvert runtime.
 use crate::ifc_catalog;
-use std::{collections::{BTreeMap, BTreeSet}, io::{BufRead, BufReader, Read}, path::PathBuf};
+use std::{collections::{BTreeMap, BTreeSet}, io::{BufRead, BufReader}, path::PathBuf};
 
 const MAX_IFC_PREVIEW_FILE_BYTES: u64 = 512 * 1024 * 1024;
 const MAX_IFC_PREVIEW_LINE_BYTES: usize = 4 * 1024 * 1024;
@@ -34,6 +34,42 @@ pub struct State {
     cancel_conversion: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
 }
 
+fn read_bounded_line<Reader: BufRead>(
+    reader: &mut Reader,
+    destination: &mut Vec<u8>,
+    maxBytes: usize,
+) -> Result<usize, String>
+{
+    destination.clear();
+    loop
+    {
+        let available = reader
+            .fill_buf()
+            .map_err(|error| format!("Không đọc được dữ liệu: {error}"))?;
+
+        if available.is_empty()
+        {
+            return Ok(destination.len());
+        }
+
+        let newline = available.iter().position(|byte| *byte == b'\n');
+        let bytesToCopy = newline.map_or(available.len(), |index| index + 1);
+
+        if destination.len().saturating_add(bytesToCopy) > maxBytes
+        {
+            return Err(format!("Dòng dữ liệu vượt giới hạn {maxBytes} bytes"));
+        }
+
+        destination.extend_from_slice(&available[..bytesToCopy]);
+        reader.consume(bytesToCopy);
+
+        if newline.is_some()
+        {
+            return Ok(destination.len());
+        }
+    }
+}
+
 fn point_from_step(line: &str) -> Option<[f32; 3]> {
     let upper = line.to_ascii_uppercase();
     let start = upper.find("IFCCARTESIANPOINT((")? + "IFCCARTESIANPOINT((".len();
@@ -59,11 +95,11 @@ impl State {
 
         let mut reader = BufReader::new(file);
         let mut first_buffer = Vec::new();
-        reader
-            .by_ref()
-            .take((MAX_IFC_PREVIEW_LINE_BYTES + 1) as u64)
-            .read_until(b'\n', &mut first_buffer)
-            .map_err(|error| format!("Không đọc được header IFC: {error}"))?;
+        read_bounded_line(
+            &mut reader,
+            &mut first_buffer,
+            MAX_IFC_PREVIEW_LINE_BYTES,
+        )?;
 
         if first_buffer.len() > MAX_IFC_PREVIEW_LINE_BYTES {
             return Err("Header IFC vượt giới hạn 4 MiB".into());
@@ -77,11 +113,11 @@ impl State {
         let mut line_buffer = Vec::new();
         loop {
             line_buffer.clear();
-            let bytes_read = reader
-                .by_ref()
-                .take((MAX_IFC_PREVIEW_LINE_BYTES + 1) as u64)
-                .read_until(b'\n', &mut line_buffer)
-                .map_err(|error| format!("Lỗi đọc dữ liệu IFC: {error}"))?;
+            let bytes_read = read_bounded_line(
+                &mut reader,
+                &mut line_buffer,
+                MAX_IFC_PREVIEW_LINE_BYTES,
+            )?;
 
             if bytes_read == 0 {
                 break;
