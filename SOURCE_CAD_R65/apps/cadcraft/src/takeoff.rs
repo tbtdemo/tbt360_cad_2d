@@ -183,6 +183,7 @@ impl State {
     fn add_measurement_from_entity(&mut self, measurement: PendingMeasurement, scope: &Scope, source_revision: Option<u64>) -> Result<u64, String> {
         let source_handle=measurement.source_handle.hex();
         let source_geometry_signature=geometry_signature(&measurement);
+        if self.records.iter().any(|r| r.source_handle.as_deref() == Some(source_handle.as_str()) && r.source_path.is_none() && r.kind == measurement.kind && r.source_geometry_signature.as_deref() == Some(source_geometry_signature.as_str())) { return Err("Đối tượng CAD đã được thêm vào QTO với cùng hình học".into()); }
         if self.next_audit_sequence.max(1).checked_add(3).is_none() { return Err("Không đủ ID nhật ký QTO cho đối tượng CAD".into()); }
         let id=self.add_measurement_scoped(measurement.kind,measurement.points,measurement.raw_value,measurement.layer,scope)?;
         if let Some(record)=self.records.iter_mut().find(|r|r.id==id) {
