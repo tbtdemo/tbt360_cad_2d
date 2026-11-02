@@ -44,6 +44,8 @@ pub struct OfflineSyncState {
 
 impl OfflineSyncState {
     pub fn enqueue(&mut self, change_set_id: String) -> u64 {
+        if change_set_id.trim().is_empty() { return 0; }
+        if let Some(existing) = self.queue.iter().find(|item| item.change_set_id == change_set_id) { return existing.local_sequence; }
         let Some(next) = self.checkpoint.local_sequence.checked_add(1) else { return 0; };
         self.checkpoint.local_sequence = next;
         let seq = self.checkpoint.local_sequence;
@@ -188,6 +190,18 @@ mod tests {
         state.checkpoint.local_sequence = u64::MAX;
         assert_eq!(state.enqueue("later".into()), 0);
         assert_eq!(state.queue.len(), 0);
+    }
+
+    #[test]
+    fn repeated_offline_enqueue_reuses_original_sequence() {
+        let mut s = OfflineSyncState::default();
+        let first = s.enqueue("same-change".into());
+        let second = s.enqueue("same-change".into());
+        assert_eq!(first, second);
+        assert_eq!(s.queue.len(), 1);
+        assert_eq!(s.checkpoint.local_sequence, first);
+        assert_eq!(s.enqueue("  ".into()), 0);
+        assert_eq!(s.queue.len(), 1);
     }
 
 }
