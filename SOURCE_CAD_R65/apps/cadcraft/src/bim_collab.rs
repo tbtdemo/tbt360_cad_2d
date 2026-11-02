@@ -3205,6 +3205,37 @@ mod tests {
     }
 
     #[test]
+    fn accepting_stale_remote_revision_must_not_downgrade_state() {
+        let mut state = State::default();
+        let handle = cadcraft_doc::Handle(99001);
+        state.set_remote_revision(handle, 5);
+        state.pending_changes.push(ChangeSet {
+            id: 990,
+            account_id: state.current_account_id.clone(),
+            items: vec![ChangeItem {
+                handle,
+                operation: ChangeOperation::Update,
+                base_revision: 2,
+                local_revision: 3,
+            }],
+            synced: false,
+        });
+        state.conflicts.push(SyncConflict {
+            handle,
+            base_revision: 2,
+            local_revision: 3,
+            remote_revision: 4,
+        });
+
+        state.resolve_conflict(handle, ConflictResolution::AcceptTheirs);
+
+        assert_eq!(state.remote_revision(handle), 5);
+        assert_eq!(state.conflicts.len(), 1);
+        assert_eq!(state.pending_changes[0].items.len(), 1);
+        assert!(!state.pending_changes[0].synced);
+    }
+
+    #[test]
     fn accept_remote_without_local_edit_keeps_conflict_open() {
         let mut state = State::default();
         let handle = cadcraft_doc::Handle(98001);
