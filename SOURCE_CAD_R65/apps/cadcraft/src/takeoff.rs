@@ -1394,6 +1394,17 @@ mod tests {
         assert_eq!(state.real_distance_m, real_distance_m);
     }
 
+    #[test]
+    fn qto_scale_rejects_overflow_and_underflow_in_restored_state() {
+        let mut state = State::default();
+        state.drawing_distance = 1.0e-10;
+        state.real_distance_m = 1.0e308;
+        assert_eq!(state.scale_to_m(), None);
+        state.drawing_distance = 1.0e308;
+        state.real_distance_m = 1.0e-308;
+        assert_eq!(state.scale_to_m(), None);
+    }
+
     fn block_member_fixture()->(cadcraft_doc::Drawing,cadcraft_doc::Handle,cadcraft_doc::Handle) {
         let mut d=cadcraft_doc::Drawing::new_metric();
         let member=cadcraft_doc::Handle(0x20);
