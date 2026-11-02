@@ -10,6 +10,7 @@ on:
       - 'SOURCE_CAD_R65/apps/cadcraft/src/ifc_catalog.rs'
       - 'SOURCE_CAD_R65/apps/cadcraft/src/ifc_gpu.rs'
       - 'SOURCE_CAD_R65/apps/cadcraft/src/main.rs'
+      - 'SOURCE_CAD_R65/apps/cadcraft/src/bim_collab.rs'
       - 'SOURCE_CAD_R65/apps/cadcraft/tools/export_ifc_obj_mapping.py'
       - 'SOURCE_CAD_R65/apps/cadcraft/tools/test_export_ifc_obj_mapping.py'
       - 'SOURCE_CAD_R65/apps/cadcraft/Cargo.toml'
