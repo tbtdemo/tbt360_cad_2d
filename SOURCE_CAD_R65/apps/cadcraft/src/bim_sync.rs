@@ -161,6 +161,7 @@ impl CollaborationTransport for MemoryTransport {
     fn push_changes(&mut self, project_id: &str, changes: &[ChangeEnvelope]) -> Result<PushResult, String> {
         self.bind_project(project_id)?;
         for change in changes {
+            if change.id == 0 { return Err("Changeset id must be nonzero".into()); }
             if change.account_id.trim().is_empty() || change.device_id.trim().is_empty() {
                 return Err("Missing account or device identity".into());
             }
@@ -562,6 +563,14 @@ mod tests {
         let result = transport.push_changes("P", &[update.clone(), update]).unwrap();
         assert!(result.accepted_change_set_ids.is_empty());
         assert_eq!(result.conflicts.len(), 1);
+    }
+
+    #[test]
+    fn zero_changeset_id_is_rejected_before_any_write() {
+        let mut transport = MemoryTransport::default();
+        assert!(transport.push_changes("P", &[change(1, "A", 0, 1), change(0, "B", 0, 1)]).is_err());
+        assert!(transport.object_revisions.is_empty());
+        assert_eq!(transport.project_revision, 0);
     }
 
 }
