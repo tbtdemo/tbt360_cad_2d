@@ -182,4 +182,12 @@ mod tests {
         assert_eq!(s.connectivity, Connectivity::Online);
     }
 
+    #[test]
+    fn exhausted_sequence_does_not_insert_duplicate_item() {
+        let mut state = OfflineSyncState::default();
+        state.checkpoint.local_sequence = u64::MAX;
+        assert_eq!(state.enqueue("later".into()), 0);
+        assert_eq!(state.queue.len(), 0);
+    }
+
 }
