@@ -1,6 +1,12 @@
 name: CAD360 IFC Windows Portable
 
 on:
+  push:
+    branches:
+      - feature/bim-issue-audit
+    paths:
+      - 'SOURCE_CAD_R65/apps/cadcraft/**'
+      - '.github/workflows/cad360-ifc-portable.yml'
   workflow_dispatch:
   pull_request:
     paths:
