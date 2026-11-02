@@ -329,9 +329,11 @@ fn move_and_undo_restore_bim_revision_and_geometry() {
     add_bim(&mut s,h,2,"ELEC","u1",7);
     s.execute("move",&json!({"handles":[h.hex()],"delta":[5,0]})).unwrap();
     assert!(bim_payload(&s,h).contains("revision=8"));
+    // Both the command wrapper and direct history restoration must restore
+    // the exact BIM XData snapshot. Record the command path separately.
     s.execute("undo",&json!({})).unwrap();
     let p=bim_payload(&s,h);
-    assert!(p.contains("revision=7"));
+    assert!(p.contains("revision=7"), "UNDO command did not restore BIM revision; actual payload: {p}");
     assert!(p.contains(&format!("entity={}",h.hex())));
 }
 
