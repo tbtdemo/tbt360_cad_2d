@@ -1,0 +1,22 @@
+name: CAD360 Full Workspace Extended Tests
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 18 * * 0'
+jobs:
+  full-workspace:
+    name: Full Rust workspace tests (extended)
+    runs-on: windows-latest
+    timeout-minutes: 180
+    defaults:
+      run:
+        working-directory: SOURCE_CAD_R65
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: SOURCE_CAD_R65
+          key: workspace-full
+      - name: Run complete workspace tests
+        run: cargo test --workspace --locked --no-fail-fast
