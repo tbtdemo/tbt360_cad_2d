@@ -103,6 +103,7 @@ pub struct State {
     search_text: String,
     status_filter: u8,
     import_feedback: String,
+    file_feedback: String,
     edit_work_group: String,
     edit_work_code: String,
     edit_description: String,
@@ -1154,8 +1155,8 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
         if ui.button("Lưu dự án đo bóc").clicked() {
             if let Some(path) = rfd::FileDialog::new().add_filter("TBT360 QTO Project", &["json"]).set_file_name("TBT360_QTO_PROJECT.json").save_file() {
                 match serde_json::to_vec_pretty(&state.to_json()).map_err(|e| e.to_string()).and_then(|data| std::fs::write(&path, data).map_err(|e| e.to_string())) {
-                    Ok(()) => { ui.ctx().debug_painter().text(egui::pos2(16.0, 16.0), egui::Align2::LEFT_TOP, "Đã lưu dự án đo bóc", egui::FontId::proportional(14.0), egui::Color32::LIGHT_GREEN); }
-                    Err(e) => eprintln!("Không thể lưu dự án đo bóc: {e}"),
+                    Ok(()) => { state.file_feedback = format!("Đã lưu QTO: {}", path.display()); }
+                    Err(e) => { state.file_feedback = format!("Lưu QTO thất bại: {e}"); eprintln!("{}", state.file_feedback); },
                 };
             }
         }
@@ -1164,12 +1165,14 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
                 match std::fs::read(&path).map_err(|e| e.to_string())
                     .and_then(|data| serde_json::from_slice::<serde_json::Value>(&data).map_err(|e| e.to_string()))
                     .and_then(|value| state.load_json(&value)) {
-                    Ok(()) => { ui.ctx().debug_painter().text(egui::pos2(16.0, 34.0), egui::Align2::LEFT_TOP, "Đã mở dự án đo bóc", egui::FontId::proportional(14.0), egui::Color32::LIGHT_GREEN); }
-                    Err(e) => eprintln!("Không thể mở dự án đo bóc: {e}"),
+                    Ok(()) => { state.file_feedback = format!("Đã mở QTO: {}", path.display()); }
+                    Err(e) => { state.file_feedback = format!("Mở QTO thất bại: {e}"); eprintln!("{}", state.file_feedback); },
                 };
             }
         }
     });
+
+    if !state.file_feedback.is_empty() { ui.label(&state.file_feedback); }
 
     ui.separator();
     egui::ScrollArea::both().auto_shrink([false, false]).show(ui, |ui| {
