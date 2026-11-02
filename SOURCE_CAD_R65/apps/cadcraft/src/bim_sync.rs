@@ -142,15 +142,15 @@ impl CollaborationTransport for MemoryTransport {
     }
 
     fn push_changes(&mut self, _project_id: &str, changes: &[ChangeEnvelope]) -> Result<PushResult, String> {
+        // Validate the whole request before mutating any revision.
+        if let Some(invalid) = changes.iter().find(|change| change.base_project_revision > self.project_revision) {
+            return Err(format!("Future project revision {} (server {})", invalid.base_project_revision, self.project_revision));
+        }
         let mut accepted = Vec::new();
         let mut conflicts = Vec::new();
         for change in changes {
             // An empty changeset must not increment the project revision.
             if change.items.is_empty() { continue; }
-            // A stale project snapshot can never be newer than the server state.
-            if change.base_project_revision > self.project_revision {
-                return Err(format!("Future project revision {} (server {})", change.base_project_revision, self.project_revision));
-            }
             let mut change_conflict = false;
             for item in &change.items {
                 let remote_revision = self.object_revisions.get(&item.source_handle).copied().unwrap_or(0);
@@ -306,6 +306,16 @@ mod tests {
         let mut batch = change(10, "A", 0, 1);
         batch.base_project_revision = 99;
         assert!(transport.push_changes("p1", &[batch]).is_err());
+        assert!(transport.object_revisions.is_empty());
+    }
+
+    #[test]
+    fn future_revision_in_later_batch_cannot_partially_commit_earlier_batch() {
+        let mut transport = MemoryTransport::default();
+        let mut future = change(12, "B", 0, 1);
+        future.base_project_revision = 100;
+        assert!(transport.push_changes("p1", &[change(11, "A", 0, 1), future]).is_err());
+        assert_eq!(transport.project_revision, 0);
         assert!(transport.object_revisions.is_empty());
     }
 
