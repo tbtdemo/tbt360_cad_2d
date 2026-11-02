@@ -94,4 +94,17 @@ mod tests {
         assert!(!authorize(&principal, &scope, &[grant], false, true));
     }
 
+    #[test]
+    fn deny_on_one_floor_does_not_hide_other_floors() {
+        let principal = Principal { account_id: "designer".into(), role: ProjectRole::Designer };
+        let mut scope = Scope { project_id: "P".into(), building_id: Some("B1".into()), zone_id: None, floor_id: Some("F1".into()), discipline: Some("ELEC".into()), workset_id: None, owner_account_id: None };
+        let allow = Grant { viewer_account_id: "designer".into(), source_owner_account_id: None, project_id: "P".into(), building_id: Some("B1".into()), zone_id: None, floor_id: None, discipline: Some("ELEC".into()), workset_id: None, can_view: true, can_edit: true, can_publish: false, deny: false };
+        let deny = Grant { floor_id: Some("F1".into()), deny: true, ..allow.clone() };
+        assert!(!authorize(&principal, &scope, &[allow.clone(), deny.clone()], true, false));
+        scope.floor_id = Some("F2".into());
+        assert!(authorize(&principal, &scope, &[allow, deny], true, false));
+        scope.project_id = "OTHER".into();
+        assert!(!authorize(&principal, &scope, &[], true, false));
+    }
+
 }
