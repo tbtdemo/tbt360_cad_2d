@@ -130,6 +130,7 @@ pub struct MemoryTransport {
     pub object_revisions: std::collections::BTreeMap<String, u64>,
     pub presences: std::collections::BTreeMap<String, PresenceDto>,
     pub leases: std::collections::BTreeMap<String, String>,
+    pub change_history: Vec<(u64, ChangeEnvelope)>,
 }
 
 impl CollaborationTransport for MemoryTransport {
@@ -138,7 +139,8 @@ impl CollaborationTransport for MemoryTransport {
     }
 
     fn pull_changes(&mut self, _project_id: &str, after_revision: u64) -> Result<(u64, Vec<ChangeEnvelope>), String> {
-        Ok((self.project_revision.max(after_revision), Vec::new()))
+        let changes = self.change_history.iter().filter(|(revision, _)| *revision > after_revision).map(|(_, change)| change.clone()).collect();
+        Ok((self.project_revision, changes))
     }
 
     fn push_changes(&mut self, _project_id: &str, changes: &[ChangeEnvelope]) -> Result<PushResult, String> {
@@ -198,6 +200,7 @@ impl CollaborationTransport for MemoryTransport {
             }
             accepted.push(change.id);
             self.project_revision += 1;
+            self.change_history.push((self.project_revision, change.clone()));
         }
         Ok(PushResult { accepted_change_set_ids: accepted, project_revision: self.project_revision, conflicts })
     }
@@ -358,6 +361,21 @@ mod tests {
         let mut transport = MemoryTransport::default();
         assert!(transport.push_changes("p", &[change(25, "A", u64::MAX, u64::MAX)]).is_err());
         assert_eq!(transport.project_revision, 0);
+    }
+
+    #[test]
+    fn change_feed_returns_only_committed_changes_after_cursor() {
+        let mut transport = MemoryTransport::default();
+        transport.push_changes("p", &[change(31, "A", 0, 1), change(32, "B", 0, 1)]).unwrap();
+        let (revision, initial) = transport.pull_changes("p", 0).unwrap();
+        assert_eq!(revision, 2);
+        assert_eq!(initial.len(), 2);
+        assert_eq!(initial[0].id, 31);
+        let (_, subsequent) = transport.pull_changes("p", 1).unwrap();
+        assert_eq!(subsequent.len(), 1);
+        assert_eq!(subsequent[0].id, 32);
+        let (_, none) = transport.pull_changes("p", 2).unwrap();
+        assert!(none.is_empty());
     }
 
 }
