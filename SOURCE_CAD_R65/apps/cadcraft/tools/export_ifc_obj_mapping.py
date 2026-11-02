@@ -22,7 +22,7 @@ def entities(path):
         raise ValueError("Not a STEP IFC file")
     found = {}
     # IFC STEP arguments contain nested parentheses; a non-greedy regex stops too early.
-    for match in re.finditer(r"#(\\d+)\\s*=\\s*(IFC[A-Z0-9_]+)\\s*\\(", data, re.I):
+    for match in re.finditer(r"#(\d+)\s*=\s*(IFC[A-Z0-9_]+)\s*\(", data, re.I):
         depth, quoted, pos = 1, False, match.end()
         start = pos
         while pos < len(data) and depth:
