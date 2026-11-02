@@ -1680,8 +1680,8 @@ pub fn panel(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut 
         }
     }
     ui.separator();
-    ui.collapsing("Công cụ nghiệp vụ và thiết lập chi tiết", |ui| {
-        ui.label("Các công cụ cũ được giữ nguyên để bảo toàn thao tác. Trong các phiên bản tiếp theo, chức năng sẽ được đưa vào từng tab tương ứng.");
+    ui.collapsing("Thiết lập BIM nâng cao (tùy chọn)", |ui| {
+        ui.label("Các chức năng BIM nâng cao vẫn được giữ để bảo toàn nghiệp vụ hiện có.");
         legacy_panel(ui, app, state);
     });
     ui.ctx().data_mut(|data| { data.insert_temp(tab_id, tab); data.insert_temp(egui::Id::new("tbt360_bim_selected_issue"), selected_issue); });
