@@ -11,6 +11,23 @@ pub struct Batch {
 }
 
 impl Batch {
+    /// Build a compact index stream for BIM visibility without losing the original triangle IDs.
+    /// Selection and picking may use source_triangles to resolve IFC GlobalId/group metadata.
+    pub fn visible_indices<F>(&self, mut visible: F) -> (Vec<u32>, Vec<usize>)
+    where F: FnMut(usize, usize) -> bool {
+        let mut indices = Vec::new();
+        let mut source_triangles = Vec::new();
+        for (triangle, group) in self.triangle_group.iter().copied().enumerate() {
+            if !visible(triangle, group) { continue; }
+            let start = triangle * 3;
+            if let Some(slice) = self.indices.get(start..start + 3) {
+                indices.extend_from_slice(slice);
+                source_triangles.push(triangle);
+            }
+        }
+        (indices, source_triangles)
+    }
+
     pub fn from_mesh(mesh: &Mesh) -> Result<Self, String> {
         if mesh.vertices.is_empty() { return Err("Mesh không có đỉnh".into()); }
         if mesh.vertices.len() > u32::MAX as usize { return Err("Mesh vượt giới hạn GPU u32 indices".into()); }
@@ -54,6 +71,15 @@ mod tests {
         assert_eq!(batch.positions[0], [-5.0,-5.0,0.0]);
         assert_eq!(batch.positions[2], [-5.0,5.0,0.0]);
     }
+    #[test]
+    fn visibility_preserves_source_triangle_identity() {
+        let mesh = Mesh { vertices: vec![[0.0;3],[1.0,0.0,0.0],[0.0,1.0,0.0],[1.0,1.0,0.0]], faces: vec![[0,1,2],[1,3,2],[0,2,3]], face_groups: vec![0,2,2], groups: vec![] };
+        let batch = Batch::from_mesh(&mesh).unwrap();
+        let (indices, triangles) = batch.visible_indices(|source, group| group == 2 && source != 1);
+        assert_eq!(indices, vec![0,2,3]);
+        assert_eq!(triangles, vec![2]);
+    }
+
     #[test]
     fn rejects_invalid_group_and_face_indices() {
         let mesh = Mesh { vertices: vec![[0.0;3]], faces: vec![[0,1,2]], face_groups: vec![0], groups: vec![] };
