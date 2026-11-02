@@ -1039,8 +1039,16 @@ impl State {
                 self.audit("CONFLICT_KEEP_MINE", Some(self.active_floor_id), Some(self.active_discipline), Some(handle), format!("Remote r{} -> local r{}", conflict.remote_revision, next_revision));
             }
             ConflictResolution::AcceptTheirs => {
+                if self.auth.status == AuthStatus::SignedOut
+                    || self.auth.account_id != self.current_account_id
+                    || self.current_account_id.trim().is_empty()
+                {
+                    log::warn!("BIM remote conflict resolution requires a valid session");
+                    return;
+                }
+
                 for change in &mut self.pending_changes {
-                    if change.synced {
+                    if change.synced || change.account_id != self.current_account_id {
                         continue;
                     }
 
