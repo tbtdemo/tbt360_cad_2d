@@ -2082,6 +2082,26 @@ mod tests {
     use super::*;
 
     #[test]
+    fn issue_close_requires_independent_confirmation_and_persists() {
+        let mut state = State::default();
+        state.current_account_id = "reviewer".into();
+        state.create_issue_from_selection(None, Discipline::Structure);
+        let id = state.issues.last().unwrap().id;
+        state.issues.last_mut().unwrap().assigned_to = "reviewer".into();
+        state.issues.last_mut().unwrap().status = IssueStatus::Resolved;
+        assert!(state.confirm_close_issue(id).is_err(), "assignee must not close own issue");
+        state.current_account_id = "coordinator".into();
+        assert!(state.confirm_close_issue(id).is_ok());
+        assert_eq!(state.issues.last().unwrap().status, IssueStatus::Closed);
+        assert_eq!(state.issues.last().unwrap().confirmed_by.as_deref(), Some("coordinator"));
+        let saved = state.snapshot_json();
+        let mut restored = State::default();
+        restored.load_snapshot_json(&saved).unwrap();
+        assert_eq!(restored.issues.last().unwrap().status, IssueStatus::Closed);
+        assert_eq!(restored.issues.last().unwrap().confirmed_by.as_deref(), Some("coordinator"));
+    }
+
+    #[test]
     fn collaboration_workspace_has_five_business_tabs() {
         assert_eq!(CollaborationTab::ALL.len(), 5);
         assert_eq!(CollaborationTab::Issues.title(), "ISSUE / CLASH");
