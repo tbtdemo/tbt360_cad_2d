@@ -164,12 +164,12 @@ impl CollaborationTransport for MemoryTransport {
             }
             // Reject duplicate handles in one changeset: otherwise the last item silently wins.
             let mut handles = std::collections::BTreeSet::new();
-            if change.items.iter().any(|item| !handles.insert(item.source_handle.as_str())) {
+            if let Some(duplicate) = change.items.iter().find(|item| !handles.insert(item.source_handle.as_str())) {
                 conflicts.push(RemoteConflict {
-                    source_handle: change.items.iter().find(|item| change.items.iter().filter(|other| other.source_handle == item.source_handle).count() > 1).map(|item| item.source_handle.clone()).unwrap_or_default(),
-                    base_revision: 0,
-                    local_revision: 0,
-                    remote_revision: 0,
+                    source_handle: duplicate.source_handle.clone(),
+                    base_revision: duplicate.base_revision,
+                    local_revision: duplicate.local_revision,
+                    remote_revision: self.object_revisions.get(&duplicate.source_handle).copied().unwrap_or(0),
                     remote_updated_by: "duplicate-handle-in-batch".into(),
                 });
                 continue;
