@@ -114,4 +114,13 @@ mod tests {
         assert!(consume_revision("C".into(), &revision).is_ok());
     }
 
+    #[test]
+    fn publish_rejects_missing_user_and_preserves_review_state() {
+        let mut revision = ModelRevision { id:9, project_id:"P".into(), workset_id:"W".into(), number:2, state:RevisionState::Review, created_by:"author".into(), reviewed_by:None, published_by:None };
+        assert!(!revision.publish(String::new()));
+        assert_eq!(revision.state, RevisionState::Review);
+        assert!(revision.published_by.is_none());
+        assert!(revision.publish("reviewer".into()));
+    }
+
 }
