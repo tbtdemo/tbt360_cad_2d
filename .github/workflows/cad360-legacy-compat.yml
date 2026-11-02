@@ -5,6 +5,7 @@ on:
     paths:
       - 'SOURCE_CAD_R65/crates/engine/**'
       - 'SOURCE_CAD_R65/crates/io/**'
+      - 'SOURCE_CAD_R65/apps/cadcraft/src/bim_sync.rs'
       - '.github/workflows/cad360-legacy-compat.yml'
   workflow_dispatch:
 jobs:
@@ -16,14 +17,25 @@ jobs:
       matrix:
         suite:
           - name: Clipboard
+            package: cadcraft-engine
             target: clipboard
             filter: ""
           - name: DXF BIM XData
+            package: cadcraft-engine
             target: it
             filter: xdata_follows_entity
           - name: 3D Modeling
+            package: cadcraft-engine
             target: modeling3d_r16
             filter: ""
+          - name: DXF DWG Roundtrip
+            package: cadcraft-io
+            target: it
+            filter: roundtrip_audit
+          - name: BIM Undo Revision
+            package: cadcraft-engine
+            target: it
+            filter: xdata_follows_entity::move_and_undo_restore_bim_revision_and_geometry
     defaults:
       run:
         working-directory: SOURCE_CAD_R65
@@ -37,11 +49,12 @@ jobs:
       - name: Require real legacy tests to be discovered
         shell: bash
         env:
+          PACKAGE: ${{ matrix.suite.package }}
           TARGET: ${{ matrix.suite.target }}
           FILTER: ${{ matrix.suite.filter }}
         run: |
           set -euo pipefail
-          cargo test --locked -p cadcraft-engine --test "$TARGET" -- "$FILTER" --list > /tmp/cad360-legacy-list.txt
+          cargo test --locked -p "$PACKAGE" --test "$TARGET" -- "$FILTER" --list > /tmp/cad360-legacy-list.txt
           cat /tmp/cad360-legacy-list.txt
           grep -Eq '^[[:space:]]*[1-9][0-9]* tests?, 0 benchmarks' /tmp/cad360-legacy-list.txt || { echo 'ERROR: legacy filter matched zero tests'; exit 1; }
       - name: Run legacy compatibility tests
@@ -49,4 +62,4 @@ jobs:
         env:
           TARGET: ${{ matrix.suite.target }}
           FILTER: ${{ matrix.suite.filter }}
-        run: cargo test --locked -p cadcraft-engine --test "$TARGET" -- "$FILTER" --nocapture
+        run: cargo test --locked -p "$PACKAGE" --test "$TARGET" -- "$FILTER" --nocapture
