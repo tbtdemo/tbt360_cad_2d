@@ -1248,6 +1248,11 @@ impl State {
             if !self.issues.iter().any(|issue| issue.id == a.issue_id) { return None; }
             crate::bim_issue_attachments::validate_attachment(&a, 100 * 1024 * 1024).ok().map(|_| a)
         }).collect()).unwrap_or_default();
+        let issue_attachments_incoming = value.get("issue_attachments").and_then(serde_json::Value::as_array).map_or(0, Vec::len);
+        if issue_attachments_incoming > self.issue_attachments.len() {
+            self.audit("WORKSPACE_DATA_REJECTED", None, None, None, format!("issue_attachments: {} bản ghi không hợp lệ hoặc không còn Issue", issue_attachments_incoming - self.issue_attachments.len()));
+        }
+
         Ok(())
     }
 
