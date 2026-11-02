@@ -2,7 +2,9 @@
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Comment { pub issue_id: u64, pub author: String, pub message: String, pub sequence: u64 }
 pub fn post_comment(issue_id: u64, author: &str, message: &str, sequence: u64) -> Result<Comment, &'static str> {
+    if issue_id == 0 { return Err("issue required"); }
     if author.trim().is_empty() { return Err("author required"); }
+    if sequence == 0 { return Err("sequence required"); }
     if message.trim().is_empty() || message.chars().count() > 4000 { return Err("invalid message"); }
     Ok(Comment { issue_id, author: author.trim().into(), message: message.trim().into(), sequence })
 }
@@ -38,3 +40,5 @@ mod long_thread_tests {
         assert_eq!(matches[1].sequence, 3);
     }
 }
+
+#[cfg(test)] mod identity_tests { use super::*; #[test] fn no_orphan_comments() { assert!(post_comment(0,"alice","note",1).is_err()); assert!(post_comment(1,"alice","note",0).is_err()); } }
