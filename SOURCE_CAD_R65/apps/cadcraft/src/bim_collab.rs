@@ -860,6 +860,7 @@ impl State {
         if account.is_empty() { return Err("Cần đăng nhập trước khi xác nhận đóng Issue".into()); }
         let issue = self.issues.iter_mut().find(|item| item.id == id).ok_or_else(|| "Không tìm thấy Issue".to_string())?;
         if issue.status != IssueStatus::Resolved { return Err("Chỉ Issue đã xử lý mới được xác nhận đóng".into()); }
+        crate::bim_sync_permissions::ensure_edit(!account.is_empty(), false, 0, 0).map_err(|_| "Không có quyền thao tác Issue".to_string())?;
         if issue.assigned_to == account { return Err("Người xử lý không được tự xác nhận đóng Issue".into()); }
         if !issue.due_at.is_empty() && !issue_due_date_valid(&issue.due_at) { return Err("Hạn xử lý Issue không đúng định dạng YYYY-MM-DD".into()); }
         issue.status = IssueStatus::Closed;
