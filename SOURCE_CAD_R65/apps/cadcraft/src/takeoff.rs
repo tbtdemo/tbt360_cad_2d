@@ -1499,6 +1499,22 @@ mod tests {
         assert!(s.audit.is_empty());
     }
 
+    #[test]
+    fn measurement_register_filters_search_and_status() {
+        let mut state = State::default();
+        let id = state.add_measurement(MeasureKind::Count, vec![], 1.0, "A-WALL".into()).unwrap();
+        state.records[0].work_code = "BT.001".into();
+        state.records[0].description = "Tường tầng 2".into();
+        assert!(measurement_matches_filter(&state.records[0], "wall", 0));
+        assert!(measurement_matches_filter(&state.records[0], "bt.001", 1));
+        assert!(measurement_matches_filter(&state.records[0], "TẦNG", 1));
+        assert!(!measurement_matches_filter(&state.records[0], "HVAC", 0));
+        assert!(!measurement_matches_filter(&state.records[0], "", 2));
+        state.set_status(id, MeasureStatus::Confirmed);
+        assert!(measurement_matches_filter(&state.records[0], "tường", 2));
+        assert!(!measurement_matches_filter(&state.records[0], "", 1));
+    }
+
     fn block_member_fixture()->(cadcraft_doc::Drawing,cadcraft_doc::Handle,cadcraft_doc::Handle) {
         let mut d=cadcraft_doc::Drawing::new_metric();
         let member=cadcraft_doc::Handle(0x20);
