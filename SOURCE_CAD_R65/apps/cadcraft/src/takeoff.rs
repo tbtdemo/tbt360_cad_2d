@@ -1090,7 +1090,7 @@ fn qto_detail_csv(state: &State, source_validation: &SourceValidation, lf: f64, 
                     MeasureKind::Length | MeasureKind::Perimeter => record.raw_value * lf,
                     MeasureKind::Count => record.raw_value,
                 };
-                if !converted.is_finite() { continue; }
+                if !converted.is_finite() || converted < 0.0 { continue; }
                 let unit = match record.kind { MeasureKind::Area => area_unit, MeasureKind::Length | MeasureKind::Perimeter => length_unit, MeasureKind::Count => "count" };
                 let esc = csv_safe_cell;
                 csv.push_str(&format!("{},{},{},{},{},{},{},{},{},{},{},{},{:.6},{:.6},{},{}\n",
@@ -1635,6 +1635,19 @@ mod tests {
         assert!(!state.set_status(id, MeasureStatus::Confirmed));
         assert_eq!(state.records[0].status, MeasureStatus::Review);
         assert_eq!(state.undo.len(), 1);
+    }
+
+    #[test]
+    fn qto_export_skips_overflowed_length_and_area_and_keeps_count() {
+        let mut state = State::default();
+        let length = state.add_measurement(MeasureKind::Length, vec![[0.0, 0.0]], 1.0e200, "OVERFLOW_LENGTH".into()).unwrap();
+        let count = state.add_measurement(MeasureKind::Count, vec![], 2.0, "COUNT_OK".into()).unwrap();
+        state.set_status(length, MeasureStatus::Confirmed);
+        state.set_status(count, MeasureStatus::Confirmed);
+        let csv = qto_detail_csv(&state, &SourceValidation::default(), 1.0e200, f64::INFINITY, "m", "m²", true);
+        assert!(!csv.contains("OVERFLOW_LENGTH"));
+        assert!(csv.contains("COUNT_OK"));
+        assert_eq!(csv.lines().count(), 2);
     }
 
     fn block_member_fixture()->(cadcraft_doc::Drawing,cadcraft_doc::Handle,cadcraft_doc::Handle) {
