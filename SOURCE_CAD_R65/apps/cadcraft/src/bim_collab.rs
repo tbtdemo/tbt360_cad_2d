@@ -2283,6 +2283,23 @@ mod tests {
     }
 
     #[test]
+    fn issue_audit_history_survives_workspace_save_and_open() {
+        let mut state = State::default();
+        state.current_account_id = "coordinator".into();
+        state.create_issue_from_selection(None, Discipline::Structure);
+        let before = state.audit_log.len();
+        state.audit("ISSUE_UPDATED", Some(state.active_floor_id), Some(state.active_discipline), None, "Issue #1: P2→P0");
+        let saved = state.snapshot_json();
+        let mut reopened = State::default();
+        reopened.load_snapshot_json(&saved).unwrap();
+        assert_eq!(reopened.audit_log.len(), before + 1);
+        assert_eq!(reopened.audit_log.last().unwrap().action, "ISSUE_UPDATED");
+        assert_eq!(reopened.audit_log.last().unwrap().account_id, "coordinator");
+        assert_eq!(reopened.audit_log.last().unwrap().detail, "Issue #1: P2→P0");
+        assert!(reopened.next_audit_sequence > reopened.audit_log.last().unwrap().sequence);
+    }
+
+    #[test]
     fn collaboration_workspace_has_five_business_tabs() {
         assert_eq!(CollaborationTab::ALL.len(), 5);
         assert_eq!(CollaborationTab::Issues.title(), "ISSUE / CLASH");
