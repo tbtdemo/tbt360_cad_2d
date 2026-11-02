@@ -198,7 +198,11 @@ pub fn panel(ui: &mut egui::Ui, state: &mut State) {
     if let Some(error) = &state.error { ui.colored_label(egui::Color32::LIGHT_RED, error); }
     if let Some(error) = &state.mesh_error { ui.colored_label(egui::Color32::LIGHT_RED, error); }
     if let Some(error) = &state.gpu_error { ui.colored_label(egui::Color32::YELLOW, format!("GPU staging: {error}")); }
-    if let Some(batch) = &state.gpu_batch { ui.small(format!("GPU staging: {} đỉnh, {} chỉ số, origin [{:.2}, {:.2}, {:.2}] (chưa upload wgpu)", batch.positions.len(), batch.indices.len(), batch.origin[0], batch.origin[1], batch.origin[2])); }
+    if let Some(batch) = &state.gpu_batch {
+        let groups = state.mesh.as_ref().map(|mesh| mesh.groups.as_slice()).unwrap_or(&[]);
+        let (visible_indices, _) = batch.filtered_indices(groups, &state.catalog, &state.hidden_groups, state.isolated_group, &state.global_id_filter, &state.storey_filter, &state.discipline_filter);
+        ui.small(format!("GPU staging: {} đỉnh, {} / {} tam giác qua lọc, origin [{:.2}, {:.2}, {:.2}] (chưa upload wgpu)", batch.positions.len(), visible_indices.len()/3, batch.indices.len()/3, batch.origin[0], batch.origin[1], batch.origin[2]));
+    }
     if let Some(error) = &state.catalog_error { ui.colored_label(egui::Color32::LIGHT_RED, error); }
     ui.horizontal_wrapped(|ui| { ui.label("IFC GlobalId"); ui.add(egui::TextEdit::singleline(&mut state.global_id_filter).desired_width(150.0)); ui.label("Tầng"); ui.add(egui::TextEdit::singleline(&mut state.storey_filter).desired_width(110.0)); ui.label("Bộ môn"); ui.add(egui::TextEdit::singleline(&mut state.discipline_filter).desired_width(120.0)); if ui.button("Xóa lọc").clicked() { state.global_id_filter.clear(); state.storey_filter.clear(); state.discipline_filter.clear(); } });
     if state.catalog.by_group.is_empty() { ui.small("Chưa có ánh xạ IFC: khi lọc, các nhóm OBJ chưa được định danh sẽ bị ẩn. Tải JSON xuất từ pipeline IFC để đối chiếu chính xác."); }
