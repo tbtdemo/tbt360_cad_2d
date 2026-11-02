@@ -149,7 +149,10 @@ pub fn system_text(s: &Session) -> Option<String> {
     };
     d.header.set("INSBASE", HVal::Point(s.clipboard_base.to3(0.0)));
     for e in &s.clipboard {
-        let e = adopt(&mut d, e, &renames);
+        let mut transported = adopt(&mut d, e, &renames);
+        // Transport DXF must preserve original BIM revision; PASTE is the edit.
+        transported.common.xdata = e.common.xdata.clone();
+        let e = transported;
         d.ensure_layer(&e.common.layer);
         d.model.push(e);
     }
