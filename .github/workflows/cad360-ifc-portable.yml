@@ -77,7 +77,6 @@ jobs:
         run: python3 -m unittest discover -s apps/cadcraft/tools -p "test_export_ifc_obj_mapping.py" -v
 
   portable-windows:
-    needs: ifc-metadata-tests
     runs-on: windows-latest
     timeout-minutes: 90
     defaults:
