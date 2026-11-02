@@ -17,3 +17,16 @@ pub fn validate_viewpoint(v: &Viewpoint) -> Result<(), &'static str> {
         assert!(validate_viewpoint(&v).is_err());
     }
 }
+
+#[cfg(test)]
+mod additional_tests {
+    use super::*;
+    #[test]
+    fn invalid_direction_and_selection_are_rejected() {
+        let mut v = Viewpoint { issue_id: 5, position: [0.0; 3], direction: [0.0; 3], selected: Vec::new() };
+        assert!(validate_viewpoint(&v).is_err());
+        v.direction = [0.0, 0.0, 1.0];
+        v.selected.push(String::new());
+        assert!(validate_viewpoint(&v).is_err());
+    }
+}
