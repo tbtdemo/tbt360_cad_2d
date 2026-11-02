@@ -28,3 +28,13 @@ mod tests {
    assert!(can_transition(Status::Resolved, Status::InProgress, "reviewer", "designer"));
  }
 }
+#[cfg(test)]
+mod workflow_matrix_tests {
+    use super::*;
+    #[test]
+    fn every_transition_out_of_closed_is_rejected() {
+        for target in [Status::Open, Status::InProgress, Status::Resolved, Status::Closed] {
+            assert!(!can_transition(Status::Closed, target, "coordinator", "designer"));
+        }
+    }
+}
