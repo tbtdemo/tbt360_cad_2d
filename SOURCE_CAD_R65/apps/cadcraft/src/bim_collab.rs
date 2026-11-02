@@ -1498,10 +1498,34 @@ pub fn panel(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut 
             ui.heading("ĐỒNG BỘ & PHIÊN LÀM VIỆC");
             ui.label(format!("Thay đổi chờ đồng bộ: {} • Conflict: {}", state.dirty_local_changes, state.conflicts.len()));
             ui.label(format!("Người đang hiện diện: {} • Nhật ký: {}", state.presence.len(), state.audit_log.len()));
+            ui.horizontal_wrapped(|ui| {
+                ui.label("Chế độ:");
+                for mode in [ConnectionMode::Offline, ConnectionMode::Online] { ui.selectable_value(&mut state.connection, mode, mode.label()); }
+                if state.connection == ConnectionMode::Online && state.dirty_local_changes > 0 {
+                    if ui.button("Đồng bộ thay đổi (mô phỏng)").clicked() { state.sync_pending_changes(); }
+                }
+            });
+            ui.collapsing("Nhật ký thay đổi", |ui| {
+                egui::ScrollArea::vertical().max_height(210.0).show(ui, |ui| {
+                    for entry in state.audit_log.iter().rev().take(100) {
+                        ui.label(format!("#{} • {} • {} • {}", entry.sequence, entry.account_id, entry.action, entry.detail));
+                    }
+                });
+            });
         }
         CollaborationTab::Permissions => {
             ui.heading("QUYỀN TRUY CẬP");
             ui.label(format!("Tài khoản: {} • Rule: {} • Chia sẻ: {}", state.users.len(), state.access_rules.len(), state.share_grants.len()));
+            egui::Grid::new("bim_new_permissions_table").striped(true).show(ui, |ui| {
+                ui.strong("Tài khoản"); ui.strong("Bộ môn"); ui.strong("Cho phép sửa"); ui.strong("Xem bộ môn khác"); ui.end_row();
+                for user in &mut state.users {
+                    ui.label(&user.display_name);
+                    ui.label(user.discipline.label());
+                    ui.checkbox(&mut user.can_edit, "");
+                    ui.checkbox(&mut user.can_view_other_disciplines, "");
+                    ui.end_row();
+                }
+            });
         }
     }
     ui.separator();
