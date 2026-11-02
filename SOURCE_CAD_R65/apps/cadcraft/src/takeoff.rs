@@ -169,6 +169,7 @@ impl State {
         if let Some(value)=scope.discipline.as_deref() {
             normalized_scope.discipline=Some(normalize_discipline(value).ok_or_else(||"BIM scope discipline không hợp lệ".to_string())?);
         }
+        if self.next_audit_sequence.max(1).checked_add(2).is_none() { return Err("Không đủ ID nhật ký QTO cho phép đo theo tầng".into()); }
         let id=self.add_measurement(kind,points,raw_value,layer)?;
         if let Some(record)=self.records.iter_mut().find(|r|r.id==id) {
             record.scope=normalized_scope.clone();
@@ -180,6 +181,7 @@ impl State {
     fn add_measurement_from_entity(&mut self, measurement: PendingMeasurement, scope: &Scope, source_revision: Option<u64>) -> Result<u64, String> {
         let source_handle=measurement.source_handle.hex();
         let source_geometry_signature=geometry_signature(&measurement);
+        if self.next_audit_sequence.max(1).checked_add(3).is_none() { return Err("Không đủ ID nhật ký QTO cho đối tượng CAD".into()); }
         let id=self.add_measurement_scoped(measurement.kind,measurement.points,measurement.raw_value,measurement.layer,scope)?;
         if let Some(record)=self.records.iter_mut().find(|r|r.id==id) {
             record.source_handle=Some(source_handle.clone());
@@ -201,6 +203,7 @@ impl State {
         };
         let (scope,revision)=scope_from_entity_or_active(app,root,active_scope);
         let signature=geometry_signature(&current);
+        if self.next_audit_sequence.max(1).checked_add(3).is_none() { return Err("Không đủ ID nhật ký QTO cho block CAD".into()); }
         let id=self.add_measurement_scoped(current.kind,current.points,current.raw_value,current.layer,&scope)?;
         if let Some(record)=self.records.iter_mut().find(|r|r.id==id) {
             record.source_handle=Some(root.hex());
