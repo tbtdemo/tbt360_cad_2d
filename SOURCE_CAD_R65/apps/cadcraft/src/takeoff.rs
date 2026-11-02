@@ -1083,6 +1083,7 @@ fn qto_detail_csv(state: &State, source_validation: &SourceValidation, lf: f64, 
                     MeasureKind::Length | MeasureKind::Perimeter => record.raw_value * lf,
                     MeasureKind::Count => record.raw_value,
                 };
+                if !converted.is_finite() { continue; }
                 let unit = match record.kind { MeasureKind::Area => area_unit, MeasureKind::Length | MeasureKind::Perimeter => length_unit, MeasureKind::Count => "count" };
                 let esc = |v:&str| format!("\"{}\"", v.replace('"', "\"\""));
                 csv.push_str(&format!("{},{},{},{},{},{},{},{},{},{},{},{},{:.6},{:.6},{},{}\n",
@@ -1138,6 +1139,7 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
     let area_unit = if scale.is_some() { "m²" } else { "đv²" };
     let lf = scale.unwrap_or(1.0);
     let af = lf * lf;
+    if !af.is_finite() { ui.colored_label(egui::Color32::RED, "Tỷ lệ diện tích vượt phạm vi tính toán. Không sử dụng kết quả diện tích để nghiệm thu."); }
 
     ui.horizontal(|ui| {
         if ui.button("Thêm phép đo từ CAD đang chọn").clicked() {
