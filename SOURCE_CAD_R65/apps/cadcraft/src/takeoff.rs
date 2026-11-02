@@ -104,6 +104,7 @@ pub struct State {
     status_filter: u8,
     import_feedback: String,
     file_feedback: String,
+    export_confirmed_only: bool,
     edit_work_group: String,
     edit_work_code: String,
     edit_description: String,
@@ -1073,9 +1074,10 @@ fn measurement_matches_filter(record: &MeasurementRecord, search: &str, status_f
     term.is_empty() || [record.layer.as_str(), record.work_code.as_str(), record.work_group.as_str(), record.description.as_str(), record.source_handle.as_deref().unwrap_or("")].iter().any(|value| value.to_lowercase().contains(&term))
 }
 
-fn qto_detail_csv(state: &State, source_validation: &SourceValidation, lf: f64, af: f64, length_unit: &str, area_unit: &str) -> String {
+fn qto_detail_csv(state: &State, source_validation: &SourceValidation, lf: f64, af: f64, length_unit: &str, area_unit: &str, confirmed_only: bool) -> String {
             let mut csv = String::from("id,source_handle,source_state,floor_id,discipline,owner_account_id,type,layer,work_group,work_code,description,note,raw_value,converted_value,unit,status\n");
             for record in &state.records {
+                if confirmed_only && (record.status != MeasureStatus::Confirmed || source_validation.invalid_record_ids.contains(&record.id)) { continue; }
                 let converted = match record.kind {
                     MeasureKind::Area => record.raw_value * af,
                     MeasureKind::Length | MeasureKind::Perimeter => record.raw_value * lf,
@@ -1407,13 +1409,14 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
             }
             ui.ctx().copy_text(csv);
         }
+        ui.checkbox(&mut state.export_confirmed_only, "Chỉ xuất khối lượng đã xác nhận và nguồn hợp lệ");
         if ui.button("Sao chép CSV chi tiết phép đo").clicked() {
-            ui.ctx().copy_text(qto_detail_csv(state, &source_validation, lf, af, length_unit, area_unit));
+            ui.ctx().copy_text(qto_detail_csv(state, &source_validation, lf, af, length_unit, area_unit, state.export_confirmed_only));
             state.file_feedback = format!("Đã sao chép {} phép đo vào clipboard.", state.records.len());
         }
         if ui.button("Xuất CSV chi tiết ra tệp").clicked() {
             if let Some(path) = rfd::FileDialog::new().add_filter("CSV Excel", &["csv"]).set_file_name("CAD360_QTO_CHI_TIET.csv").save_file() {
-                let csv = qto_detail_csv(state, &source_validation, lf, af, length_unit, area_unit);
+                let csv = qto_detail_csv(state, &source_validation, lf, af, length_unit, area_unit, state.export_confirmed_only);
                 match std::fs::write(&path, format!("\u{feff}{csv}")) {
                     Ok(()) => state.file_feedback = format!("Đã xuất {} phép đo: {}", state.records.len(), path.display()),
                     Err(e) => state.file_feedback = format!("Không thể xuất CSV: {e}"),
@@ -1559,7 +1562,7 @@ mod tests {
         let mut state = State::default();
         let id = state.add_measurement(MeasureKind::Length, vec![[0.0, 0.0], [5.0, 0.0]], 5.0, "A-WALL".into()).unwrap();
         state.edit_metadata(id, "Kết cấu".into(), "BT.001".into(), "Dầm tầng 2".into(), "Ghi chú".into());
-        let csv = qto_detail_csv(&state, &SourceValidation::default(), 2.0, 4.0, "m", "m²");
+        let csv = qto_detail_csv(&state, &SourceValidation::default(), 2.0, 4.0, "m", "m²", false);
         assert!(csv.contains("BT.001"));
         assert!(csv.contains("Dầm tầng 2"));
         assert!(csv.contains("10.000000"));
