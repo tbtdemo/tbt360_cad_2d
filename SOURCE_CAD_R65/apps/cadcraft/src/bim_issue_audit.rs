@@ -26,3 +26,15 @@ mod tests {
   assert!(changes(4,"reviewer",&[("status","Open")],&[]).is_empty());
  }
 }
+#[cfg(test)]
+mod unicode_audit_tests {
+    use super::*;
+    #[test]
+    fn vietnamese_field_changes_preserve_exact_text() {
+        let events = changes(42, "người duyệt", &[("trạng thái", "Đang xử lý")], &[("trạng thái", "Đã xử lý")]);
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].before, "Đang xử lý");
+        assert_eq!(events[0].after, "Đã xử lý");
+        assert!(for_issue(&events, 43).is_empty());
+    }
+}
