@@ -1639,7 +1639,8 @@ pub fn panel(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut 
                         let input_id = egui::Id::new(("bim_issue_comment_draft", id));
                         let mut draft = ui.ctx().data_mut(|data| data.get_temp::<String>(input_id).unwrap_or_default());
                         ui.add(egui::TextEdit::multiline(&mut draft).desired_rows(2).hint_text("Nhập nội dung trao đổi..."));
-                        if ui.button("Gửi bình luận").clicked() {
+                        let is_open = issue.status != IssueStatus::Closed;
+                        if ui.add_enabled(is_open, egui::Button::new("Gửi bình luận")).clicked() {
                             let seq = state.issue_comments.iter().map(|item| item.sequence).max().unwrap_or(0).saturating_add(1);
                             match crate::bim_rfi_comments::post_comment(id, &state.current_account_id, &draft, seq) {
                                 Ok(comment) => { state.issue_comments.push(comment); draft.clear(); }
