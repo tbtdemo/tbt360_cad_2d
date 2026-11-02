@@ -188,6 +188,22 @@ app.MapPost("/api/bim/projects/{project:guid}/changesets", async (Guid project, 
     catch (Exception ex) when (ex is PostgresException or UnauthorizedAccessException) { return Fail(ex); }
 }).RequireAuthorization();
 
+// Initial sync and reconnect handshake. Only current project members may read the cursor.
+app.MapGet("/api/bim/projects/{project:guid}/sync-state", async (Guid project, ClaimsPrincipal principal, NpgsqlDataSource db, CancellationToken ct) =>
+{
+    try
+    {
+        var actor = AuthenticatedAccount(principal);
+        await using var conn = await db.OpenConnectionAsync(ct);
+        await using var cmd = new NpgsqlCommand("SELECT p.revision FROM bim_projects p WHERE p.id=@project AND EXISTS(SELECT 1 FROM bim_project_members m WHERE m.project_id=p.id AND m.account_id=@actor)", conn);
+        cmd.Parameters.AddWithValue("project", project);
+        cmd.Parameters.AddWithValue("actor", actor);
+        var revision = await cmd.ExecuteScalarAsync(ct);
+        return revision is null ? Results.NotFound() : Results.Ok(new { projectId = project, projectRevision = Convert.ToInt64(revision) });
+    }
+    catch (Exception ex) when (ex is PostgresException or UnauthorizedAccessException) { return Fail(ex); }
+}).RequireAuthorization();
+
 app.Run();
 
 
