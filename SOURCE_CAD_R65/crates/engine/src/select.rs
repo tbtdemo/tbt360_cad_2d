@@ -467,6 +467,20 @@ mod tests {
     use cadcraft_doc::{Common, RayLine};
     use cadcraft_geom::Vec3;
 
+    #[test]
+    fn mouse_pick_and_crossing_window_select_real_line_entities() {
+        let mut d = Drawing::new_metric();
+        let line = EntityKind::Line(cadcraft_doc::Line { a: Vec3::new(0.0, 0.0, 0.0), b: Vec3::new(10.0, 0.0, 0.0) });
+        let handle = d.add(&Space::Model, Common::default(), line).unwrap();
+        assert_eq!(pick(&d, &Space::Model, Vec2::new(5.0, 0.0), 0.1), Some(handle));
+        assert_eq!(pick(&d, &Space::Model, Vec2::new(5.0, 5.0), 0.1), None);
+        let small = Bounds2::new(Vec2::new(4.0, -1.0), Vec2::new(6.0, 1.0));
+        assert!(select_window(&d, &Space::Model, small, true).contains(&handle));
+        assert!(!select_window(&d, &Space::Model, small, false).contains(&handle));
+        let full = Bounds2::new(Vec2::new(-1.0, -1.0), Vec2::new(11.0, 1.0));
+        assert!(select_window(&d, &Space::Model, full, false).contains(&handle));
+    }
+
     fn fence_hits(kind: EntityKind, fence: [(f64, f64); 2]) -> usize {
         let mut d = Drawing::new_metric();
         d.add(&Space::Model, Common::default(), kind).unwrap();
