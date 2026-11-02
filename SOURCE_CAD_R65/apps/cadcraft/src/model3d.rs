@@ -114,7 +114,7 @@ pub fn panel(ui: &mut egui::Ui, state: &mut State) {
         if ui.add_enabled(state.conversion.is_none(), egui::Button::new("Nạp mesh OBJ...")).clicked() {
             if let Some(path) = rfd::FileDialog::new().add_filter("Wavefront OBJ", &["obj"]).pick_file() {
                 match crate::ifc_mesh::Mesh::read(&path) {
-                    Ok(mesh) => { state.mesh = Some(mesh); state.selected_triangle = None; state.hidden_groups.clear(); state.isolated_group = None; state.mesh_error = None; }
+                    Ok(mesh) => { state.mesh = Some(mesh); state.path = None; state.file_name = path.file_name().map(|p| p.to_string_lossy().into_owned()).unwrap_or_default(); state.counts.clear(); state.points.clear(); state.selected_triangle = None; state.hidden_groups.clear(); state.isolated_group = None; state.catalog = ifc_catalog::Catalog::default(); state.catalog_error = None; state.global_id_filter.clear(); state.storey_filter.clear(); state.discipline_filter.clear(); state.zoom = 1.0; state.mesh_error = None; state.error = None; }
                     Err(error) => state.mesh_error = Some(error),
                 }
             }
