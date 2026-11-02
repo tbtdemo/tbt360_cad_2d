@@ -1064,6 +1064,17 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
     let groups = quantities(app);
     ui.heading("Đo bóc khối lượng — CAD native");
     ui.label("Số liệu trực tiếp từ bản vẽ CAD đang mở; thay đổi ngay sau khi vẽ, sửa, Undo hoặc Redo.");
+    let review_count = state.records.iter().filter(|r| r.status == MeasureStatus::Review).count();
+    let confirmed_count = state.records.iter().filter(|r| r.status == MeasureStatus::Confirmed).count();
+    let excluded_count = state.records.iter().filter(|r| r.status == MeasureStatus::Excluded).count();
+    ui.horizontal_wrapped(|ui| {
+        ui.group(|ui| { ui.strong(format!("Tổng phép đo: {}", state.records.len())); });
+        ui.group(|ui| { ui.label(format!("Cần rà soát: {review_count}")); });
+        ui.group(|ui| { ui.label(format!("Đã xác nhận: {confirmed_count}")); });
+        ui.group(|ui| { ui.label(format!("Đã loại: {excluded_count}")); });
+        ui.group(|ui| { ui.label(format!("Có thể hoàn tác: {}", state.undo.len())); });
+    });
+    if review_count > 0 { ui.colored_label(egui::Color32::YELLOW, format!("Còn {review_count} phép đo chưa xác nhận; không tính vào khối lượng nghiệm thu.")); }
     ui.separator();
 
     ui.group(|ui| {
