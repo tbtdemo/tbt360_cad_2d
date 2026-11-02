@@ -2016,6 +2016,14 @@ mod tests {
     use super::*;
 
     #[test]
+    fn collaboration_workspace_has_five_business_tabs() {
+        assert_eq!(CollaborationTab::ALL.len(), 5);
+        assert_eq!(CollaborationTab::Issues.title(), "ISSUE / CLASH");
+        assert_eq!(CollaborationTab::Workspace.title(), "KHÔNG GIAN PHỐI HỢP");
+        assert_eq!(CollaborationTab::Permissions.title(), "QUYỀN TRUY CẬP");
+    }
+
+    #[test]
     fn reference_mode_is_read_only_by_definition() {
         assert_eq!(ViewMode::Reference.label(), "Tham chiếu");
         assert_eq!(ViewMode::Edit.label(), "Chỉnh sửa");
