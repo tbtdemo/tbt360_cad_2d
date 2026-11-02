@@ -242,10 +242,18 @@ pub fn panel(ui: &mut egui::Ui, state: &mut State) {
             pos
         };
         if let Some(mesh) = &state.mesh {
-            let mut faces = mesh.faces.iter().enumerate().take(100_000).map(|(index, triangle)| {
+            // Apply BIM visibility before the CPU painter budget: filtered elements otherwise disappear if beyond the first 100k mesh faces.
+            let visible_faces = mesh.faces.iter().enumerate().filter(|(index, _)| {
+                let group = mesh.face_groups.get(*index).copied().unwrap_or(0);
+                group_is_visible(group, &state.hidden_groups, state.isolated_group) && ifc_catalog::matches(mesh.groups.get(group).and_then(|name| state.catalog.get(name)), &state.global_id_filter, &state.storey_filter, &state.discipline_filter)
+            });
+            let mut faces = visible_faces.take(100_001).map(|(index, triangle)| {
                 let depth = triangle.iter().map(|&i| { let p = mesh.vertices[i]; let x = f64::from(p[0])-center[0]; let y = f64::from(p[1])-center[1]; let z = f64::from(p[2])-center[2]; let ry = x*f64::from(sy)+y*f64::from(cy); ry*f64::from(cp)+z*f64::from(sp) }).sum::<f64>() / 3.0;
                 (depth, index, triangle)
             }).collect::<Vec<_>>();
+            let truncated = faces.len() > 100_000;
+            faces.truncate(100_000);
+            if truncated { painter.text(rect.left_top() + egui::vec2(8.0, 8.0), egui::Align2::LEFT_TOP, "Đang giới hạn 100.000 mặt hiển thị; cần GPU để xem đầy đủ", egui::FontId::proportional(12.0), egui::Color32::YELLOW); }
             faces.sort_by(|a,b| a.0.total_cmp(&b.0));
             let click = response.clicked().then(|| response.interact_pointer_pos()).flatten();
             let mut picked = None;
