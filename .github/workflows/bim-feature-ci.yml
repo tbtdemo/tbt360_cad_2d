@@ -1,0 +1,32 @@
+name: CAD360 BIM Feature Windows Validation
+
+on:
+  push:
+    branches:
+      - 'feature/bim-*'
+    paths:
+      - 'SOURCE_CAD_R65/apps/cadcraft/**'
+      - 'SOURCE_CAD_R65/Cargo.lock'
+      - '.github/workflows/bim-feature-ci.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: bim-feature-${{ github.ref }}-${{ github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  validate-bim-feature:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: SOURCE_CAD_R65
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: SOURCE_CAD_R65
+      - name: Validate BIM desktop compile
+        run: cargo check --locked -p cadcraft
+      - name: Run CAD360 BIM and desktop unit tests
+        run: cargo test --locked -p cadcraft --bin cadcraft -- --nocapture
