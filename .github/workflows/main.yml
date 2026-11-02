@@ -8,10 +8,18 @@ on:
       - 'SOURCE_CAD_R65/**'
       - 'installer/**'
       - '.github/workflows/main.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'SOURCE_CAD_R65/**'
+      - 'installer/**'
+      - '.github/workflows/main.yml'
 
+# Preserve a full Windows test result for each pushed commit.
+# Frequent updates previously cancelled runs before regression or packaging completed.
 concurrency:
-  group: cad360-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: cad360-${{ github.workflow }}-${{ github.ref }}-${{ github.sha }}
+  cancel-in-progress: false
 
 jobs:
   build-core:
