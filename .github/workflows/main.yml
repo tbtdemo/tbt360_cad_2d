@@ -117,6 +117,8 @@ jobs:
             command: cargo test --locked -p cadcraft bim_sync::tests -- --nocapture
           - name: Legacy Clipboard
             command: cargo test --locked -p cadcraft-engine --test clipboard -- --nocapture
+          - name: Clipboard Real DXF
+            command: cargo test --locked -p cadcraft-engine --test clipboard_real_dxf -- --nocapture
           - name: Legacy DXF XData
             command: cargo test --locked -p cadcraft-engine --test it xdata_follows_entity -- --nocapture
           - name: Legacy 3D Modeling
