@@ -1489,13 +1489,13 @@ pub fn panel(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut 
     let tab_id = egui::Id::new("tbt360_bim_collaboration_active_tab");
     let mut tab = ui.ctx().data_mut(|data| data.get_temp::<u8>(tab_id).unwrap_or(2));
     let mut selected_issue = ui.ctx().data_mut(|data| data.get_temp::<u64>(egui::Id::new("tbt360_bim_selected_issue")));
-    ui.heading("PHỐI HỢP THIẾT KẾ");
-    ui.label("BIM CỘNG TÁC • RFI / BCF • Issue / Clash • Đồng bộ");
+    ui.heading(egui::RichText::new("PHỐI HỢP THIẾT KẾ").size(22.0).strong());
+    ui.label(egui::RichText::new("BIM CỘNG TÁC • RFI / BCF • Issue / Clash • Đồng bộ").color(egui::Color32::LIGHT_GRAY));
     ui.add_space(8.0);
-    ui.horizontal_wrapped(|ui| {
-        for (idx, section) in CollaborationTab::ALL.iter().enumerate() {
-            ui.selectable_value(&mut tab, idx as u8, section.title());
-        }
+    egui::ScrollArea::horizontal().id_salt("bim_collaboration_tabs").show(ui, |ui| {
+        ui.horizontal(|ui| {
+            for (idx, section) in CollaborationTab::ALL.iter().enumerate() { ui.selectable_value(&mut tab, idx as u8, section.title()); }
+        });
     });
     ui.separator();
     match CollaborationTab::ALL.get(tab as usize).copied().unwrap_or(CollaborationTab::Issues) {
@@ -1680,8 +1680,8 @@ pub fn panel(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut 
         }
     }
     ui.separator();
-    ui.collapsing("Công cụ nghiệp vụ và thiết lập chi tiết", |ui| {
-        ui.label("Các công cụ cũ được giữ nguyên để bảo toàn thao tác. Trong các phiên bản tiếp theo, chức năng sẽ được đưa vào từng tab tương ứng.");
+    ui.collapsing("Thiết lập BIM nâng cao (tùy chọn)", |ui| {
+        ui.label("Các chức năng BIM nâng cao vẫn được giữ để bảo toàn nghiệp vụ hiện có.");
         legacy_panel(ui, app, state);
     });
     ui.ctx().data_mut(|data| { data.insert_temp(tab_id, tab); data.insert_temp(egui::Id::new("tbt360_bim_selected_issue"), selected_issue); });
