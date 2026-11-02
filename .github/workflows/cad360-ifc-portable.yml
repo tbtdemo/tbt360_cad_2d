@@ -37,11 +37,17 @@ jobs:
           set -euo pipefail
           git archive --format=zip --output=CAD360-Full-Source.zip HEAD
           sha256sum CAD360-Full-Source.zip > CAD360-Full-Source.sha256
+          git status --porcelain
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
           git rev-parse HEAD > CAD360-Full-Source.commit.txt
           git ls-tree -r --name-only HEAD > CAD360-Full-Source.manifest.txt
           test -s CAD360-Full-Source.zip
           test -s CAD360-Full-Source.manifest.txt
           unzip -t CAD360-Full-Source.zip >/dev/null
+          archive_count=$(unzip -Z -1 CAD360-Full-Source.zip | wc -l)
+          manifest_count=$(wc -l < CAD360-Full-Source.manifest.txt)
+          test "$archive_count" -eq "$manifest_count"
+          echo "Verified $archive_count tracked files in full source archive"
           sha256sum --check CAD360-Full-Source.sha256
       - uses: actions/upload-artifact@v4
         with:
