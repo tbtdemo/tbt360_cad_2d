@@ -16,7 +16,17 @@ permissions:
   contents: read
 
 jobs:
+  ifc-metadata-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test STEP to OBJ metadata mapping
+        working-directory: SOURCE_CAD_R65
+        run: python3 -m unittest discover -s apps/cadcraft/tools -p "test_export_ifc_obj_mapping.py" -v
+
   portable-windows:
+    needs: ifc-metadata-tests
     runs-on: windows-latest
     timeout-minutes: 90
     defaults:
