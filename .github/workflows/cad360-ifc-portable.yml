@@ -31,32 +31,31 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-      - name: Archive complete tracked repository source
+      - name: Package active TBT source only
         shell: bash
         run: |
           set -euo pipefail
-          git archive --format=zip --output=CAD360-Full-Source.zip HEAD
-          sha256sum CAD360-Full-Source.zip > CAD360-Full-Source.sha256
-          git status --porcelain
-          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
-          git rev-parse HEAD > CAD360-Full-Source.commit.txt
-          git ls-tree -r --name-only HEAD > CAD360-Full-Source.manifest.txt
-          test -s CAD360-Full-Source.zip
-          test -s CAD360-Full-Source.manifest.txt
-          unzip -t CAD360-Full-Source.zip >/dev/null
-          archive_count=$(unzip -Z -1 CAD360-Full-Source.zip | wc -l)
-          manifest_count=$(wc -l < CAD360-Full-Source.manifest.txt)
-          test "$archive_count" -eq "$manifest_count"
-          echo "Verified $archive_count tracked files in full source archive"
-          sha256sum --check CAD360-Full-Source.sha256
+          mkdir -p delivery/CAD360_TBT
+          git archive HEAD SOURCE_CAD_R65 | tar -x -C delivery/CAD360_TBT
+          mv delivery/CAD360_TBT/SOURCE_CAD_R65 delivery/CAD360_TBT/TBT360_SOURCE
+          git archive HEAD backend installer .github | tar -x -C delivery/CAD360_TBT
+          printf '%s\n' 'CAD360 Viet Nam - TBT source handover' 'Build workspace: TBT360_SOURCE' 'Historical CAD and QTO reference workspaces are intentionally excluded.' 'Internal cadcraft crate names are preserved until a verified dependency migration.' > delivery/CAD360_TBT/README_HANDOVER.txt
+          (cd delivery && zip -qr ../CAD360-TBT-Active-Source.zip CAD360_TBT)
+          unzip -t CAD360-TBT-Active-Source.zip >/dev/null
+          sha256sum CAD360-TBT-Active-Source.zip > CAD360-TBT-Active-Source.sha256
+          git rev-parse HEAD > CAD360-TBT-Active-Source.commit.txt
+          unzip -Z -1 CAD360-TBT-Active-Source.zip > CAD360-TBT-Active-Source.manifest.txt
+          ! grep -Eq 'CAD_ORIGINAL_014_REFERENCE|QTO_R134_WEB_WORKSPACE|BUILD_CAD_R65_WINDOWS' CAD360-TBT-Active-Source.manifest.txt
+          grep -q 'TBT360_SOURCE/Cargo.toml' CAD360-TBT-Active-Source.manifest.txt
+          sha256sum --check CAD360-TBT-Active-Source.sha256
       - uses: actions/upload-artifact@v4
         with:
-          name: CAD360-Full-Source
+          name: CAD360-TBT-Active-Source
           path: |
-            CAD360-Full-Source.zip
-            CAD360-Full-Source.sha256
-            CAD360-Full-Source.commit.txt
-            CAD360-Full-Source.manifest.txt
+            CAD360-TBT-Active-Source.zip
+            CAD360-TBT-Active-Source.sha256
+            CAD360-TBT-Active-Source.commit.txt
+            CAD360-TBT-Active-Source.manifest.txt
           if-no-files-found: error
           retention-days: 30
 
