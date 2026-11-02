@@ -1454,6 +1454,13 @@ fn issue_due_label(issue: &CoordinationIssue, today: &str) -> &'static str {
     "Trong hạn"
 }
 
+fn issue_matches_filters(issue: &CoordinationIssue, query: &str, status: u8, priority: &str, overdue_only: bool, today: &str) -> bool {
+    let status_ok = match status { 1 => issue.status == IssueStatus::Open, 2 => issue.status == IssueStatus::InProgress, 3 => issue.status == IssueStatus::Resolved, 4 => issue.status == IssueStatus::Closed, _ => true };
+    if !status_ok || (priority != "Tất cả" && issue.priority != priority) || (overdue_only && issue_due_label(issue, today) != "QUÁ HẠN") { return false; }
+    let needle = query.trim().to_lowercase();
+    needle.is_empty() || [format!("#{:04}", issue.id), issue.issue_type.clone(), issue.description.clone(), issue.assigned_to.clone(), issue.target_discipline.label().into()].iter().any(|v| v.to_lowercase().contains(&needle))
+}
+
 pub fn panel(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut State) {
     let tab_id = egui::Id::new("tbt360_bim_collaboration_active_tab");
     let mut tab = ui.ctx().data_mut(|data| data.get_temp::<u8>(tab_id).unwrap_or(2));
@@ -1505,6 +1512,15 @@ pub fn panel(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut 
         CollaborationTab::Issues => {
             ui.heading("ISSUE / CLASH — RFI / BCF WORKFLOW");
             let mut request_close = None;
+            let search_id = egui::Id::new("bim_issue_search");
+            let filter_id = egui::Id::new("bim_issue_status_filter");
+            let priority_id = egui::Id::new("bim_issue_priority_filter");
+            let overdue_id = egui::Id::new("bim_issue_overdue_filter");
+            let mut search = ui.ctx().data_mut(|data| data.get_temp::<String>(search_id).unwrap_or_default());
+            let mut status_filter = ui.ctx().data_mut(|data| data.get_temp::<u8>(filter_id).unwrap_or(0));
+            let mut priority_filter = ui.ctx().data_mut(|data| data.get_temp::<String>(priority_id).unwrap_or_else(|| "Tất cả".into()));
+            let mut overdue_only = ui.ctx().data_mut(|data| data.get_temp::<bool>(overdue_id).unwrap_or(false));
+
             ui.horizontal_wrapped(|ui| {
                 ui.label(format!("Tổng số issue: {}", state.issues.len()));
                 ui.label(format!("Mở: {}", state.issues.iter().filter(|issue| issue.status == IssueStatus::Open).count()));
@@ -1521,11 +1537,24 @@ pub fn panel(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut 
                 }
             });
             ui.separator();
+            ui.horizontal_wrapped(|ui| {
+                ui.label("Tìm Issue:"); ui.add(egui::TextEdit::singleline(&mut search).hint_text("Mã, loại, mô tả, người phụ trách..."));
+                egui::ComboBox::from_id_salt("bim_issue_status_filter_combo").selected_text(match status_filter { 1 => "Mở", 2 => "Đang xử lý", 3 => "Đã xử lý", 4 => "Đã đóng", _ => "Tất cả trạng thái" }).show_ui(ui, |ui| {
+                    for (code, name) in [(0, "Tất cả trạng thái"), (1, "Mở"), (2, "Đang xử lý"), (3, "Đã xử lý"), (4, "Đã đóng")] { ui.selectable_value(&mut status_filter, code, name); }
+                });
+                egui::ComboBox::from_id_salt("bim_issue_priority_filter_combo").selected_text(&priority_filter).show_ui(ui, |ui| {
+                    for priority in ["Tất cả", "P0", "P1", "P2", "P3"] { ui.selectable_value(&mut priority_filter, priority.to_string(), priority); }
+                });
+                ui.checkbox(&mut overdue_only, "Chỉ quá hạn");
+            });
+            let filtered_count = state.issues.iter().filter(|issue| issue_matches_filters(issue, &search, status_filter, &priority_filter, overdue_only, &today)).count();
+            ui.label(format!("Hiển thị {filtered_count}/{} Issue", state.issues.len()));
             egui::ScrollArea::horizontal().show(ui, |ui| {
                 egui::Grid::new("tbt360_collaboration_issue_grid").striped(true).min_col_width(90.0).show(ui, |ui| {
                     for heading in ["Mã", "Ưu tiên", "Loại", "Nguồn", "Ảnh hưởng / Bộ môn", "Nội dung", "Phụ trách", "Hạn xử lý", "SLA", "Trạng thái", "Tác vụ"] { ui.strong(heading); }
                     ui.end_row();
                     for issue in &mut state.issues {
+                        if !issue_matches_filters(issue, &search, status_filter, &priority_filter, overdue_only, &today) { continue; }
                         if ui.selectable_label(selected_issue == Some(issue.id), format!("#{:04}", issue.id)).clicked() { selected_issue = Some(issue.id); }
                         egui::ComboBox::from_id_salt(("collab_priority", issue.id)).selected_text(&issue.priority).show_ui(ui, |ui| {
                             for priority in ["P0", "P1", "P2", "P3"] { ui.selectable_value(&mut issue.priority, priority.to_string(), priority); }
@@ -1549,6 +1578,7 @@ pub fn panel(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut 
                     }
                 });
             });
+            ui.ctx().data_mut(|data| { data.insert_temp(search_id, search); data.insert_temp(filter_id, status_filter); data.insert_temp(priority_id, priority_filter); data.insert_temp(overdue_id, overdue_only); });
             if let Some(id) = request_close { if let Err(message) = state.confirm_close_issue(id) { ui.colored_label(egui::Color32::YELLOW, message); } }
             ui.add_space(10.0);
             if let Some(issue) = selected_issue.and_then(|id| state.issues.iter().find(|issue| issue.id == id)) {
