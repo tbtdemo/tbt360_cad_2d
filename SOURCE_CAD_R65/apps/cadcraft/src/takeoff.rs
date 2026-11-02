@@ -1427,6 +1427,15 @@ mod tests {
         assert_eq!(state.records[0].layer, "safe");
     }
 
+    #[test]
+    fn audit_sequence_at_limit_does_not_roll_over() {
+        let mut state = State::default();
+        state.next_audit_sequence = u64::MAX;
+        state.audit_change(1, "UPDATE", None, Some("changed".into()));
+        assert!(state.audit.is_empty());
+        assert_eq!(state.next_audit_sequence, u64::MAX);
+    }
+
     fn block_member_fixture()->(cadcraft_doc::Drawing,cadcraft_doc::Handle,cadcraft_doc::Handle) {
         let mut d=cadcraft_doc::Drawing::new_metric();
         let member=cadcraft_doc::Handle(0x20);
