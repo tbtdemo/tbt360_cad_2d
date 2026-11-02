@@ -542,4 +542,14 @@ mod tests {
         assert_eq!(transport.project_revision, 2);
     }
 
+    #[test]
+    fn presence_and_lease_reject_missing_scope_or_handle() {
+        let mut transport = MemoryTransport::default();
+        let presence = PresenceDto { account_id:"u1".into(), floor_id:String::new(), discipline:"ELEC".into(), selected_object_id:None };
+        assert!(transport.update_presence("project", &presence).is_err());
+        assert!(transport.presences.is_empty());
+        assert!(transport.acquire_lease("project", " ", 0).is_err());
+        assert!(transport.leases.is_empty());
+    }
+
 }
