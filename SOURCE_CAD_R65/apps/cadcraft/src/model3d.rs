@@ -1,4 +1,5 @@
 //! IFC inspection preview. Full tessellation requires a separately packaged IfcConvert runtime.
+#[path = "ifc_catalog.rs"] mod ifc_catalog;
 use std::{collections::{BTreeMap, BTreeSet}, io::{BufRead, BufReader}, path::PathBuf};
 
 #[derive(Default)]
@@ -19,6 +20,11 @@ pub struct State {
     select_group: bool,
     hidden_groups: BTreeSet<usize>,
     isolated_group: Option<usize>,
+    catalog: ifc_catalog::Catalog,
+    global_id_filter: String,
+    storey_filter: String,
+    discipline_filter: String,
+    catalog_error: Option<String>,
     conversion: Option<std::sync::mpsc::Receiver<Result<crate::ifc_mesh::Mesh, String>>>,
     cancel_conversion: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
 }
@@ -66,6 +72,11 @@ impl State {
         self.selected_triangle = None;
         self.hidden_groups.clear();
         self.isolated_group = None;
+        self.catalog = ifc_catalog::Catalog::default();
+        self.catalog_error = None;
+        self.global_id_filter.clear();
+        self.storey_filter.clear();
+        self.discipline_filter.clear();
         self.mesh_error = None;
         self.error = None;
         self.zoom = 1.0;
@@ -161,6 +172,7 @@ pub fn panel(ui: &mut egui::Ui, state: &mut State) {
             }
         }
         if ui.button("Hiện tất cả").clicked() { state.hidden_groups.clear(); state.isolated_group = None; }
+        if ui.button("Nạp ánh xạ IFC...").clicked() { if let Some(path) = rfd::FileDialog::new().add_filter("BIM mapping JSON", &["json"]).pick_file() { match ifc_catalog::Catalog::read(&path) { Ok(c) => { state.catalog = c; state.catalog_error = None; }, Err(e) => state.catalog_error = Some(e) } } }
         if ui.button("Đặt lại góc nhìn").clicked() { state.yaw = 0.5; state.pitch = 0.35; state.zoom = 1.0; }
     });
     if let Some(receiver) = &state.conversion {
@@ -173,6 +185,9 @@ pub fn panel(ui: &mut egui::Ui, state: &mut State) {
     }
     if let Some(error) = &state.error { ui.colored_label(egui::Color32::LIGHT_RED, error); }
     if let Some(error) = &state.mesh_error { ui.colored_label(egui::Color32::LIGHT_RED, error); }
+    if let Some(error) = &state.catalog_error { ui.colored_label(egui::Color32::LIGHT_RED, error); }
+    ui.horizontal_wrapped(|ui| { ui.label("IFC GlobalId"); ui.add(egui::TextEdit::singleline(&mut state.global_id_filter).desired_width(150.0)); ui.label("Tầng"); ui.add(egui::TextEdit::singleline(&mut state.storey_filter).desired_width(110.0)); ui.label("Bộ môn"); ui.add(egui::TextEdit::singleline(&mut state.discipline_filter).desired_width(120.0)); if ui.button("Xóa lọc").clicked() { state.global_id_filter.clear(); state.storey_filter.clear(); state.discipline_filter.clear(); } });
+    if state.catalog.by_group.is_empty() { ui.small("Chưa có ánh xạ IFC: khi lọc, các nhóm OBJ chưa được định danh sẽ bị ẩn. Tải JSON xuất từ pipeline IFC để đối chiếu chính xác."); }
     if state.path.is_none() && state.mesh.is_none() {
         ui.label("Chọn tệp .ifc để đọc danh mục đối tượng, tọa độ và xem sơ bộ phân bố điểm.");
         ui.label("Có thể nạp trực tiếp OBJ hoặc dùng IfcConvert để tạo mesh từ IFC.");
@@ -230,6 +245,8 @@ pub fn panel(ui: &mut egui::Ui, state: &mut State) {
             for (_, index, triangle) in faces {
                 let group = mesh.face_groups.get(index).copied().unwrap_or(0);
                 if !group_is_visible(group, &state.hidden_groups, state.isolated_group) { continue; }
+                let mapped = mesh.groups.get(group).and_then(|name| state.catalog.get(name));
+                if !ifc_catalog::matches(mapped, &state.global_id_filter, &state.storey_filter, &state.discipline_filter) { continue; }
                 let a = project(&mesh.vertices[triangle[0]]);
                 let b = project(&mesh.vertices[triangle[1]]);
                 let c = project(&mesh.vertices[triangle[2]]);
@@ -251,7 +268,7 @@ pub fn panel(ui: &mut egui::Ui, state: &mut State) {
     } else {
         painter.text(rect.center(), egui::Align2::CENTER_CENTER, "Không tìm thấy IFCCARTESIANPOINT 3D trong tệp", egui::FontId::proportional(14.0), egui::Color32::LIGHT_GRAY);
     }
-    if let (Some(mesh), Some(index)) = (&state.mesh, state.selected_triangle) { if let Some(face) = mesh.faces.get(index) { let group = mesh.face_groups.get(index).and_then(|id| mesh.groups.get(*id)).map(String::as_str).unwrap_or("Mặc định"); ui.label(format!("Đã chọn mặt #{} • nhóm OBJ: {} • đỉnh {:?}", index + 1, group, face)); ui.small("Tên nhóm OBJ chưa được xác thực là IFC GlobalId."); } }
+    if let (Some(mesh), Some(index)) = (&state.mesh, state.selected_triangle) { if let Some(face) = mesh.faces.get(index) { let group = mesh.face_groups.get(index).and_then(|id| mesh.groups.get(*id)).map(String::as_str).unwrap_or("Mặc định"); ui.label(format!("Đã chọn mặt #{} • nhóm OBJ: {} • đỉnh {:?}", index + 1, group, face)); if let Some(info) = state.catalog.get(group) { ui.label(format!("IFC GlobalId: {} • {} • {} • {}", info.global_id, info.ifc_type, info.storey, info.discipline)); } else { ui.small("Nhóm OBJ chưa có ánh xạ IFC GlobalId đã xác minh."); } } }
     if state.mesh.is_some() {
         ui.collapsing("Quản lý hiển thị nhóm OBJ", |ui| {
             let mesh = state.mesh.as_ref().expect("Mesh đã được kiểm tra");
