@@ -83,6 +83,7 @@ app.MapGet("/api/bim/projects/{project:guid}/changes", async (Guid project, long
     try
     {
         var actor = AuthenticatedAccount(principal);
+        if (project == Guid.Empty || afterRevision < 0 || limit is < 1 or > 1000) return Results.BadRequest(new { error = "invalid change feed cursor or limit" });
         await using var connection = await db.OpenConnectionAsync(ct);
         await using var command = new NpgsqlCommand("SELECT project_revision,design_object_id,source_handle,operation,object_revision,actor_account_id,occurred_at FROM bim_pull_project_changes(@project,@actor,@cursor,@limit)", connection);
         command.Parameters.AddWithValue("project", project);
