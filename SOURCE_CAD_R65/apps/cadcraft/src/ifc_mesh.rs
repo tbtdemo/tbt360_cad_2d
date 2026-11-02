@@ -1,6 +1,6 @@
 //! Lightweight OBJ triangle reader for IfcConvert exports.
 //! Geometry is bounded to avoid uncontrolled memory use with untrusted BIM files.
-use std::{io::{BufRead, BufReader, Read}, path::Path};
+use std::{collections::HashMap, io::{BufRead, BufReader, Read}, path::Path};
 const MAX_OBJ_LINE: usize = 4_000_000;
 
 #[derive(Clone, Default)]
@@ -22,6 +22,8 @@ impl Mesh {
         let mut mesh = Self::default();
         mesh.groups.push("Mặc định".into());
         let mut current_group = 0usize;
+        let mut group_indices = HashMap::<String, usize>::new();
+        group_indices.insert("Mặc định".to_string(), 0);
         let mut line = Vec::new();
         loop {
             line.clear();
@@ -34,9 +36,16 @@ impl Mesh {
                 Some("o" | "g") => {
                     let name = parts.collect::<Vec<_>>().join(" ");
                     if !name.is_empty() {
-                        if let Some(index) = mesh.groups.iter().position(|existing| existing == &name) { current_group = index; }
-                        else if mesh.groups.len() < 100_000 { mesh.groups.push(name); current_group = mesh.groups.len()-1; }
-                        else { return Err("OBJ vượt giới hạn 100.000 nhóm đối tượng".into()); }
+                        if let Some(group_index) = group_indices.get(&name) {
+                            current_group = *group_index;
+                        } else {
+                            if mesh.groups.len() >= 100_000 {
+                                return Err("OBJ vượt giới hạn 100.000 nhóm đối tượng".into());
+                            }
+                            current_group = mesh.groups.len();
+                            group_indices.insert(name.clone(), current_group);
+                            mesh.groups.push(name);
+                        }
                     }
                 }
                 Some("v") => {
