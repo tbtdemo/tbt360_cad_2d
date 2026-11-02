@@ -27,6 +27,7 @@ mod workspace;
 mod takeoff;
 mod bim_collab;
 mod model3d;
+mod bounded_io;
 mod ifc_mesh;
 mod ifc_catalog;
 mod ifc_gpu;
