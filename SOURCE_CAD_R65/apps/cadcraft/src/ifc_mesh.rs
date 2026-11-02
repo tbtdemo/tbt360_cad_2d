@@ -33,7 +33,11 @@ impl Mesh {
             match parts.next() {
                 Some("o" | "g") => {
                     let name = parts.collect::<Vec<_>>().join(" ");
-                    if !name.is_empty() && mesh.groups.len() < 100_000 { mesh.groups.push(name); current_group = mesh.groups.len()-1; }
+                    if !name.is_empty() {
+                        if let Some(index) = mesh.groups.iter().position(|existing| existing == &name) { current_group = index; }
+                        else if mesh.groups.len() < 100_000 { mesh.groups.push(name); current_group = mesh.groups.len()-1; }
+                        else { return Err("OBJ vượt giới hạn 100.000 nhóm đối tượng".into()); }
+                    }
                 }
                 Some("v") => {
                     if mesh.vertices.len() >= 1_000_000 { return Err("OBJ vượt giới hạn 1 triệu đỉnh".into()); }
@@ -68,6 +72,12 @@ impl Mesh {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test] fn same_obj_name_reuses_group_identity() {
+        let data = b"v 0 0 0\nv 1 0 0\nv 0 1 0\no Beam-1\nf 1 2 3\ng Beam-1\nf 1 2 3\n";
+        let mesh = Mesh::read_from(std::io::Cursor::new(data)).unwrap();
+        assert_eq!(mesh.face_groups, vec![1, 1]);
+        assert_eq!(mesh.groups.len(), 2);
+    }
     #[test] fn preserves_obj_group_for_every_triangulated_face() {
         let data = b"v 0 0 0\nv 1 0 0\nv 1 1 0\nv 0 1 0\no Beam-A\nf 1 2 3 4\ng Column-B\nf 1 3 4\n";
         let mesh = Mesh::read_from(std::io::Cursor::new(data)).unwrap();
