@@ -557,6 +557,7 @@ pub struct State {
     pub share_grants: Vec<ShareGrant>,
     pub progress: Vec<ScopeProgress>,
     pub issues: Vec<CoordinationIssue>,
+    pub issue_attachments: Vec<crate::bim_issue_attachments::Attachment>,
     pub coordination_candidates: Vec<CoordinationCandidate>,
     pub audit_log: Vec<AuditEntry>,
     next_audit_sequence: u64,
@@ -628,6 +629,7 @@ impl Default for State {
                 ScopeProgress { floor_id: 1, discipline: Discipline::Plumbing, percent: 0, status: ScopeStatus::NotStarted, updated_by: "mep-water-01".into() },
             ],
             issues: Vec::new(),
+            issue_attachments: Vec::new(),
             coordination_candidates: Vec::new(),
             audit_log: Vec::new(),
             next_audit_sequence: 1,
@@ -1068,6 +1070,7 @@ impl State {
             "active_discipline": self.active_discipline.label(),
             "progress": progress,
             "issues": issues,
+            "issue_attachments": self.issue_attachments.iter().map(|a| serde_json::json!({"issue_id": a.issue_id, "filename": a.filename, "size_bytes": a.size_bytes})).collect::<Vec<_>>(),
             "audit_log": audit_log
         })
     }
@@ -1240,6 +1243,16 @@ impl State {
             })).take(5000).collect();
             self.next_audit_sequence = self.audit_log.iter().map(|entry| entry.sequence).max().unwrap_or(0).saturating_add(1);
         }
+        self.issue_attachments = value.get("issue_attachments").and_then(serde_json::Value::as_array).map(|items| items.iter().filter_map(|item| {
+            let a = crate::bim_issue_attachments::Attachment { issue_id: item.get("issue_id")?.as_u64()?, filename: item.get("filename")?.as_str()?.to_string(), size_bytes: item.get("size_bytes")?.as_u64()? };
+            if !self.issues.iter().any(|issue| issue.id == a.issue_id) { return None; }
+            crate::bim_issue_attachments::validate_attachment(&a, 100 * 1024 * 1024).ok().map(|_| a)
+        }).collect()).unwrap_or_default();
+        let issue_attachments_incoming = value.get("issue_attachments").and_then(serde_json::Value::as_array).map_or(0, Vec::len);
+        if issue_attachments_incoming > self.issue_attachments.len() {
+            self.audit("WORKSPACE_DATA_REJECTED", None, None, None, format!("issue_attachments: {} bản ghi không hợp lệ hoặc không còn Issue", issue_attachments_incoming - self.issue_attachments.len()));
+        }
+
         Ok(())
     }
 
@@ -1502,6 +1515,14 @@ pub fn panel(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut 
         CollaborationTab::Overview => {
             let health = state.model_health(app);
             ui.heading("TỔNG QUAN DỰ ÁN");
+            let rejected: Vec<_> = state.audit_log.iter().filter(|e| e.action == "WORKSPACE_DATA_REJECTED").collect();
+            if !rejected.is_empty() {
+                ui.colored_label(egui::Color32::LIGHT_RED, format!("Cảnh báo: {} lần phát hiện bản ghi BIM không hợp lệ khi mở dự án", rejected.len()));
+                ui.collapsing("Chi tiết dữ liệu không được khôi phục", |ui| {
+                    for entry in rejected.iter().rev().take(20) { ui.label(format!("#{} • {}", entry.sequence, entry.detail)); }
+                });
+            }
+
             ui.horizontal_wrapped(|ui| {
                 ui.label(format!("Đối tượng: {}", health.total_entities));
                 ui.label(format!("Chưa gắn BIM: {}", health.unscoped_entities));
@@ -1629,6 +1650,19 @@ pub fn panel(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut 
                     ui.label(format!("SLA: {}", issue_due_label(issue, &today)));
                     ui.label(format!("Loại: {} • Ưu tiên: {} • Hạn xử lý: {}", issue.issue_type, issue.priority, if issue.due_at.is_empty() { "Chưa đặt" } else { &issue.due_at }));
                     if let Some(reviewer) = &issue.confirmed_by { ui.label(format!("Xác nhận đóng bởi: {reviewer}")); }
+                    ui.collapsing("TÀI LIỆU LIÊN KẾT", |ui| {
+                        let id = issue.id;
+                        for file in state.issue_attachments.iter().filter(|file| file.issue_id == id) { ui.label(format!("{} ({} bytes)", file.filename, file.size_bytes)); }
+                        ui.label("Chỉ quản lý metadata; chưa sao chép hoặc tải lên nội dung tệp.");
+                        if ui.button("Chọn tệp để ghi metadata").clicked() {
+                            if let Some(path) = rfd::FileDialog::new().pick_file() {
+                                if let (Some(name), Ok(info)) = (path.file_name().and_then(|s| s.to_str()), std::fs::metadata(&path)) {
+                                    let attachment = crate::bim_issue_attachments::Attachment { issue_id: id, filename: name.to_owned(), size_bytes: info.len() };
+                                    if crate::bim_issue_attachments::validate_attachment(&attachment, 100 * 1024 * 1024).is_ok() && !state.issue_attachments.iter().any(|a| a.issue_id == id && a.filename == attachment.filename && a.size_bytes == attachment.size_bytes) { state.issue_attachments.push(attachment); }
+                                }
+                            }
+                        }
+                    });
                     ui.collapsing("LỊCH SỬ THAY ĐỔI ISSUE", |ui| {
                         let history = issue_audit_entries(&state.audit_log, issue.id);
                         if history.is_empty() { ui.label("Chưa có lịch sử chỉnh sửa cho Issue này"); }
@@ -2311,6 +2345,30 @@ mod tests {
         assert_eq!(reopened.audit_log.last().unwrap().account_id, "coordinator");
         assert_eq!(reopened.audit_log.last().unwrap().detail, "Issue #1: P2→P0");
         assert!(reopened.next_audit_sequence > reopened.audit_log.last().unwrap().sequence);
+    }
+
+    #[test]
+    fn issue_attachments_persist_on_workspace_reload() {
+        let mut state = State::default();
+        state.create_issue_from_selection(None, Discipline::Structure);
+        let id = state.issues.last().unwrap().id;
+        state.issue_attachments.push(crate::bim_issue_attachments::Attachment { issue_id: id, filename: "report.pdf".into(), size_bytes: 42 });
+        let saved = state.snapshot_json();
+        let mut reopened = State::default();
+        reopened.load_snapshot_json(&saved).unwrap();
+        assert_eq!(reopened.issue_attachments.len(), 1);
+        assert_eq!(reopened.issue_attachments[0].issue_id, id);
+    }
+
+    #[test]
+    fn issue_attachments_invalid_workspace_records_are_reported() {
+        let state = State::default();
+        let mut saved = state.snapshot_json();
+        saved["issue_attachments"] = serde_json::json!([{"issue_id":9999,"filename":"orphan.pdf","size_bytes":42}]);
+        let mut restored = State::default();
+        restored.load_snapshot_json(&saved).unwrap();
+        assert!(restored.issue_attachments.is_empty());
+        assert!(restored.audit_log.iter().any(|entry| entry.action == "WORKSPACE_DATA_REJECTED" && entry.detail.contains("issue_attachments")));
     }
 
     #[test]
