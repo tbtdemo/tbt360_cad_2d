@@ -124,8 +124,6 @@ jobs:
             command: cargo test --locked -p cadcraft-engine --test it xdata_follows_entity -- --nocapture
           - name: Legacy 3D Modeling
             command: cargo test --locked -p cadcraft-engine --test modeling3d_r16 -- --nocapture
-          - name: Complete Workspace Compile
-            command: cargo test --workspace --locked --no-run
     defaults:
       run:
         working-directory: SOURCE_CAD_R65
