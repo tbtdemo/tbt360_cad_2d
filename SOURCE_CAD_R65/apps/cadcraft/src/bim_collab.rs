@@ -1432,6 +1432,8 @@ pub fn panel(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut 
             ui.heading("KHÔNG GIAN PHỐI HỢP");
             ui.label(format!("Tầng đang thiết kế: {} • Bộ môn: {}", state.floors.iter().find(|f| f.id == state.active_floor_id).map(|f| f.name.as_str()).unwrap_or("Chưa chọn"), state.active_discipline.label()));
             ui.label(format!("Đối tượng CAD đang chọn: {}", app.session.selection().len()));
+            state.sync_scope_from_active_view(app);
+            state.tag_new_entities_in_work_session(app);
             ui.horizontal_wrapped(|ui| {
                 egui::ComboBox::from_id_salt("bim_workspace_floor").selected_text(state.floors.iter().find(|floor| floor.id == state.active_floor_id).map(|floor| floor.name.as_str()).unwrap_or("Chọn tầng")).show_ui(ui, |ui| {
                     for floor in &state.floors { ui.selectable_value(&mut state.active_floor_id, floor.id, &floor.name); }
