@@ -3,7 +3,7 @@
 pub struct Attachment { pub issue_id: u64, pub filename: String, pub size_bytes: u64 }
 pub fn validate_attachment(item: &Attachment, max_size: u64) -> Result<(), &'static str> {
     if item.filename.is_empty() || item.filename == "." || item.filename == ".." { return Err("invalid filename"); }
-    if item.filename.contains('/') || item.filename.contains('\\') || item.filename.contains(':') || item.filename.contains('\\0') { return Err("path separators forbidden"); }
+    if item.filename.contains('/') || item.filename.contains('\\') || item.filename.contains(':') || item.filename.contains('\0') { return Err("path separators forbidden"); }
     if item.filename.chars().count() > 255 { return Err("filename too long"); }
     if item.size_bytes == 0 || item.size_bytes > max_size { return Err("invalid file size"); }
     Ok(())
