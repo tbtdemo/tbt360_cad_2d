@@ -59,7 +59,7 @@ static async Task<IResult> ExecuteWrite(NpgsqlDataSource source, ClaimsPrincipal
     catch (Exception ex) when (ex is PostgresException or UnauthorizedAccessException) { return Fail(ex); }
 }
 app.MapPost("/api/bim/projects/{project:guid}/objects", async (Guid project, CreateObject body, NpgsqlDataSource db, ClaimsPrincipal principal, CancellationToken ct) =>
-    body.Geometry.ValueKind != JsonValueKind.Object ? Results.BadRequest(new { error = "geometry must be JSON object" }) : await ExecuteWrite(db, principal, project, body.ObjectId,
+    body.Geometry.ValueKind != JsonValueKind.Object || body.FloorId == Guid.Empty || string.IsNullOrWhiteSpace(body.Discipline) || string.IsNullOrWhiteSpace(body.SourceHandle) || string.IsNullOrWhiteSpace(body.EntityType) ? Results.BadRequest(new { error = "invalid geometry or incomplete object scope" }) : await ExecuteWrite(db, principal, project, body.ObjectId,
         "SELECT bim_create_design_object(@project,@object,@actor,@floor,@discipline,@handle,@kind,@payload)", cmd =>
         {
             cmd.Parameters.AddWithValue("floor", body.FloorId);
@@ -69,14 +69,14 @@ app.MapPost("/api/bim/projects/{project:guid}/objects", async (Guid project, Cre
             cmd.Parameters.Add("payload", NpgsqlDbType.Jsonb).Value = body.Geometry.GetRawText();
         }, ct)).RequireAuthorization();
 app.MapPut("/api/bim/projects/{project:guid}/objects/{obj:guid}", async (Guid project, Guid obj, EditObject body, NpgsqlDataSource db, ClaimsPrincipal principal, CancellationToken ct) =>
-    body.Geometry.ValueKind != JsonValueKind.Object ? Results.BadRequest(new { error = "geometry must be JSON object" }) : await ExecuteWrite(db, principal, project, obj,
+    body.Geometry.ValueKind != JsonValueKind.Object || body.ExpectedRevision < 1 ? Results.BadRequest(new { error = "invalid geometry or expected revision" }) : await ExecuteWrite(db, principal, project, obj,
         "SELECT bim_update_design_object(@project,@object,@actor,@revision,@payload)", cmd =>
         {
             cmd.Parameters.AddWithValue("revision", body.ExpectedRevision);
             cmd.Parameters.Add("payload", NpgsqlDbType.Jsonb).Value = body.Geometry.GetRawText();
         }, ct)).RequireAuthorization();
 app.MapDelete("/api/bim/projects/{project:guid}/objects/{obj:guid}", async (Guid project, Guid obj, long expectedRevision, NpgsqlDataSource db, ClaimsPrincipal principal, CancellationToken ct) =>
-    await ExecuteWrite(db, principal, project, obj,
+    expectedRevision < 1 ? Results.BadRequest(new { error = "invalid expected revision" }) : await ExecuteWrite(db, principal, project, obj,
         "SELECT bim_delete_design_object(@project,@object,@actor,@revision)", cmd => cmd.Parameters.AddWithValue("revision", expectedRevision), ct)).RequireAuthorization();
 app.MapGet("/api/bim/projects/{project:guid}/changes", async (Guid project, long afterRevision, int? limit, ClaimsPrincipal principal, NpgsqlDataSource db, CancellationToken ct) =>
 {
