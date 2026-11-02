@@ -559,6 +559,7 @@ pub struct State {
     pub issues: Vec<CoordinationIssue>,
     pub coordination_candidates: Vec<CoordinationCandidate>,
     pub audit_log: Vec<AuditEntry>,
+    pub issue_comments: Vec<crate::bim_rfi_comments::Comment>,
     next_audit_sequence: u64,
     next_issue_id: u64,
     pub project_id: String,
@@ -630,6 +631,7 @@ impl Default for State {
             issues: Vec::new(),
             coordination_candidates: Vec::new(),
             audit_log: Vec::new(),
+            issue_comments: Vec::new(),
             next_audit_sequence: 1,
             next_issue_id: 1,
             project_id: "project-local-001".into(),
@@ -1068,7 +1070,8 @@ impl State {
             "active_discipline": self.active_discipline.label(),
             "progress": progress,
             "issues": issues,
-            "audit_log": audit_log
+            "audit_log": audit_log,
+            "issue_comments": self.issue_comments.iter().map(|comment| serde_json::json!({"issue_id": comment.issue_id, "author": comment.author, "message": comment.message, "sequence": comment.sequence})).collect::<Vec<_>>()
         })
     }
 
@@ -1240,6 +1243,7 @@ impl State {
             })).take(5000).collect();
             self.next_audit_sequence = self.audit_log.iter().map(|entry| entry.sequence).max().unwrap_or(0).saturating_add(1);
         }
+        self.issue_comments = value.get("issue_comments").and_then(serde_json::Value::as_array).map(|items| items.iter().filter_map(|item| crate::bim_rfi_comments::post_comment(item.get("issue_id")?.as_u64()?, item.get("author")?.as_str()?, item.get("message")?.as_str()?, item.get("sequence")?.as_u64()?).ok()).collect()).unwrap_or_default();
         Ok(())
     }
 
@@ -1629,6 +1633,21 @@ pub fn panel(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut 
                     ui.label(format!("SLA: {}", issue_due_label(issue, &today)));
                     ui.label(format!("Loại: {} • Ưu tiên: {} • Hạn xử lý: {}", issue.issue_type, issue.priority, if issue.due_at.is_empty() { "Chưa đặt" } else { &issue.due_at }));
                     if let Some(reviewer) = &issue.confirmed_by { ui.label(format!("Xác nhận đóng bởi: {reviewer}")); }
+                    ui.collapsing("TRAO ĐỔI / RFI", |ui| {
+                        let id = issue.id;
+                        for comment in crate::bim_rfi_comments::thread(&state.issue_comments, id) { ui.label(format!("#{} • {}: {}", comment.sequence, comment.author, comment.message)); }
+                        let input_id = egui::Id::new(("bim_issue_comment_draft", id));
+                        let mut draft = ui.ctx().data_mut(|data| data.get_temp::<String>(input_id).unwrap_or_default());
+                        ui.add(egui::TextEdit::multiline(&mut draft).desired_rows(2).hint_text("Nhập nội dung trao đổi..."));
+                        if ui.button("Gửi bình luận").clicked() {
+                            let seq = state.issue_comments.iter().map(|item| item.sequence).max().unwrap_or(0).saturating_add(1);
+                            if let Ok(comment) = crate::bim_rfi_comments::post_comment(id, &state.current_account_id, &draft, seq) {
+                                state.issue_comments.push(comment);
+                                draft.clear();
+                            }
+                        }
+                        ui.ctx().data_mut(|data| data.insert_temp(input_id, draft));
+                    });
                     ui.collapsing("LỊCH SỬ THAY ĐỔI ISSUE", |ui| {
                         let history = issue_audit_entries(&state.audit_log, issue.id);
                         if history.is_empty() { ui.label("Chưa có lịch sử chỉnh sửa cho Issue này"); }
