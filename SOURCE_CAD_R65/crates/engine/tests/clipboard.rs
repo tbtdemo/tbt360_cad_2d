@@ -284,9 +284,12 @@ fn cutbase_asks_for_the_base_point_then_the_objects() {
 
 /// A stand-in for the DXF writer and reader: "writes" the drawing to memory.
 static WRITTEN: Mutex<Option<Drawing>> = Mutex::new(None);
+// IoHooks are process-global: tests configuring them must not execute concurrently.
+static IO_HOOKS_TEST_LOCK: Mutex<()> = Mutex::new(());
 
 #[test]
 fn system_clipboard_real_dxf_preserves_bim_scope_and_repairs_identity_on_paste() {
+    let _io_guard = IO_HOOKS_TEST_LOCK.lock().unwrap();
     set_io(IoHooks {
         read: |bytes,name| cadcraft_io::read(bytes,name).map_err(|e|e.to_string()),
         write: |d,name| cadcraft_io::write(d,name).map_err(|e|e.to_string()),
@@ -337,6 +340,7 @@ fn system_clipboard_real_dxf_preserves_bim_scope_and_repairs_identity_on_paste()
 
 #[test]
 fn clipboard_travels_as_text() {
+    let _io_guard = IO_HOOKS_TEST_LOCK.lock().unwrap();
     set_io(IoHooks {
         read: |bytes, _| {
             if bytes.starts_with(b"0\nSECTION") {
