@@ -37,12 +37,12 @@ def extract(ifc_path, obj_path, discipline):
             continue
         # IFC relation: GlobalId, OwnerHistory, Name, Description, RelatedElements, RelatingStructure
         refs = REF.findall(args)
-        if len(refs) < 3:
+        if len(refs) < 2:
             continue
         storey = storeys.get(refs[-1])
         if not storey:
             continue
-        for ref in refs[1:-1]:
+        for ref in refs[:-1]:
             record = ifc.get(ref)
             if record:
                 m = QUOTED.search(record[1])
