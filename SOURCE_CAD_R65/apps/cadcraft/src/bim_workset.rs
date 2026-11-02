@@ -107,4 +107,11 @@ mod tests {
         assert_eq!(previous.state, RevisionState::Published);
     }
 
+    #[test]
+    fn empty_consumer_workset_is_rejected() {
+        let revision = ModelRevision { id: 10, project_id: "P".into(), workset_id: "W".into(), number: 3, state: RevisionState::Published, created_by: "author".into(), reviewed_by: None, published_by: Some("reviewer".into()) };
+        assert!(consume_revision(String::new(), &revision).is_err());
+        assert!(consume_revision("C".into(), &revision).is_ok());
+    }
+
 }
