@@ -159,7 +159,7 @@ impl PushChangeSetRequest {
             if item.base_revision.checked_add(1) != Some(item.local_revision) {
                 return Err("Revision phải tăng đúng một bước".into());
             }
-            if item.operation != ChangeOperationDto::Delete && serde_json::from_str::<serde_json::Value>(&item.payload_json).is_err() {
+            if item.operation != ChangeOperationDto::Delete && !matches!(serde_json::from_str::<serde_json::Value>(&item.payload_json), Ok(serde_json::Value::Object(_))) {
                 return Err("Invalid JSON object payload".into());
             }
             if item.scope.project_id != self.project_id {
