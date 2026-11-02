@@ -213,3 +213,21 @@ fn hostile_undo_params_never_panic() {
     }
     assert!(getvar(&mut s, "UNDOMARKS").as_u64().unwrap() <= 1000);
 }
+
+#[test]
+fn new_cad_edit_after_undo_discards_redo_without_losing_prior_geometry() {
+    let mut s = Session::new();
+    let base = circles(&s);
+    circle(&mut s, 10.0);
+    circle(&mut s, 20.0);
+    s.execute("undo", &json!({ "count": 1 })).unwrap();
+    assert_eq!(circles(&s), base + 1);
+    circle(&mut s, 30.0);
+    assert_eq!(circles(&s), base + 2);
+    assert!(s.execute("redo", &json!({})).is_err(), "new geometry invalidates stale redo");
+    assert_eq!(circles(&s), base + 2, "failed redo must not change drawing");
+    s.execute("undo", &json!({ "count": 2 })).unwrap();
+    assert_eq!(circles(&s), base);
+    s.execute("redo", &json!({ "count": 2 })).unwrap();
+    assert_eq!(circles(&s), base + 2);
+}
