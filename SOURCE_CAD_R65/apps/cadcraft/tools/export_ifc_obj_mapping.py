@@ -29,7 +29,8 @@ def extract(ifc_path, obj_path, discipline):
     for eid, (kind, args) in ifc.items():
         m = QUOTED.search(args)
         if kind == "IFCBUILDINGSTOREY":
-            storeys[eid] = (QUOTED.findall(args)[2] if len(QUOTED.findall(args)) > 2 else eid).replace("''", "'")
+            quoted = QUOTED.findall(args)
+            storeys[eid] = (quoted[1] if len(quoted) > 1 else eid).replace("''", "'")
         if kind.startswith("IFC") and m and GUID.fullmatch(m.group(1)):
             elements[m.group(1)] = {"global_id": m.group(1), "ifc_type": kind, "storey": "", "discipline": discipline}
     for eid, (kind, args) in ifc.items():
