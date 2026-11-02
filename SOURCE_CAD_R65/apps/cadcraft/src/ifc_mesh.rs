@@ -1,6 +1,6 @@
 //! Lightweight OBJ triangle reader for IfcConvert exports.
 //! Geometry is bounded to avoid uncontrolled memory use with untrusted BIM files.
-use std::{io::{BufRead, BufReader}, path::Path};
+use std::{io::{BufRead, BufReader, Read}, path::Path};
 const MAX_OBJ_LINE: usize = 4_000_000;
 
 #[derive(Clone, Default)]
@@ -15,10 +15,18 @@ fn face_index(token: &str, count: usize) -> Option<usize> {
 impl Mesh {
     pub fn read(path: &Path) -> Result<Self, String> {
         let file = std::fs::File::open(path).map_err(|e| format!("Không đọc được OBJ: {e}"))?;
+        Self::read_from(BufReader::new(file))
+    }
+
+    fn read_from<R: BufRead>(mut reader: R) -> Result<Self, String> {
         let mut mesh = Self::default();
-        for line in BufReader::new(file).lines() {
-            let line = line.map_err(|e| e.to_string())?;
-            if line.len() > MAX_OBJ_LINE { return Err("Dòng OBJ vượt giới hạn 4 MB".into()); }
+        let mut line = Vec::new();
+        loop {
+            line.clear();
+            let size = reader.by_ref().take((MAX_OBJ_LINE + 1) as u64).read_until(b'\n', &mut line).map_err(|e| e.to_string())?;
+            if size == 0 { break; }
+            if size > MAX_OBJ_LINE { return Err("Dòng OBJ vượt giới hạn 4 MB".into()); }
+            let line = std::str::from_utf8(&line).map_err(|_| "OBJ không phải UTF-8 hợp lệ")?;
             let mut parts = line.split_whitespace();
             match parts.next() {
                 Some("v") => {
@@ -33,6 +41,11 @@ impl Mesh {
                     let ids = tokens.iter().map(|v| face_index(v,mesh.vertices.len()).ok_or_else(|| "Chỉ số mặt OBJ không hợp lệ".to_string())).collect::<Result<Vec<_>,_>>()?;
                     if ids.windows(2).any(|pair| pair[0] == pair[1]) || ids[0] == *ids.last().unwrap_or(&usize::MAX) { return Err("Mặt OBJ có các đỉnh trùng nhau".into()); }
                     for i in 1..ids.len()-1 {
+                        let a = mesh.vertices[ids[0]]; let b = mesh.vertices[ids[i]]; let c = mesh.vertices[ids[i+1]];
+                        let ab = [b[0]-a[0],b[1]-a[1],b[2]-a[2]];
+                        let ac = [c[0]-a[0],c[1]-a[1],c[2]-a[2]];
+                        let cross = [ab[1]*ac[2]-ab[2]*ac[1], ab[2]*ac[0]-ab[0]*ac[2], ab[0]*ac[1]-ab[1]*ac[0]];
+                        if !cross.iter().all(|v| v.is_finite()) || cross.iter().map(|v| (*v as f64)*(*v as f64)).sum::<f64>() <= 1e-24 { continue; }
                         if mesh.faces.len() >= 2_000_000 { return Err("OBJ vượt giới hạn 2 triệu tam giác".into()); }
                         mesh.faces.push([ids[0],ids[i],ids[i+1]]);
                     }
@@ -47,6 +60,19 @@ impl Mesh {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test] fn parses_valid_quad_and_skips_degenerate_face() {
+        let obj = b"v 0 0 0\nv 1 0 0\nv 1 1 0\nv 0 1 0\nf 1 2 3 4\nf 1 2 2\n";
+        // The duplicate-index face is rejected; valid quads still triangulate.
+        assert!(Mesh::read_from(std::io::Cursor::new(obj)).is_err());
+        let good = b"v 0 0 0\nv 1 0 0\nv 1 1 0\nv 0 1 0\nf 1 2 3 4\n";
+        let mesh = Mesh::read_from(std::io::Cursor::new(good)).unwrap();
+        assert_eq!(mesh.vertices.len(), 4);
+        assert_eq!(mesh.faces.len(), 2);
+    }
+    #[test] fn rejects_oversized_line_before_allocating_entire_record() {
+        let input = format!("v {} 0 0\n", "1".repeat(MAX_OBJ_LINE));
+        assert!(Mesh::read_from(std::io::Cursor::new(input)).is_err());
+    }
     #[test] fn rejects_invalid_vertices_and_faces_without_panicking() {
         assert!(face_index("0", 3).is_none());
         assert!(face_index("-4", 3).is_none());
