@@ -1492,10 +1492,10 @@ pub fn panel(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut 
     ui.heading(egui::RichText::new("PHỐI HỢP THIẾT KẾ").size(22.0).strong());
     ui.label(egui::RichText::new("BIM CỘNG TÁC • RFI / BCF • Issue / Clash • Đồng bộ").color(egui::Color32::LIGHT_GRAY));
     ui.add_space(8.0);
-    ui.horizontal_wrapped(|ui| {
-        for (idx, section) in CollaborationTab::ALL.iter().enumerate() {
-            ui.selectable_value(&mut tab, idx as u8, section.title());
-        }
+    egui::ScrollArea::horizontal().id_salt("bim_collaboration_tabs").show(ui, |ui| {
+        ui.horizontal(|ui| {
+            for (idx, section) in CollaborationTab::ALL.iter().enumerate() { ui.selectable_value(&mut tab, idx as u8, section.title()); }
+        });
     });
     ui.separator();
     match CollaborationTab::ALL.get(tab as usize).copied().unwrap_or(CollaborationTab::Issues) {
