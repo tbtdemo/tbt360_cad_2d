@@ -78,7 +78,7 @@ impl OfflineSyncState {
 
     pub fn mark_retry_error(&mut self, local_sequence: u64, message: String) {
         if let Some(item) = self.queue.iter_mut().find(|i| i.local_sequence == local_sequence) {
-            if matches!(item.state, QueueState::Synced | QueueState::Rejected) { return; }
+            if matches!(item.state, QueueState::Synced | QueueState::Rejected | QueueState::Conflict) { return; }
             item.retry_count = item.retry_count.saturating_add(1);
             item.state = QueueState::Pending;
             item.last_error = Some(message);
@@ -92,6 +92,15 @@ impl OfflineSyncState {
             item.state = QueueState::Conflict;
             item.last_error = Some(message);
         }
+    }
+
+    pub fn resolve_conflict_for_retry(&mut self, local_sequence: u64) -> bool {
+        let Some(item) = self.queue.iter_mut().find(|i| i.local_sequence == local_sequence) else { return false; };
+        if item.state != QueueState::Conflict { return false; }
+        item.state = QueueState::Pending;
+        item.retry_count = 0;
+        item.last_error = None;
+        true
     }
 
     pub fn pending_count(&self) -> usize {
