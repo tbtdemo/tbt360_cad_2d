@@ -59,5 +59,9 @@ jobs:
 
       - name: Install concurrent PostgreSQL test dependency
         run: python3 -m pip install --user "psycopg[binary]>=3.2,<4"
-      - name: Five simultaneous editor CAS test
-        run: python3 backend/postgres/tests/009_five_concurrent_writers.py
+      - name: Two-wave contention stress (5 then 10 editors)
+        run: |
+          python3 backend/postgres/tests/009_five_concurrent_writers.py
+          python3 backend/postgres/tests/009_five_concurrent_writers.py
+          python3 backend/postgres/tests/009_five_concurrent_writers.py
+          python3 backend/postgres/tests/009_five_concurrent_writers.py
