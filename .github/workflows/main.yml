@@ -228,6 +228,22 @@ jobs:
           & $iscc "/Qp" "../installer/TBT360_CAD_R65.iss"
           if ($LASTEXITCODE -ne 0) { throw "Inno Setup compile failed" }
           if (!(Test-Path "../dist/CAD360_VietNam_TBT_Setup.exe")) { throw "Setup EXE not created" }
+      - name: Smoke test silent Setup installation
+        shell: pwsh
+        run: |
+          $setup = (Resolve-Path "../dist/CAD360_VietNam_TBT_Setup.exe").Path
+          $installDir = Join-Path $env:RUNNER_TEMP "cad360-setup-smoke"
+          $process = Start-Process -FilePath $setup -ArgumentList @("/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/DIR=$installDir") -Wait -PassThru
+          if ($process.ExitCode -ne 0) { throw "Silent Setup installation failed: $($process.ExitCode)" }
+          foreach ($name in @("cadcraft.exe", "cadcraft-cli.exe")) {
+            $installed = Join-Path $installDir $name
+            if (!(Test-Path $installed)) { throw "Setup did not install $name" }
+            $sourceHash = (Get-FileHash "target/release/$name" -Algorithm SHA256).Hash
+            $installedHash = (Get-FileHash $installed -Algorithm SHA256).Hash
+            if ($sourceHash -ne $installedHash) { throw "Setup binary checksum mismatch: $name" }
+          }
+          & (Join-Path $installDir "cadcraft-cli.exe") --version
+          if ($LASTEXITCODE -ne 0) { throw "Installed CLI smoke test failed" }
       - name: Upload single Windows Setup
         uses: actions/upload-artifact@v4
         with:
