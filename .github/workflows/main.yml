@@ -10,7 +10,7 @@ on:
       - '.github/workflows/main.yml'
 
 concurrency:
-  group: cad360-${{ github.workflow }}-${{ github.ref }}
+  group: cad360-release-v2-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -98,6 +98,7 @@ jobs:
   regression-shards:
     name: "4 - Regression / ${{ matrix.test.name }}"
     runs-on: windows-latest
+    timeout-minutes: 90
     strategy:
       fail-fast: false
       max-parallel: 10
@@ -153,6 +154,7 @@ jobs:
     name: "Release - Single Windows Setup"
     needs: [build-core, unified-ui, vi-tbt-branding, regression-tests]
     runs-on: windows-latest
+    timeout-minutes: 120
     defaults:
       run:
         working-directory: SOURCE_CAD_R65
