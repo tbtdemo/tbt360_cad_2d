@@ -269,6 +269,7 @@ pub struct CoordinationIssue {
     pub issue_type: String,
     pub priority: String,
     pub due_at: String,
+    pub revision: u64,
 }
 
 #[derive(Clone, Debug)]
@@ -862,6 +863,14 @@ impl State {
         });
     }
 
+    fn check_issue_revision(&self, id: u64, expected_revision: u64) -> Result<(), String> {
+        let issue = self.issues.iter().find(|item| item.id == id).ok_or_else(|| "Không tìm thấy Issue".to_string())?;
+        if !self.can_edit_issue(issue) { return Err("Không có quyền chỉnh sửa Issue".into()); }
+        if issue.revision != expected_revision { return Err(format!("Xung đột phiên bản Issue: phiên bản hiện tại {}, yêu cầu {}", issue.revision, expected_revision)); }
+        if issue.revision == u64::MAX { return Err("Issue đã đạt giới hạn phiên bản".into()); }
+        Ok(())
+    }
+
     fn can_edit_issue(&self, issue: &CoordinationIssue) -> bool {
         let account = self.current_account_id.trim();
         !account.is_empty() && issue.status != IssueStatus::Closed && self.users.iter().any(|user| user.account_id == account && user.can_edit) && self.has_scope_access(account, issue.floor_id, issue.source_discipline, true)
@@ -876,6 +885,7 @@ impl State {
         if issue.status != IssueStatus::Resolved { return Err("Chỉ Issue đã xử lý mới được xác nhận đóng".into()); }
         if issue.assigned_to == account { return Err("Người xử lý không được tự xác nhận đóng Issue".into()); }
         if !issue.due_at.is_empty() && !issue_due_date_valid(&issue.due_at) { return Err("Hạn xử lý Issue không đúng định dạng YYYY-MM-DD".into()); }
+        issue.revision = issue.revision.checked_add(1).ok_or_else(|| "Issue đã đạt giới hạn phiên bản".to_string())?;
         issue.status = IssueStatus::Closed;
         issue.confirmed_by = Some(account.clone());
         let floor = issue.floor_id;
@@ -899,6 +909,7 @@ impl State {
             issue_type: "Coordination".into(),
             priority: "P2".into(),
             due_at: String::new(),
+            revision: 1,
         });
         let issue_id = self.next_issue_id;
         self.next_issue_id += 1;
@@ -1056,7 +1067,8 @@ impl State {
             "confirmed_by": i.confirmed_by,
             "issue_type": i.issue_type,
             "priority": i.priority,
-            "due_at": i.due_at
+            "due_at": i.due_at,
+            "revision": i.revision
         })).collect::<Vec<_>>();
         let audit_log = self.audit_log.iter().map(|a| serde_json::json!({
             "sequence": a.sequence, "account_id": a.account_id, "action": a.action, "floor_id": a.floor_id,
@@ -1238,6 +1250,7 @@ impl State {
                     issue_type: item.get("issue_type").and_then(serde_json::Value::as_str).unwrap_or("Coordination").to_string(),
                     priority: item.get("priority").and_then(serde_json::Value::as_str).unwrap_or("P2").to_string(),
                     due_at: item.get("due_at").and_then(serde_json::Value::as_str).unwrap_or_default().to_string(),
+                    revision: item.get("revision").and_then(serde_json::Value::as_u64).filter(|r| *r > 0).unwrap_or(1),
                 })
             }).collect();
             self.next_issue_id = self.issues.iter().map(|i| i.id).max().unwrap_or(0) + 1;
@@ -1658,7 +1671,7 @@ pub fn panel(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut 
                 let diffs = crate::bim_issue_audit::changes(issue.id, &state.current_account_id, &prior, &next);
                 Some((issue.id, issue.floor_id, issue.source_discipline, issue.handle, diffs.into_iter().map(|entry| format!("{}:{}→{}", entry.field, entry.before, entry.after)).collect::<Vec<_>>().join(" | ")))
             }).collect::<Vec<_>>();
-            for (id, floor, discipline, handle, detail) in changed { state.audit_issue(id, "ISSUE_UPDATED", Some(floor), Some(discipline), handle, format!("Issue #{id}: {detail}")); }
+            for (id, floor, discipline, handle, detail) in changed { if let Some(issue) = state.issues.iter_mut().find(|issue| issue.id == id) { issue.revision = issue.revision.saturating_add(1); } state.audit_issue(id, "ISSUE_UPDATED", Some(floor), Some(discipline), handle, format!("Issue #{id}: {detail}")); }
             if let Some(id) = request_close { if let Err(message) = state.confirm_close_issue(id) { ui.colored_label(egui::Color32::YELLOW, message); } }
             ui.add_space(10.0);
             if let Some(issue) = selected_issue.and_then(|id| state.issues.iter().find(|issue| issue.id == id)) {
@@ -2416,6 +2429,24 @@ mod tests {
         assert!(state.can_edit_issue(state.issues.iter().find(|item| item.id == id).unwrap()), "same scope editor may write");
         state.issues.last_mut().unwrap().status = IssueStatus::Closed;
         assert!(!state.can_edit_issue(state.issues.iter().find(|item| item.id == id).unwrap()), "closed issue must deny writes");
+    }
+
+    #[test]
+    fn issue_revision_rejects_stale_editor_and_survives_save_open() {
+        let mut state = State::default();
+        state.create_issue_from_selection(None, Discipline::Structure);
+        let id = state.issues.last().unwrap().id;
+        let account = state.users[0].account_id.clone();
+        state.current_account_id = account;
+        let initial = state.issues.last().unwrap().revision;
+        assert_eq!(initial, 1);
+        assert!(state.check_issue_revision(id, initial).is_ok());
+        state.issues.last_mut().unwrap().revision += 1;
+        assert!(state.check_issue_revision(id, initial).is_err());
+        assert!(state.check_issue_revision(id, initial + 1).is_ok());
+        let mut restored = State::default();
+        restored.load_snapshot_json(&state.snapshot_json()).unwrap();
+        assert_eq!(restored.issues.last().unwrap().revision, initial + 1);
     }
 
     #[test]
