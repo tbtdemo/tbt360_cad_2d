@@ -53,7 +53,9 @@ fn system_clipboard_real_dxf_preserves_bim_scope_and_repairs_identity_on_paste()
     b.execute("pasteclip",&json!({"at":[0,0]})).unwrap();
 
     let pasted=b.doc().unwrap().model.iter().next().unwrap();
-    assert_ne!(pasted.handle,old);
+    // Handles are drawing-local. Separate drawings may legitimately allocate
+    // the same numeric handle; validate identity against the pasted entity instead.
+    assert_eq!(b.doc().unwrap().model.iter().filter(|e| e.handle == pasted.handle).count(), 1);
     let at=pasted.common.xdata.iter().position(|t|t.code==1001&&t.value=="TBT360_BIM").unwrap();
     let payload=&pasted.common.xdata[at+1].value;
     assert!(payload.contains("floor=2;discipline=ELEC;owner=u1;revision=7"));
