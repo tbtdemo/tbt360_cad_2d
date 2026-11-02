@@ -194,7 +194,13 @@ pub fn panel(ui: &mut egui::Ui, state: &mut State) {
         return;
     }
     if !state.file_name.is_empty() { ui.label(format!("Tệp: {}", state.file_name)); }
-    if let Some(mesh) = &state.mesh { ui.label(format!("Mesh: {} đỉnh • {} tam giác", mesh.vertices.len(), mesh.faces.len())); }
+    if let Some(mesh) = &state.mesh {
+        ui.label(format!("Mesh: {} đỉnh • {} tam giác", mesh.vertices.len(), mesh.faces.len()));
+        let mapped = mesh.groups.iter().filter(|g| state.catalog.get(g).is_some()).count();
+        let filtered = mesh.groups.iter().filter(|g| ifc_catalog::matches(state.catalog.get(g), &state.global_id_filter, &state.storey_filter, &state.discipline_filter)).count();
+        ui.label(format!("Nhóm OBJ: {} • ánh xạ IFC: {} • qua lọc: {}", mesh.groups.len(), mapped, filtered));
+        if filtered == 0 && (!state.global_id_filter.is_empty() || !state.storey_filter.is_empty() || !state.discipline_filter.is_empty()) { ui.colored_label(egui::Color32::YELLOW, "Không có nhóm OBJ nào phù hợp bộ lọc hoặc chưa có ánh xạ GlobalId."); }
+    }
     ui.horizontal(|ui| {
         ui.label(format!("Loại IFC: {}", state.counts.len()));
         ui.label(format!("Điểm tọa độ đọc: {}", state.points.len()));
