@@ -105,19 +105,23 @@ app.MapPost("/api/bim/projects/{project:guid}/changesets", async (Guid project, 
     {
         var actor = AuthenticatedAccount(principal);
         if (project == Guid.Empty || body.BatchId == Guid.Empty || body.Items is null || body.Items.Count is < 1 or > 100) return Results.BadRequest();
+        if (body.BaseProjectRevision is < 0) return Results.BadRequest(new { error = "invalid base project revision" });
         if (body.Items.Any(item => item.ObjectId == Guid.Empty || item.Operation is null || !new[] { "CREATE", "UPDATE", "DELETE" }.Contains(item.Operation.ToUpperInvariant()))) return Results.BadRequest();
         if (body.Items.Select(item => item.ObjectId).Distinct().Count() != body.Items.Count) return Results.BadRequest(new { error = "duplicate object id in batch" });
         if (body.Items.Any(item => item.Operation!.ToUpperInvariant() != "CREATE" && item.ExpectedRevision < 1)) return Results.BadRequest(new { error = "invalid expected revision" });
         if (body.Items.Any(item => item.Operation!.ToUpperInvariant() != "DELETE" && item.Geometry.ValueKind != JsonValueKind.Object)) return Results.BadRequest(new { error = "geometry must be JSON object" });
         if (body.Items.Any(item => item.Operation!.ToUpperInvariant() == "CREATE" && (item.FloorId == Guid.Empty || string.IsNullOrWhiteSpace(item.Discipline) || string.IsNullOrWhiteSpace(item.SourceHandle) || string.IsNullOrWhiteSpace(item.EntityType)))) return Results.BadRequest(new { error = "incomplete create scope" });
-        var canonical = JsonSerializer.Serialize(body.Items);
+        var canonical = JsonSerializer.Serialize(new { body.BaseProjectRevision, body.Items });
         var hash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(canonical)));
         await using var conn = await db.OpenConnectionAsync(ct);
         await using var tx = await conn.BeginTransactionAsync(ct);
+        long currentProjectRevision;
         await using (var lockCmd = new NpgsqlCommand("SELECT revision FROM bim_projects WHERE id=@project FOR UPDATE", conn, tx))
         {
             lockCmd.Parameters.AddWithValue("project", project);
-            if (await lockCmd.ExecuteScalarAsync(ct) is null) return Results.NotFound();
+            var lockedRevision = await lockCmd.ExecuteScalarAsync(ct);
+            if (lockedRevision is null) return Results.NotFound();
+            currentProjectRevision = Convert.ToInt64(lockedRevision);
         }
         // Replays must not bypass current project membership after access is revoked.
         await using (var access = new NpgsqlCommand("SELECT EXISTS(SELECT 1 FROM bim_project_members WHERE project_id=@project AND account_id=@actor)", conn, tx))
@@ -140,6 +144,7 @@ app.MapPost("/api/bim/projects/{project:guid}/changesets", async (Guid project, 
                 return matched ? Results.Content(saved, "application/json") : Results.Conflict(new { error = "batch id reused for different payload" });
             }
         }
+        if (body.BaseProjectRevision is long baseRevision && currentProjectRevision != baseRevision) return Results.Conflict(new { error = "stale project revision", currentProjectRevision });
         var accepted = new List<object>();
         foreach (var item in body.Items)
         {
@@ -189,5 +194,5 @@ app.Run();
 public record CreateObject(Guid ObjectId, Guid FloorId, string Discipline, string SourceHandle, string EntityType, JsonElement Geometry);
 public record EditObject(long ExpectedRevision, JsonElement Geometry);
 
-public record ChangeBatch(Guid BatchId, List<BatchItem> Items);
+public record ChangeBatch(Guid BatchId, List<BatchItem> Items, long? BaseProjectRevision = null);
 public record BatchItem(string? Operation, Guid ObjectId, Guid FloorId, string? Discipline, string? SourceHandle, string? EntityType, long ExpectedRevision, JsonElement Geometry);
