@@ -514,6 +514,18 @@ mod tests {
         }
     }
 
+    #[test]
+    fn pick_and_pick_all_share_overflow_guards() {
+        let mut d = Drawing::new_metric();
+        d.add(&Space::Model, Common::default(), EntityKind::Line(cadcraft_doc::Line { a: Vec3::new(0.0, 0.0, 0.0), b: Vec3::new(10.0, 0.0, 0.0) })).unwrap();
+        for (point, aperture) in [(Vec2::new(f64::MAX, 0.0), f64::MAX), (Vec2::new(0.0, 0.0), f64::MAX)] {
+            assert_eq!(pick(&d, &Space::Model, point, aperture), None);
+            assert!(pick_all(&d, &Space::Model, point, aperture).is_empty());
+        }
+        assert!(pick(&d, &Space::Model, Vec2::new(5.0, 0.0), 0.2).is_some());
+        assert_eq!(pick_all(&d, &Space::Model, Vec2::new(5.0, 0.0), 0.2).len(), 1);
+    }
+
     fn fence_hits(kind: EntityKind, fence: [(f64, f64); 2]) -> usize {
         let mut d = Drawing::new_metric();
         d.add(&Space::Model, Common::default(), kind).unwrap();
