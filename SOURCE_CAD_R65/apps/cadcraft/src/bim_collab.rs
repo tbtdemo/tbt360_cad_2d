@@ -1550,6 +1550,7 @@ pub fn panel(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut 
             });
             let filtered_count = state.issues.iter().filter(|issue| issue_matches_filters(issue, &search, status_filter, &priority_filter, overdue_only, &today)).count();
             ui.label(format!("Hiển thị {filtered_count}/{} Issue", state.issues.len()));
+            let issue_before = state.issues.iter().map(|i| (i.id, i.priority.clone(), i.issue_type.clone(), i.assigned_to.clone(), i.due_at.clone(), i.status)).collect::<Vec<_>>();
             egui::ScrollArea::horizontal().show(ui, |ui| {
                 egui::Grid::new("tbt360_collaboration_issue_grid").striped(true).min_col_width(90.0).show(ui, |ui| {
                     for heading in ["Mã", "Ưu tiên", "Loại", "Nguồn", "Ảnh hưởng / Bộ môn", "Nội dung", "Phụ trách", "Hạn xử lý", "SLA", "Trạng thái", "Tác vụ"] { ui.strong(heading); }
@@ -1587,6 +1588,13 @@ pub fn panel(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut 
                 });
             });
             ui.ctx().data_mut(|data| { data.insert_temp(search_id, search); data.insert_temp(filter_id, status_filter); data.insert_temp(priority_id, priority_filter); data.insert_temp(overdue_id, overdue_only); });
+            let changed = state.issues.iter().filter_map(|issue| {
+                let before = issue_before.iter().find(|row| row.0 == issue.id)?;
+                let after = (&issue.priority, &issue.issue_type, &issue.assigned_to, &issue.due_at, issue.status);
+                if before.1 == *after.0 && before.2 == *after.1 && before.3 == *after.2 && before.4 == *after.3 && before.5 == after.4 { return None; }
+                Some((issue.id, issue.floor_id, issue.source_discipline, issue.handle, format!("P:{}→{} | Type:{}→{} | Owner:{}→{} | Due:{}→{} | Status:{}→{}", before.1, after.0, before.2, after.1, before.3, after.2, before.4, after.3, before.5.label(), after.4.label())))
+            }).collect::<Vec<_>>();
+            for (id, floor, discipline, handle, detail) in changed { state.audit("ISSUE_UPDATED", Some(floor), Some(discipline), handle, format!("Issue #{id}: {detail}")); }
             if let Some(id) = request_close { if let Err(message) = state.confirm_close_issue(id) { ui.colored_label(egui::Color32::YELLOW, message); } }
             ui.add_space(10.0);
             if let Some(issue) = selected_issue.and_then(|id| state.issues.iter().find(|issue| issue.id == id)) {
