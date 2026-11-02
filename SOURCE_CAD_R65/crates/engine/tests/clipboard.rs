@@ -301,6 +301,10 @@ fn system_clipboard_real_dxf_preserves_bim_scope_and_repairs_identity_on_paste()
         RawTag{code:1000,value:format!("floor=2;discipline=ELEC;owner=u1;revision=7;entity={}",old.hex())},
     ];
     source.model.push(e);
+    // Diagnose source DXF serialization separately from COPYBASE and system clipboard.
+    let source_dxf = cadcraft_io::write(&source, "source-probe.dxf").expect("source DXF serialization");
+    let source_text = String::from_utf8(source_dxf).expect("source ASCII DXF");
+    assert!(source_text.contains("TBT360_BIM"), "DXF writer lost BIM metadata before COPYBASE");
 
     let mut a=Session::empty();
     a.open_drawing(source,"A",None);
