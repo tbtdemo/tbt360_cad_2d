@@ -1109,12 +1109,15 @@ impl State {
             accepted.push((change.id, staged_revisions));
         }
 
-        for (change_id, revisions) in accepted {
+        let accepted_ids: std::collections::HashSet<u64> = accepted.iter().map(|(id, _)| *id).collect();
+        for (_, revisions) in accepted {
             for (handle, revision) in revisions {
                 self.set_remote_revision(handle, revision);
             }
+        }
 
-            if let Some(change) = self.pending_changes.iter_mut().find(|change| change.id == change_id) {
+        for change in &mut self.pending_changes {
+            if accepted_ids.contains(&change.id) {
                 change.synced = true;
             }
         }
