@@ -1588,6 +1588,16 @@ mod tests {
         assert_eq!(csv.lines().count(), 2);
     }
 
+    #[test]
+    fn qto_csv_never_emits_infinite_area_quantities() {
+        let mut state = State::default();
+        let id = state.add_measurement(MeasureKind::Area, vec![[0.0, 0.0]], 2.0, "AREA".into()).unwrap();
+        state.set_status(id, MeasureStatus::Confirmed);
+        let csv = qto_detail_csv(&state, &SourceValidation::default(), 1.0e200, f64::INFINITY, "m", "m²", true);
+        assert_eq!(csv.lines().count(), 1);
+        assert!(!csv.contains("inf"));
+    }
+
     fn block_member_fixture()->(cadcraft_doc::Drawing,cadcraft_doc::Handle,cadcraft_doc::Handle) {
         let mut d=cadcraft_doc::Drawing::new_metric();
         let member=cadcraft_doc::Handle(0x20);
