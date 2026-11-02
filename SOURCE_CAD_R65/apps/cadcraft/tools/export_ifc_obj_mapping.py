@@ -11,7 +11,7 @@ ENTITY = re.compile(r"#(\d+)\s*=\s*(IFC[A-Z0-9_]+)\s*\((.*?)\)\s*;", re.I | re.S
 GUID = re.compile(r"^[0-9A-Za-z_$]{22}$")
 REF = re.compile(r"#(\d+)")
 QUOTED = re.compile(r"'((?:''|[^'])*)'")
-GROUP_GUID = re.compile(r"(?<![0-9A-Za-z_$])([0-9A-Za-z_$]{22})(?![0-9A-Za-z_$])")
+GROUP_GUID = re.compile(r"(?<![0-9A-Za-z$])([0-9A-Za-z_$]{22})(?![0-9A-Za-z$])")
 
 def entities(path):
     # STEP entity records can span lines. File size is constrained for predictable memory use.
