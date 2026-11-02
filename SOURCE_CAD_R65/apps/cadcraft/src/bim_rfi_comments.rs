@@ -27,6 +27,10 @@ pub fn post_authorized_comment(issue_exists: bool, issue_closed: bool, can_edit:
 }
 #[cfg(test)] mod permission_tests {
     use super::*;
+    #[test] fn readonly_user_cannot_comment_even_on_open_issue() {
+        let blocked = post_authorized_comment(true, false, false, 9, "viewer", "clarify", 1);
+        assert_eq!(blocked.unwrap_err(), "account has no write permission");
+    }
     #[test] fn comment_creation_requires_edit_permission() {
         assert!(post_authorized_comment(true, false, false, 1, "viewer", "test", 1).is_err());
         assert!(post_authorized_comment(true, false, true, 1, "editor", "test", 1).is_ok());
