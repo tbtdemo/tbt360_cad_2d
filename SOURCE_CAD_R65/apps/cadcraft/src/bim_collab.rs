@@ -1531,6 +1531,7 @@ pub fn panel(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut 
                     ui.label(format!("{} → {} • {}", issue.source_discipline.label(), issue.target_discipline.label(), issue.status.label()));
                     ui.label(&issue.description);
                     ui.label(format!("Phụ trách: {}", issue.assigned_to));
+                    ui.label(format!("Loại: {} • Ưu tiên: {} • Hạn xử lý: {}", issue.issue_type, issue.priority, if issue.due_at.is_empty() { "Chưa đặt" } else { &issue.due_at }));
                     if let Some(reviewer) = &issue.confirmed_by { ui.label(format!("Xác nhận đóng bởi: {reviewer}")); }
                     if let Some(handle) = issue.handle {
                         if ui.button(format!("Chọn đối tượng CAD {}", handle.hex())).clicked() { app.session.set_selection(vec![handle]); }
