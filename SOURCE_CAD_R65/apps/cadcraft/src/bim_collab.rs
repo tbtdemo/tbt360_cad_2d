@@ -1511,6 +1511,7 @@ pub fn panel(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut 
         CollaborationTab::Overview => {
             let health = state.model_health(app);
             ui.heading("TỔNG QUAN DỰ ÁN");
+            for warning in state.audit_log.iter().filter(|entry| entry.action == "WORKSPACE_DATA_REJECTED").rev().take(5) { ui.colored_label(egui::Color32::LIGHT_RED, &warning.detail); }
             ui.horizontal_wrapped(|ui| {
                 ui.label(format!("Đối tượng: {}", health.total_entities));
                 ui.label(format!("Chưa gắn BIM: {}", health.unscoped_entities));
