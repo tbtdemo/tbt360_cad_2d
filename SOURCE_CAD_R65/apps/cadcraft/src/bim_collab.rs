@@ -3182,6 +3182,39 @@ mod tests {
     }
 
     #[test]
+    fn keep_mine_does_not_resolve_conflict_without_pending_change() {
+        let mut state = State::default();
+        let handle = cadcraft_doc::Handle(96001);
+        state.conflicts.push(SyncConflict {
+            handle,
+            base_revision: 1,
+            local_revision: 2,
+            remote_revision: 3,
+        });
+
+        state.resolve_conflict(handle, ConflictResolution::KeepMine);
+
+        assert_eq!(state.conflicts.len(), 1);
+        assert_eq!(state.conflicts[0].handle, handle);
+    }
+
+    #[test]
+    fn keep_mine_preserves_conflict_when_revision_overflows() {
+        let mut state = State::default();
+        let handle = cadcraft_doc::Handle(96002);
+        state.conflicts.push(SyncConflict {
+            handle,
+            base_revision: 1,
+            local_revision: 2,
+            remote_revision: u64::MAX,
+        });
+
+        state.resolve_conflict(handle, ConflictResolution::KeepMine);
+
+        assert_eq!(state.conflicts.len(), 1);
+    }
+
+    #[test]
     fn duplicate_handles_inside_change_set_are_rejected_atomically() {
         let mut state = State::default();
         let handle = cadcraft_doc::Handle(95001);
