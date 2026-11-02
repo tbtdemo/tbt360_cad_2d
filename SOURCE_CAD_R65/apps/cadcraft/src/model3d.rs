@@ -16,6 +16,7 @@ pub struct State {
     wireframe: bool,
     show_points: bool,
     selected_triangle: Option<usize>,
+    select_group: bool,
     conversion: Option<std::sync::mpsc::Receiver<Result<crate::ifc_mesh::Mesh, String>>>,
     cancel_conversion: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
 }
@@ -144,6 +145,7 @@ pub fn panel(ui: &mut egui::Ui, state: &mut State) {
         if state.conversion.is_some() && ui.button("Hủy chuyển đổi").clicked() { if let Some(cancel) = &state.cancel_conversion { cancel.store(true, std::sync::atomic::Ordering::Relaxed); } }
         ui.checkbox(&mut state.wireframe, "Khung dây");
         ui.checkbox(&mut state.show_points, "Hiển thị đỉnh");
+        ui.checkbox(&mut state.select_group, "Chọn cả nhóm đối tượng");
         if ui.button("Đặt lại góc nhìn").clicked() { state.yaw = 0.5; state.pitch = 0.35; state.zoom = 1.0; }
     });
     if let Some(receiver) = &state.conversion {
@@ -216,7 +218,8 @@ pub fn panel(ui: &mut egui::Ui, state: &mut State) {
                 let c = project(&mesh.vertices[triangle[2]]);
                 if !triangle_visible_on_screen(a, b, c, rect) { continue; }
                 if let Some(pointer) = click { if point_in_triangle(pointer, a, b, c) { picked = Some(index); } }
-                if state.selected_triangle == Some(index) { painter.add(egui::Shape::convex_polygon(vec![a, b, c], egui::Color32::from_rgba_unmultiplied(240, 180, 45, 150), egui::Stroke::new(2.0, egui::Color32::YELLOW))); continue; }
+                let selected = state.selected_triangle.is_some_and(|selected| { selected == index || (state.select_group && mesh.face_groups.get(selected) == mesh.face_groups.get(index)) });
+                if selected { painter.add(egui::Shape::convex_polygon(vec![a, b, c], egui::Color32::from_rgba_unmultiplied(240, 180, 45, 150), egui::Stroke::new(2.0, egui::Color32::YELLOW))); continue; }
                 if state.wireframe {
                     for (u, v) in [(a, b), (b, c), (c, a)] { painter.line_segment([u, v], egui::Stroke::new(0.7, egui::Color32::from_rgb(130, 195, 240))); }
                 } else {
@@ -231,7 +234,7 @@ pub fn panel(ui: &mut egui::Ui, state: &mut State) {
     } else {
         painter.text(rect.center(), egui::Align2::CENTER_CENTER, "Không tìm thấy IFCCARTESIANPOINT 3D trong tệp", egui::FontId::proportional(14.0), egui::Color32::LIGHT_GRAY);
     }
-    if let (Some(mesh), Some(index)) = (&state.mesh, state.selected_triangle) { if let Some(face) = mesh.faces.get(index) { ui.label(format!("Đã chọn tam giác #{} • đỉnh {:?} • chưa liên kết IFC GlobalId", index + 1, face)); } }
+    if let (Some(mesh), Some(index)) = (&state.mesh, state.selected_triangle) { if let Some(face) = mesh.faces.get(index) { let group = mesh.face_groups.get(index).and_then(|id| mesh.groups.get(*id)).map(String::as_str).unwrap_or("Mặc định"); ui.label(format!("Đã chọn mặt #{} • nhóm OBJ: {} • đỉnh {:?}", index + 1, group, face)); ui.small("Tên nhóm OBJ chưa được xác thực là IFC GlobalId."); } }
     egui::ScrollArea::vertical().max_height(160.0).show(ui, |ui| {
         ui.collapsing("Thống kê IFC Entities", |ui| {
             for (kind, count) in &state.counts { ui.label(format!("{kind}: {count}")); }
