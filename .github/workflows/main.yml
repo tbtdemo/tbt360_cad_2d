@@ -176,6 +176,32 @@ jobs:
           }
           & "./target/release/cadcraft-cli.exe" --version
           if ($LASTEXITCODE -ne 0) { throw "CLI smoke test failed" }
+      - name: Package portable Windows binaries
+        shell: pwsh
+        run: |
+          $root = "../dist/CAD360_VietNam_TBT_Portable"
+          New-Item -ItemType Directory -Force -Path $root | Out-Null
+          Copy-Item "target/release/cadcraft.exe" "$root/cadcraft.exe"
+          Copy-Item "target/release/cadcraft-cli.exe" "$root/cadcraft-cli.exe"
+          @'
+          CAD 360 Viet Nam - TBT (Portable)
+          1. Extract this ZIP to a writable folder on Windows x64.
+          2. Double-click cadcraft.exe to launch CAD 360.
+          3. cadcraft-cli.exe provides the command-line interface.
+          No Rust toolchain is required on the user's machine.
+          '@ | Set-Content -Encoding UTF8 "$root/README.txt"
+          Compress-Archive -Path "$root/*" -DestinationPath "../dist/CAD360_VietNam_TBT_Portable.zip" -Force
+          if (!(Test-Path "../dist/CAD360_VietNam_TBT_Portable.zip")) { throw "Portable archive was not created" }
+          $verify = "../dist/portable-smoke"
+          Expand-Archive "../dist/CAD360_VietNam_TBT_Portable.zip" $verify -Force
+          & "$verify/cadcraft-cli.exe" --version
+          if ($LASTEXITCODE -ne 0) { throw "Portable CLI smoke test failed" }
+      - name: Upload Windows portable ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: CAD360_VietNam_TBT_Windows_Portable
+          path: dist/CAD360_VietNam_TBT_Portable.zip
+          if-no-files-found: error
       - name: Install Inno Setup compiler
         shell: pwsh
         run: |
