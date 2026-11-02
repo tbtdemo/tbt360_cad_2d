@@ -473,7 +473,7 @@ impl State {
         }
         let uncalibrated = drawing_distance.abs() <= 1e-12 && real_distance_m.abs() <= 1e-12;
         let calibrated = drawing_distance > 1e-12 && real_distance_m > 0.0;
-        if calibrated && !(real_distance_m / drawing_distance).is_finite() { return Err("Tỷ lệ hiệu chỉnh QTO không hợp lệ".into()); }
+        if calibrated && (!(real_distance_m / drawing_distance).is_finite() || real_distance_m / drawing_distance <= 0.0) { return Err("Tỷ lệ hiệu chỉnh QTO không hợp lệ".into()); }
         if !uncalibrated && !calibrated {
             return Err("Dữ liệu hiệu chỉnh tỷ lệ không hợp lệ".into());
         }
@@ -1445,6 +1445,16 @@ mod tests {
         assert!(state.records.is_empty());
         assert!(state.undo.is_empty());
         assert!(state.audit.is_empty());
+    }
+
+    #[test]
+    fn restored_qto_scale_underflow_is_rejected_atomically() {
+        let mut state = State::default();
+        state.add_measurement(MeasureKind::Count, vec![], 1.0, "existing".into()).unwrap();
+        let bad = serde_json::json!({"version":4,"drawing_distance":1.0e308,"real_distance_m":1.0e-308,"records":[],"audit":[]});
+        assert!(state.load_json(&bad).is_err());
+        assert_eq!(state.records.len(), 1);
+        assert_eq!(state.records[0].layer, "existing");
     }
 
     fn block_member_fixture()->(cadcraft_doc::Drawing,cadcraft_doc::Handle,cadcraft_doc::Handle) {
