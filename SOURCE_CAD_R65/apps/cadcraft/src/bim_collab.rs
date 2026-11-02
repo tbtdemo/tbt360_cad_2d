@@ -1433,6 +1433,27 @@ impl CollaborationTab {
     fn title(self) -> &'static str { match self { Self::Overview => "TỔNG QUAN", Self::Workspace => "KHÔNG GIAN PHỐI HỢP", Self::Issues => "ISSUE / CLASH", Self::Sync => "ĐỒNG BỘ", Self::Permissions => "QUYỀN TRUY CẬP" } }
 }
 
+fn issue_due_date_valid(date: &str) -> bool {
+    let bytes = date.as_bytes();
+    if bytes.len() != 10 || bytes[4] != b'-' || bytes[7] != b'-' { return false; }
+    if !bytes.iter().enumerate().all(|(i, b)| i == 4 || i == 7 || b.is_ascii_digit()) { return false; }
+    let Ok(year) = date[0..4].parse::<u32>() else { return false };
+    let Ok(month) = date[5..7].parse::<u32>() else { return false };
+    let Ok(day) = date[8..10].parse::<u32>() else { return false };
+    if year == 0 || !(1..=12).contains(&month) { return false; }
+    let leap = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);
+    let max_day = match month { 2 if leap => 29, 2 => 28, 4 | 6 | 9 | 11 => 30, _ => 31 };
+    (1..=max_day).contains(&day)
+}
+
+fn issue_due_label(issue: &CoordinationIssue, today: &str) -> &'static str {
+    if issue.due_at.trim().is_empty() { return "Chưa đặt hạn"; }
+    if !issue_due_date_valid(&issue.due_at) { return "Ngày không hợp lệ"; }
+    if issue.status == IssueStatus::Closed || issue.status == IssueStatus::Resolved { return "Đã xử lý"; }
+    if issue_due_date_valid(today) && issue.due_at.as_str() < today { return "QUÁ HẠN"; }
+    "Trong hạn"
+}
+
 pub fn panel(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut State) {
     let tab_id = egui::Id::new("tbt360_bim_collaboration_active_tab");
     let mut tab = ui.ctx().data_mut(|data| data.get_temp::<u8>(tab_id).unwrap_or(2));
@@ -1491,6 +1512,7 @@ pub fn panel(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut 
                 ui.label(format!("Đã xử lý: {}", state.issues.iter().filter(|issue| issue.status == IssueStatus::Resolved).count()));
                 ui.label(format!("Đã đóng: {}", state.issues.iter().filter(|issue| issue.status == IssueStatus::Closed).count()));
             });
+            let today = chrono::Local::now().format("%Y-%m-%d").to_string();
             let current = app.session.selection().first().copied();
             ui.horizontal_wrapped(|ui| {
                 for (discipline, label) in [(Discipline::Structure, "+ Issue Kết cấu"), (Discipline::Electrical, "+ Issue Điện"), (Discipline::Plumbing, "+ Issue Nước"), (Discipline::Hvac, "+ Issue HVAC")] {
@@ -1515,6 +1537,8 @@ pub fn panel(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut 
                         ui.label(&issue.description);
                         ui.text_edit_singleline(&mut issue.assigned_to);
                         ui.add(egui::TextEdit::singleline(&mut issue.due_at).hint_text("YYYY-MM-DD"));
+                        let due = issue_due_label(issue, &today);
+                        if due == "QUÁ HẠN" || due == "Ngày không hợp lệ" { ui.colored_label(egui::Color32::LIGHT_RED, due); } else { ui.label(due); }
                         egui::ComboBox::from_id_salt(("collab_issue_status", issue.id)).selected_text(issue.status.label()).show_ui(ui, |ui| {
                             for status in [IssueStatus::Open, IssueStatus::InProgress, IssueStatus::Resolved] { ui.selectable_value(&mut issue.status, status, status.label()); }
                         });
@@ -1532,6 +1556,7 @@ pub fn panel(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut 
                     ui.label(format!("{} → {} • {}", issue.source_discipline.label(), issue.target_discipline.label(), issue.status.label()));
                     ui.label(&issue.description);
                     ui.label(format!("Phụ trách: {}", issue.assigned_to));
+                    ui.label(format!("SLA: {}", issue_due_label(issue, &today)));
                     ui.label(format!("Loại: {} • Ưu tiên: {} • Hạn xử lý: {}", issue.issue_type, issue.priority, if issue.due_at.is_empty() { "Chưa đặt" } else { &issue.due_at }));
                     if let Some(reviewer) = &issue.confirmed_by { ui.label(format!("Xác nhận đóng bởi: {reviewer}")); }
                     if let Some(handle) = issue.handle {
