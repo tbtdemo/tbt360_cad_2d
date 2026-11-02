@@ -265,6 +265,7 @@ pub fn panel(ui: &mut egui::Ui, state: &mut State) {
             faces.sort_by(|a,b| a.0.total_cmp(&b.0));
             let click = response.clicked().then(|| response.interact_pointer_pos()).flatten();
             let mut picked: Option<(f64, usize)> = None;
+            let selected_group = state.selected_triangle.and_then(|i| mesh.face_groups.get(i)).copied();
             for (_, index, triangle) in faces {
                 let group = mesh.face_groups.get(index).copied().unwrap_or(0);
                 if !group_is_visible(group, &state.hidden_groups, state.isolated_group) { continue; }
@@ -286,7 +287,7 @@ pub fn panel(ui: &mut egui::Ui, state: &mut State) {
                         if depth_at.is_finite() && picked.is_none_or(|(current, _)| depth_at > current) { picked = Some((depth_at, index)); }
                     }
                 }
-                let selected = state.selected_triangle.is_some_and(|selected| { selected == index || (state.select_group && mesh.face_groups.get(selected).zip(mesh.face_groups.get(index)).is_some_and(|(a,b)| a == b)) });
+                let selected = state.selected_triangle == Some(index) || (state.select_group && selected_group == Some(group));
                 if selected { painter.add(egui::Shape::convex_polygon(vec![a, b, c], egui::Color32::from_rgba_unmultiplied(240, 180, 45, 150), egui::Stroke::new(2.0, egui::Color32::YELLOW))); continue; }
                 if state.wireframe {
                     for (u, v) in [(a, b), (b, c), (c, a)] { painter.line_segment([u, v], egui::Stroke::new(0.7, egui::Color32::from_rgb(130, 195, 240))); }
