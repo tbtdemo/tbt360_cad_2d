@@ -42,7 +42,7 @@ impl Batch {
     /// Visibility is already applied by filtered_indices; the GPU stage can draw each range.
     pub fn draw_ranges(indices: &[u32], max_indices_per_draw: usize) -> Vec<std::ops::Range<u32>> {
         let count = indices.len() - indices.len() % 3;
-        let step = (max_indices_per_draw / 3).max(1) * 3;
+        let step = (max_indices_per_draw / 3).max(1).min(u32::MAX as usize / 3) * 3;
         let mut ranges = Vec::new();
         let mut start = 0usize;
         while start < count {
@@ -130,6 +130,7 @@ mod tests {
         assert_eq!(Batch::draw_ranges(&[0,1,2,3,4,5,6,7,8], 4), vec![0..3,3..6,6..9]);
         assert_eq!(Batch::draw_ranges(&[0,1,2,3], 10), vec![0..3]);
         assert!(Batch::draw_ranges(&[], 10).is_empty());
+        assert_eq!(Batch::draw_ranges(&[0,1,2], usize::MAX), vec![0..3]);
     }
     #[test]
     fn rejects_invalid_group_and_face_indices() {
