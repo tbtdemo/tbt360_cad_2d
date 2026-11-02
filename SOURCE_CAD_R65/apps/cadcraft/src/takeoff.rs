@@ -138,9 +138,10 @@ impl State {
     }
 
     fn audit_change(&mut self, record_id: u64, action: &str, before: Option<String>, after: Option<String>) {
-        self.next_audit_sequence = self.next_audit_sequence.max(1);
-        self.audit.push(AuditEntry { sequence: self.next_audit_sequence, record_id, action: action.into(), before, after });
-        self.next_audit_sequence += 1;
+        let sequence = self.next_audit_sequence.max(1);
+        let Some(next) = sequence.checked_add(1) else { return; };
+        self.audit.push(AuditEntry { sequence, record_id, action: action.into(), before, after });
+        self.next_audit_sequence = next;
     }
 
     fn add_measurement(&mut self, kind: MeasureKind, points: Vec<[f64; 2]>, raw_value: f64, layer: String) -> Result<u64, String> {
