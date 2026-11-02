@@ -211,7 +211,7 @@ jobs:
         shell: pwsh
         run: |
           $iscc = Join-Path ${env:ProgramFiles(x86)} "Inno Setup 6/ISCC.exe"
-          & $iscc "/Qp" "../installer/TBT360_CAD_R65.iss"
+          & $iscc "/Qp" "../installer/CAD360_TBT_Windows.iss"
           if ($LASTEXITCODE -ne 0) { throw "Inno Setup compile failed" }
           if (!(Test-Path "../dist/CAD360_VietNam_TBT_Setup.exe")) { throw "Setup EXE not created" }
       - name: Package portable Windows binaries
