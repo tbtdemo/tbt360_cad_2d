@@ -1513,6 +1513,7 @@ pub fn panel(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut 
                     ui.label(format!("{} → {} • {}", issue.source_discipline.label(), issue.target_discipline.label(), issue.status.label()));
                     ui.label(&issue.description);
                     ui.label(format!("Phụ trách: {}", issue.assigned_to));
+                    if let Some(reviewer) = &issue.confirmed_by { ui.label(format!("Xác nhận đóng bởi: {reviewer}")); }
                     if let Some(handle) = issue.handle {
                         if ui.button(format!("Chọn đối tượng CAD {}", handle.hex())).clicked() { app.session.set_selection(vec![handle]); }
                     }
@@ -1988,6 +1989,7 @@ fn legacy_panel(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &m
                     .selected_text(issue.status.label())
                     .show_ui(ui, |ui| {
                         for status in [IssueStatus::Open, IssueStatus::InProgress, IssueStatus::Resolved] {
+                            if issue.status == IssueStatus::Closed { continue; }
                             ui.selectable_value(&mut issue.status, status, status.label());
                         }
                     });
