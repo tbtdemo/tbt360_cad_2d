@@ -1081,10 +1081,16 @@ fn measurement_matches_filter(record: &MeasurementRecord, search: &str, status_f
     term.is_empty() || [record.layer.as_str(), record.work_code.as_str(), record.work_group.as_str(), record.description.as_str(), record.source_handle.as_deref().unwrap_or("")].iter().any(|value| value.to_lowercase().contains(&term))
 }
 
+fn qto_record_exportable(record: &MeasurementRecord, source_validation: &SourceValidation, lf: f64, af: f64, confirmed_only: bool) -> bool {
+    if confirmed_only && (record.status != MeasureStatus::Confirmed || source_validation.invalid_record_ids.contains(&record.id)) { return false; }
+    let converted = match record.kind { MeasureKind::Area => record.raw_value * af, MeasureKind::Length | MeasureKind::Perimeter => record.raw_value * lf, MeasureKind::Count => record.raw_value };
+    converted.is_finite() && converted >= 0.0
+}
+
 fn qto_detail_csv(state: &State, source_validation: &SourceValidation, lf: f64, af: f64, length_unit: &str, area_unit: &str, confirmed_only: bool) -> String {
             let mut csv = String::from("id,source_handle,source_state,floor_id,discipline,owner_account_id,type,layer,work_group,work_code,description,note,raw_value,converted_value,unit,status\n");
             for record in &state.records {
-                if confirmed_only && (record.status != MeasureStatus::Confirmed || source_validation.invalid_record_ids.contains(&record.id)) { continue; }
+                if !qto_record_exportable(record, source_validation, lf, af, confirmed_only) { continue; }
                 let converted = match record.kind {
                     MeasureKind::Area => record.raw_value * af,
                     MeasureKind::Length | MeasureKind::Perimeter => record.raw_value * lf,
@@ -1433,10 +1439,7 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
             ui.ctx().copy_text(csv);
         }
         ui.checkbox(&mut state.export_confirmed_only, "Chỉ xuất khối lượng đã xác nhận và nguồn hợp lệ");
-        let exportable = state.records.iter().filter(|r| {
-            (!state.export_confirmed_only || (r.status == MeasureStatus::Confirmed && !source_validation.invalid_record_ids.contains(&r.id))) &&
-            match r.kind { MeasureKind::Area => (r.raw_value * af).is_finite(), MeasureKind::Length | MeasureKind::Perimeter => (r.raw_value * lf).is_finite(), MeasureKind::Count => r.raw_value.is_finite() }
-        }).count();
+        let exportable = state.records.iter().filter(|r| qto_record_exportable(r, &source_validation, lf, af, state.export_confirmed_only)).count();
         ui.label(format!("Sẵn sàng xuất: {exportable}/{} phép đo; {} mục chưa đủ điều kiện.", state.records.len(), state.records.len() - exportable));
         if ui.button("Sao chép CSV chi tiết phép đo").clicked() {
             ui.ctx().copy_text(qto_detail_csv(state, &source_validation, lf, af, length_unit, area_unit, state.export_confirmed_only));
