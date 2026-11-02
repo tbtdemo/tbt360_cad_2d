@@ -3161,6 +3161,38 @@ mod tests {
     }
 
     #[test]
+    fn duplicate_handles_inside_change_set_are_rejected_atomically() {
+        let mut state = State::default();
+        let handle = cadcraft_doc::Handle(95001);
+        state.pending_changes.push(ChangeSet {
+            id: 950,
+            account_id: state.current_account_id.clone(),
+            items: vec![
+                ChangeItem {
+                    handle,
+                    operation: ChangeOperation::Update,
+                    base_revision: 0,
+                    local_revision: 1,
+                },
+                ChangeItem {
+                    handle,
+                    operation: ChangeOperation::Update,
+                    base_revision: 0,
+                    local_revision: 2,
+                },
+            ],
+            synced: false,
+        });
+
+        state.sync_pending_changes();
+
+        assert!(!state.pending_changes[0].synced);
+        assert_eq!(state.remote_revision(handle), 0);
+        assert_eq!(state.conflicts.len(), 1);
+        assert_eq!(state.dirty_local_changes, 2);
+    }
+
+    #[test]
     fn duplicate_change_set_ids_remain_pending() {
         let mut state = State::default();
         let account_id = state.current_account_id.clone();
