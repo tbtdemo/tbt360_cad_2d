@@ -2068,7 +2068,7 @@ fn legacy_panel(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &m
                 } else {
                     ui.label("-");
                 }
-                ui.text_edit_singleline(&mut issue.assigned_to);
+                ui.add_enabled(issue.status != IssueStatus::Closed, egui::TextEdit::singleline(&mut issue.assigned_to));
                 egui::ComboBox::from_id_salt(("issue_status", issue.id))
                     .selected_text(issue.status.label())
                     .show_ui(ui, |ui| {
