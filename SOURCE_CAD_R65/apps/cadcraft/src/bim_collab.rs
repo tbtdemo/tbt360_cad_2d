@@ -1555,7 +1555,9 @@ pub fn panel(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut 
                     ui.end_row();
                     for issue in &mut state.issues {
                         if !issue_matches_filters(issue, &search, status_filter, &priority_filter, overdue_only, &today) { continue; }
+                        let is_editable = issue.status != IssueStatus::Closed;
                         if ui.selectable_label(selected_issue == Some(issue.id), format!("#{:04}", issue.id)).clicked() { selected_issue = Some(issue.id); }
+                        ui.add_enabled_ui(is_editable, |ui| {
                         egui::ComboBox::from_id_salt(("collab_priority", issue.id)).selected_text(&issue.priority).show_ui(ui, |ui| {
                             for priority in ["P0", "P1", "P2", "P3"] { ui.selectable_value(&mut issue.priority, priority.to_string(), priority); }
                         });
@@ -1571,6 +1573,7 @@ pub fn panel(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut 
                         if due == "QUÁ HẠN" || due == "Ngày không hợp lệ" { ui.colored_label(egui::Color32::LIGHT_RED, due); } else { ui.label(due); }
                         egui::ComboBox::from_id_salt(("collab_issue_status", issue.id)).selected_text(issue.status.label()).show_ui(ui, |ui| {
                             for status in [IssueStatus::Open, IssueStatus::InProgress, IssueStatus::Resolved] { ui.selectable_value(&mut issue.status, status, status.label()); }
+                        });
                         });
                         if ui.button("Chi tiết").clicked() { selected_issue = Some(issue.id); }
                         if issue.status == IssueStatus::Resolved && ui.button("Xác nhận đóng").clicked() { request_close = Some(issue.id); }
