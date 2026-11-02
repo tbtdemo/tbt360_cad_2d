@@ -164,6 +164,7 @@ impl CollaborationTransport for MemoryTransport {
                 return Err("Missing account or device identity".into());
             }
             for item in &change.items {
+                if item.operation != "DELETE" && !matches!(serde_json::from_str::<serde_json::Value>(&item.payload_json), Ok(serde_json::Value::Object(_))) { return Err("Invalid BIM object payload".into()); }
                 if item.source_handle.trim().is_empty() || !matches!(item.operation.as_str(), "CREATE" | "UPDATE" | "DELETE") {
                     return Err("Invalid object identity or operation".into());
                 }
@@ -499,6 +500,16 @@ mod tests {
         assert_eq!(result.accepted_change_set_ids, vec![300]);
         assert_eq!(transport.project_revision, 1);
         assert_eq!(transport.change_history.len(), 1);
+    }
+
+    #[test]
+    fn invalid_payload_in_later_changeset_cannot_commit_partial_request() {
+        let mut transport = MemoryTransport::default();
+        let mut invalid = change(702, "B", 0, 1);
+        invalid.items[0].payload_json = "invalid-json".into();
+        assert!(transport.push_changes("p", &[change(701, "A", 0, 1), invalid]).is_err());
+        assert_eq!(transport.project_revision, 0);
+        assert!(transport.object_revisions.is_empty());
     }
 
 }
