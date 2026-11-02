@@ -115,7 +115,7 @@ impl OfflineSyncState {
 
     pub fn reject(&mut self, local_sequence: u64, reason: String) -> bool {
         let Some(item) = self.queue.iter_mut().find(|i| i.local_sequence == local_sequence) else { return false; };
-        if item.state == QueueState::Synced { return false; }
+        if matches!(item.state, QueueState::Synced | QueueState::Rejected) { return false; }
         item.state = QueueState::Rejected;
         item.last_error = Some(reason);
         true
@@ -267,6 +267,15 @@ mod tests {
         assert_eq!(state.retry_delay_seconds(seq), None);
         assert_eq!(state.pending_count(), 0);
         assert!(!state.reject(999, "not found".into()));
+    }
+
+    #[test]
+    fn rejection_is_idempotent_and_preserves_original_error() {
+        let mut state = OfflineSyncState::default();
+        let seq = state.enqueue("blocked".into());
+        assert!(state.reject(seq, "forbidden".into()));
+        assert!(!state.reject(seq, "later".into()));
+        assert_eq!(state.queue[0].last_error.as_deref(), Some("forbidden"));
     }
 
 }
