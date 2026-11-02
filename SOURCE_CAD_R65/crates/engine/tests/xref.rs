@@ -104,7 +104,7 @@ fn open(s: &mut Session, path: &Path) {
 fn xclip_rectangular_boundary_is_stored_on_xref_reference() {
     let mut s = Session::new();
     *s.doc_mut().unwrap() = host_with(&[("site.dxf", false)]);
-    let h = s.doc().unwrap().model.first().unwrap().handle;
+    let h = s.doc().unwrap().model.handles().next().unwrap();
     let r = s.execute("xclip", &json!({"handle": h.hex(), "points": [[-1, -2], [3, 4]]})).unwrap();
     assert_eq!(r["clipped"], true);
     let e = s.doc().unwrap().entity(h).unwrap();
