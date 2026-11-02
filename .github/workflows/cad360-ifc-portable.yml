@@ -54,10 +54,20 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $out = Join-Path $env:RUNNER_TEMP 'CAD360-IFC-Portable'
           New-Item -ItemType Directory -Force -Path $out | Out-Null
-          Copy-Item 'target/release/cadcraft.exe' (Join-Path $out 'CAD360.exe')
+          $exe = 'target/release/cadcraft.exe'
+          if (!(Test-Path $exe)) { throw 'cargo build succeeded but cadcraft.exe is missing' }
+          $exeBytes = [System.IO.File]::ReadAllBytes((Resolve-Path $exe))
+          if ($exeBytes.Length -lt 4096 -or $exeBytes[0] -ne 0x4D -or $exeBytes[1] -ne 0x5A) { throw 'Output is not a valid Windows PE executable' }
+          $peOffset = [BitConverter]::ToInt32($exeBytes, 0x3C)
+          if ($peOffset -lt 64 -or $peOffset + 6 -ge $exeBytes.Length -or [Text.Encoding]::ASCII.GetString($exeBytes, $peOffset, 4) -ne "PE`0`0") { throw 'Invalid Windows PE header' }
+          if ([BitConverter]::ToUInt16($exeBytes, $peOffset + 4) -ne 0x8664) { throw 'Expected x64 Windows executable' }
+          Copy-Item $exe (Join-Path $out 'CAD360.exe')
           New-Item -ItemType Directory -Force -Path (Join-Path $out 'tools') | Out-Null
           Set-Content -Path (Join-Path $out 'tools/README.txt') -Value 'IfcConvert is NOT bundled unless a separately verified Windows x64 runtime package is integrated. This ZIP supports OBJ viewing; IFC to OBJ requires IfcConvert.exe and dependent DLLs.'
           Copy-Item 'apps/cadcraft/tools/export_ifc_obj_mapping.py' (Join-Path $out 'tools/export_ifc_obj_mapping.py')
+          $sha = (Get-FileHash (Join-Path $out 'CAD360.exe') -Algorithm SHA256).Hash
+          Set-Content -Path (Join-Path $out 'SHA256SUMS.txt') -Value "$sha  CAD360.exe"
+          Write-Host "CAD360.exe SHA256: $sha"
           Write-Host 'Portable package excludes unverified IfcConvert.exe and dependent DLLs'
           Compress-Archive -Path (Join-Path $out '*') -DestinationPath (Join-Path $env:GITHUB_WORKSPACE 'CAD360-IFC-Portable.zip') -Force
       - uses: actions/upload-artifact@v4
