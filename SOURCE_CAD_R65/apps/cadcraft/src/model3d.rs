@@ -203,20 +203,20 @@ pub fn panel(ui: &mut egui::Ui, state: &mut State) {
             pos
         };
         if let Some(mesh) = &state.mesh {
-            let mut faces = mesh.faces.iter().take(100_000).map(|triangle| {
+            let mut faces = mesh.faces.iter().enumerate().take(100_000).map(|(index, triangle)| {
                 let depth = triangle.iter().map(|&i| { let p = mesh.vertices[i]; let x = f64::from(p[0])-center[0]; let y = f64::from(p[1])-center[1]; let z = f64::from(p[2])-center[2]; let ry = x*f64::from(sy)+y*f64::from(cy); ry*f64::from(cp)+z*f64::from(sp) }).sum::<f64>() / 3.0;
-                (depth, triangle)
+                (depth, index, triangle)
             }).collect::<Vec<_>>();
             faces.sort_by(|a,b| a.0.total_cmp(&b.0));
             let click = response.clicked().then(|| response.interact_pointer_pos()).flatten();
             let mut picked = None;
-            for (_, triangle) in faces {
+            for (_, index, triangle) in faces {
                 let a = project(&mesh.vertices[triangle[0]]);
                 let b = project(&mesh.vertices[triangle[1]]);
                 let c = project(&mesh.vertices[triangle[2]]);
                 if !triangle_visible_on_screen(a, b, c, rect) { continue; }
-                if let Some(pointer) = click { if point_in_triangle(pointer, a, b, c) { picked = mesh.faces.iter().position(|f| std::ptr::eq(f, triangle)); } }
-                if state.selected_triangle.and_then(|index| mesh.faces.get(index)).is_some_and(|f| std::ptr::eq(f, triangle)) { painter.add(egui::Shape::convex_polygon(vec![a, b, c], egui::Color32::from_rgba_unmultiplied(240, 180, 45, 150), egui::Stroke::new(2.0, egui::Color32::YELLOW))); continue; }
+                if let Some(pointer) = click { if point_in_triangle(pointer, a, b, c) { picked = Some(index); } }
+                if state.selected_triangle == Some(index) { painter.add(egui::Shape::convex_polygon(vec![a, b, c], egui::Color32::from_rgba_unmultiplied(240, 180, 45, 150), egui::Stroke::new(2.0, egui::Color32::YELLOW))); continue; }
                 if state.wireframe {
                     for (u, v) in [(a, b), (b, c), (c, a)] { painter.line_segment([u, v], egui::Stroke::new(0.7, egui::Color32::from_rgb(130, 195, 240))); }
                 } else {
