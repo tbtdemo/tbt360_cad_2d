@@ -858,8 +858,11 @@ impl State {
     fn confirm_close_issue(&mut self, id: u64) -> Result<(), String> {
         let account = self.current_account_id.trim().to_string();
         if account.is_empty() { return Err("Cần đăng nhập trước khi xác nhận đóng Issue".into()); }
+        let (floor_id, discipline) = self.issues.iter().find(|item| item.id == id).map(|item| (item.floor_id, item.source_discipline)).ok_or_else(|| "Không tìm thấy Issue".to_string())?;
+        let can_edit = self.users.iter().any(|user| user.account_id == account && user.can_edit) && self.has_scope_access(&account, floor_id, discipline, true);
         let issue = self.issues.iter_mut().find(|item| item.id == id).ok_or_else(|| "Không tìm thấy Issue".to_string())?;
         if issue.status != IssueStatus::Resolved { return Err("Chỉ Issue đã xử lý mới được xác nhận đóng".into()); }
+        crate::bim_sync_permissions::ensure_edit(can_edit, false, 0, 0).map_err(|_| "Không có quyền thao tác Issue".to_string())?;
         if issue.assigned_to == account { return Err("Người xử lý không được tự xác nhận đóng Issue".into()); }
         if !issue.due_at.is_empty() && !issue_due_date_valid(&issue.due_at) { return Err("Hạn xử lý Issue không đúng định dạng YYYY-MM-DD".into()); }
         issue.status = IssueStatus::Closed;
@@ -2209,6 +2212,8 @@ mod tests {
     #[test]
     fn issue_close_requires_independent_confirmation_and_persists() {
         let mut state = State::default();
+        let mut reviewer = state.users[0].clone(); reviewer.account_id = "reviewer".into(); state.users.push(reviewer); let mut reviewer_rule = state.access_rules[0].clone(); reviewer_rule.account_id = "reviewer".into(); state.access_rules.push(reviewer_rule);
+        let mut coordinator = state.users[0].clone(); coordinator.account_id = "coordinator".into(); state.users.push(coordinator); let mut coordinator_rule = state.access_rules[0].clone(); coordinator_rule.account_id = "coordinator".into(); state.access_rules.push(coordinator_rule);
         state.current_account_id = "reviewer".into();
         state.create_issue_from_selection(None, Discipline::Structure);
         let id = state.issues.last().unwrap().id;
@@ -2280,6 +2285,8 @@ mod tests {
     #[test]
     fn issue_close_rejects_invalid_due_date_without_changing_state() {
         let mut state = State::default();
+        let mut reviewer = state.users[0].clone(); reviewer.account_id = "reviewer".into(); state.users.push(reviewer); let mut reviewer_rule = state.access_rules[0].clone(); reviewer_rule.account_id = "reviewer".into(); state.access_rules.push(reviewer_rule);
+        let mut coordinator = state.users[0].clone(); coordinator.account_id = "coordinator".into(); state.users.push(coordinator); let mut coordinator_rule = state.access_rules[0].clone(); coordinator_rule.account_id = "coordinator".into(); state.access_rules.push(coordinator_rule);
         state.create_issue_from_selection(None, Discipline::Structure);
         let id = state.issues.last().unwrap().id;
         let issue = state.issues.last_mut().unwrap();
@@ -2311,6 +2318,25 @@ mod tests {
         assert_eq!(reopened.audit_log.last().unwrap().account_id, "coordinator");
         assert_eq!(reopened.audit_log.last().unwrap().detail, "Issue #1: P2→P0");
         assert!(reopened.next_audit_sequence > reopened.audit_log.last().unwrap().sequence);
+    }
+
+    #[test]
+    fn issue_close_refuses_viewer_and_out_of_scope_reviewer() {
+        let mut state = State::default();
+        state.create_issue_from_selection(None, Discipline::Structure);
+        let id = state.issues.last().unwrap().id;
+        state.issues.last_mut().unwrap().status = IssueStatus::Resolved;
+        state.issues.last_mut().unwrap().assigned_to = "designer".into();
+        state.current_account_id = "viewer".into();
+        let mut viewer = state.users[0].clone(); viewer.account_id = "viewer".into(); viewer.can_edit = false; state.users.push(viewer);
+        let mut rule = state.access_rules[0].clone(); rule.account_id = "viewer".into(); rule.can_edit = false; state.access_rules.push(rule);
+        assert!(state.confirm_close_issue(id).is_err());
+        assert_eq!(state.issues.last().unwrap().status, IssueStatus::Resolved);
+        let mut reviewer = state.users[0].clone(); reviewer.account_id = "outside".into(); state.users.push(reviewer);
+        let mut outside_rule = state.access_rules[0].clone(); outside_rule.account_id = "outside".into(); outside_rule.floor_id = Some(u64::MAX); state.access_rules.push(outside_rule);
+        state.current_account_id = "outside".into();
+        assert!(state.confirm_close_issue(id).is_err());
+        assert!(state.issues.last().unwrap().confirmed_by.is_none());
     }
 
     #[test]
