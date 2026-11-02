@@ -310,6 +310,15 @@ fn system_clipboard_real_dxf_preserves_bim_scope_and_repairs_identity_on_paste()
     a.open_drawing(source,"A",None);
     a.execute("copybase",&json!({"handles":[old.hex()],"base":[0,0]})).unwrap();
     assert!(a.clipboard.iter().any(|e| e.common.xdata.iter().any(|t| t.code == 1001 && t.value == "TBT360_BIM")), "copybase lost source BIM XData before DXF serialization");
+    // Reproduce the clipboard intermediary directly to separate DXF exporter
+    // loss from adoption of entity metadata during transport.
+    let mut probe = Drawing::new_metric();
+    let source_copy = a.clipboard.first().expect("copybase selection").clone();
+    let mut transported = source_copy.clone();
+    transported.handle = probe.new_handle();
+    probe.model.push(transported);
+    let probe_text = String::from_utf8(cadcraft_io::write(&probe, "clipboard-probe.dxf").unwrap()).unwrap();
+    assert!(probe_text.contains("TBT360_BIM"), "intermediate drawing lost XData without adopt");
     let text=clipboard::system_text(&a).expect("real DXF clipboard text");
     assert!(text.contains("TBT360_BIM"));
 
