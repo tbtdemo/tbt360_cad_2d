@@ -1644,7 +1644,7 @@ pub fn panel(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut 
                             if let Some(path) = rfd::FileDialog::new().pick_file() {
                                 if let (Some(name), Ok(info)) = (path.file_name().and_then(|s| s.to_str()), std::fs::metadata(&path)) {
                                     let attachment = crate::bim_issue_attachments::Attachment { issue_id: id, filename: name.to_owned(), size_bytes: info.len() };
-                                    if crate::bim_issue_attachments::validate_attachment(&attachment, 100 * 1024 * 1024).is_ok() { state.issue_attachments.push(attachment); }
+                                    if crate::bim_issue_attachments::validate_attachment(&attachment, 100 * 1024 * 1024).is_ok() && !state.issue_attachments.iter().any(|a| a.issue_id == id && a.filename == attachment.filename && a.size_bytes == attachment.size_bytes) { state.issue_attachments.push(attachment); }
                                 }
                             }
                         }
