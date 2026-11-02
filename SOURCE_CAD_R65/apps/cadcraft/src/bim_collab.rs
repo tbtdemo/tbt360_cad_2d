@@ -3146,6 +3146,34 @@ mod tests {
     }
 
     #[test]
+    fn many_independent_bim_changes_sync_without_conflicts() {
+        let mut state = State::default();
+        let account_id = state.current_account_id.clone();
+        let count = 1000u64;
+
+        for index in 0..count {
+            state.pending_changes.push(ChangeSet {
+                id: 100000 + index,
+                account_id: account_id.clone(),
+                items: vec![ChangeItem {
+                    handle: cadcraft_doc::Handle(100000 + index),
+                    operation: ChangeOperation::Update,
+                    base_revision: 0,
+                    local_revision: 1,
+                }],
+                synced: false,
+            });
+        }
+
+        state.sync_pending_changes();
+
+        assert!(state.pending_changes.iter().all(|change| change.synced));
+        assert!(state.conflicts.is_empty());
+        assert_eq!(state.dirty_local_changes, 0);
+        assert_eq!(state.remote_revision(cadcraft_doc::Handle(100999)), 1);
+    }
+
+    #[test]
     fn regression_checks_staged_revisions_across_change_sets() {
         let mut state = State::default();
         let handle = cadcraft_doc::Handle(93001);
