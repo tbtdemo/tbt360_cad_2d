@@ -38,6 +38,7 @@ mod bim_coordinates;
 mod bim_viewport;
 mod bim_coordination;
 mod bim_clash;
+mod bim_sync_permissions;
 
 use cadcraft_engine::Session;
 use cadcraft_ui_egui::{CadApp, Services, i18n};
