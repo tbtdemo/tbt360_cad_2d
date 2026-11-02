@@ -2943,6 +2943,58 @@ mod tests {
     }
 
     #[test]
+    fn sync_rejects_entire_change_set_when_one_entity_conflicts() {
+        let mut state = State::default();
+        let first_handle = cadcraft_doc::Handle(90001);
+        let second_handle = cadcraft_doc::Handle(90002);
+
+        state.pending_changes.push(ChangeSet {
+            id: 900,
+            account_id: state.current_account_id.clone(),
+            items: vec![
+                ChangeItem {
+                    handle: first_handle,
+                    operation: ChangeOperation::Update,
+                    base_revision: 0,
+                    local_revision: 1,
+                },
+                ChangeItem {
+                    handle: second_handle,
+                    operation: ChangeOperation::Update,
+                    base_revision: 0,
+                    local_revision: 1,
+                },
+            ],
+            synced: false,
+        });
+        state.set_remote_revision(second_handle, 2);
+        state.sync_pending_changes();
+
+        assert!(!state.pending_changes[0].synced);
+        assert_eq!(state.remote_revision(first_handle), 0);
+        assert_eq!(state.remote_revision(second_handle), 2);
+        assert_eq!(state.conflicts.len(), 1);
+        assert_eq!(state.dirty_local_changes, 2);
+    }
+
+    #[test]
+    fn unsupported_duplicate_keeps_conflict_open() {
+        let mut state = State::default();
+        let handle = cadcraft_doc::Handle(90003);
+        state.conflicts.push(SyncConflict {
+            handle,
+            base_revision: 1,
+            local_revision: 2,
+            remote_revision: 3,
+        });
+
+        state.resolve_conflict(handle, ConflictResolution::DuplicateMine);
+
+        assert_eq!(state.conflicts.len(), 1);
+        assert_eq!(state.conflicts[0].handle, handle);
+    }
+
+    #[test]
     fn floor_elevation_maps_local_to_world_z() {
         let state = State::default();
         assert_eq!(state.world_position(2, 10.0, 20.0, 0.5), Some([10.0, 20.0, 4.1]));
