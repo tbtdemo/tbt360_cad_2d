@@ -8,6 +8,19 @@ pub fn post_comment(issue_id: u64, author: &str, message: &str, sequence: u64) -
     if message.trim().is_empty() || message.chars().count() > 4000 { return Err("invalid message"); }
     Ok(Comment { issue_id, author: author.trim().into(), message: message.trim().into(), sequence })
 }
+pub fn post_comment_to_issue(issue_exists: bool, issue_closed: bool, issue_id: u64, author: &str, message: &str, sequence: u64) -> Result<Comment, &'static str> {
+    if !issue_exists { return Err("issue not found"); }
+    if issue_closed { return Err("closed issue cannot accept comments"); }
+    post_comment(issue_id, author, message, sequence)
+}
+#[cfg(test)] mod issue_guard_tests {
+    use super::*;
+    #[test] fn closed_or_missing_issues_reject_comments() {
+        assert!(post_comment_to_issue(false, false, 12, "reviewer", "note", 1).is_err());
+        assert!(post_comment_to_issue(true, true, 12, "reviewer", "note", 1).is_err());
+        assert!(post_comment_to_issue(true, false, 12, "reviewer", "note", 1).is_ok());
+    }
+}
 pub fn thread(comments: &[Comment], id: u64) -> Vec<&Comment> { comments.iter().filter(|c| c.issue_id == id).collect() }
 #[cfg(test)] mod tests {
     use super::*;
