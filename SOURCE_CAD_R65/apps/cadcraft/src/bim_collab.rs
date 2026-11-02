@@ -220,6 +220,7 @@ pub enum IssueStatus {
     Open,
     InProgress,
     Resolved,
+    Closed,
 }
 
 impl IssueStatus {
@@ -228,6 +229,7 @@ impl IssueStatus {
             Self::Open => "Mở",
             Self::InProgress => "Đang xử lý",
             Self::Resolved => "Đã xử lý",
+            Self::Closed => "Đã đóng",
         }
     }
 }
@@ -262,6 +264,7 @@ pub struct CoordinationIssue {
     pub assigned_to: String,
     pub description: String,
     pub status: IssueStatus,
+    pub confirmed_by: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -849,6 +852,21 @@ impl State {
         });
     }
 
+    fn confirm_close_issue(&mut self, id: u64) -> Result<(), String> {
+        let account = self.current_account_id.trim().to_string();
+        if account.is_empty() { return Err("Cần đăng nhập trước khi xác nhận đóng Issue".into()); }
+        let issue = self.issues.iter_mut().find(|item| item.id == id).ok_or_else(|| "Không tìm thấy Issue".to_string())?;
+        if issue.status != IssueStatus::Resolved { return Err("Chỉ Issue đã xử lý mới được xác nhận đóng".into()); }
+        if issue.assigned_to == account { return Err("Người xử lý không được tự xác nhận đóng Issue".into()); }
+        issue.status = IssueStatus::Closed;
+        issue.confirmed_by = Some(account.clone());
+        let floor = issue.floor_id;
+        let discipline = issue.source_discipline;
+        let handle = issue.handle;
+        self.audit("ISSUE_CONFIRMED_CLOSED", Some(floor), Some(discipline), handle, format!("Issue #{id} confirmed by {account}"));
+        Ok(())
+    }
+
     fn create_issue_from_selection(&mut self, handle: Option<cadcraft_doc::Handle>, target_discipline: Discipline) {
         self.issues.push(CoordinationIssue {
             id: self.next_issue_id,
@@ -859,6 +877,7 @@ impl State {
             assigned_to: self.users.iter().find(|u| u.discipline == target_discipline).map(|u| u.account_id.clone()).unwrap_or_default(),
             description: "Kiểm tra phối hợp tại vị trí/đối tượng được chọn".into(),
             status: IssueStatus::Open,
+            confirmed_by: None,
         });
         let issue_id = self.next_issue_id;
         self.next_issue_id += 1;
@@ -1012,7 +1031,8 @@ impl State {
             "handle": i.handle.map(|h| h.hex()),
             "assigned_to": i.assigned_to,
             "description": i.description,
-            "status": i.status.label()
+            "status": i.status.label(),
+            "confirmed_by": i.confirmed_by
         })).collect::<Vec<_>>();
         serde_json::json!({
             "version": 2,
@@ -1182,8 +1202,10 @@ impl State {
                     status: match item.get("status").and_then(serde_json::Value::as_str) {
                         Some("Đang xử lý") => IssueStatus::InProgress,
                         Some("Đã xử lý") => IssueStatus::Resolved,
+                        Some("Đã đóng") => IssueStatus::Closed,
                         _ => IssueStatus::Open,
                     },
+                    confirmed_by: item.get("confirmed_by").and_then(serde_json::Value::as_str).map(str::to_owned),
                 })
             }).collect();
             self.next_issue_id = self.issues.iter().map(|i| i.id).max().unwrap_or(0) + 1;
@@ -1449,6 +1471,7 @@ pub fn panel(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut 
         }
         CollaborationTab::Issues => {
             ui.heading("ISSUE / CLASH — RFI / BCF WORKFLOW");
+            let mut request_close = None;
             ui.horizontal_wrapped(|ui| {
                 ui.label(format!("Tổng số issue: {}", state.issues.len()));
                 ui.label(format!("Mở: {}", state.issues.iter().filter(|issue| issue.status == IssueStatus::Open).count()));
@@ -1477,10 +1500,12 @@ pub fn panel(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut 
                             for status in [IssueStatus::Open, IssueStatus::InProgress, IssueStatus::Resolved] { ui.selectable_value(&mut issue.status, status, status.label()); }
                         });
                         if ui.button("Chi tiết").clicked() { selected_issue = Some(issue.id); }
+                        if issue.status == IssueStatus::Resolved && ui.button("Xác nhận đóng").clicked() { request_close = Some(issue.id); }
                         ui.end_row();
                     }
                 });
             });
+            if let Some(id) = request_close { if let Err(message) = state.confirm_close_issue(id) { ui.colored_label(egui::Color32::YELLOW, message); } }
             ui.add_space(10.0);
             if let Some(issue) = selected_issue.and_then(|id| state.issues.iter().find(|issue| issue.id == id)) {
                 ui.group(|ui| {
