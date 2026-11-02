@@ -57,6 +57,7 @@ impl Batch {
         if mesh.vertices.is_empty() { return Err("Mesh không có đỉnh".into()); }
         if mesh.vertices.len() > u32::MAX as usize { return Err("Mesh vượt giới hạn GPU u32 indices".into()); }
         if mesh.face_groups.len() != mesh.faces.len() { return Err("Mesh thiếu identity cho các mặt OBJ".into()); }
+        if mesh.face_groups.iter().any(|&group| group >= mesh.groups.len()) { return Err("Nhóm tam giác OBJ không có trong danh sách nhóm".into()); }
         let mut lo = [f64::INFINITY; 3];
         let mut hi = [f64::NEG_INFINITY; 3];
         for p in &mesh.vertices {
@@ -89,7 +90,7 @@ mod tests {
     use super::*;
     #[test]
     fn gpu_batch_rebases_large_coordinates_and_keeps_identity() {
-        let mesh = Mesh { vertices: vec![[1_000_000.0,2_000_000.0,0.0], [1_000_010.0,2_000_000.0,0.0], [1_000_000.0,2_000_010.0,0.0]], faces: vec![[0,1,2]], face_groups: vec![4], groups: vec![] };
+        let mesh = Mesh { vertices: vec![[1_000_000.0,2_000_000.0,0.0], [1_000_010.0,2_000_000.0,0.0], [1_000_000.0,2_000_010.0,0.0]], faces: vec![[0,1,2]], face_groups: vec![4], groups: vec!["0".into(),"1".into(),"2".into(),"3".into(),"4".into()] };
         let batch = Batch::from_mesh(&mesh).unwrap();
         assert_eq!(batch.indices, vec![0,1,2]);
         assert_eq!(batch.triangle_group, vec![4]);
@@ -98,7 +99,7 @@ mod tests {
     }
     #[test]
     fn visibility_preserves_source_triangle_identity() {
-        let mesh = Mesh { vertices: vec![[0.0;3],[1.0,0.0,0.0],[0.0,1.0,0.0],[1.0,1.0,0.0]], faces: vec![[0,1,2],[1,3,2],[0,2,3]], face_groups: vec![0,2,2], groups: vec![] };
+        let mesh = Mesh { vertices: vec![[0.0;3],[1.0,0.0,0.0],[0.0,1.0,0.0],[1.0,1.0,0.0]], faces: vec![[0,1,2],[1,3,2],[0,2,3]], face_groups: vec![0,2,2], groups: vec!["0".into(),"1".into(),"2".into()] };
         let batch = Batch::from_mesh(&mesh).unwrap();
         let (indices, triangles) = batch.visible_indices(|source, group| group == 2 && source != 1);
         assert_eq!(indices, vec![0,2,3]);
@@ -120,6 +121,11 @@ mod tests {
     }
 
     #[test]
+    fn rejects_invalid_obj_group_identity() {
+        let mesh = Mesh { vertices: vec![[0.0;3]], faces: vec![[0,0,0]], face_groups: vec![7], groups: vec!["OnlyGroup".into()] };
+        assert!(Batch::from_mesh(&mesh).is_err());
+    }
+    #[test]
     fn draw_ranges_preserve_triangle_boundaries() {
         assert_eq!(Batch::draw_ranges(&[0,1,2,3,4,5,6,7,8], 4), vec![0..3,3..6,6..9]);
         assert_eq!(Batch::draw_ranges(&[0,1,2,3], 10), vec![0..3]);
@@ -127,7 +133,7 @@ mod tests {
     }
     #[test]
     fn rejects_invalid_group_and_face_indices() {
-        let mesh = Mesh { vertices: vec![[0.0;3]], faces: vec![[0,1,2]], face_groups: vec![0], groups: vec![] };
+        let mesh = Mesh { vertices: vec![[0.0;3]], faces: vec![[0,1,2]], face_groups: vec![0], groups: vec!["0".into()] };
         assert!(Batch::from_mesh(&mesh).is_err());
         let mesh = Mesh { vertices: vec![[0.0;3]], faces: vec![[0,0,0]], face_groups: vec![], groups: vec![] };
         assert!(Batch::from_mesh(&mesh).is_err());
