@@ -1073,6 +1073,29 @@ fn measurement_matches_filter(record: &MeasurementRecord, search: &str, status_f
     term.is_empty() || [record.layer.as_str(), record.work_code.as_str(), record.work_group.as_str(), record.description.as_str(), record.source_handle.as_deref().unwrap_or("")].iter().any(|value| value.to_lowercase().contains(&term))
 }
 
+fn qto_detail_csv(state: &State, source_validation: &SourceValidation, lf: f64, af: f64, length_unit: &str, area_unit: &str) -> String {
+            let mut csv = String::from("id,source_handle,source_state,floor_id,discipline,owner_account_id,type,layer,work_group,work_code,description,note,raw_value,converted_value,unit,status\n");
+            for record in &state.records {
+                let converted = match record.kind {
+                    MeasureKind::Area => record.raw_value * af,
+                    MeasureKind::Length | MeasureKind::Perimeter => record.raw_value * lf,
+                    MeasureKind::Count => record.raw_value,
+                };
+                let unit = match record.kind { MeasureKind::Area => area_unit, MeasureKind::Length | MeasureKind::Perimeter => length_unit, MeasureKind::Count => "count" };
+                let esc = |v:&str| format!("\"{}\"", v.replace('"', "\"\""));
+                csv.push_str(&format!("{},{},{},{},{},{},{},{},{},{},{},{},{:.6},{:.6},{},{}\n",
+                    record.id,
+                    esc(record.source_handle.as_deref().unwrap_or("")),
+                    record_source_state(record,&source_validation),
+                    record.scope.floor_id.map(|v|v.to_string()).unwrap_or_default(),
+                    esc(record.scope.discipline.as_deref().unwrap_or("")),
+                    esc(record.scope.owner_account_id.as_deref().unwrap_or("")),
+                    record.kind.code(), esc(&record.layer), esc(&record.work_group), esc(&record.work_code),
+                    esc(&record.description), esc(&record.note), record.raw_value, converted, unit, record.status.code()));
+            }
+    csv
+}
+
 fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Scope) {
     let groups = quantities(app);
     ui.heading("Đo bóc khối lượng — CAD native");
@@ -1385,26 +1408,17 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
             ui.ctx().copy_text(csv);
         }
         if ui.button("Sao chép CSV chi tiết phép đo").clicked() {
-            let mut csv = String::from("id,source_handle,source_state,floor_id,discipline,owner_account_id,type,layer,work_group,work_code,description,note,raw_value,converted_value,unit,status\n");
-            for record in &state.records {
-                let converted = match record.kind {
-                    MeasureKind::Area => record.raw_value * af,
-                    MeasureKind::Length | MeasureKind::Perimeter => record.raw_value * lf,
-                    MeasureKind::Count => record.raw_value,
-                };
-                let unit = match record.kind { MeasureKind::Area => area_unit, MeasureKind::Length | MeasureKind::Perimeter => length_unit, MeasureKind::Count => "count" };
-                let esc = |v:&str| format!("\"{}\"", v.replace('"', "\"\""));
-                csv.push_str(&format!("{},{},{},{},{},{},{},{},{},{},{},{},{:.6},{:.6},{},{}\n",
-                    record.id,
-                    esc(record.source_handle.as_deref().unwrap_or("")),
-                    record_source_state(record,&source_validation),
-                    record.scope.floor_id.map(|v|v.to_string()).unwrap_or_default(),
-                    esc(record.scope.discipline.as_deref().unwrap_or("")),
-                    esc(record.scope.owner_account_id.as_deref().unwrap_or("")),
-                    record.kind.code(), esc(&record.layer), esc(&record.work_group), esc(&record.work_code),
-                    esc(&record.description), esc(&record.note), record.raw_value, converted, unit, record.status.code()));
+            ui.ctx().copy_text(qto_detail_csv(state, &source_validation, lf, af, length_unit, area_unit));
+            state.file_feedback = format!("Đã sao chép {} phép đo vào clipboard.", state.records.len());
+        }
+        if ui.button("Xuất CSV chi tiết ra tệp").clicked() {
+            if let Some(path) = rfd::FileDialog::new().add_filter("CSV Excel", &["csv"]).set_file_name("CAD360_QTO_CHI_TIET.csv").save_file() {
+                let csv = qto_detail_csv(state, &source_validation, lf, af, length_unit, area_unit);
+                match std::fs::write(&path, format!("\\u{{feff}}{csv}").replace("\\u{feff}", "\uFEFF")) {
+                    Ok(()) => state.file_feedback = format!("Đã xuất {} phép đo: {}", state.records.len(), path.display()),
+                    Err(e) => state.file_feedback = format!("Không thể xuất CSV: {e}"),
+                }
             }
-            ui.ctx().copy_text(csv);
         }
     });
 }
