@@ -102,6 +102,7 @@ pub struct State {
     selected_record_id: Option<u64>,
     search_text: String,
     status_filter: u8,
+    import_feedback: String,
     edit_work_group: String,
     edit_work_code: String,
     edit_description: String,
@@ -1114,10 +1115,13 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
     ui.horizontal(|ui| {
         if ui.button("Thêm phép đo từ CAD đang chọn").clicked() {
             let measurements=selected_measurements(app);
+            let mut added = 0usize;
+            let mut skipped = 0usize;
             for measurement in measurements {
                 let (entity_scope,source_revision)=scope_from_entity_or_active(app,measurement.source_handle,scope);
-                let _=state.add_measurement_from_entity(measurement,&entity_scope,source_revision);
+                if state.add_measurement_from_entity(measurement,&entity_scope,source_revision).is_ok() { added += 1; } else { skipped += 1; }
             }
+            state.import_feedback = format!("Đo bóc từ CAD: thêm {added}, bỏ qua {skipped} phép đo trùng hoặc không hợp lệ.");
         }
         if ui.button("Đếm đối tượng CAD đang chọn").clicked() {
             let measurements=selected_count_measurements(app);
@@ -1137,6 +1141,7 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
         }
         ui.label(format!("Đang chọn {} đối tượng CAD", app.session.selection().len()));
     });
+    if !state.import_feedback.is_empty() { ui.label(&state.import_feedback); }
 
     ui.horizontal(|ui| {
         if ui.button("Lưu dự án đo bóc").clicked() {
