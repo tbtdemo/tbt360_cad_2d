@@ -14,6 +14,10 @@ BEGIN
  IF NOT rejected THEN RAISE EXCEPTION 'read-only member updated an object'; END IF;
  IF (SELECT count(*) FROM bim_pull_project_changes(p,user_id,0,100))<>1 THEN RAISE EXCEPTION 'read-only member cannot read authorized change feed'; END IF;
  IF (SELECT revision FROM bim_design_objects WHERE id=ob)<>rev THEN RAISE EXCEPTION 'read-only denial mutated object'; END IF;
+ -- Re-enable editing and verify the original revision remains usable for a legitimate write.
+ UPDATE bim_project_members SET can_edit=true WHERE project_id=p AND account_id=user_id;
+ rev:=bim_update_design_object(p,ob,user_id,rev,'{"restored":true}'::jsonb);
+ IF rev<>2 THEN RAISE EXCEPTION 'restored edit permission did not advance revision'; END IF;
  rejected:=false;
  DELETE FROM bim_project_members WHERE project_id=p AND account_id=user_id;
  BEGIN PERFORM bim_update_design_object(p,ob,user_id,rev,'{"new":true}'::jsonb);
