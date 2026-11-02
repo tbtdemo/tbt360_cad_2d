@@ -24,3 +24,16 @@ jobs:
             count=$((count+1))
           done < <(find SOURCE_CAD_R65/crates/engine/src/cmd SOURCE_CAD_R65/crates/engine/tests -type f -name '*.rs' -print0)
           echo "PASS: $count Engine command and regression Rust files parse"
+  compile-engine-tests:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: SOURCE_CAD_R65
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: SOURCE_CAD_R65
+      - name: Type-check every Engine test target without executing regression
+        run: cargo check --locked -p cadcraft-engine --all-targets
