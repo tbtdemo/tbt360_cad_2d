@@ -188,6 +188,7 @@ pub fn pick(d: &Drawing, space: &Space, p: Vec2, aperture: f64) -> Option<Handle
 }
 
 pub(crate) fn pick_with(d: &Drawing, space: &Space, ix: &Option<std::sync::Arc<SpatialIndex>>, p: Vec2, aperture: f64) -> Option<Handle> {
+    if !p.x.is_finite() || !p.y.is_finite() || !aperture.is_finite() || aperture <= 0.0 { return None; }
     let probe = Bounds2::new(p, p).expand(aperture);
     let mut best: Option<(f64, Handle)> = None;
     for (e, known) in candidates(d, space, ix, &probe.expand(aperture), true, true)? {
@@ -212,6 +213,7 @@ pub(crate) fn pick_with(d: &Drawing, space: &Space, ix: &Option<std::sync::Arc<S
 /// Every entity within `aperture` of `p`, nearest first and topmost among equals (so the first is
 /// what [`pick`] chooses): the objects selection cycling lists.
 pub fn pick_all(d: &Drawing, space: &Space, p: Vec2, aperture: f64) -> Vec<Handle> {
+    if !p.x.is_finite() || !p.y.is_finite() || !aperture.is_finite() || aperture <= 0.0 { return Vec::new(); }
     let ix = spatial::index(d, space);
     let probe = Bounds2::new(p, p).expand(aperture);
     let Some(cands) = candidates(d, space, &ix, &probe.expand(aperture), true, true) else { return Vec::new() };
