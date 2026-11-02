@@ -1382,6 +1382,17 @@ impl State {
     }
 
     fn sign_out(&mut self) {
+        self.audit(
+            "SESSION_SIGNED_OUT",
+            Some(self.active_floor_id),
+            Some(self.active_discipline),
+            None,
+            "Ended local BIM editing session and released local object leases",
+        );
+
+        self.stop_work_session();
+        self.leases.retain(|lease| lease.account_id != self.current_account_id);
+        self.presence.retain(|presence| presence.account_id != self.current_account_id);
         self.auth.status = AuthStatus::SignedOut;
         self.auth.account_id.clear();
         self.auth.display_name.clear();
