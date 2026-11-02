@@ -118,6 +118,25 @@ jobs:
       - name: Test complete workspace
         run: cargo test --workspace --locked --no-fail-fast
 
+  qto-xref-smoke:
+    name: "6 - QTO and XREF Fast Smoke"
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: SOURCE_CAD_R65
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: SOURCE_CAD_R65
+      - name: Compile native QTO and XREF tests
+        run: cargo test --locked --no-run -p cadcraft -p cadcraft-engine --test xref
+      - name: Run direct measurement regressions
+        run: cargo test --locked -p cadcraft takeoff::tests -- --nocapture
+      - name: Run external reference regressions
+        run: cargo test --locked -p cadcraft-engine --test xref -- --nocapture
+
   bim-module-regressions:
     name: "5 - BIM ${{ matrix.module }} Regression"
     runs-on: windows-latest
@@ -139,7 +158,7 @@ jobs:
 
   release-windows:
     name: "Release - Single Windows Setup"
-    needs: [build-core, unified-ui, vi-tbt-branding, regression-tests, bim-module-regressions]
+    needs: [build-core, unified-ui, vi-tbt-branding, regression-tests, bim-module-regressions, qto-xref-smoke]
     runs-on: windows-latest
     defaults:
       run:
