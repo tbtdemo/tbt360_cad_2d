@@ -37,7 +37,7 @@ static IResult Fail(Exception error) => error switch
     PostgresException { SqlState: "P0002" } => Results.NotFound(),
     PostgresException { SqlState: "23505" or "40001" } => Results.Conflict(new { error = "conflict" }),
     PostgresException { SqlState: "55P03" } => Results.StatusCode(423),
-    PostgresException { SqlState: "22023" } => Results.BadRequest(new { error = "invalid request" }),
+    PostgresException { SqlState: "22023" or "23503" or "23514" or "23502" or "22P02" } => Results.BadRequest(new { error = "invalid request or referenced object" }),
     _ => Results.Problem(statusCode: 500, title: "Storage operation failed")
 };
 static async Task<IResult> ExecuteWrite(NpgsqlDataSource source, ClaimsPrincipal principal, Guid project, Guid obj, string sql, Action<NpgsqlCommand> bind, CancellationToken ct)
