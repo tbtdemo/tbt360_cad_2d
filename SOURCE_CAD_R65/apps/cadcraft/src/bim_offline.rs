@@ -67,7 +67,7 @@ impl OfflineSyncState {
 
     pub fn acknowledge_synced(&mut self, local_sequence: u64, remote_revision: u64) {
         if let Some(item) = self.queue.iter_mut().find(|i| i.local_sequence == local_sequence) {
-            if item.state == QueueState::Rejected { return; }
+            if matches!(item.state, QueueState::Rejected | QueueState::Conflict) { return; }
             item.state = QueueState::Synced;
             item.last_error = None;
             self.checkpoint.remote_project_revision = self.checkpoint.remote_project_revision.max(remote_revision);
@@ -233,6 +233,19 @@ mod tests {
         assert_eq!(s.retry_delay_seconds(blocked), None);
         assert!(s.resolve_conflict_for_retry(blocked));
         assert_eq!(s.retry_delay_seconds(blocked), Some(1));
+    }
+
+    #[test]
+    fn late_acknowledgement_does_not_clear_unresolved_conflict() {
+        let mut state = OfflineSyncState::default();
+        let seq = state.enqueue("conflicted".into());
+        state.mark_conflict(seq, "stale".into());
+        state.acknowledge_synced(seq, 99);
+        assert_eq!(state.queue[0].state, QueueState::Conflict);
+        assert_eq!(state.checkpoint.remote_project_revision, 0);
+        assert!(state.resolve_conflict_for_retry(seq));
+        state.acknowledge_synced(seq, 2);
+        assert_eq!(state.queue[0].state, QueueState::Synced);
     }
 
 }
