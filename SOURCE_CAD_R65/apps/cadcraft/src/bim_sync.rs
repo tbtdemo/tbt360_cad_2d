@@ -250,7 +250,7 @@ mod tests {
         let ok = transport.push_changes("p1", &[change(1, "A", 2, 3)]).unwrap();
         assert_eq!(ok.accepted_change_set_ids, vec![1]);
         assert!(ok.conflicts.is_empty());
-        let stale = transport.push_changes("p1", &[change(2, "A", 2, 4)]).unwrap();
+        let stale = transport.push_changes("p1", &[change(2, "A", 2, 3)]).unwrap();
         assert!(stale.accepted_change_set_ids.is_empty());
         assert_eq!(stale.conflicts[0].remote_revision, 3);
     }
@@ -330,6 +330,34 @@ mod tests {
         assert!(transport.push_changes("p1", &[change(11, "A", 0, 1), future]).is_err());
         assert_eq!(transport.project_revision, 0);
         assert!(transport.object_revisions.is_empty());
+    }
+
+    #[test]
+    fn batch_metadata_is_validated_before_any_write() {
+        let mut transport = MemoryTransport::default();
+        let mut invalid = change(22, "B", 0, 1);
+        invalid.account_id.clear();
+        let result = transport.push_changes("p", &[change(21, "A", 0, 1), invalid]);
+        assert!(result.is_err());
+        assert_eq!(transport.project_revision, 0);
+        assert!(transport.object_revisions.is_empty());
+    }
+
+    #[test]
+    fn invalid_operation_and_revision_gap_are_rejected() {
+        let mut transport = MemoryTransport::default();
+        let mut invalid = change(23, "A", 0, 1);
+        invalid.items[0].operation = "INVALID".into();
+        assert!(transport.push_changes("p", &[invalid]).is_err());
+        assert!(transport.push_changes("p", &[change(24, "A", 0, 5)]).is_err());
+        assert!(transport.object_revisions.is_empty());
+    }
+
+    #[test]
+    fn revision_overflow_is_rejected_without_mutation() {
+        let mut transport = MemoryTransport::default();
+        assert!(transport.push_changes("p", &[change(25, "A", u64::MAX, u64::MAX)]).is_err());
+        assert_eq!(transport.project_revision, 0);
     }
 
 }
