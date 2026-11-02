@@ -1515,6 +1515,14 @@ pub fn panel(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut 
         CollaborationTab::Overview => {
             let health = state.model_health(app);
             ui.heading("TỔNG QUAN DỰ ÁN");
+            let rejected: Vec<_> = state.audit_log.iter().filter(|e| e.action == "WORKSPACE_DATA_REJECTED").collect();
+            if !rejected.is_empty() {
+                ui.colored_label(egui::Color32::LIGHT_RED, format!("Cảnh báo: {} lần phát hiện bản ghi BIM không hợp lệ khi mở dự án", rejected.len()));
+                ui.collapsing("Chi tiết dữ liệu không được khôi phục", |ui| {
+                    for entry in rejected.iter().rev().take(20) { ui.label(format!("#{} • {}", entry.sequence, entry.detail)); }
+                });
+            }
+
             ui.horizontal_wrapped(|ui| {
                 ui.label(format!("Đối tượng: {}", health.total_entities));
                 ui.label(format!("Chưa gắn BIM: {}", health.unscoped_entities));
