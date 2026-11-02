@@ -44,7 +44,8 @@ pub struct OfflineSyncState {
 
 impl OfflineSyncState {
     pub fn enqueue(&mut self, change_set_id: String) -> u64 {
-        self.checkpoint.local_sequence = self.checkpoint.local_sequence.saturating_add(1);
+        let Some(next) = self.checkpoint.local_sequence.checked_add(1) else { return 0; };
+        self.checkpoint.local_sequence = next;
         let seq = self.checkpoint.local_sequence;
         self.queue.push(OfflineQueueItem { local_sequence: seq, change_set_id, state: QueueState::Local, retry_count: 0, last_error: None });
         seq
