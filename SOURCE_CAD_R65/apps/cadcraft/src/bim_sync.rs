@@ -198,12 +198,14 @@ impl CollaborationTransport for MemoryTransport {
         }
         let mut accepted = Vec::new();
         let mut conflicts = Vec::new();
+        let mut attempted = std::collections::BTreeSet::new();
         for change in changes {
             // A repeated request must not increment revision or replay writes.
             if let Some((_, recorded)) = self.change_history.iter().find(|(_, recorded)| recorded.id == change.id && recorded.account_id == change.account_id && recorded.device_id == change.device_id) {
                 if recorded != change { return Err("Changeset identity reused with different content".into()); }
                 continue;
             }
+            if !attempted.insert((change.account_id.as_str(), change.device_id.as_str(), change.id)) { continue; }
             // An empty changeset must not increment the project revision.
             if change.items.is_empty() { continue; }
             let mut change_conflict = false;
@@ -550,6 +552,16 @@ mod tests {
         assert!(transport.presences.is_empty());
         assert!(transport.acquire_lease("project", " ", 0).is_err());
         assert!(transport.leases.is_empty());
+    }
+
+    #[test]
+    fn same_rejected_changeset_in_request_produces_only_one_conflict() {
+        let mut transport = MemoryTransport::default();
+        let mut update = change(1200, "A", 1, 2);
+        update.account_id = "u2".into();
+        let result = transport.push_changes("P", &[update.clone(), update]).unwrap();
+        assert!(result.accepted_change_set_ids.is_empty());
+        assert_eq!(result.conflicts.len(), 1);
     }
 
 }
