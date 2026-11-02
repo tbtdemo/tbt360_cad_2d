@@ -95,11 +95,22 @@ pub fn panel(ui: &mut egui::Ui, state: &mut State) {
                             let mut output = std::env::temp_dir();
                             let serial = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|t| t.as_nanos()).unwrap_or(0);
                             output.push(format!("cad360-ifc-{}-{serial}.obj", std::process::id()));
-                            let result = match std::process::Command::new(tool).arg(&path).arg(&output).output() {
-                                Ok(status) if status.status.success() => crate::ifc_mesh::Mesh::read(&output),
-                                Ok(status) => Err(format!("IfcConvert thất bại: {}", String::from_utf8_lossy(&status.stderr).chars().take(500).collect::<String>())),
-                                Err(error) => Err(format!("Không chạy được IfcConvert: {error}")),
-                            };
+                            let result = (|| -> Result<crate::ifc_mesh::Mesh, String> {
+                                let mut child = std::process::Command::new(tool).arg(&path).arg(&output).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).spawn().map_err(|e| format!("Không khởi chạy được IfcConvert: {e}"))?;
+                                let deadline = std::time::Instant::now() + std::time::Duration::from_secs(180);
+                                loop {
+                                    match child.try_wait() {
+                                        Ok(Some(status)) if status.success() => break,
+                                        Ok(Some(status)) => return Err(format!("IfcConvert kết thúc với mã lỗi: {status}")),
+                                        Ok(None) if std::time::Instant::now() >= deadline => { let _ = child.kill(); let _ = child.wait(); return Err("IfcConvert quá thời hạn 180 giây và đã bị dừng".into()); }
+                                        Ok(None) => std::thread::sleep(std::time::Duration::from_millis(100)),
+                                        Err(error) => { let _ = child.kill(); let _ = child.wait(); return Err(format!("Không kiểm tra được tiến trình IFC: {error}")); }
+                                    }
+                                }
+                                let metadata = std::fs::metadata(&output).map_err(|e| format!("Thiếu OBJ sau chuyển đổi: {e}"))?;
+                                if metadata.len() == 0 || metadata.len() > 750_000_000 { return Err("OBJ rỗng hoặc vượt giới hạn 750 MB".into()); }
+                                crate::ifc_mesh::Mesh::read(&output)
+                            })();
                             let _ = std::fs::remove_file(&output);
                             let _ = tx.send(result);
                             context.request_repaint();
