@@ -1658,6 +1658,20 @@ mod tests {
         assert_eq!(csv.lines().count(), 2);
     }
 
+    #[test]
+    fn qto_export_preview_matches_actual_csv_rows() {
+        let mut state = State::default();
+        let accepted = state.add_measurement(MeasureKind::Count, vec![], 1.0, "ACCEPTED".into()).unwrap();
+        let rejected = state.add_measurement(MeasureKind::Count, vec![], 1.0, "EXCLUDED".into()).unwrap();
+        state.set_status(accepted, MeasureStatus::Confirmed);
+        state.set_status(rejected, MeasureStatus::Excluded);
+        let validation = SourceValidation::default();
+        let preview = state.records.iter().filter(|r| qto_record_exportable(r, &validation, 1.0, 1.0, true)).count();
+        let csv = qto_detail_csv(&state, &validation, 1.0, 1.0, "m", "m²", true);
+        assert_eq!(preview, 1);
+        assert_eq!(csv.lines().count(), preview + 1);
+    }
+
     fn block_member_fixture()->(cadcraft_doc::Drawing,cadcraft_doc::Handle,cadcraft_doc::Handle) {
         let mut d=cadcraft_doc::Drawing::new_metric();
         let member=cadcraft_doc::Handle(0x20);
