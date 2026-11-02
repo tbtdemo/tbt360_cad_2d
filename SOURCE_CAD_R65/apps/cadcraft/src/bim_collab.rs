@@ -1245,6 +1245,7 @@ impl State {
         }
         self.issue_attachments = value.get("issue_attachments").and_then(serde_json::Value::as_array).map(|items| items.iter().filter_map(|item| {
             let a = crate::bim_issue_attachments::Attachment { issue_id: item.get("issue_id")?.as_u64()?, filename: item.get("filename")?.as_str()?.to_string(), size_bytes: item.get("size_bytes")?.as_u64()? };
+            if !self.issues.iter().any(|issue| issue.id == a.issue_id) { return None; }
             crate::bim_issue_attachments::validate_attachment(&a, 100 * 1024 * 1024).ok().map(|_| a)
         }).collect()).unwrap_or_default();
         Ok(())
