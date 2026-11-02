@@ -1627,7 +1627,6 @@ pub fn panel(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut 
             });
             ui.ctx().data_mut(|data| { data.insert_temp(search_id, search); data.insert_temp(filter_id, status_filter); data.insert_temp(priority_id, priority_filter); data.insert_temp(overdue_id, overdue_only); });
             // Validate every edited row before generating audit events; reject unauthorized or invalid changes.
-            let actor = state.current_account_id.trim().to_string();
             let revisions = state.issues.iter().filter_map(|issue| {
                 let before = issue_before.iter().find(|row| row.0 == issue.id)?;
                 let changed = before.1 != issue.priority || before.2 != issue.issue_type || before.3 != issue.assigned_to || before.4 != issue.due_at || before.5 != issue.status;
@@ -2398,6 +2397,25 @@ mod tests {
         assert_eq!(state.issues.last().unwrap().status, IssueStatus::Resolved);
         assert!(state.issues.last().unwrap().confirmed_by.is_none());
         assert_eq!(state.audit_log.len(), audit_before);
+    }
+
+    #[test]
+    fn issue_edit_permission_rejects_readonly_cross_floor_and_closed_issue() {
+        let mut state = State::default();
+        state.create_issue_from_selection(None, Discipline::Structure);
+        let id = state.issues.last().unwrap().id;
+        let mut user = state.users[0].clone(); user.account_id = "reviewer-scope".into(); user.can_edit = true; state.users.push(user);
+        let mut rule = state.access_rules[0].clone(); rule.account_id = "reviewer-scope".into(); rule.can_edit = false; rule.floor_id = Some(state.issues.last().unwrap().floor_id); rule.discipline = Some(state.issues.last().unwrap().source_discipline); state.access_rules.push(rule);
+        state.current_account_id = "reviewer-scope".into();
+        let issue = state.issues.iter().find(|item| item.id == id).unwrap();
+        assert!(!state.can_edit_issue(issue), "read-only rule must deny write");
+        state.access_rules.last_mut().unwrap().can_edit = true;
+        state.access_rules.last_mut().unwrap().floor_id = Some(u64::MAX);
+        assert!(!state.can_edit_issue(state.issues.iter().find(|item| item.id == id).unwrap()), "other floor must deny write");
+        state.access_rules.last_mut().unwrap().floor_id = Some(state.issues.last().unwrap().floor_id);
+        assert!(state.can_edit_issue(state.issues.iter().find(|item| item.id == id).unwrap()), "same scope editor may write");
+        state.issues.last_mut().unwrap().status = IssueStatus::Closed;
+        assert!(!state.can_edit_issue(state.issues.iter().find(|item| item.id == id).unwrap()), "closed issue must deny writes");
     }
 
     #[test]
