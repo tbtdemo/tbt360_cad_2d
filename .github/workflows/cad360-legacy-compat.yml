@@ -60,6 +60,7 @@ jobs:
       - name: Run legacy compatibility tests
         shell: bash
         env:
+          PACKAGE: ${{ matrix.suite.package }}
           TARGET: ${{ matrix.suite.target }}
           FILTER: ${{ matrix.suite.filter }}
         run: cargo test --locked -p "$PACKAGE" --test "$TARGET" -- "$FILTER" --nocapture
