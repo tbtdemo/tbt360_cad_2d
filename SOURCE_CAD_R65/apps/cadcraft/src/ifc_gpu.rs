@@ -38,6 +38,21 @@ impl Batch {
         })
     }
 
+    /// Describe contiguous index ranges for draw_indexed without losing source triangle IDs.
+    /// Visibility is already applied by filtered_indices; the GPU stage can draw each range.
+    pub fn draw_ranges(indices: &[u32], max_indices_per_draw: usize) -> Vec<std::ops::Range<u32>> {
+        let count = indices.len() - indices.len() % 3;
+        let step = (max_indices_per_draw / 3).max(1) * 3;
+        let mut ranges = Vec::new();
+        let mut start = 0usize;
+        while start < count {
+            let end = start.saturating_add(step).min(count);
+            if let (Ok(a), Ok(b)) = (u32::try_from(start), u32::try_from(end)) { ranges.push(a..b); } else { break; }
+            start = end;
+        }
+        ranges
+    }
+
     pub fn from_mesh(mesh: &Mesh) -> Result<Self, String> {
         if mesh.vertices.is_empty() { return Err("Mesh không có đỉnh".into()); }
         if mesh.vertices.len() > u32::MAX as usize { return Err("Mesh vượt giới hạn GPU u32 indices".into()); }
@@ -104,6 +119,12 @@ mod tests {
         assert!(batch.filtered_indices(&mesh.groups,&catalog,&hidden,None,"3h7B","Tầng 2","Kết cấu").0.is_empty());
     }
 
+    #[test]
+    fn draw_ranges_preserve_triangle_boundaries() {
+        assert_eq!(Batch::draw_ranges(&[0,1,2,3,4,5,6,7,8], 4), vec![0..3,3..6,6..9]);
+        assert_eq!(Batch::draw_ranges(&[0,1,2,3], 10), vec![0..3]);
+        assert!(Batch::draw_ranges(&[], 10).is_empty());
+    }
     #[test]
     fn rejects_invalid_group_and_face_indices() {
         let mesh = Mesh { vertices: vec![[0.0;3]], faces: vec![[0,1,2]], face_groups: vec![0], groups: vec![] };
