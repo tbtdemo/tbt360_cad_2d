@@ -125,8 +125,8 @@ app.MapPost("/api/bim/projects/{project:guid}/changesets", async (Guid project, 
             if (lockedRevision is null) return Results.NotFound();
             currentProjectRevision = Convert.ToInt64(lockedRevision);
         }
-        // Replays must not bypass current project membership after access is revoked.
-        await using (var access = new NpgsqlCommand("SELECT EXISTS(SELECT 1 FROM bim_project_members WHERE project_id=@project AND account_id=@actor)", conn, tx))
+        // Replays must not bypass current write permission after access is revoked or downgraded to view-only.
+        await using (var access = new NpgsqlCommand("SELECT EXISTS(SELECT 1 FROM bim_project_members WHERE project_id=@project AND account_id=@actor AND can_edit = true)", conn, tx))
         {
             access.Parameters.AddWithValue("project", project);
             access.Parameters.AddWithValue("actor", actor);
