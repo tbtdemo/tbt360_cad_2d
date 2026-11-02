@@ -1432,7 +1432,18 @@ pub fn panel(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut 
             ui.heading("KHÔNG GIAN PHỐI HỢP");
             ui.label(format!("Tầng đang thiết kế: {} • Bộ môn: {}", state.floors.iter().find(|f| f.id == state.active_floor_id).map(|f| f.name.as_str()).unwrap_or("Chưa chọn"), state.active_discipline.label()));
             ui.label(format!("Đối tượng CAD đang chọn: {}", app.session.selection().len()));
-            ui.label("Bố cục 1–4 viewport, scope, tầng và bộ môn được giữ trong công cụ thiết lập nâng cao.");
+            ui.horizontal_wrapped(|ui| {
+                egui::ComboBox::from_id_salt("bim_workspace_floor").selected_text(state.floors.iter().find(|floor| floor.id == state.active_floor_id).map(|floor| floor.name.as_str()).unwrap_or("Chọn tầng")).show_ui(ui, |ui| {
+                    for floor in &state.floors { ui.selectable_value(&mut state.active_floor_id, floor.id, &floor.name); }
+                });
+                egui::ComboBox::from_id_salt("bim_workspace_discipline").selected_text(state.active_discipline.label()).show_ui(ui, |ui| {
+                    for discipline in Discipline::ALL { ui.selectable_value(&mut state.active_discipline, discipline, discipline.label()); }
+                });
+                if !state.work_session_active {
+                    if ui.add_enabled(state.can_edit_active_view(app), egui::Button::new("Bắt đầu phiên thiết kế")).clicked() { state.start_work_session(app); }
+                } else if ui.button("Kết thúc phiên thiết kế").clicked() { state.stop_work_session(); }
+            });
+            ui.label("Bố cục 1–4 viewport và các tùy chọn nâng cao được giữ trong phần công cụ chi tiết.");
         }
         CollaborationTab::Issues => {
             ui.heading("ISSUE / CLASH — RFI / BCF WORKFLOW");
