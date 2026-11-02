@@ -1047,6 +1047,16 @@ impl State {
                     return;
                 }
 
+                let has_local_change = self.pending_changes.iter().any(|change| {
+                    !change.synced
+                        && change.account_id == self.current_account_id
+                        && change.items.iter().any(|item| item.handle == handle)
+                });
+                if !has_local_change {
+                    log::warn!("BIM remote resolution has no matching local pending edit");
+                    return;
+                }
+
                 for change in &mut self.pending_changes {
                     if change.synced || change.account_id != self.current_account_id {
                         continue;
