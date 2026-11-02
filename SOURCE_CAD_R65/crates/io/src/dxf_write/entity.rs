@@ -31,7 +31,6 @@ pub(super) fn hatch_reactors(d: &Drawing) -> HashMap<Handle, Vec<String>> {
 }
 
 pub(super) fn entity(w: &mut W, d: &Drawing, e: &Entity, owner: &str, paper: bool, cx: &Ctx) {
-    let entity_start = w.t.len();
     match &e.kind {
         EntityKind::Line(l) => {
             w.s(0, "LINE");
@@ -643,15 +642,7 @@ pub(super) fn entity(w: &mut W, d: &Drawing, e: &Entity, owner: &str, paper: boo
         // Writing them here as well duplicates the record and leaves stale raw pointers.
         EntityKind::Unknown(_) => {}
     }
-    // DXF entity XData belongs at the end of its record, before any following
-    // VERTEX/SEQEND or other record. This preserves BIM and third-party tags.
-    if !matches!(&e.kind, EntityKind::Unknown(_)) && !e.common.xdata.is_empty() {
-        let insert_at = w.t.iter().enumerate().skip(entity_start + 1)
-            .find(|(_, tag)| tag.code == 0).map(|(i, _)| i).unwrap_or(w.t.len());
-        let tags = e.common.xdata.iter().filter(|tag| (1000..=1071).contains(&tag.code))
-            .map(|tag| Tag::s(tag.code, &tag.value)).collect::<Vec<_>>();
-        w.t.splice(insert_at..insert_at, tags);
-    }
+
 }
 
 /// A multileader for a file older than 2007 (no MULTILEADER): a LEADER per leader line, ending
