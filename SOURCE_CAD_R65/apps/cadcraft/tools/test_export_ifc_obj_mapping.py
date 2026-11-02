@@ -38,8 +38,8 @@ class ExportMappingTests(unittest.TestCase):
             root = Path(temp)
             ifc = root / "sample.ifc"
             obj = root / "sample.obj"
-            ifc.write_text("ISO-10303-21;\\nDATA;\\n" + f"#1=IFCBEAM('{GUID}',$,'B1',$,$,$,$,$);\\n" + "ENDSEC;\\n", encoding="utf-8")
-            obj.write_text(f"g Beam_{GUID}\\n", encoding="utf-8")
+            ifc.write_text("ISO-10303-21;\nDATA;\n" + f"#1=IFCBEAM('{GUID}',$,'B1',$,$,$,$,$);\n" + "ENDSEC;\n", encoding="utf-8")
+            obj.write_text(f"g Beam_{GUID}\n", encoding="utf-8")
             catalog, unmatched = extract(ifc, obj, "Kết cấu")
             self.assertEqual(len(catalog["objects"]), 1)
             self.assertEqual(catalog["objects"][0]["global_id"], GUID)
