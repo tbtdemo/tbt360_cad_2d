@@ -1244,6 +1244,11 @@ impl State {
             self.next_audit_sequence = self.audit_log.iter().map(|entry| entry.sequence).max().unwrap_or(0).saturating_add(1);
         }
         self.issue_comments = value.get("issue_comments").and_then(serde_json::Value::as_array).map(|items| items.iter().filter_map(|item| { let issue_id = item.get("issue_id")?.as_u64()?; if !self.issues.iter().any(|issue| issue.id == issue_id) { return None; } crate::bim_rfi_comments::post_comment(issue_id, item.get("author")?.as_str()?, item.get("message")?.as_str()?, item.get("sequence")?.as_u64()?).ok() }).collect()).unwrap_or_default();
+        let issue_comments_incoming = value.get("issue_comments").and_then(serde_json::Value::as_array).map_or(0, Vec::len);
+        if issue_comments_incoming > self.issue_comments.len() {
+            self.audit("WORKSPACE_DATA_REJECTED", None, None, None, format!("issue_comments: {} bản ghi không hợp lệ hoặc không còn Issue", issue_comments_incoming - self.issue_comments.len()));
+        }
+
         Ok(())
     }
 
