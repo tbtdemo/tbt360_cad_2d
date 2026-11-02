@@ -3,7 +3,7 @@ name: CAD360 IFC Windows Portable
 on:
   push:
     branches:
-      - feature/bim-issue-audit
+      - tbt/cad360-active-release
     paths:
       - 'SOURCE_CAD_R65/apps/cadcraft/**'
       - 'installer/**'
