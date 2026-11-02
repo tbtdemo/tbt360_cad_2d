@@ -1460,6 +1460,15 @@ mod tests {
         assert_eq!(state.records[0].layer, "existing");
     }
 
+    #[test]
+    fn scoped_qto_requires_capacity_for_both_create_and_scope_audit() {
+        let mut s = State::default();
+        s.next_audit_sequence = u64::MAX - 1;
+        assert!(s.add_measurement_scoped(MeasureKind::Count, vec![], 1.0, "floor".into(), &Scope::default()).is_err());
+        assert!(s.records.is_empty());
+        assert!(s.audit.is_empty());
+    }
+
     fn block_member_fixture()->(cadcraft_doc::Drawing,cadcraft_doc::Handle,cadcraft_doc::Handle) {
         let mut d=cadcraft_doc::Drawing::new_metric();
         let member=cadcraft_doc::Handle(0x20);
