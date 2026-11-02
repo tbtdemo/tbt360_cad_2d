@@ -57,6 +57,7 @@ pub struct ConsumedRevision {
 }
 
 pub fn consume_revision(consumer_workset_id: String, source: &ModelRevision) -> Result<ConsumedRevision, String> {
+    if consumer_workset_id.trim().is_empty() || source.project_id.trim().is_empty() || source.workset_id.trim().is_empty() { return Err("Missing workset or project identity".into()); }
     if source.state != RevisionState::Published {
         return Err("Chỉ được consume revision đã Published".into());
     }
