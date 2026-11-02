@@ -1246,6 +1246,7 @@ impl State {
         self.issue_viewpoints = value.get("issue_viewpoints").and_then(serde_json::Value::as_array).map(|items| items.iter().filter_map(|item| {
             let vec3 = |key: &str| -> Option<[f64; 3]> { let arr = item.get(key)?.as_array()?; Some([arr.first()?.as_f64()?, arr.get(1)?.as_f64()?, arr.get(2)?.as_f64()?]) };
             let v = crate::bim_bcf_viewpoints::Viewpoint { issue_id: item.get("issue_id")?.as_u64()?, position: vec3("position")?, direction: vec3("direction")?, selected: item.get("selected")?.as_array()?.iter().map(|x| x.as_str().map(str::to_owned)).collect::<Option<Vec<_>>>()? };
+            if !self.issues.iter().any(|issue| issue.id == v.issue_id) { return None; }
             crate::bim_bcf_viewpoints::validate_viewpoint(&v).ok().map(|_| v)
         }).collect()).unwrap_or_default();
         let issue_viewpoints_incoming = value.get("issue_viewpoints").and_then(serde_json::Value::as_array).map_or(0, Vec::len);
