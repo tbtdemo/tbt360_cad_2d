@@ -16,6 +16,7 @@ pub struct State {
     wireframe: bool,
     show_points: bool,
     conversion: Option<std::sync::mpsc::Receiver<Result<crate::ifc_mesh::Mesh, String>>>,
+    cancel_conversion: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
 }
 
 fn point_from_step(line: &str) -> Option<[f32; 3]> {
@@ -89,6 +90,8 @@ pub fn panel(ui: &mut egui::Ui, state: &mut State) {
                     Some(tool) => {
                         let (tx, rx) = std::sync::mpsc::channel();
                         state.conversion = Some(rx);
+                        let cancel = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+                        state.cancel_conversion = Some(cancel.clone());
                         state.mesh_error = None;
                         let context = ui.ctx().clone();
                         std::thread::spawn(move || {
@@ -99,6 +102,7 @@ pub fn panel(ui: &mut egui::Ui, state: &mut State) {
                                 let mut child = std::process::Command::new(tool).arg(&path).arg(&output).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).spawn().map_err(|e| format!("Không khởi chạy được IfcConvert: {e}"))?;
                                 let deadline = std::time::Instant::now() + std::time::Duration::from_secs(180);
                                 loop {
+                                    if cancel.load(std::sync::atomic::Ordering::Relaxed) { let _ = child.kill(); let _ = child.wait(); return Err("Đã hủy chuyển đổi IFC".into()); }
                                     match child.try_wait() {
                                         Ok(Some(status)) if status.success() => break,
                                         Ok(Some(status)) => return Err(format!("IfcConvert kết thúc với mã lỗi: {status}")),
@@ -107,6 +111,7 @@ pub fn panel(ui: &mut egui::Ui, state: &mut State) {
                                         Err(error) => { let _ = child.kill(); let _ = child.wait(); return Err(format!("Không kiểm tra được tiến trình IFC: {error}")); }
                                     }
                                 }
+                                if cancel.load(std::sync::atomic::Ordering::Relaxed) { return Err("Đã hủy chuyển đổi IFC".into()); }
                                 let metadata = std::fs::metadata(&output).map_err(|e| format!("Thiếu OBJ sau chuyển đổi: {e}"))?;
                                 if metadata.len() == 0 || metadata.len() > 750_000_000 { return Err("OBJ rỗng hoặc vượt giới hạn 750 MB".into()); }
                                 crate::ifc_mesh::Mesh::read(&output)
@@ -119,15 +124,16 @@ pub fn panel(ui: &mut egui::Ui, state: &mut State) {
                 }
             }
         }
+        if state.conversion.is_some() && ui.button("Hủy chuyển đổi").clicked() { if let Some(cancel) = &state.cancel_conversion { cancel.store(true, std::sync::atomic::Ordering::Relaxed); } }
         ui.checkbox(&mut state.wireframe, "Khung dây");
         ui.checkbox(&mut state.show_points, "Hiển thị đỉnh");
         if ui.button("Đặt lại góc nhìn").clicked() { state.yaw = 0.5; state.pitch = 0.35; state.zoom = 1.0; }
     });
     if let Some(receiver) = &state.conversion {
         match receiver.try_recv() {
-            Ok(Ok(mesh)) => { state.mesh = Some(mesh); state.mesh_error = None; state.conversion = None; }
-            Ok(Err(error)) => { state.mesh_error = Some(error); state.conversion = None; }
-            Err(std::sync::mpsc::TryRecvError::Disconnected) => { state.mesh_error = Some("Tiến trình chuyển đổi IFC bị ngắt".into()); state.conversion = None; }
+            Ok(Ok(mesh)) => { state.mesh = Some(mesh); state.mesh_error = None; state.conversion = None; state.cancel_conversion = None; }
+            Ok(Err(error)) => { state.mesh_error = Some(error); state.conversion = None; state.cancel_conversion = None; }
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => { state.mesh_error = Some("Tiến trình chuyển đổi IFC bị ngắt".into()); state.conversion = None; state.cancel_conversion = None; }
             Err(std::sync::mpsc::TryRecvError::Empty) => { ui.spinner(); ui.label("Đang chuyển IFC thành mesh, giao diện vẫn có thể thao tác..."); ui.ctx().request_repaint_after(std::time::Duration::from_millis(150)); }
         }
     }
