@@ -15,6 +15,7 @@ pub struct State {
     zoom: f32,
     wireframe: bool,
     show_points: bool,
+    selected_triangle: Option<usize>,
     conversion: Option<std::sync::mpsc::Receiver<Result<crate::ifc_mesh::Mesh, String>>>,
     cancel_conversion: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
 }
@@ -59,6 +60,7 @@ impl State {
         self.counts = counts;
         self.points = points;
         self.mesh = None;
+        self.selected_triangle = None;
         self.mesh_error = None;
         self.error = None;
         self.zoom = 1.0;
@@ -73,6 +75,14 @@ fn triangle_visible_on_screen(a: egui::Pos2, b: egui::Pos2, c: egui::Pos2, rect:
     egui::Rect::from_min_max(min, max).intersects(rect)
 }
 
+fn point_in_triangle(p: egui::Pos2, a: egui::Pos2, b: egui::Pos2, c: egui::Pos2) -> bool {
+    let cross = |u: egui::Pos2, v: egui::Pos2, w: egui::Pos2| f64::from(v.x-u.x)*f64::from(w.y-u.y)-f64::from(v.y-u.y)*f64::from(w.x-u.x);
+    let area = cross(a,b,c);
+    if !area.is_finite() || area.abs() < 1e-8 { return false; }
+    let x = cross(a,b,p)/area; let y = cross(b,c,p)/area; let z = cross(c,a,p)/area;
+    x >= -1e-6 && y >= -1e-6 && z >= -1e-6
+}
+
 pub fn panel(ui: &mut egui::Ui, state: &mut State) {
     ui.horizontal_wrapped(|ui| {
         ui.heading("3D / IFC");
@@ -84,7 +94,7 @@ pub fn panel(ui: &mut egui::Ui, state: &mut State) {
         if ui.add_enabled(state.conversion.is_none(), egui::Button::new("Nạp mesh OBJ...")).clicked() {
             if let Some(path) = rfd::FileDialog::new().add_filter("Wavefront OBJ", &["obj"]).pick_file() {
                 match crate::ifc_mesh::Mesh::read(&path) {
-                    Ok(mesh) => { state.mesh = Some(mesh); state.mesh_error = None; }
+                    Ok(mesh) => { state.mesh = Some(mesh); state.selected_triangle = None; state.mesh_error = None; }
                     Err(error) => state.mesh_error = Some(error),
                 }
             }
@@ -138,7 +148,7 @@ pub fn panel(ui: &mut egui::Ui, state: &mut State) {
     });
     if let Some(receiver) = &state.conversion {
         match receiver.try_recv() {
-            Ok(Ok(mesh)) => { state.mesh = Some(mesh); state.mesh_error = None; state.conversion = None; state.cancel_conversion = None; }
+            Ok(Ok(mesh)) => { state.mesh = Some(mesh); state.selected_triangle = None; state.mesh_error = None; state.conversion = None; state.cancel_conversion = None; }
             Ok(Err(error)) => { state.mesh_error = Some(error); state.conversion = None; state.cancel_conversion = None; }
             Err(std::sync::mpsc::TryRecvError::Disconnected) => { state.mesh_error = Some("Tiến trình chuyển đổi IFC bị ngắt".into()); state.conversion = None; state.cancel_conversion = None; }
             Err(std::sync::mpsc::TryRecvError::Empty) => { ui.spinner(); ui.label("Đang chuyển IFC thành mesh, giao diện vẫn có thể thao tác..."); ui.ctx().request_repaint_after(std::time::Duration::from_millis(150)); }
@@ -162,7 +172,7 @@ pub fn panel(ui: &mut egui::Ui, state: &mut State) {
     ui.separator();
     let width = ui.available_width().max(200.0);
     let height = ui.available_height().max(180.0) * 0.75;
-    let (rect, response) = ui.allocate_exact_size(egui::vec2(width, height), egui::Sense::drag());
+    let (rect, response) = ui.allocate_exact_size(egui::vec2(width, height), egui::Sense::click_and_drag());
     if response.dragged() {
         let delta = response.drag_delta();
         state.yaw += delta.x * 0.008;
@@ -198,17 +208,22 @@ pub fn panel(ui: &mut egui::Ui, state: &mut State) {
                 (depth, triangle)
             }).collect::<Vec<_>>();
             faces.sort_by(|a,b| a.0.total_cmp(&b.0));
+            let click = response.clicked().then(|| response.interact_pointer_pos()).flatten();
+            let mut picked = None;
             for (_, triangle) in faces {
                 let a = project(&mesh.vertices[triangle[0]]);
                 let b = project(&mesh.vertices[triangle[1]]);
                 let c = project(&mesh.vertices[triangle[2]]);
                 if !triangle_visible_on_screen(a, b, c, rect) { continue; }
+                if let Some(pointer) = click { if point_in_triangle(pointer, a, b, c) { picked = mesh.faces.iter().position(|f| std::ptr::eq(f, triangle)); } }
+                if state.selected_triangle.and_then(|index| mesh.faces.get(index)).is_some_and(|f| std::ptr::eq(f, triangle)) { painter.add(egui::Shape::convex_polygon(vec![a, b, c], egui::Color32::from_rgba_unmultiplied(240, 180, 45, 150), egui::Stroke::new(2.0, egui::Color32::YELLOW))); continue; }
                 if state.wireframe {
                     for (u, v) in [(a, b), (b, c), (c, a)] { painter.line_segment([u, v], egui::Stroke::new(0.7, egui::Color32::from_rgb(130, 195, 240))); }
                 } else {
                     painter.add(egui::Shape::convex_polygon(vec![a, b, c], egui::Color32::from_rgba_unmultiplied(52, 120, 165, 90), egui::Stroke::new(0.5, egui::Color32::from_rgb(105, 185, 230))));
                 }
             }
+            if click.is_some() { state.selected_triangle = picked; }
             if state.show_points { for p in displayed.iter().take(20_000) { let pos = project(p); if rect.contains(pos) { painter.circle_filled(pos, 1.0, egui::Color32::from_rgb(245, 205, 110)); } } }
         } else {
             for p in displayed { let pos = project(p); if rect.contains(pos) { painter.circle_filled(pos, 1.3, egui::Color32::from_rgb(90, 194, 245)); } }
@@ -216,6 +231,7 @@ pub fn panel(ui: &mut egui::Ui, state: &mut State) {
     } else {
         painter.text(rect.center(), egui::Align2::CENTER_CENTER, "Không tìm thấy IFCCARTESIANPOINT 3D trong tệp", egui::FontId::proportional(14.0), egui::Color32::LIGHT_GRAY);
     }
+    if let (Some(mesh), Some(index)) = (&state.mesh, state.selected_triangle) { if let Some(face) = mesh.faces.get(index) { ui.label(format!("Đã chọn tam giác #{} • đỉnh {:?} • chưa liên kết IFC GlobalId", index + 1, face)); } }
     egui::ScrollArea::vertical().max_height(160.0).show(ui, |ui| {
         ui.collapsing("Thống kê IFC Entities", |ui| {
             for (kind, count) in &state.counts { ui.label(format!("{kind}: {count}")); }
@@ -232,6 +248,14 @@ mod tests {
         assert!(triangle_visible_on_screen(egui::pos2(10.0, 10.0), egui::pos2(30.0, 10.0), egui::pos2(10.0, 30.0), view));
         assert!(!triangle_visible_on_screen(egui::pos2(120.0, 120.0), egui::pos2(140.0, 120.0), egui::pos2(120.0, 140.0), view));
         assert!(!triangle_visible_on_screen(egui::pos2(f32::NAN, 0.0), egui::pos2(10.0, 0.0), egui::pos2(0.0, 10.0), view));
+    }
+
+    #[test]
+    fn triangle_pick_rejects_outside_and_degenerate_faces() {
+        let a = egui::pos2(0.0,0.0); let b = egui::pos2(10.0,0.0); let c = egui::pos2(0.0,10.0);
+        assert!(point_in_triangle(egui::pos2(2.0,2.0),a,b,c));
+        assert!(!point_in_triangle(egui::pos2(9.0,9.0),a,b,c));
+        assert!(!point_in_triangle(a,a,a,a));
     }
 
     #[test]
