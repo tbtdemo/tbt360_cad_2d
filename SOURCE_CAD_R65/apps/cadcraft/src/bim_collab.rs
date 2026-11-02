@@ -1054,11 +1054,24 @@ impl State {
     }
 
     fn sync_pending_changes(&mut self) {
+        if self.auth.status == AuthStatus::SignedOut
+            || self.auth.account_id != self.current_account_id
+            || self.current_account_id.trim().is_empty()
+        {
+            log::warn!("BIM sync rejected: invalid authenticated account");
+            return;
+        }
+
         self.conflicts.clear();
         let mut accepted = Vec::new();
 
         for change in &self.pending_changes {
             if change.synced {
+                continue;
+            }
+
+            if change.account_id != self.current_account_id {
+                log::warn!("BIM sync skipped change set belonging to another account");
                 continue;
             }
 
