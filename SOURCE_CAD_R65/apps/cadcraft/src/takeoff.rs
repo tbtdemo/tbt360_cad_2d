@@ -148,6 +148,7 @@ impl State {
         if !raw_value.is_finite() || raw_value < 0.0 { return Err("Giá trị phép đo không hợp lệ".into()); }
         if kind != MeasureKind::Count && points.is_empty() { return Err("Phép đo chưa có điểm hình học".into()); }
         if points.iter().flatten().any(|value| !value.is_finite()) { return Err("Tọa độ điểm đo không hợp lệ".into()); }
+        if self.next_audit_sequence.max(1).checked_add(1).is_none() { return Err("Đã hết mã lịch sử thao tác QTO".into()); }
         let id = self.next_record_id.max(1);
         let next_id = id.checked_add(1).ok_or_else(|| "Đã hết mã số phép đo QTO".to_string())?;
         self.snapshot();
