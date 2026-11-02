@@ -1039,6 +1039,11 @@ impl State {
                 self.audit("CONFLICT_KEEP_MINE", Some(self.active_floor_id), Some(self.active_discipline), Some(handle), format!("Remote r{} -> local r{}", conflict.remote_revision, next_revision));
             }
             ConflictResolution::AcceptTheirs => {
+                if self.remote_revision(handle) > conflict.remote_revision {
+                    log::warn!("BIM remote resolution rejected: conflict revision is stale");
+                    return;
+                }
+
                 if self.auth.status == AuthStatus::SignedOut
                     || self.auth.account_id != self.current_account_id
                     || self.current_account_id.trim().is_empty()
