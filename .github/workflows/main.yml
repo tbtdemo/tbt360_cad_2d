@@ -159,6 +159,45 @@ jobs:
           & $iscc "/Qp" "../installer/TBT360_CAD_R65.iss"
           if ($LASTEXITCODE -ne 0) { throw "Inno Setup compile failed" }
           if (!(Test-Path "../dist/CAD360_VietNam_TBT_Setup.exe")) { throw "Setup EXE not created" }
+      - name: Package portable Windows binaries
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $portable = "../dist/CAD360_VietNam_TBT_Portable"
+          New-Item -ItemType Directory -Force -Path $portable | Out-Null
+          Copy-Item "target/release/cadcraft.exe" "$portable/cadcraft.exe"
+          Copy-Item "target/release/cadcraft-cli.exe" "$portable/cadcraft-cli.exe"
+          Set-Content -Path "$portable/README.txt" -Encoding utf8 -Value "CAD 360 Viet Nam - TBT Portable. Extract all files before running cadcraft.exe. Windows x64 required. No installer required."
+          $archive = "../dist/CAD360_VietNam_TBT_Portable.zip"
+          if (Test-Path $archive) { Remove-Item $archive -Force }
+          Compress-Archive -Path "$portable/*" -DestinationPath $archive
+          if (!(Test-Path $archive)) { throw "Portable ZIP not created" }
+          if ((Get-Item $archive).Length -lt 100000) { throw "Portable ZIP unexpectedly small" }
+          $smoke = "../dist/portable-smoke"
+          Expand-Archive -Path $archive -DestinationPath $smoke -Force
+          & "$smoke/cadcraft-cli.exe" --version
+          if ($LASTEXITCODE -ne 0) { throw "Portable CLI smoke test failed" }
+      - name: Generate release SHA256 checksums
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $setup = "../dist/CAD360_VietNam_TBT_Setup.exe"
+          $portable = "../dist/CAD360_VietNam_TBT_Portable.zip"
+          $manifest = "../dist/SHA256SUMS.txt"
+          @($setup, $portable) | ForEach-Object {
+            if (!(Test-Path $_)) { throw "Release file missing: $_" }
+            $hash = (Get-FileHash -Algorithm SHA256 -Path $_).Hash.ToLowerInvariant()
+            "$hash  $(Split-Path $_ -Leaf)"
+          } | Set-Content -Encoding ascii $manifest
+          if ((Get-Content $manifest).Count -ne 2) { throw "Checksum manifest must contain two files" }
+      - name: Upload Windows Portable and checksums
+        uses: actions/upload-artifact@v4
+        with:
+          name: CAD360_VietNam_TBT_Windows_Portable_And_SHA256
+          path: |
+            dist/CAD360_VietNam_TBT_Portable.zip
+            dist/SHA256SUMS.txt
+          if-no-files-found: error
       - name: Upload single Windows Setup
         uses: actions/upload-artifact@v4
         with:
