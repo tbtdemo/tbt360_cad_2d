@@ -1619,6 +1619,30 @@ pub fn panel(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut 
                 });
             });
             ui.ctx().data_mut(|data| { data.insert_temp(search_id, search); data.insert_temp(filter_id, status_filter); data.insert_temp(priority_id, priority_filter); data.insert_temp(overdue_id, overdue_only); });
+            // Validate every edited row before generating audit events; reject unauthorized or invalid changes.
+            let actor = state.current_account_id.trim().to_string();
+            let revisions = state.issues.iter().filter_map(|issue| {
+                let before = issue_before.iter().find(|row| row.0 == issue.id)?;
+                let changed = before.1 != issue.priority || before.2 != issue.issue_type || before.3 != issue.assigned_to || before.4 != issue.due_at || before.5 != issue.status;
+                if !changed { return None; }
+                let permitted = !actor.is_empty() && state.users.iter().any(|user| user.account_id == actor && user.can_edit) && state.has_scope_access(&actor, issue.floor_id, issue.source_discipline, true);
+                let valid_status = matches!((before.5, issue.status), (IssueStatus::Open, IssueStatus::InProgress) | (IssueStatus::InProgress, IssueStatus::Resolved) | (IssueStatus::Resolved, IssueStatus::InProgress)) || before.5 == issue.status;
+                let valid_due = issue.due_at.is_empty() || issue_due_date_valid(&issue.due_at);
+                Some((issue.id, permitted && before.5 != IssueStatus::Closed && valid_status && valid_due))
+            }).collect::<Vec<_>>();
+            let mut rejected = 0usize;
+            for (id, valid) in revisions {
+                if valid { continue; }
+                if let (Some(before), Some(issue)) = (issue_before.iter().find(|row| row.0 == id), state.issues.iter_mut().find(|row| row.id == id)) {
+                    issue.priority = before.1.clone();
+                    issue.issue_type = before.2.clone();
+                    issue.assigned_to = before.3.clone();
+                    issue.due_at = before.4.clone();
+                    issue.status = before.5;
+                    rejected += 1;
+                }
+            }
+            if rejected > 0 { ui.colored_label(egui::Color32::YELLOW, format!("{rejected} thay đổi Issue bị từ chối: kiểm tra quyền, trạng thái hoặc hạn xử lý")); }
             let changed = state.issues.iter().filter_map(|issue| {
                 let before = issue_before.iter().find(|row| row.0 == issue.id)?;
                 let after = (&issue.priority, &issue.issue_type, &issue.assigned_to, &issue.due_at, issue.status);
