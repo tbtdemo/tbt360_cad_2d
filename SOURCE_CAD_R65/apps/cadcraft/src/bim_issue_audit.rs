@@ -18,3 +18,11 @@ mod tests {
         assert_eq!(for_issue(&events, 1)[0].after, "P0");
     }
 }
+
+#[cfg(test)] mod edge_cases {
+ use super::*;
+ #[test] fn unchanged_and_missing_fields_do_not_create_events() {
+  assert!(changes(4,"reviewer",&[("priority","P1")],&[("priority","P1")]).is_empty());
+  assert!(changes(4,"reviewer",&[("status","Open")],&[]).is_empty());
+ }
+}
