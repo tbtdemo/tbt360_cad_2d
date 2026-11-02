@@ -1615,7 +1615,10 @@ pub fn panel(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut 
                 let before = issue_before.iter().find(|row| row.0 == issue.id)?;
                 let after = (&issue.priority, &issue.issue_type, &issue.assigned_to, &issue.due_at, issue.status);
                 if before.1 == *after.0 && before.2 == *after.1 && before.3 == *after.2 && before.4 == *after.3 && before.5 == after.4 { return None; }
-                Some((issue.id, issue.floor_id, issue.source_discipline, issue.handle, format!("P:{}→{} | Type:{}→{} | Owner:{}→{} | Due:{}→{} | Status:{}→{}", before.1, after.0, before.2, after.1, before.3, after.2, before.4, after.3, before.5.label(), after.4.label())))
+                let prior = [("priority", before.1.as_str()), ("type", before.2.as_str()), ("assignee", before.3.as_str()), ("due", before.4.as_str()), ("status", before.5.label())];
+                let next = [("priority", after.0.as_str()), ("type", after.1.as_str()), ("assignee", after.2.as_str()), ("due", after.3.as_str()), ("status", after.4.label())];
+                let diffs = crate::bim_issue_audit::changes(issue.id, &state.current_account_id, &prior, &next);
+                Some((issue.id, issue.floor_id, issue.source_discipline, issue.handle, diffs.into_iter().map(|entry| format!("{}:{}→{}", entry.field, entry.before, entry.after)).collect::<Vec<_>>().join(" | ")))
             }).collect::<Vec<_>>();
             for (id, floor, discipline, handle, detail) in changed { state.audit("ISSUE_UPDATED", Some(floor), Some(discipline), handle, format!("Issue #{id}: {detail}")); }
             if let Some(id) = request_close { if let Err(message) = state.confirm_close_issue(id) { ui.colored_label(egui::Color32::YELLOW, message); } }
