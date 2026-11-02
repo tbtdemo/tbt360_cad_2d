@@ -21,6 +21,18 @@ pub fn post_comment_to_issue(issue_exists: bool, issue_closed: bool, issue_id: u
         assert!(post_comment_to_issue(true, false, 12, "reviewer", "note", 1).is_ok());
     }
 }
+pub fn post_authorized_comment(issue_exists: bool, issue_closed: bool, can_edit: bool, issue_id: u64, author: &str, message: &str, sequence: u64) -> Result<Comment, &'static str> {
+    if !can_edit { return Err("account has no write permission"); }
+    post_comment_to_issue(issue_exists, issue_closed, issue_id, author, message, sequence)
+}
+#[cfg(test)] mod permission_tests {
+    use super::*;
+    #[test] fn comment_creation_requires_edit_permission() {
+        assert!(post_authorized_comment(true, false, false, 1, "viewer", "test", 1).is_err());
+        assert!(post_authorized_comment(true, false, true, 1, "editor", "test", 1).is_ok());
+        assert!(post_authorized_comment(true, true, true, 1, "editor", "test", 1).is_err());
+    }
+}
 pub fn thread(comments: &[Comment], id: u64) -> Vec<&Comment> { comments.iter().filter(|c| c.issue_id == id).collect() }
 #[cfg(test)] mod tests {
     use super::*;
