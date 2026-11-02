@@ -1380,6 +1380,18 @@ mod tests {
         assert!(state.scale_to_m().is_none());
     }
 
+    #[test]
+    fn failed_calibration_preserves_previous_valid_scale() {
+        let mut state = State::default();
+        assert_eq!(state.calibrate_two_points([0.0, 0.0], [2.0, 0.0], 4.0).unwrap(), 2.0);
+        assert!(state.calibrate_two_points([0.0, 0.0], [1.0, 0.0], f64::MAX).is_ok());
+        let drawing_distance = state.drawing_distance;
+        let real_distance_m = state.real_distance_m;
+        assert!(state.calibrate_two_points([0.0, 0.0], [1.0e-11, 0.0], f64::MAX).is_err());
+        assert_eq!(state.drawing_distance, drawing_distance);
+        assert_eq!(state.real_distance_m, real_distance_m);
+    }
+
     fn block_member_fixture()->(cadcraft_doc::Drawing,cadcraft_doc::Handle,cadcraft_doc::Handle) {
         let mut d=cadcraft_doc::Drawing::new_metric();
         let member=cadcraft_doc::Handle(0x20);
