@@ -885,6 +885,25 @@ impl State {
         Ok(revision)
     }
 
+    fn update_issue_details(&mut self, id: u64, expected_revision: u64, assignee: &str, issue_type: &str, due_at: &str) -> Result<u64, String> {
+        self.check_issue_revision(id, expected_revision)?;
+        let assignee = assignee.trim();
+        if assignee.len() > 200 { return Err("Người phụ trách quá dài".into()); }
+        if !["Coordination", "Clash", "RFI", "Thay đổi TK"].contains(&issue_type) { return Err("Loại Issue không hợp lệ".into()); }
+        if !due_at.is_empty() && !issue_due_date_valid(due_at) { return Err("Hạn xử lý Issue không hợp lệ".into()); }
+        let issue = self.issues.iter_mut().find(|item| item.id == id).ok_or_else(|| "Không tìm thấy Issue".to_string())?;
+        if issue.assigned_to == assignee && issue.issue_type == issue_type && issue.due_at == due_at { return Ok(issue.revision); }
+        let detail = format!("Issue #{id}: assignee:{}→{} | type:{}→{} | due:{}→{}", issue.assigned_to, assignee, issue.issue_type, issue_type, issue.due_at, due_at);
+        issue.revision = issue.revision.checked_add(1).ok_or_else(|| "Issue đã đạt giới hạn phiên bản".to_string())?;
+        issue.assigned_to = assignee.to_string();
+        issue.issue_type = issue_type.to_string();
+        issue.due_at = due_at.to_string();
+        let revision = issue.revision;
+        let (floor, discipline, handle) = (issue.floor_id, issue.source_discipline, issue.handle);
+        self.audit_issue(id, "ISSUE_UPDATED", Some(floor), Some(discipline), handle, detail);
+        Ok(revision)
+    }
+
     fn can_edit_issue(&self, issue: &CoordinationIssue) -> bool {
         let account = self.current_account_id.trim();
         !account.is_empty() && issue.status != IssueStatus::Closed && self.users.iter().any(|user| user.account_id == account && user.can_edit) && self.has_scope_access(account, issue.floor_id, issue.source_discipline, true)
@@ -2481,6 +2500,25 @@ mod tests {
         assert_eq!(state.update_issue_priority(id, updated, "P1").unwrap(), updated);
         assert_eq!(state.audit_log.len(), audit_count);
         assert_eq!(state.update_issue_priority(id, updated, "P0").unwrap(), updated + 1);
+    }
+
+    #[test]
+    fn issue_details_update_rejects_stale_and_invalid_data_without_mutation() {
+        let mut state = State::default();
+        state.create_issue_from_selection(None, Discipline::Structure);
+        state.current_account_id = state.users[0].account_id.clone();
+        let id = state.issues.last().unwrap().id;
+        let initial = state.issues.last().unwrap().revision;
+        let revision = state.update_issue_details(id, initial, "designer", "RFI", "2028-02-29").unwrap();
+        assert_eq!(revision, initial + 1);
+        let audit_count = state.audit_log.len();
+        assert!(state.update_issue_details(id, initial, "attacker", "Clash", "").is_err());
+        assert!(state.update_issue_details(id, revision, "designer", "RFI", "2026-02-29").is_err());
+        assert!(state.update_issue_details(id, revision, "designer", "UNKNOWN", "").is_err());
+        assert_eq!(state.update_issue_details(id, revision, "designer", "RFI", "2028-02-29").unwrap(), revision);
+        assert_eq!(state.audit_log.len(), audit_count);
+        let issue = state.issues.last().unwrap();
+        assert_eq!((issue.assigned_to.as_str(), issue.issue_type.as_str(), issue.due_at.as_str()), ("designer", "RFI", "2028-02-29"));
     }
 
     #[test]
