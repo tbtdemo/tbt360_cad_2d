@@ -305,6 +305,7 @@ fn system_clipboard_real_dxf_preserves_bim_scope_and_repairs_identity_on_paste()
     let mut a=Session::empty();
     a.open_drawing(source,"A",None);
     a.execute("copybase",&json!({"handles":[old.hex()],"base":[0,0]})).unwrap();
+    assert!(a.clipboard.iter().any(|e| e.common.xdata.iter().any(|t| t.code == 1001 && t.value == "TBT360_BIM")), "copybase lost source BIM XData before DXF serialization");
     let text=clipboard::system_text(&a).expect("real DXF clipboard text");
     assert!(text.contains("TBT360_BIM"));
 
