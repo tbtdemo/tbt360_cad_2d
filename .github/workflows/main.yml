@@ -130,7 +130,9 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: SOURCE_CAD_R65
-      - name: Compile native QTO and XREF tests
+      - name: Compile native QTO tests
+        run: cargo test --locked --no-run -p cadcraft --bin cadcraft
+      - name: Compile XREF integration tests
         run: cargo test --locked --no-run -p cadcraft-engine --test xref
       - name: Run direct measurement regressions
         run: cargo test --locked -p cadcraft takeoff::tests -- --nocapture
