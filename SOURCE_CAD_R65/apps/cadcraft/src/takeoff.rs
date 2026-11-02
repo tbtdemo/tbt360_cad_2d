@@ -147,10 +147,10 @@ impl State {
         if !raw_value.is_finite() || raw_value < 0.0 { return Err("Giá trị phép đo không hợp lệ".into()); }
         if kind != MeasureKind::Count && points.is_empty() { return Err("Phép đo chưa có điểm hình học".into()); }
         if points.iter().flatten().any(|value| !value.is_finite()) { return Err("Tọa độ điểm đo không hợp lệ".into()); }
+        let id = self.next_record_id.max(1);
+        let next_id = id.checked_add(1).ok_or_else(|| "Đã hết mã số phép đo QTO".to_string())?;
         self.snapshot();
-        self.next_record_id = self.next_record_id.max(1);
-        let id = self.next_record_id;
-        self.next_record_id += 1;
+        self.next_record_id = next_id;
         let record = MeasurementRecord {
             id, kind, points, raw_value, layer, work_group: String::new(), work_code: String::new(),
             description: String::new(), note: String::new(), status: MeasureStatus::Review, scope: Scope::default(), source_handle: None, source_path: None, source_revision: None, source_geometry_signature: None,
@@ -544,8 +544,8 @@ impl State {
         self.real_distance_m = real_distance_m;
         self.records = records;
         self.audit = audit;
-        self.next_record_id = self.records.iter().map(|r| r.id).max().unwrap_or(0) + 1;
-        self.next_audit_sequence = self.audit.iter().map(|a| a.sequence).max().unwrap_or(0) + 1;
+        self.next_record_id = self.records.iter().map(|r| r.id).max().unwrap_or(0).checked_add(1).ok_or_else(|| "Hết ID phép đo QTO".to_string())?;
+        self.next_audit_sequence = self.audit.iter().map(|a| a.sequence).max().unwrap_or(0).checked_add(1).ok_or_else(|| "Hết ID lịch sử QTO".to_string())?;
         self.undo.clear();
         self.redo.clear();
         self.selected_record_id = None;
