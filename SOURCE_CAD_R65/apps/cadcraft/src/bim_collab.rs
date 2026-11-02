@@ -1489,6 +1489,7 @@ pub fn panel(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut 
                 ui.label(format!("Mở: {}", state.issues.iter().filter(|issue| issue.status == IssueStatus::Open).count()));
                 ui.label(format!("Đang xử lý: {}", state.issues.iter().filter(|issue| issue.status == IssueStatus::InProgress).count()));
                 ui.label(format!("Đã xử lý: {}", state.issues.iter().filter(|issue| issue.status == IssueStatus::Resolved).count()));
+                ui.label(format!("Đã đóng: {}", state.issues.iter().filter(|issue| issue.status == IssueStatus::Closed).count()));
             });
             let current = app.session.selection().first().copied();
             ui.horizontal_wrapped(|ui| {
