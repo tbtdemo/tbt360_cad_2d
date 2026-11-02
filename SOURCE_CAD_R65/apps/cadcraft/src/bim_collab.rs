@@ -265,6 +265,9 @@ pub struct CoordinationIssue {
     pub description: String,
     pub status: IssueStatus,
     pub confirmed_by: Option<String>,
+    pub issue_type: String,
+    pub priority: String,
+    pub due_at: String,
 }
 
 #[derive(Clone, Debug)]
@@ -878,6 +881,9 @@ impl State {
             description: "Kiểm tra phối hợp tại vị trí/đối tượng được chọn".into(),
             status: IssueStatus::Open,
             confirmed_by: None,
+            issue_type: "Coordination".into(),
+            priority: "P2".into(),
+            due_at: String::new(),
         });
         let issue_id = self.next_issue_id;
         self.next_issue_id += 1;
@@ -1032,7 +1038,10 @@ impl State {
             "assigned_to": i.assigned_to,
             "description": i.description,
             "status": i.status.label(),
-            "confirmed_by": i.confirmed_by
+            "confirmed_by": i.confirmed_by,
+            "issue_type": i.issue_type,
+            "priority": i.priority,
+            "due_at": i.due_at
         })).collect::<Vec<_>>();
         serde_json::json!({
             "version": 2,
@@ -1206,6 +1215,9 @@ impl State {
                         _ => IssueStatus::Open,
                     },
                     confirmed_by: item.get("confirmed_by").and_then(serde_json::Value::as_str).map(str::to_owned),
+                    issue_type: item.get("issue_type").and_then(serde_json::Value::as_str).unwrap_or("Coordination").to_string(),
+                    priority: item.get("priority").and_then(serde_json::Value::as_str).unwrap_or("P2").to_string(),
+                    due_at: item.get("due_at").and_then(serde_json::Value::as_str).unwrap_or_default().to_string(),
                 })
             }).collect();
             self.next_issue_id = self.issues.iter().map(|i| i.id).max().unwrap_or(0) + 1;
@@ -1487,15 +1499,21 @@ pub fn panel(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut 
             ui.separator();
             egui::ScrollArea::horizontal().show(ui, |ui| {
                 egui::Grid::new("tbt360_collaboration_issue_grid").striped(true).min_col_width(90.0).show(ui, |ui| {
-                    for heading in ["Mã", "Loại", "Nguồn", "Ảnh hưởng / Bộ môn", "Nội dung", "Phụ trách", "Trạng thái", "Tác vụ"] { ui.strong(heading); }
+                    for heading in ["Mã", "Ưu tiên", "Loại", "Nguồn", "Ảnh hưởng / Bộ môn", "Nội dung", "Phụ trách", "Hạn xử lý", "Trạng thái", "Tác vụ"] { ui.strong(heading); }
                     ui.end_row();
                     for issue in &mut state.issues {
                         if ui.selectable_label(selected_issue == Some(issue.id), format!("#{:04}", issue.id)).clicked() { selected_issue = Some(issue.id); }
-                        ui.label("Coordination");
+                        egui::ComboBox::from_id_salt(("collab_priority", issue.id)).selected_text(&issue.priority).show_ui(ui, |ui| {
+                            for priority in ["P0", "P1", "P2", "P3"] { ui.selectable_value(&mut issue.priority, priority.to_string(), priority); }
+                        });
+                        egui::ComboBox::from_id_salt(("collab_type", issue.id)).selected_text(&issue.issue_type).show_ui(ui, |ui| {
+                            for kind in ["Coordination", "Clash", "RFI", "Thay đổi TK"] { ui.selectable_value(&mut issue.issue_type, kind.to_string(), kind); }
+                        });
                         ui.label(issue.source_discipline.label());
                         ui.label(issue.target_discipline.label());
                         ui.label(&issue.description);
                         ui.text_edit_singleline(&mut issue.assigned_to);
+                        ui.add(egui::TextEdit::singleline(&mut issue.due_at).hint_text("YYYY-MM-DD"));
                         egui::ComboBox::from_id_salt(("collab_issue_status", issue.id)).selected_text(issue.status.label()).show_ui(ui, |ui| {
                             for status in [IssueStatus::Open, IssueStatus::InProgress, IssueStatus::Resolved] { ui.selectable_value(&mut issue.status, status, status.label()); }
                         });
