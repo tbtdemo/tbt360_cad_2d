@@ -123,9 +123,11 @@ impl State {
         if !drawing_distance.is_finite() || drawing_distance <= 1e-12 {
             return Err("Hai điểm hiệu chỉnh trùng nhau".into());
         }
+        let scale = real_distance_m / drawing_distance;
+        if !scale.is_finite() || scale <= 0.0 { return Err("Không thể tính tỷ lệ hiệu chỉnh".into()); }
         self.drawing_distance = drawing_distance;
         self.real_distance_m = real_distance_m;
-        self.scale_to_m().ok_or_else(|| "Không thể tính tỷ lệ hiệu chỉnh".into())
+        Ok(scale)
     }
 
     fn snapshot(&mut self) {
