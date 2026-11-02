@@ -1248,6 +1248,11 @@ impl State {
             let v = crate::bim_bcf_viewpoints::Viewpoint { issue_id: item.get("issue_id")?.as_u64()?, position: vec3("position")?, direction: vec3("direction")?, selected: item.get("selected")?.as_array()?.iter().map(|x| x.as_str().map(str::to_owned)).collect::<Option<Vec<_>>>()? };
             crate::bim_bcf_viewpoints::validate_viewpoint(&v).ok().map(|_| v)
         }).collect()).unwrap_or_default();
+        let issue_viewpoints_incoming = value.get("issue_viewpoints").and_then(serde_json::Value::as_array).map_or(0, Vec::len);
+        if issue_viewpoints_incoming > self.issue_viewpoints.len() {
+            self.audit("WORKSPACE_DATA_REJECTED", None, None, None, format!("issue_viewpoints: {} bản ghi không hợp lệ hoặc không còn Issue", issue_viewpoints_incoming - self.issue_viewpoints.len()));
+        }
+
         Ok(())
     }
 
