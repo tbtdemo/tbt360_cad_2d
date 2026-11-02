@@ -184,7 +184,11 @@ impl CollaborationTransport for MemoryTransport {
             }
         }
         // Reserve revision capacity for the entire request; do not allow rollover in a long batch.
-        let candidate_count = u64::try_from(changes.iter().filter(|change| !change.items.is_empty() && !self.change_history.iter().any(|(_, recorded)| recorded.eq(*change))).count()).map_err(|_| "Too many changesets")?;
+        let mut new_ids = std::collections::BTreeSet::new();
+        let candidate_count = u64::try_from(changes.iter().filter(|change| {
+            let key = (change.account_id.as_str(), change.device_id.as_str(), change.id);
+            !change.items.is_empty() && !self.change_history.iter().any(|(_, recorded)| recorded == *change) && new_ids.insert(key)
+        }).count()).map_err(|_| "Too many changesets")?;
         if self.project_revision.checked_add(candidate_count).is_none() { return Err("Project revision overflow".into()); }
         // Validate the whole request before mutating any revision.
         if let Some(invalid) = changes.iter().find(|change| change.base_project_revision > self.project_revision) {
@@ -485,6 +489,16 @@ mod tests {
         assert_eq!(transport.project_revision, 1);
         assert!(transport.object_revisions.contains_key("A"));
         assert!(!transport.object_revisions.contains_key("B"));
+    }
+
+    #[test]
+    fn exact_duplicate_inside_single_request_is_not_committed_twice() {
+        let mut transport = MemoryTransport::default();
+        let batch = change(300, "A", 0, 1);
+        let result = transport.push_changes("p", &[batch.clone(), batch]).unwrap();
+        assert_eq!(result.accepted_change_set_ids, vec![300]);
+        assert_eq!(transport.project_revision, 1);
+        assert_eq!(transport.change_history.len(), 1);
     }
 
 }
