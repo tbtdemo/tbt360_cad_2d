@@ -37,13 +37,20 @@ jobs:
           set -euo pipefail
           git archive --format=zip --output=CAD360-Full-Source.zip HEAD
           sha256sum CAD360-Full-Source.zip > CAD360-Full-Source.sha256
+          git rev-parse HEAD > CAD360-Full-Source.commit.txt
+          git ls-tree -r --name-only HEAD > CAD360-Full-Source.manifest.txt
           test -s CAD360-Full-Source.zip
+          test -s CAD360-Full-Source.manifest.txt
+          unzip -t CAD360-Full-Source.zip >/dev/null
+          sha256sum --check CAD360-Full-Source.sha256
       - uses: actions/upload-artifact@v4
         with:
           name: CAD360-Full-Source
           path: |
             CAD360-Full-Source.zip
             CAD360-Full-Source.sha256
+            CAD360-Full-Source.commit.txt
+            CAD360-Full-Source.manifest.txt
           if-no-files-found: error
           retention-days: 30
 
