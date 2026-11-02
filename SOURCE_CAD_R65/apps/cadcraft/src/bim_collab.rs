@@ -2213,6 +2213,24 @@ mod tests {
     }
 
     #[test]
+    fn issue_filters_search_priority_status_and_overdue() {
+        let mut state = State::default();
+        state.create_issue_from_selection(None, Discipline::Structure);
+        let issue = state.issues.last_mut().unwrap();
+        issue.issue_type = "Clash".into();
+        issue.description = "Ống nước giao dầm".into();
+        issue.priority = "P0".into();
+        issue.due_at = "2026-11-01".into();
+        assert!(issue_matches_filters(issue, "giao DẦM", 1, "P0", true, "2026-11-02"));
+        assert!(issue_matches_filters(issue, "clash", 0, "Tất cả", false, "2026-11-02"));
+        assert!(!issue_matches_filters(issue, "giao", 2, "P0", false, "2026-11-02"));
+        assert!(!issue_matches_filters(issue, "", 0, "P3", false, "2026-11-02"));
+        issue.status = IssueStatus::Closed;
+        assert!(!issue_matches_filters(issue, "", 0, "P0", true, "2026-11-02"));
+        assert!(issue_matches_filters(issue, "", 4, "P0", false, "2026-11-02"));
+    }
+
+    #[test]
     fn collaboration_workspace_has_five_business_tabs() {
         assert_eq!(CollaborationTab::ALL.len(), 5);
         assert_eq!(CollaborationTab::Issues.title(), "ISSUE / CLASH");
