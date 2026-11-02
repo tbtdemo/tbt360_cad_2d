@@ -153,6 +153,7 @@ impl CollaborationTransport for MemoryTransport {
 
     fn pull_changes(&mut self, project_id: &str, after_revision: u64) -> Result<(u64, Vec<ChangeEnvelope>), String> {
         self.bind_project(project_id)?;
+        if after_revision > self.project_revision { return Err("Pull cursor is ahead of the project revision".into()); }
         let changes = self.change_history.iter().filter(|(revision, _)| *revision > after_revision).map(|(_, change)| change.clone()).collect();
         Ok((self.project_revision, changes))
     }
@@ -510,6 +511,16 @@ mod tests {
         assert!(transport.push_changes("p", &[change(701, "A", 0, 1), invalid]).is_err());
         assert_eq!(transport.project_revision, 0);
         assert!(transport.object_revisions.is_empty());
+    }
+
+    #[test]
+    fn pull_rejects_cursor_ahead_of_server_revision() {
+        let mut transport = MemoryTransport::default();
+        transport.push_changes("p", &[change(1001, "A", 0, 1)]).unwrap();
+        assert!(transport.pull_changes("p", 2).is_err());
+        let (cursor, changes) = transport.pull_changes("p", 1).unwrap();
+        assert_eq!(cursor, 1);
+        assert!(changes.is_empty());
     }
 
 }
