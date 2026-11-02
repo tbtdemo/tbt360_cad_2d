@@ -1064,6 +1064,12 @@ impl State {
 
         self.conflicts.clear();
         let mut accepted = Vec::new();
+        let mut observed_change_ids = std::collections::HashSet::new();
+        let duplicate_change_ids: std::collections::HashSet<u64> = self.pending_changes
+            .iter()
+            .filter(|change| !change.synced)
+            .filter_map(|change| (!observed_change_ids.insert(change.id)).then_some(change.id))
+            .collect();
         let mut staged_remote_revisions: std::collections::HashMap<cadcraft_doc::Handle, u64> = self.remote_revisions.iter().copied().collect();
 
         for change in &self.pending_changes {
@@ -1073,6 +1079,11 @@ impl State {
 
             if change.account_id != self.current_account_id {
                 log::warn!("BIM sync skipped change set belonging to another account");
+                continue;
+            }
+
+            if duplicate_change_ids.contains(&change.id) || change.items.is_empty() {
+                log::warn!("BIM sync rejected duplicate or empty change set");
                 continue;
             }
 
