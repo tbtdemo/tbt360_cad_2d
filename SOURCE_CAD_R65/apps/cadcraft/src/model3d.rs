@@ -172,21 +172,22 @@ pub fn panel(ui: &mut egui::Ui, state: &mut State) {
         let mut lo = [f32::INFINITY; 3];
         let mut hi = [f32::NEG_INFINITY; 3];
         for p in displayed { for k in 0..3 { lo[k] = lo[k].min(p[k]); hi[k] = hi[k].max(p[k]); } }
-        let center = [(lo[0]+hi[0])*0.5, (lo[1]+hi[1])*0.5, (lo[2]+hi[2])*0.5];
-        let span = (0..3).map(|k| hi[k] - lo[k]).fold(1.0_f32, f32::max);
-        let scale = rect.width().min(rect.height()) * 0.8 * state.zoom / span;
+        let center = [0, 1, 2].map(|k| (f64::from(lo[k]) + f64::from(hi[k])) * 0.5);
+        let span = (0..3).map(|k| f64::from(hi[k]) - f64::from(lo[k])).fold(1.0_f64, f64::max);
+        let scale = f64::from(rect.width().min(rect.height())) * 0.8 * f64::from(state.zoom) / span;
         let (sy, cy) = state.yaw.sin_cos();
         let (sp, cp) = state.pitch.sin_cos();
         let project = |p: &[f32;3]| {
-            let x = p[0] - center[0]; let y = p[1] - center[1]; let z = p[2] - center[2];
+            let x = f64::from(p[0]) - center[0]; let y = f64::from(p[1]) - center[1]; let z = f64::from(p[2]) - center[2];
+            let (sy, cy) = (f64::from(sy), f64::from(cy)); let (sp, cp) = (f64::from(sp), f64::from(cp));
             let rx = x * cy - y * sy; let ry = x * sy + y * cy;
             let rz = z * cp - ry * sp;
-            let pos = rect.center() + egui::vec2(rx * scale, -rz * scale);
+            let pos = rect.center() + egui::vec2((rx * scale) as f32, (-rz * scale) as f32);
             pos
         };
         if let Some(mesh) = &state.mesh {
             let mut faces = mesh.faces.iter().take(100_000).map(|triangle| {
-                let depth = triangle.iter().map(|&i| { let p = mesh.vertices[i]; let x = p[0]-center[0]; let y = p[1]-center[1]; let z = p[2]-center[2]; let ry = x*sy+y*cy; ry*cp+z*sp }).sum::<f32>() / 3.0;
+                let depth = triangle.iter().map(|&i| { let p = mesh.vertices[i]; let x = f64::from(p[0])-center[0]; let y = f64::from(p[1])-center[1]; let z = f64::from(p[2])-center[2]; let ry = x*f64::from(sy)+y*f64::from(cy); ry*f64::from(cp)+z*f64::from(sp) }).sum::<f64>() / 3.0;
                 (depth, triangle)
             }).collect::<Vec<_>>();
             faces.sort_by(|a,b| a.0.total_cmp(&b.0));
