@@ -8,6 +8,7 @@ on:
       - 'SOURCE_CAD_R65/apps/cadcraft/src/ifc_mesh.rs'
       - 'SOURCE_CAD_R65/apps/cadcraft/src/ifc_catalog.rs'
       - 'SOURCE_CAD_R65/apps/cadcraft/tools/export_ifc_obj_mapping.py'
+      - 'SOURCE_CAD_R65/apps/cadcraft/tools/test_export_ifc_obj_mapping.py'
       - 'SOURCE_CAD_R65/apps/cadcraft/Cargo.toml'
       - '.github/workflows/cad360-ifc-portable.yml'
 
@@ -30,6 +31,7 @@ jobs:
         shell: pwsh
         run: |
           python -m py_compile apps/cadcraft/tools/export_ifc_obj_mapping.py
+          python -m unittest discover -s apps/cadcraft/tools -p "test_export_ifc_obj_mapping.py" -v
       - name: Check IFC desktop code
         run: cargo check -p cadcraft --bin cadcraft --locked
       - name: Test IFC desktop module
