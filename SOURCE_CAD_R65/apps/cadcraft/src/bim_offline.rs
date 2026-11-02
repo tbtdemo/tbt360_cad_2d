@@ -64,10 +64,11 @@ impl OfflineSyncState {
 
     pub fn acknowledge_synced(&mut self, local_sequence: u64, remote_revision: u64) {
         if let Some(item) = self.queue.iter_mut().find(|i| i.local_sequence == local_sequence) {
+            if item.state == QueueState::Rejected { return; }
             item.state = QueueState::Synced;
             item.last_error = None;
+            self.checkpoint.remote_project_revision = self.checkpoint.remote_project_revision.max(remote_revision);
         }
-        self.checkpoint.remote_project_revision = self.checkpoint.remote_project_revision.max(remote_revision);
     }
 
     pub fn retry_delay_seconds(&self, local_sequence: u64) -> Option<u64> {
