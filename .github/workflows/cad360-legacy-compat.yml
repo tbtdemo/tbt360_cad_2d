@@ -4,6 +4,7 @@ on:
     branches: ['fix/cad360-windows-regression-*']
     paths:
       - 'SOURCE_CAD_R65/crates/engine/**'
+      - 'SOURCE_CAD_R65/crates/io/**'
       - '.github/workflows/cad360-legacy-compat.yml'
   workflow_dispatch:
 jobs:
