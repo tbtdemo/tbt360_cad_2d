@@ -243,6 +243,7 @@ pub struct AuditEntry {
     pub discipline: Option<Discipline>,
     pub handle: Option<cadcraft_doc::Handle>,
     pub detail: String,
+    pub issue_id: Option<u64>,
 }
 
 #[derive(Clone, Debug)]
@@ -833,6 +834,7 @@ impl State {
             discipline,
             handle,
             detail: detail.into(),
+            issue_id: None,
         };
         self.next_audit_sequence += 1;
         self.audit_log.push(entry);
@@ -868,6 +870,7 @@ impl State {
         let discipline = issue.source_discipline;
         let handle = issue.handle;
         self.audit("ISSUE_CONFIRMED_CLOSED", Some(floor), Some(discipline), handle, format!("Issue #{id} confirmed by {account}"));
+        if let Some(entry) = self.audit_log.last_mut() { entry.issue_id = Some(id); }
         Ok(())
     }
 
@@ -1046,7 +1049,7 @@ impl State {
         })).collect::<Vec<_>>();
         let audit_log = self.audit_log.iter().map(|a| serde_json::json!({
             "sequence": a.sequence, "account_id": a.account_id, "action": a.action, "floor_id": a.floor_id,
-            "discipline": a.discipline.map(Discipline::label), "handle": a.handle.map(|h| h.hex()), "detail": a.detail
+            "discipline": a.discipline.map(Discipline::label), "handle": a.handle.map(|h| h.hex()), "detail": a.detail, "issue_id": a.issue_id
         })).collect::<Vec<_>>();
         serde_json::json!({
             "version": 2,
@@ -1237,6 +1240,7 @@ impl State {
                 discipline: item.get("discipline").and_then(serde_json::Value::as_str).and_then(Discipline::from_label),
                 handle: item.get("handle").and_then(serde_json::Value::as_str).and_then(cadcraft_doc::Handle::parse_hex),
                 detail: item.get("detail").and_then(serde_json::Value::as_str).unwrap_or_default().to_string(),
+                issue_id: item.get("issue_id").and_then(serde_json::Value::as_u64),
             })).take(5000).collect();
             self.next_audit_sequence = self.audit_log.iter().map(|entry| entry.sequence).max().unwrap_or(0).saturating_add(1);
         }
@@ -1482,7 +1486,7 @@ fn issue_matches_filters(issue: &CoordinationIssue, query: &str, status: u8, pri
 fn issue_audit_entries<'a>(entries: &'a [AuditEntry], issue_id: u64) -> Vec<&'a AuditEntry> {
     let prefix = format!("Issue #{issue_id}:");
     let closed = format!("Issue #{issue_id} confirmed ");
-    entries.iter().filter(|entry| (entry.action == "ISSUE_UPDATED" && entry.detail.starts_with(&prefix)) || (entry.action == "ISSUE_CONFIRMED_CLOSED" && entry.detail.starts_with(&closed))).collect()
+    entries.iter().filter(|entry| match entry.issue_id { Some(id) => id == issue_id, None => (entry.action == "ISSUE_UPDATED" && entry.detail.starts_with(&prefix)) || (entry.action == "ISSUE_CONFIRMED_CLOSED" && entry.detail.starts_with(&closed)) }).collect()
 }
 
 pub fn panel(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut State) {
@@ -1620,7 +1624,7 @@ pub fn panel(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut 
                 let diffs = crate::bim_issue_audit::changes(issue.id, &state.current_account_id, &prior, &next);
                 Some((issue.id, issue.floor_id, issue.source_discipline, issue.handle, diffs.into_iter().map(|entry| format!("{}:{}→{}", entry.field, entry.before, entry.after)).collect::<Vec<_>>().join(" | ")))
             }).collect::<Vec<_>>();
-            for (id, floor, discipline, handle, detail) in changed { state.audit("ISSUE_UPDATED", Some(floor), Some(discipline), handle, format!("Issue #{id}: {detail}")); }
+            for (id, floor, discipline, handle, detail) in changed { state.audit("ISSUE_UPDATED", Some(floor), Some(discipline), handle, format!("Issue #{id}: {detail}")); if let Some(entry) = state.audit_log.last_mut() { entry.issue_id = Some(id); } }
             if let Some(id) = request_close { if let Err(message) = state.confirm_close_issue(id) { ui.colored_label(egui::Color32::YELLOW, message); } }
             ui.add_space(10.0);
             if let Some(issue) = selected_issue.and_then(|id| state.issues.iter().find(|issue| issue.id == id)) {
