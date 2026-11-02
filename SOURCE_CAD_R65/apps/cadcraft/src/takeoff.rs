@@ -308,6 +308,7 @@ impl State {
     fn set_status(&mut self, id: u64, status: MeasureStatus) -> bool {
         let Some(index) = self.records.iter().position(|r| r.id == id) else { return false; };
         if self.records[index].status == status { return true; }
+        if self.next_audit_sequence.max(1).checked_add(1).is_none() { return false; }
         self.snapshot();
         let before = self.records[index].status;
         self.records[index].status = status;
@@ -1624,6 +1625,16 @@ mod tests {
         assert_eq!(csv_safe_cell("A\"B"), "\"A\"\"B\"");
         assert_eq!(csv_safe_cell("first\nsecond"), "\"first second\"");
         assert_eq!(csv_safe_cell("@cmd"), "\"'@cmd\"");
+    }
+
+    #[test]
+    fn qto_status_change_is_rejected_when_audit_capacity_is_exhausted() {
+        let mut state = State::default();
+        let id = state.add_measurement(MeasureKind::Count, vec![], 1.0, "test".into()).unwrap();
+        state.next_audit_sequence = u64::MAX;
+        assert!(!state.set_status(id, MeasureStatus::Confirmed));
+        assert_eq!(state.records[0].status, MeasureStatus::Review);
+        assert_eq!(state.undo.len(), 1);
     }
 
     fn block_member_fixture()->(cadcraft_doc::Drawing,cadcraft_doc::Handle,cadcraft_doc::Handle) {
