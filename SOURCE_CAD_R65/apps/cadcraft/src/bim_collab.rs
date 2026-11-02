@@ -559,6 +559,7 @@ pub struct State {
     pub issues: Vec<CoordinationIssue>,
     pub coordination_candidates: Vec<CoordinationCandidate>,
     pub audit_log: Vec<AuditEntry>,
+    pub issue_comments: Vec<crate::bim_rfi_comments::Comment>,
     next_audit_sequence: u64,
     next_issue_id: u64,
     pub project_id: String,
@@ -630,6 +631,7 @@ impl Default for State {
             issues: Vec::new(),
             coordination_candidates: Vec::new(),
             audit_log: Vec::new(),
+            issue_comments: Vec::new(),
             next_audit_sequence: 1,
             next_issue_id: 1,
             project_id: "project-local-001".into(),
@@ -858,6 +860,8 @@ impl State {
     fn confirm_close_issue(&mut self, id: u64) -> Result<(), String> {
         let account = self.current_account_id.trim().to_string();
         if account.is_empty() { return Err("Cần đăng nhập trước khi xác nhận đóng Issue".into()); }
+        let (floor_id, discipline) = self.issues.iter().find(|item| item.id == id).map(|item| (item.floor_id, item.source_discipline)).ok_or_else(|| "Không tìm thấy Issue".to_string())?;
+        if !self.users.iter().any(|user| user.account_id == account && user.can_edit) || !self.has_scope_access(&account, floor_id, discipline, true) { return Err("Không có quyền xác nhận đóng Issue ở tầng/bộ môn này".into()); }
         let issue = self.issues.iter_mut().find(|item| item.id == id).ok_or_else(|| "Không tìm thấy Issue".to_string())?;
         if issue.status != IssueStatus::Resolved { return Err("Chỉ Issue đã xử lý mới được xác nhận đóng".into()); }
         if issue.assigned_to == account { return Err("Người xử lý không được tự xác nhận đóng Issue".into()); }
@@ -1068,7 +1072,8 @@ impl State {
             "active_discipline": self.active_discipline.label(),
             "progress": progress,
             "issues": issues,
-            "audit_log": audit_log
+            "audit_log": audit_log,
+            "issue_comments": self.issue_comments.iter().map(|comment| serde_json::json!({"issue_id": comment.issue_id, "author": comment.author, "message": comment.message, "sequence": comment.sequence})).collect::<Vec<_>>()
         })
     }
 
@@ -1240,6 +1245,12 @@ impl State {
             })).take(5000).collect();
             self.next_audit_sequence = self.audit_log.iter().map(|entry| entry.sequence).max().unwrap_or(0).saturating_add(1);
         }
+        self.issue_comments = value.get("issue_comments").and_then(serde_json::Value::as_array).map(|items| items.iter().filter_map(|item| { let issue_id = item.get("issue_id")?.as_u64()?; if !self.issues.iter().any(|issue| issue.id == issue_id) { return None; } crate::bim_rfi_comments::post_comment(issue_id, item.get("author")?.as_str()?, item.get("message")?.as_str()?, item.get("sequence")?.as_u64()?).ok() }).collect()).unwrap_or_default();
+        let issue_comments_incoming = value.get("issue_comments").and_then(serde_json::Value::as_array).map_or(0, Vec::len);
+        if issue_comments_incoming > self.issue_comments.len() {
+            self.audit("WORKSPACE_DATA_REJECTED", None, None, None, format!("issue_comments: {} bản ghi không hợp lệ hoặc không còn Issue", issue_comments_incoming - self.issue_comments.len()));
+        }
+
         Ok(())
     }
 
@@ -1502,6 +1513,7 @@ pub fn panel(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut 
         CollaborationTab::Overview => {
             let health = state.model_health(app);
             ui.heading("TỔNG QUAN DỰ ÁN");
+            for warning in state.audit_log.iter().filter(|entry| entry.action == "WORKSPACE_DATA_REJECTED").rev().take(5) { ui.colored_label(egui::Color32::LIGHT_RED, &warning.detail); }
             ui.horizontal_wrapped(|ui| {
                 ui.label(format!("Đối tượng: {}", health.total_entities));
                 ui.label(format!("Chưa gắn BIM: {}", health.unscoped_entities));
@@ -1629,6 +1641,23 @@ pub fn panel(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut 
                     ui.label(format!("SLA: {}", issue_due_label(issue, &today)));
                     ui.label(format!("Loại: {} • Ưu tiên: {} • Hạn xử lý: {}", issue.issue_type, issue.priority, if issue.due_at.is_empty() { "Chưa đặt" } else { &issue.due_at }));
                     if let Some(reviewer) = &issue.confirmed_by { ui.label(format!("Xác nhận đóng bởi: {reviewer}")); }
+                    ui.collapsing("TRAO ĐỔI / RFI", |ui| {
+                        let id = issue.id;
+                        for comment in crate::bim_rfi_comments::thread(&state.issue_comments, id) { ui.label(format!("#{} • {}: {}", comment.sequence, comment.author, comment.message)); }
+                        let input_id = egui::Id::new(("bim_issue_comment_draft", id));
+                        let mut draft = ui.ctx().data_mut(|data| data.get_temp::<String>(input_id).unwrap_or_default());
+                        ui.add(egui::TextEdit::multiline(&mut draft).desired_rows(2).hint_text("Nhập nội dung trao đổi..."));
+                        let can_comment = state.has_scope_access(&state.current_account_id, issue.floor_id, issue.source_discipline, true);
+                        let is_open = issue.status != IssueStatus::Closed;
+                        if ui.add_enabled(is_open && can_comment, egui::Button::new("Gửi bình luận")).clicked() {
+                            let seq = state.issue_comments.iter().map(|item| item.sequence).max().unwrap_or(0).saturating_add(1);
+                            match crate::bim_rfi_comments::post_authorized_comment(true, issue.status == IssueStatus::Closed, can_comment, id, &state.current_account_id, &draft, seq) {
+                                Ok(comment) => { state.issue_comments.push(comment); draft.clear(); }
+                                Err(message) => { ui.colored_label(egui::Color32::LIGHT_RED, format!("Không gửi được bình luận: {message}")); }
+                            }
+                        }
+                        ui.ctx().data_mut(|data| data.insert_temp(input_id, draft));
+                    });
                     ui.collapsing("LỊCH SỬ THAY ĐỔI ISSUE", |ui| {
                         let history = issue_audit_entries(&state.audit_log, issue.id);
                         if history.is_empty() { ui.label("Chưa có lịch sử chỉnh sửa cho Issue này"); }
@@ -2209,6 +2238,7 @@ mod tests {
     #[test]
     fn issue_close_requires_independent_confirmation_and_persists() {
         let mut state = State::default();
+        for account in ["reviewer", "coordinator"] { let mut member = state.users[0].clone(); member.account_id = account.into(); state.users.push(member); let mut rule = state.access_rules[0].clone(); rule.account_id = account.into(); state.access_rules.push(rule); }
         state.current_account_id = "reviewer".into();
         state.create_issue_from_selection(None, Discipline::Structure);
         let id = state.issues.last().unwrap().id;
@@ -2280,6 +2310,7 @@ mod tests {
     #[test]
     fn issue_close_rejects_invalid_due_date_without_changing_state() {
         let mut state = State::default();
+        for account in ["reviewer", "coordinator"] { let mut member = state.users[0].clone(); member.account_id = account.into(); state.users.push(member); let mut rule = state.access_rules[0].clone(); rule.account_id = account.into(); state.access_rules.push(rule); }
         state.create_issue_from_selection(None, Discipline::Structure);
         let id = state.issues.last().unwrap().id;
         let issue = state.issues.last_mut().unwrap();
@@ -2311,6 +2342,46 @@ mod tests {
         assert_eq!(reopened.audit_log.last().unwrap().account_id, "coordinator");
         assert_eq!(reopened.audit_log.last().unwrap().detail, "Issue #1: P2→P0");
         assert!(reopened.next_audit_sequence > reopened.audit_log.last().unwrap().sequence);
+    }
+
+    #[test]
+    fn rfi_comments_persist_and_remain_scoped_to_their_issue() {
+        let mut state = State::default();
+        state.create_issue_from_selection(None, Discipline::Structure);
+        let id = state.issues.last().unwrap().id;
+        state.issue_comments.push(crate::bim_rfi_comments::post_comment(id, "designer", "Kiểm tra cao độ", 1).unwrap());
+        let snapshot = state.snapshot_json();
+        let mut restored = State::default();
+        restored.load_snapshot_json(&snapshot).unwrap();
+        assert_eq!(crate::bim_rfi_comments::thread(&restored.issue_comments, id).len(), 1);
+        assert!(crate::bim_rfi_comments::thread(&restored.issue_comments, id + 1).is_empty());
+    }
+
+    #[test]
+    fn issue_comments_invalid_workspace_records_are_reported() {
+        let state = State::default();
+        let mut saved = state.snapshot_json();
+        saved["issue_comments"] = serde_json::json!([{"issue_id":9999,"author":"tester","message":"orphan","sequence":1}]);
+        let mut restored = State::default();
+        restored.load_snapshot_json(&saved).unwrap();
+        assert!(restored.issue_comments.is_empty());
+        assert!(restored.audit_log.iter().any(|entry| entry.action == "WORKSPACE_DATA_REJECTED" && entry.detail.contains("issue_comments")));
+    }
+
+    #[test]
+    fn issue_reviewer_requires_both_user_and_scope_edit_permissions() {
+        let mut state = State::default();
+        state.create_issue_from_selection(None, Discipline::Structure);
+        let id = state.issues.last().unwrap().id;
+        state.issues.last_mut().unwrap().status = IssueStatus::Resolved;
+        state.issues.last_mut().unwrap().assigned_to = "designer".into();
+        let mut member = state.users[0].clone(); member.account_id = "reviewer".into(); member.can_edit = false; state.users.push(member);
+        let mut rule = state.access_rules[0].clone(); rule.account_id = "reviewer".into(); state.access_rules.push(rule);
+        state.current_account_id = "reviewer".into();
+        assert!(state.confirm_close_issue(id).is_err());
+        assert_eq!(state.issues.last().unwrap().status, IssueStatus::Resolved);
+        state.users.iter_mut().find(|user| user.account_id == "reviewer").unwrap().can_edit = true;
+        assert!(state.confirm_close_issue(id).is_ok());
     }
 
     #[test]
