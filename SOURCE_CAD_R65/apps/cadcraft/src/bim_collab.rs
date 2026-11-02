@@ -2321,6 +2321,25 @@ mod tests {
     }
 
     #[test]
+    fn issue_close_refuses_viewer_and_out_of_scope_reviewer() {
+        let mut state = State::default();
+        state.create_issue_from_selection(None, Discipline::Structure);
+        let id = state.issues.last().unwrap().id;
+        state.issues.last_mut().unwrap().status = IssueStatus::Resolved;
+        state.issues.last_mut().unwrap().assigned_to = "designer".into();
+        state.current_account_id = "viewer".into();
+        let mut viewer = state.users[0].clone(); viewer.account_id = "viewer".into(); viewer.can_edit = false; state.users.push(viewer);
+        let mut rule = state.access_rules[0].clone(); rule.account_id = "viewer".into(); rule.can_edit = false; state.access_rules.push(rule);
+        assert!(state.confirm_close_issue(id).is_err());
+        assert_eq!(state.issues.last().unwrap().status, IssueStatus::Resolved);
+        let mut reviewer = state.users[0].clone(); reviewer.account_id = "outside".into(); state.users.push(reviewer);
+        let mut outside_rule = state.access_rules[0].clone(); outside_rule.account_id = "outside".into(); outside_rule.floor_id = Some(u64::MAX); state.access_rules.push(outside_rule);
+        state.current_account_id = "outside".into();
+        assert!(state.confirm_close_issue(id).is_err());
+        assert!(state.issues.last().unwrap().confirmed_by.is_none());
+    }
+
+    #[test]
     fn collaboration_workspace_has_five_business_tabs() {
         assert_eq!(CollaborationTab::ALL.len(), 5);
         assert_eq!(CollaborationTab::Issues.title(), "ISSUE / CLASH");
