@@ -1407,6 +1407,25 @@ mod tests {
         assert_eq!(state.scale_to_m(), None);
     }
 
+    #[test]
+    fn qto_record_id_overflow_does_not_modify_current_state() {
+        let mut state = State::default();
+        state.next_record_id = u64::MAX;
+        assert!(state.add_measurement(MeasureKind::Count, vec![], 1.0, "L".into()).is_err());
+        assert!(state.records.is_empty());
+        assert!(state.undo.is_empty());
+    }
+
+    #[test]
+    fn qto_restore_rejects_overflow_without_erasing_existing_records() {
+        let mut state = State::default();
+        state.add_measurement(MeasureKind::Count, vec![], 1.0, "safe".into()).unwrap();
+        let bad = serde_json::json!({"version":4,"drawing_distance":0.0,"real_distance_m":0.0,"records":[{"id":u64::MAX,"kind":"count","points":[],"raw_value":1.0,"layer":"bad"}],"audit":[]});
+        assert!(state.load_json(&bad).is_err());
+        assert_eq!(state.records.len(), 1);
+        assert_eq!(state.records[0].layer, "safe");
+    }
+
     fn block_member_fixture()->(cadcraft_doc::Drawing,cadcraft_doc::Handle,cadcraft_doc::Handle) {
         let mut d=cadcraft_doc::Drawing::new_metric();
         let member=cadcraft_doc::Handle(0x20);
