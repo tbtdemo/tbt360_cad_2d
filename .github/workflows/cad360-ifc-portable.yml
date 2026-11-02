@@ -26,6 +26,27 @@ permissions:
   contents: read
 
 jobs:
+  source-snapshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Archive complete tracked repository source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git archive --format=zip --output=CAD360-Full-Source.zip HEAD
+          sha256sum CAD360-Full-Source.zip > CAD360-Full-Source.sha256
+          test -s CAD360-Full-Source.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CAD360-Full-Source
+          path: |
+            CAD360-Full-Source.zip
+            CAD360-Full-Source.sha256
+          if-no-files-found: error
+          retention-days: 30
+
   ifc-metadata-tests:
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -80,21 +101,6 @@ jobs:
           Write-Host "CAD360.exe SHA256: $sha"
           Write-Host 'Portable package excludes unverified IfcConvert.exe and dependent DLLs'
           Compress-Archive -Path (Join-Path $out '*') -DestinationPath (Join-Path $env:GITHUB_WORKSPACE 'CAD360-IFC-Portable.zip') -Force
-      - name: Create full repository source snapshot
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $sourceZip = Join-Path $env:GITHUB_WORKSPACE 'CAD360-Full-Source.zip'
-          git archive --format=zip --output=$sourceZip HEAD
-          if ($LASTEXITCODE -ne 0 -or !(Test-Path $sourceZip)) { throw 'Cannot archive the full repository source' }
-          $sha = (Get-FileHash $sourceZip -Algorithm SHA256).Hash
-          Write-Host "Full source SHA256: $sha"
-      - uses: actions/upload-artifact@v4
-        with:
-          name: CAD360-Full-Source
-          path: CAD360-Full-Source.zip
-          if-no-files-found: error
-          retention-days: 30
       - uses: actions/upload-artifact@v4
         with:
           name: CAD360-IFC-Portable-Windows-x64
