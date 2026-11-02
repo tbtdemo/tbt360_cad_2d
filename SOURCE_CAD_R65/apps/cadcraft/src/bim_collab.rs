@@ -2369,6 +2369,22 @@ mod tests {
     }
 
     #[test]
+    fn issue_reviewer_requires_both_user_and_scope_edit_permissions() {
+        let mut state = State::default();
+        state.create_issue_from_selection(None, Discipline::Structure);
+        let id = state.issues.last().unwrap().id;
+        state.issues.last_mut().unwrap().status = IssueStatus::Resolved;
+        state.issues.last_mut().unwrap().assigned_to = "designer".into();
+        let mut member = state.users[0].clone(); member.account_id = "reviewer".into(); member.can_edit = false; state.users.push(member);
+        let mut rule = state.access_rules[0].clone(); rule.account_id = "reviewer".into(); state.access_rules.push(rule);
+        state.current_account_id = "reviewer".into();
+        assert!(state.confirm_close_issue(id).is_err());
+        assert_eq!(state.issues.last().unwrap().status, IssueStatus::Resolved);
+        state.users.iter_mut().find(|user| user.account_id == "reviewer").unwrap().can_edit = true;
+        assert!(state.confirm_close_issue(id).is_ok());
+    }
+
+    #[test]
     fn collaboration_workspace_has_five_business_tabs() {
         assert_eq!(CollaborationTab::ALL.len(), 5);
         assert_eq!(CollaborationTab::Issues.title(), "ISSUE / CLASH");
