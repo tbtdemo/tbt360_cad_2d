@@ -33,6 +33,18 @@ class ExportMappingTests(unittest.TestCase):
             self.assertEqual(item["discipline"], "Kết cấu")
             self.assertEqual(unmatched, ["NotMapped"])
 
+    def test_group_guid_with_underscore_prefix_is_mapped(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            ifc = root / "sample.ifc"
+            obj = root / "sample.obj"
+            ifc.write_text("ISO-10303-21;\\nDATA;\\n" + f"#1=IFCBEAM('{GUID}',$,'B1',$,$,$,$,$);\\n" + "ENDSEC;\\n", encoding="utf-8")
+            obj.write_text(f"g Beam_{GUID}\\n", encoding="utf-8")
+            catalog, unmatched = extract(ifc, obj, "Kết cấu")
+            self.assertEqual(len(catalog["objects"]), 1)
+            self.assertEqual(catalog["objects"][0]["global_id"], GUID)
+            self.assertEqual(unmatched, [])
+
     def test_unmatched_groups_are_not_guessed(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
