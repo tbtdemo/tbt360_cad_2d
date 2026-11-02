@@ -3,7 +3,7 @@ name: TBT CAD360 Direct EXE Build
 on:
   push:
     branches:
-      - feature/bim-issue-audit
+      - tbt/cad360-active-release
   workflow_dispatch:
 
 permissions:
