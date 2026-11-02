@@ -26,6 +26,7 @@ mod system_animations;
 mod workspace;
 mod takeoff;
 mod bim_collab;
+mod model3d;
 mod bim_sync;
 mod bim_domain;
 mod bim_presence;
@@ -58,6 +59,7 @@ struct App {
     active_tab: MainTab,
     takeoff_state: takeoff::State,
     bim_collab_state: bim_collab::State,
+    model3d_state: model3d::State,
     spacemouse: spacemouse::SpaceMouse,
     /// The desktop's light/dark choice where winit reports none (Linux, the BSDs).
     desktop_theme: desktop_theme::DesktopTheme,
@@ -168,10 +170,7 @@ impl eframe::App for App {
                 ui.heading("PDF / BẢN VẼ");
                 ui.label("Khu vực tích hợp PDF nhiều trang, hiệu chỉnh theo trang, overlay và annotation. Chức năng đang được chuyển từ QTO R134 sang native.");
             }
-            MainTab::Model3d => {
-                ui.heading("3D / IFC");
-                ui.label("Khu vực tích hợp IFC/Solid/Volume và đối chiếu khối lượng 2D/3D. Chưa được đánh dấu hoàn thành.");
-            }
+            MainTab::Model3d => model3d::panel(ui, &mut self.model3d_state),
             MainTab::BimCollab => bim_collab::panel(ui, &mut self.cad, &mut self.bim_collab_state),
         }
         #[cfg(target_os = "macos")]
@@ -471,6 +470,7 @@ fn main() -> eframe::Result {
                 active_tab: MainTab::default(),
                 takeoff_state: takeoff::State::default(),
                 bim_collab_state: bim_collab::State::default(),
+                model3d_state: model3d::State::default(),
                 spacemouse: spacemouse::SpaceMouse::start(cc.egui_ctx.clone()),
                 workspace,
                 workspace_error,
