@@ -111,7 +111,7 @@ impl SyncRuntime {
     }
 
     pub fn apply_push_result(&mut self, result: &PushResult) {
-        self.project_revision = result.project_revision;
+        self.project_revision = self.project_revision.max(result.project_revision);
         self.health = if result.conflicts.is_empty() { SyncHealth::Healthy } else { SyncHealth::Conflict };
         self.last_error = None;
     }
@@ -448,6 +448,14 @@ mod tests {
         assert!(replay.conflicts.is_empty());
         assert_eq!(transport.project_revision, 64);
         assert_eq!(transport.change_history.len(), 64);
+    }
+
+    #[test]
+    fn delayed_push_response_does_not_roll_back_runtime_revision() {
+        let mut runtime = SyncRuntime { project_revision: 20, ..SyncRuntime::default() };
+        runtime.apply_push_result(&PushResult { accepted_change_set_ids: vec![], project_revision: 12, conflicts: vec![] });
+        assert_eq!(runtime.project_revision, 20);
+        assert_eq!(runtime.health, SyncHealth::Healthy);
     }
 
 }
