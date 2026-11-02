@@ -97,6 +97,9 @@ impl SharedCoordinates {
 
 pub fn validate_levels(levels: &[Level]) -> Result<(), String> {
     for l in levels {
+        if l.building_id.trim().is_empty() || l.id.trim().is_empty() || l.code.trim().is_empty() {
+            return Err("Level thiếu mã hoặc định danh tòa nhà".into());
+        }
         if !l.elevation_m.is_finite() || !l.height_m.is_finite() || l.height_m <= 0.0 {
             return Err(format!("Level {} có cao độ/chiều cao không hợp lệ", l.code));
         }
@@ -174,6 +177,20 @@ mod tests {
             Level { id: "2".into(), building_id: "A".into(), zone_id: None, code: "L2".into(), name: "L2".into(), elevation_m: 3.0, height_m: 3.0 },
         ];
         assert!(validate_levels(&levels).is_ok());
+    }
+
+    #[test]
+    fn levels_with_empty_building_identity_are_rejected() {
+        let invalid = Level { id: "L1".into(), building_id: " ".into(), zone_id: None, code: "L1".into(), name: "Level 1".into(), elevation_m: 0.0, height_m: 3.0 };
+        assert!(validate_levels(&[invalid]).is_err());
+    }
+
+    #[test]
+    fn invalid_nan_and_negative_level_heights_are_rejected() {
+        for height in [f64::NAN, f64::INFINITY, -1.0, 0.0] {
+            let level = Level { id: "L1".into(), building_id: "A".into(), zone_id: None, code: "L1".into(), name: "L1".into(), elevation_m: 0.0, height_m: height };
+            assert!(validate_levels(&[level]).is_err());
+        }
     }
 
 }
