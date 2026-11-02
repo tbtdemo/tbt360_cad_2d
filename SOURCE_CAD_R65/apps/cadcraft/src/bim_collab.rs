@@ -557,6 +557,7 @@ pub struct State {
     pub share_grants: Vec<ShareGrant>,
     pub progress: Vec<ScopeProgress>,
     pub issues: Vec<CoordinationIssue>,
+    pub issue_attachments: Vec<crate::bim_issue_attachments::Attachment>,
     pub coordination_candidates: Vec<CoordinationCandidate>,
     pub audit_log: Vec<AuditEntry>,
     next_audit_sequence: u64,
@@ -628,6 +629,7 @@ impl Default for State {
                 ScopeProgress { floor_id: 1, discipline: Discipline::Plumbing, percent: 0, status: ScopeStatus::NotStarted, updated_by: "mep-water-01".into() },
             ],
             issues: Vec::new(),
+            issue_attachments: Vec::new(),
             coordination_candidates: Vec::new(),
             audit_log: Vec::new(),
             next_audit_sequence: 1,
@@ -1068,6 +1070,7 @@ impl State {
             "active_discipline": self.active_discipline.label(),
             "progress": progress,
             "issues": issues,
+            "issue_attachments": self.issue_attachments.iter().map(|a| serde_json::json!({"issue_id": a.issue_id, "filename": a.filename, "size_bytes": a.size_bytes})).collect::<Vec<_>>(),
             "audit_log": audit_log
         })
     }
@@ -1240,6 +1243,10 @@ impl State {
             })).take(5000).collect();
             self.next_audit_sequence = self.audit_log.iter().map(|entry| entry.sequence).max().unwrap_or(0).saturating_add(1);
         }
+        self.issue_attachments = value.get("issue_attachments").and_then(serde_json::Value::as_array).map(|items| items.iter().filter_map(|item| {
+            let a = crate::bim_issue_attachments::Attachment { issue_id: item.get("issue_id")?.as_u64()?, filename: item.get("filename")?.as_str()?.to_string(), size_bytes: item.get("size_bytes")?.as_u64()? };
+            crate::bim_issue_attachments::validate_attachment(&a, 100 * 1024 * 1024).ok().map(|_| a)
+        }).collect()).unwrap_or_default();
         Ok(())
     }
 
@@ -1629,6 +1636,19 @@ pub fn panel(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut 
                     ui.label(format!("SLA: {}", issue_due_label(issue, &today)));
                     ui.label(format!("Loại: {} • Ưu tiên: {} • Hạn xử lý: {}", issue.issue_type, issue.priority, if issue.due_at.is_empty() { "Chưa đặt" } else { &issue.due_at }));
                     if let Some(reviewer) = &issue.confirmed_by { ui.label(format!("Xác nhận đóng bởi: {reviewer}")); }
+                    ui.collapsing("TÀI LIỆU LIÊN KẾT", |ui| {
+                        let id = issue.id;
+                        for file in state.issue_attachments.iter().filter(|file| file.issue_id == id) { ui.label(format!("{} ({} bytes)", file.filename, file.size_bytes)); }
+                        ui.label("Chỉ quản lý metadata; chưa sao chép hoặc tải lên nội dung tệp.");
+                        if ui.button("Chọn tệp để ghi metadata").clicked() {
+                            if let Some(path) = rfd::FileDialog::new().pick_file() {
+                                if let (Some(name), Ok(info)) = (path.file_name().and_then(|s| s.to_str()), std::fs::metadata(&path)) {
+                                    let attachment = crate::bim_issue_attachments::Attachment { issue_id: id, filename: name.to_owned(), size_bytes: info.len() };
+                                    if crate::bim_issue_attachments::validate_attachment(&attachment, 100 * 1024 * 1024).is_ok() { state.issue_attachments.push(attachment); }
+                                }
+                            }
+                        }
+                    });
                     ui.collapsing("LỊCH SỬ THAY ĐỔI ISSUE", |ui| {
                         let history = issue_audit_entries(&state.audit_log, issue.id);
                         if history.is_empty() { ui.label("Chưa có lịch sử chỉnh sửa cho Issue này"); }
