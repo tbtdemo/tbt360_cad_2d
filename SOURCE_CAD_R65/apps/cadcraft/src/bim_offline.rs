@@ -113,6 +113,14 @@ impl OfflineSyncState {
         true
     }
 
+    pub fn reject(&mut self, local_sequence: u64, reason: String) -> bool {
+        let Some(item) = self.queue.iter_mut().find(|i| i.local_sequence == local_sequence) else { return false; };
+        if item.state == QueueState::Synced { return false; }
+        item.state = QueueState::Rejected;
+        item.last_error = Some(reason);
+        true
+    }
+
     pub fn pending_count(&self) -> usize {
         self.queue.iter().filter(|i| !matches!(i.state, QueueState::Synced | QueueState::Rejected)).count()
     }
@@ -246,6 +254,19 @@ mod tests {
         assert!(state.resolve_conflict_for_retry(seq));
         state.acknowledge_synced(seq, 2);
         assert_eq!(state.queue[0].state, QueueState::Synced);
+    }
+
+    #[test]
+    fn rejected_queue_item_stays_terminal_after_reconnect() {
+        let mut state = OfflineSyncState::default();
+        let seq = state.enqueue("invalid-change".into());
+        assert!(state.reject(seq, "unauthorized".into()));
+        state.begin_reconnect();
+        state.mark_retry_error(seq, "network".into());
+        assert_eq!(state.queue[0].state, QueueState::Rejected);
+        assert_eq!(state.retry_delay_seconds(seq), None);
+        assert_eq!(state.pending_count(), 0);
+        assert!(!state.reject(999, "not found".into()));
     }
 
 }
