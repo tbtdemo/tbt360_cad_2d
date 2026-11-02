@@ -860,6 +860,8 @@ impl State {
     fn confirm_close_issue(&mut self, id: u64) -> Result<(), String> {
         let account = self.current_account_id.trim().to_string();
         if account.is_empty() { return Err("Cần đăng nhập trước khi xác nhận đóng Issue".into()); }
+        let (floor_id, discipline) = self.issues.iter().find(|item| item.id == id).map(|item| (item.floor_id, item.source_discipline)).ok_or_else(|| "Không tìm thấy Issue".to_string())?;
+        if !self.has_scope_access(&account, floor_id, discipline, true) { return Err("Không có quyền xác nhận đóng Issue ở tầng/bộ môn này".into()); }
         let issue = self.issues.iter_mut().find(|item| item.id == id).ok_or_else(|| "Không tìm thấy Issue".to_string())?;
         if issue.status != IssueStatus::Resolved { return Err("Chỉ Issue đã xử lý mới được xác nhận đóng".into()); }
         if issue.assigned_to == account { return Err("Người xử lý không được tự xác nhận đóng Issue".into()); }
