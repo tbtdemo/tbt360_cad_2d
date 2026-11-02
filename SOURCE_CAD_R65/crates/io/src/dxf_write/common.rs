@@ -105,13 +105,6 @@ pub(super) fn common_x(w: &mut W, e: &Entity, owner: &str, paper: bool, subclass
     if !subclass.is_empty() {
         w.s(100, subclass);
     }
-    // Preserve third-party and TBT BIM XData in normal DXF entity serialization.
-    // The per-entity metadata must survive clipboard and disk roundtrips.
-    for tag in &e.common.xdata {
-        if (1000..=1071).contains(&tag.code) {
-            w.s(tag.code, &tag.value);
-        }
-    }
 }
 
 /// Layer, linetype, colour and lineweight groups (8, 6, 62/420, 370). ByLayer is left out, unless
