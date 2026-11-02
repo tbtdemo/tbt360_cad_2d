@@ -18,3 +18,13 @@ mod tests {
         assert!(can_transition(Status::Resolved, Status::Closed, "reviewer", "author"));
     }
 }
+ 
+#[cfg(test)] mod edge_cases {
+ use super::*;
+ #[test] fn rejects_no_actor_noop_and_invalid_jumps() {
+   assert!(!can_transition(Status::Open, Status::InProgress, " ", "designer"));
+   assert!(!can_transition(Status::Open, Status::Closed, "reviewer", "designer"));
+   assert!(!can_transition(Status::Resolved, Status::Resolved, "reviewer", "designer"));
+   assert!(can_transition(Status::Resolved, Status::InProgress, "reviewer", "designer"));
+ }
+}
