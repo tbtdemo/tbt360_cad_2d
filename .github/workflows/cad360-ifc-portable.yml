@@ -6,6 +6,7 @@ on:
       - feature/bim-issue-audit
     paths:
       - 'SOURCE_CAD_R65/apps/cadcraft/**'
+      - 'installer/**'
       - '.github/workflows/cad360-ifc-portable.yml'
   workflow_dispatch:
   pull_request:
@@ -20,6 +21,7 @@ on:
       - 'SOURCE_CAD_R65/apps/cadcraft/tools/export_ifc_obj_mapping.py'
       - 'SOURCE_CAD_R65/apps/cadcraft/tools/test_export_ifc_obj_mapping.py'
       - 'SOURCE_CAD_R65/apps/cadcraft/Cargo.toml'
+      - 'installer/**'
       - '.github/workflows/cad360-ifc-portable.yml'
 
 permissions:
