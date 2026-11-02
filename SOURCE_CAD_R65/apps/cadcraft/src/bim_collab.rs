@@ -3109,6 +3109,22 @@ mod tests {
     }
 
     #[test]
+    fn stage_13_rejects_leases_without_identity() {
+        let mut state = State::default();
+        state.auth.status = AuthStatus::SignedOut;
+        assert!(state.acquire_lease(cadcraft_doc::Handle(92001), 0).is_err());
+        assert!(state.leases.is_empty());
+    }
+
+    #[test]
+    fn stage_13_rejects_non_monotonic_revision() {
+        let mut state = State::default();
+        let pending_before = state.pending_changes.len();
+        state.queue_update(cadcraft_doc::Handle(92002), 5, 5);
+        assert_eq!(state.pending_changes.len(), pending_before);
+    }
+
+    #[test]
     fn signed_out_user_cannot_pass_scope_permission() {
         let mut state = State::default();
         state.current_account_id.clear();
