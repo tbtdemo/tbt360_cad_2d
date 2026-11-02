@@ -41,6 +41,7 @@ impl ModelRevision {
 
     pub fn publish(&mut self, account_id: String) -> bool {
         if self.state != RevisionState::Review { return false; }
+        if account_id.trim().is_empty() { return false; }
         self.state = RevisionState::Published;
         self.published_by = Some(account_id);
         true
