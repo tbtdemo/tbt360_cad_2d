@@ -3190,6 +3190,34 @@ mod tests {
     }
 
     #[test]
+    fn accept_remote_does_not_remove_other_account_changes() {
+        let mut state = State::default();
+        let handle = cadcraft_doc::Handle(97001);
+        state.pending_changes.push(ChangeSet {
+            id: 970,
+            account_id: "another-account".into(),
+            items: vec![ChangeItem {
+                handle,
+                operation: ChangeOperation::Update,
+                base_revision: 0,
+                local_revision: 1,
+            }],
+            synced: false,
+        });
+        state.conflicts.push(SyncConflict {
+            handle,
+            base_revision: 0,
+            local_revision: 1,
+            remote_revision: 2,
+        });
+
+        state.resolve_conflict(handle, ConflictResolution::AcceptTheirs);
+
+        assert_eq!(state.pending_changes[0].items.len(), 1);
+        assert!(!state.pending_changes[0].synced);
+    }
+
+    #[test]
     fn keep_mine_does_not_resolve_conflict_without_pending_change() {
         let mut state = State::default();
         let handle = cadcraft_doc::Handle(96001);
