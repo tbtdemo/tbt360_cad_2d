@@ -196,6 +196,7 @@ app.MapGet("/api/bim/projects/{project:guid}/sync-state", async (Guid project, C
     try
     {
         var actor = AuthenticatedAccount(principal);
+        if (project == Guid.Empty) return Results.BadRequest(new { error = "invalid project id" });
         await using var conn = await db.OpenConnectionAsync(ct);
         await using var cmd = new NpgsqlCommand("SELECT p.revision FROM bim_projects p WHERE p.id=@project AND EXISTS(SELECT 1 FROM bim_project_members m WHERE m.project_id=p.id AND m.account_id=@actor)", conn);
         cmd.Parameters.AddWithValue("project", project);
