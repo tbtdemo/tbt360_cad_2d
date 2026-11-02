@@ -17,3 +17,16 @@ mod tests {
         assert_eq!(ensure_edit(true, false, 4, 4), Ok(5));
     }
 }
+
+#[cfg(test)]
+mod boundary_tests {
+    use super::*;
+    #[test]
+    fn revision_overflow_is_a_conflict() {
+        assert_eq!(ensure_edit(true, false, u64::MAX, u64::MAX), Err(EditError::Conflict));
+    }
+    #[test]
+    fn no_permission_is_checked_before_revision() {
+        assert_eq!(ensure_edit(false, true, 2, 3), Err(EditError::Unauthorized));
+    }
+}
