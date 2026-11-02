@@ -281,7 +281,9 @@ mod tests {
         assert!(transport.acquire_lease("p1", "A", 0).unwrap().granted);
         assert!(!transport.acquire_lease("p1", "A", 1).unwrap().granted);
         transport.release_lease("p1", "A").unwrap();
-        assert!(transport.acquire_lease("p1", "A", 1).unwrap().granted);
+        // Releasing a lock does not advance the object's revision.
+        assert!(!transport.acquire_lease("p1", "A", 1).unwrap().granted);
+        assert!(transport.acquire_lease("p1", "A", 0).unwrap().granted);
     }
 
     #[test]
