@@ -1604,6 +1604,14 @@ mod tests {
         assert!(!csv.contains("inf"));
     }
 
+    #[test]
+    fn qto_csv_escapes_quotes_line_breaks_and_formula_injection() {
+        assert_eq!(csv_safe_cell("=SUM(1,1)"), "\"'=SUM(1,1)\"");
+        assert_eq!(csv_safe_cell("A\"B"), "\"A\"\"B\"");
+        assert_eq!(csv_safe_cell("first\nsecond"), "\"first second\"");
+        assert_eq!(csv_safe_cell("@cmd"), "\"'@cmd\"");
+    }
+
     fn block_member_fixture()->(cadcraft_doc::Drawing,cadcraft_doc::Handle,cadcraft_doc::Handle) {
         let mut d=cadcraft_doc::Drawing::new_metric();
         let member=cadcraft_doc::Handle(0x20);
