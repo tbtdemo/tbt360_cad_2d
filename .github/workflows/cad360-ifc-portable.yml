@@ -39,6 +39,8 @@ jobs:
           git archive HEAD SOURCE_CAD_R65 | tar -x -C delivery/CAD360_TBT
           mv delivery/CAD360_TBT/SOURCE_CAD_R65 delivery/CAD360_TBT/TBT360_SOURCE
           git archive HEAD backend installer .github | tar -x -C delivery/CAD360_TBT
+          git archive HEAD -- README.md .gitattributes | tar -x -C delivery/CAD360_TBT
+          find delivery/CAD360_TBT/TBT360_SOURCE -name Cargo.toml -type f | wc -l
           printf '%s\n' 'CAD360 Viet Nam - TBT source handover' 'Build workspace: TBT360_SOURCE' 'Historical CAD and QTO reference workspaces are intentionally excluded.' 'Internal cadcraft crate names are preserved until a verified dependency migration.' > delivery/CAD360_TBT/README_HANDOVER.txt
           (cd delivery && zip -qr ../CAD360-TBT-Active-Source.zip CAD360_TBT)
           unzip -t CAD360-TBT-Active-Source.zip >/dev/null
@@ -89,8 +91,8 @@ jobs:
         run: cargo check -p cadcraft --bin cadcraft --locked
       - name: Test IFC desktop module
         run: cargo test -p cadcraft --bin cadcraft --locked
-      - name: Build Windows EXE
-        run: cargo build -p cadcraft --bin cadcraft --release --locked
+      - name: Build Windows EXE and CLI
+        run: cargo build -p cadcraft -p cadcraft-cli --release --locked
       - name: Package self-contained application folder
         shell: pwsh
         run: |
@@ -113,6 +115,34 @@ jobs:
           Write-Host "CAD360.exe SHA256: $sha"
           Write-Host 'Portable package excludes unverified IfcConvert.exe and dependent DLLs'
           Compress-Archive -Path (Join-Path $out '*') -DestinationPath (Join-Path $env:GITHUB_WORKSPACE 'CAD360-IFC-Portable.zip') -Force
+      - name: Install Inno Setup compiler
+        shell: pwsh
+        run: |
+          $iscc = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6/ISCC.exe'
+          if (!(Test-Path $iscc)) {
+            choco install innosetup --yes --no-progress
+            if ($LASTEXITCODE -ne 0) { throw 'Cannot install Inno Setup 6' }
+          }
+          if (!(Test-Path $iscc)) { throw 'ISCC.exe missing' }
+      - name: Build CAD360 TBT Windows Setup
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $iscc = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6/ISCC.exe'
+          & $iscc '/Qp' '../installer/TBT360_CAD_R65.iss'
+          if ($LASTEXITCODE -ne 0) { throw 'Inno Setup compilation failed' }
+          $setupPath = '../dist/CAD360_VietNam_TBT_Setup.exe'
+          if (!(Test-Path $setupPath)) { throw 'Windows Setup missing' }
+          if ((Get-Item $setupPath).Length -lt 100000) { throw 'Windows Setup unexpectedly small' }
+          (Get-FileHash $setupPath -Algorithm SHA256).Hash | Set-Content '../dist/CAD360_Setup_SHA256.txt'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CAD360-TBT-Windows-Setup-x64
+          path: |
+            dist/CAD360_VietNam_TBT_Setup.exe
+            dist/CAD360_Setup_SHA256.txt
+          if-no-files-found: error
+          retention-days: 30
       - uses: actions/upload-artifact@v4
         with:
           name: CAD360-IFC-Portable-Windows-x64
