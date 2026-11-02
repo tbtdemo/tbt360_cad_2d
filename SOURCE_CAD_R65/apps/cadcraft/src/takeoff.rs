@@ -1433,6 +1433,11 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
             ui.ctx().copy_text(csv);
         }
         ui.checkbox(&mut state.export_confirmed_only, "Chỉ xuất khối lượng đã xác nhận và nguồn hợp lệ");
+        let exportable = state.records.iter().filter(|r| {
+            (!state.export_confirmed_only || (r.status == MeasureStatus::Confirmed && !source_validation.invalid_record_ids.contains(&r.id))) &&
+            match r.kind { MeasureKind::Area => (r.raw_value * af).is_finite(), MeasureKind::Length | MeasureKind::Perimeter => (r.raw_value * lf).is_finite(), MeasureKind::Count => r.raw_value.is_finite() }
+        }).count();
+        ui.label(format!("Sẵn sàng xuất: {exportable}/{} phép đo; {} mục chưa đủ điều kiện.", state.records.len(), state.records.len() - exportable));
         if ui.button("Sao chép CSV chi tiết phép đo").clicked() {
             ui.ctx().copy_text(qto_detail_csv(state, &source_validation, lf, af, length_unit, area_unit, state.export_confirmed_only));
             state.file_feedback = format!("Đã sao chép {} phép đo vào clipboard.", state.records.len());
