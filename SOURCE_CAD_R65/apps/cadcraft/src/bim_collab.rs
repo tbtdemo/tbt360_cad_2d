@@ -862,9 +862,16 @@ impl State {
         });
     }
 
+    fn can_edit_issue(&self, issue: &CoordinationIssue) -> bool {
+        let account = self.current_account_id.trim();
+        !account.is_empty() && issue.status != IssueStatus::Closed && self.users.iter().any(|user| user.account_id == account && user.can_edit) && self.has_scope_access(account, issue.floor_id, issue.source_discipline, true)
+    }
+
     fn confirm_close_issue(&mut self, id: u64) -> Result<(), String> {
         let account = self.current_account_id.trim().to_string();
         if account.is_empty() { return Err("Cần đăng nhập trước khi xác nhận đóng Issue".into()); }
+        let authorized = self.issues.iter().find(|item| item.id == id).map(|issue| self.can_edit_issue(issue)).ok_or_else(|| "Không tìm thấy Issue".to_string())?;
+        if !authorized { return Err("Không có quyền xác nhận đóng Issue".into()); }
         let issue = self.issues.iter_mut().find(|item| item.id == id).ok_or_else(|| "Không tìm thấy Issue".to_string())?;
         if issue.status != IssueStatus::Resolved { return Err("Chỉ Issue đã xử lý mới được xác nhận đóng".into()); }
         if issue.assigned_to == account { return Err("Người xử lý không được tự xác nhận đóng Issue".into()); }
@@ -1625,7 +1632,7 @@ pub fn panel(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut 
                 let before = issue_before.iter().find(|row| row.0 == issue.id)?;
                 let changed = before.1 != issue.priority || before.2 != issue.issue_type || before.3 != issue.assigned_to || before.4 != issue.due_at || before.5 != issue.status;
                 if !changed { return None; }
-                let permitted = !actor.is_empty() && state.users.iter().any(|user| user.account_id == actor && user.can_edit) && state.has_scope_access(&actor, issue.floor_id, issue.source_discipline, true);
+                let permitted = state.can_edit_issue(issue);
                 let valid_status = matches!((before.5, issue.status), (IssueStatus::Open, IssueStatus::InProgress) | (IssueStatus::InProgress, IssueStatus::Resolved) | (IssueStatus::Resolved, IssueStatus::InProgress)) || before.5 == issue.status;
                 let valid_due = issue.due_at.is_empty() || issue_due_date_valid(&issue.due_at);
                 Some((issue.id, permitted && before.5 != IssueStatus::Closed && valid_status && valid_due))
@@ -2373,6 +2380,21 @@ mod tests {
         let entries = issue_audit_entries(&restored.audit_log, 10);
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].issue_id, Some(10));
+    }
+
+    #[test]
+    fn issue_close_rejects_missing_account_permission_without_mutation() {
+        let mut state = State::default();
+        state.create_issue_from_selection(None, Discipline::Structure);
+        let id = state.issues.last().unwrap().id;
+        state.issues.last_mut().unwrap().status = IssueStatus::Resolved;
+        state.issues.last_mut().unwrap().assigned_to = "designer".into();
+        let audit_before = state.audit_log.len();
+        state.current_account_id = "unknown-reviewer".into();
+        assert!(state.confirm_close_issue(id).is_err());
+        assert_eq!(state.issues.last().unwrap().status, IssueStatus::Resolved);
+        assert!(state.issues.last().unwrap().confirmed_by.is_none());
+        assert_eq!(state.audit_log.len(), audit_before);
     }
 
     #[test]
