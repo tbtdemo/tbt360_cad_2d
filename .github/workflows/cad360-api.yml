@@ -55,3 +55,9 @@ jobs:
           status=$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'Authorization: Bearer invalid.for.testing' -H 'Content-Type: application/json' -d '{"batchId":"11111111-1111-1111-1111-111111111111","items":[]}' http://127.0.0.1:5079/api/bim/projects/11111111-1111-1111-1111-111111111111/changesets)
           test "$status" = 401 || { echo "Invalid bearer changeset returned $status, expected 401"; exit 1; }
 
+          status=$(curl -s -o /dev/null -w '%{http_code}' 'http://127.0.0.1:5079/api/bim/projects/11111111-1111-1111-1111-111111111111/sync-state')
+          test "$status" = 401 || { echo "Anonymous sync handshake returned $status"; exit 1; }
+          status=$(curl -s -o /dev/null -w '%{http_code}' -H 'Authorization: Bearer invalid.for.testing' 'http://127.0.0.1:5079/api/bim/projects/11111111-1111-1111-1111-111111111111/sync-state')
+          test "$status" = 401 || { echo "Forged sync handshake returned $status"; exit 1; }
+
+
