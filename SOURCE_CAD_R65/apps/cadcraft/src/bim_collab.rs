@@ -1390,7 +1390,114 @@ pub fn sync_render_filters(app: &mut cadcraft_ui_egui::CadApp, state: &State) {
     app.tile_render_filters = filters;
 }
 
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum CollaborationTab { Overview, Workspace, Issues, Sync, Permissions }
+
+impl CollaborationTab {
+    const ALL: [Self; 5] = [Self::Overview, Self::Workspace, Self::Issues, Self::Sync, Self::Permissions];
+    fn title(self) -> &'static str { match self { Self::Overview => "TỔNG QUAN", Self::Workspace => "KHÔNG GIAN PHỐI HỢP", Self::Issues => "ISSUE / CLASH", Self::Sync => "ĐỒNG BỘ", Self::Permissions => "QUYỀN TRUY CẬP" } }
+}
+
 pub fn panel(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut State) {
+    let tab_id = egui::Id::new("tbt360_bim_collaboration_active_tab");
+    let mut tab = ui.ctx().data_mut(|data| data.get_temp::<u8>(tab_id).unwrap_or(2));
+    let mut selected_issue = ui.ctx().data_mut(|data| data.get_temp::<u64>(egui::Id::new("tbt360_bim_selected_issue")));
+    ui.heading("PHỐI HỢP THIẾT KẾ");
+    ui.label("BIM CỘNG TÁC • RFI / BCF • Issue / Clash • Đồng bộ");
+    ui.add_space(8.0);
+    ui.horizontal_wrapped(|ui| {
+        for (idx, section) in CollaborationTab::ALL.iter().enumerate() {
+            ui.selectable_value(&mut tab, idx as u8, section.title());
+        }
+    });
+    ui.separator();
+    match CollaborationTab::ALL.get(tab as usize).copied().unwrap_or(CollaborationTab::Issues) {
+        CollaborationTab::Overview => {
+            let health = state.model_health(app);
+            ui.heading("TỔNG QUAN DỰ ÁN");
+            ui.horizontal_wrapped(|ui| {
+                ui.label(format!("Đối tượng: {}", health.total_entities));
+                ui.label(format!("Chưa gắn BIM: {}", health.unscoped_entities));
+                ui.label(format!("Xung đột: {}", health.conflicts));
+                ui.label(format!("Issue đang mở: {}", health.open_issues));
+            });
+            ui.label(format!("{} • {}", state.project_id, state.project_name));
+            ui.label("Các chức năng cấu hình dự án và thiết lập nâng cao vẫn được giữ bên dưới.");
+        }
+        CollaborationTab::Workspace => {
+            ui.heading("KHÔNG GIAN PHỐI HỢP");
+            ui.label(format!("Tầng đang thiết kế: {} • Bộ môn: {}", state.floors.iter().find(|f| f.id == state.active_floor_id).map(|f| f.name.as_str()).unwrap_or("Chưa chọn"), state.active_discipline.label()));
+            ui.label(format!("Đối tượng CAD đang chọn: {}", app.session.selection().len()));
+            ui.label("Bố cục 1–4 viewport, scope, tầng và bộ môn được giữ trong công cụ thiết lập nâng cao.");
+        }
+        CollaborationTab::Issues => {
+            ui.heading("ISSUE / CLASH — RFI / BCF WORKFLOW");
+            ui.horizontal_wrapped(|ui| {
+                ui.label(format!("Tổng số issue: {}", state.issues.len()));
+                ui.label(format!("Mở: {}", state.issues.iter().filter(|issue| issue.status == IssueStatus::Open).count()));
+                ui.label(format!("Đang xử lý: {}", state.issues.iter().filter(|issue| issue.status == IssueStatus::InProgress).count()));
+                ui.label(format!("Đã xử lý: {}", state.issues.iter().filter(|issue| issue.status == IssueStatus::Resolved).count()));
+            });
+            let current = app.session.selection().first().copied();
+            ui.horizontal_wrapped(|ui| {
+                for (discipline, label) in [(Discipline::Structure, "+ Issue Kết cấu"), (Discipline::Electrical, "+ Issue Điện"), (Discipline::Plumbing, "+ Issue Nước"), (Discipline::Hvac, "+ Issue HVAC")] {
+                    if ui.button(label).clicked() { state.create_issue_from_selection(current, discipline); }
+                }
+            });
+            ui.separator();
+            egui::ScrollArea::horizontal().show(ui, |ui| {
+                egui::Grid::new("tbt360_collaboration_issue_grid").striped(true).min_col_width(90.0).show(ui, |ui| {
+                    for heading in ["Mã", "Loại", "Nguồn", "Ảnh hưởng / Bộ môn", "Nội dung", "Phụ trách", "Trạng thái", "Tác vụ"] { ui.strong(heading); }
+                    ui.end_row();
+                    for issue in &mut state.issues {
+                        if ui.selectable_label(selected_issue == Some(issue.id), format!("#{:04}", issue.id)).clicked() { selected_issue = Some(issue.id); }
+                        ui.label("Coordination");
+                        ui.label(issue.source_discipline.label());
+                        ui.label(issue.target_discipline.label());
+                        ui.label(&issue.description);
+                        ui.text_edit_singleline(&mut issue.assigned_to);
+                        egui::ComboBox::from_id_salt(("collab_issue_status", issue.id)).selected_text(issue.status.label()).show_ui(ui, |ui| {
+                            for status in [IssueStatus::Open, IssueStatus::InProgress, IssueStatus::Resolved] { ui.selectable_value(&mut issue.status, status, status.label()); }
+                        });
+                        if ui.button("Chi tiết").clicked() { selected_issue = Some(issue.id); }
+                        ui.end_row();
+                    }
+                });
+            });
+            ui.add_space(10.0);
+            if let Some(issue) = selected_issue.and_then(|id| state.issues.iter().find(|issue| issue.id == id)) {
+                ui.group(|ui| {
+                    ui.heading(format!("CHI TIẾT ISSUE #{:04}", issue.id));
+                    ui.label(format!("{} → {} • {}", issue.source_discipline.label(), issue.target_discipline.label(), issue.status.label()));
+                    ui.label(&issue.description);
+                    ui.label(format!("Phụ trách: {}", issue.assigned_to));
+                    if let Some(handle) = issue.handle {
+                        if ui.button(format!("Chọn đối tượng CAD {}", handle.hex())).clicked() { app.session.set_selection(vec![handle]); }
+                    }
+                });
+            } else {
+                ui.label("Chọn một issue trong bảng để xem chi tiết. Danh sách chỉ hiển thị dữ liệu thực của dự án.");
+            }
+        }
+        CollaborationTab::Sync => {
+            ui.heading("ĐỒNG BỘ & PHIÊN LÀM VIỆC");
+            ui.label(format!("Thay đổi chờ đồng bộ: {} • Conflict: {}", state.dirty_local_changes, state.conflicts.len()));
+            ui.label(format!("Người đang hiện diện: {} • Nhật ký: {}", state.presence.len(), state.audit.len()));
+        }
+        CollaborationTab::Permissions => {
+            ui.heading("QUYỀN TRUY CẬP");
+            ui.label(format!("Tài khoản: {} • Rule: {} • Chia sẻ: {}", state.users.len(), state.access_rules.len(), state.share_grants.len()));
+        }
+    }
+    ui.separator();
+    ui.collapsing("Công cụ BIM nâng cao / cấu hình và chức năng hiện có", |ui| {
+        legacy_panel(ui, app, state);
+    });
+    ui.ctx().data_mut(|data| { data.insert_temp(tab_id, tab); data.insert_temp(egui::Id::new("tbt360_bim_selected_issue"), selected_issue); });
+}
+
+fn legacy_panel(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut State) {
     ui.heading("BIM Cộng tác");
     ui.label("Khung sơ bộ cho thiết kế nhiều bộ môn, nhiều tầng/cao độ và phối hợp online/offline trong cùng một file dự án.");
 
