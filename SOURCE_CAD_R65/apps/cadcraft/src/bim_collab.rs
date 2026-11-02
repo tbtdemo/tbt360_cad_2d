@@ -1064,6 +1064,7 @@ impl State {
 
         self.conflicts.clear();
         let mut accepted = Vec::new();
+        let mut staged_remote_revisions = self.remote_revisions.clone();
 
         for change in &self.pending_changes {
             if change.synced {
@@ -1079,7 +1080,11 @@ impl State {
             let mut staged_revisions = Vec::new();
 
             for item in &change.items {
-                let remote_revision = self.remote_revision(item.handle);
+                let remote_revision = staged_remote_revisions
+                    .iter()
+                    .find(|(handle, _)| *handle == item.handle)
+                    .map(|(_, revision)| *revision)
+                    .unwrap_or(0);
 
                 if let Some(conflict) = detect_conflict(item, remote_revision) {
                     change_conflicts.push(conflict);
@@ -1091,6 +1096,17 @@ impl State {
             if !change_conflicts.is_empty() {
                 self.conflicts.extend(change_conflicts);
                 continue;
+            }
+
+            for (handle, revision) in &staged_revisions {
+                if let Some((_, staged_revision)) = staged_remote_revisions
+                    .iter_mut()
+                    .find(|(existing_handle, _)| existing_handle == handle)
+                {
+                    *staged_revision = *revision;
+                } else {
+                    staged_remote_revisions.push((*handle, *revision));
+                }
             }
 
             accepted.push((change.id, staged_revisions));
