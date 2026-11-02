@@ -1044,6 +1044,10 @@ impl State {
             "priority": i.priority,
             "due_at": i.due_at
         })).collect::<Vec<_>>();
+        let audit_log = self.audit_log.iter().map(|a| serde_json::json!({
+            "sequence": a.sequence, "account_id": a.account_id, "action": a.action, "floor_id": a.floor_id,
+            "discipline": a.discipline.map(Discipline::label), "handle": a.handle.map(|h| h.hex()), "detail": a.detail
+        })).collect::<Vec<_>>();
         serde_json::json!({
             "version": 2,
             "project_id": self.project_id,
@@ -1063,7 +1067,8 @@ impl State {
             "active_floor_id": self.active_floor_id,
             "active_discipline": self.active_discipline.label(),
             "progress": progress,
-            "issues": issues
+            "issues": issues,
+            "audit_log": audit_log
         })
     }
 
@@ -1222,6 +1227,18 @@ impl State {
                 })
             }).collect();
             self.next_issue_id = self.issues.iter().map(|i| i.id).max().unwrap_or(0) + 1;
+        }
+        if let Some(entries) = value.get("audit_log").and_then(serde_json::Value::as_array) {
+            self.audit_log = entries.iter().filter_map(|item| Some(AuditEntry {
+                sequence: item.get("sequence")?.as_u64()?,
+                account_id: item.get("account_id")?.as_str()?.to_string(),
+                action: item.get("action")?.as_str()?.to_string(),
+                floor_id: item.get("floor_id").and_then(serde_json::Value::as_u64),
+                discipline: item.get("discipline").and_then(serde_json::Value::as_str).and_then(Discipline::from_label),
+                handle: item.get("handle").and_then(serde_json::Value::as_str).and_then(cadcraft_doc::Handle::parse_hex),
+                detail: item.get("detail").and_then(serde_json::Value::as_str).unwrap_or_default().to_string(),
+            })).take(5000).collect();
+            self.next_audit_sequence = self.audit_log.iter().map(|entry| entry.sequence).max().unwrap_or(0).saturating_add(1);
         }
         Ok(())
     }
