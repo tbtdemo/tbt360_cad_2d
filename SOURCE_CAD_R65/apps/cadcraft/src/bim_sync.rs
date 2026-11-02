@@ -167,6 +167,8 @@ impl CollaborationTransport for MemoryTransport {
         let mut accepted = Vec::new();
         let mut conflicts = Vec::new();
         for change in changes {
+            // A repeated request must not increment revision or replay writes.
+            if self.change_history.iter().any(|(_, recorded)| recorded.id == change.id && recorded.account_id == change.account_id && recorded.device_id == change.device_id) { continue; }
             // An empty changeset must not increment the project revision.
             if change.items.is_empty() { continue; }
             let mut change_conflict = false;
@@ -379,6 +381,19 @@ mod tests {
         assert_eq!(subsequent[0].id, 32);
         let (_, none) = transport.pull_changes("p", 2).unwrap();
         assert!(none.is_empty());
+    }
+
+    #[test]
+    fn repeated_changeset_is_idempotent() {
+        let mut transport = MemoryTransport::default();
+        let batch = change(51, "A", 0, 1);
+        let first = transport.push_changes("p", std::slice::from_ref(&batch)).unwrap();
+        let second = transport.push_changes("p", &[batch]).unwrap();
+        assert_eq!(first.accepted_change_set_ids, vec![51]);
+        assert!(second.accepted_change_set_ids.is_empty());
+        assert!(second.conflicts.is_empty());
+        assert_eq!(transport.project_revision, 1);
+        assert_eq!(transport.change_history.len(), 1);
     }
 
 }
