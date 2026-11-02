@@ -120,7 +120,7 @@ impl State {
             return Err("Điểm hoặc chiều dài hiệu chỉnh không hợp lệ".into());
         }
         let drawing_distance = (b[0] - a[0]).hypot(b[1] - a[1]);
-        if drawing_distance <= 1e-12 {
+        if !drawing_distance.is_finite() || drawing_distance <= 1e-12 {
             return Err("Hai điểm hiệu chỉnh trùng nhau".into());
         }
         self.drawing_distance = drawing_distance;
@@ -143,6 +143,7 @@ impl State {
     fn add_measurement(&mut self, kind: MeasureKind, points: Vec<[f64; 2]>, raw_value: f64, layer: String) -> Result<u64, String> {
         if !raw_value.is_finite() || raw_value < 0.0 { return Err("Giá trị phép đo không hợp lệ".into()); }
         if kind != MeasureKind::Count && points.is_empty() { return Err("Phép đo chưa có điểm hình học".into()); }
+        if points.iter().flatten().any(|value| !value.is_finite()) { return Err("Tọa độ điểm đo không hợp lệ".into()); }
         self.snapshot();
         self.next_record_id = self.next_record_id.max(1);
         let id = self.next_record_id;
