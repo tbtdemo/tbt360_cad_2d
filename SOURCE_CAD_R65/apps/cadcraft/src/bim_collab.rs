@@ -1086,7 +1086,15 @@ impl State {
                     .map(|(_, revision)| *revision)
                     .unwrap_or(0);
 
-                if let Some(conflict) = detect_conflict(item, remote_revision) {
+                if item.local_revision <= item.base_revision {
+                    log::warn!("BIM sync rejected change with non-increasing revision");
+                    change_conflicts.push(SyncConflict {
+                        handle: item.handle,
+                        base_revision: item.base_revision,
+                        local_revision: item.local_revision,
+                        remote_revision,
+                    });
+                } else if let Some(conflict) = detect_conflict(item, remote_revision) {
                     change_conflicts.push(conflict);
                 } else {
                     staged_revisions.push((item.handle, item.local_revision));
