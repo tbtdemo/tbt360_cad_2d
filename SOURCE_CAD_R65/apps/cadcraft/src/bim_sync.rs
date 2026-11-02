@@ -131,19 +131,34 @@ pub struct MemoryTransport {
     pub presences: std::collections::BTreeMap<String, PresenceDto>,
     pub leases: std::collections::BTreeMap<String, String>,
     pub change_history: Vec<(u64, ChangeEnvelope)>,
+    pub bound_project_id: Option<String>,
+}
+
+impl MemoryTransport {
+    fn bind_project(&mut self, project_id: &str) -> Result<(), String> {
+        if project_id.trim().is_empty() { return Err("Project identity missing".into()); }
+        match &self.bound_project_id {
+            Some(bound) if bound != project_id => Err("Memory transport belongs to another project".into()),
+            Some(_) => Ok(()),
+            None => { self.bound_project_id = Some(project_id.to_owned()); Ok(()) }
+        }
+    }
 }
 
 impl CollaborationTransport for MemoryTransport {
     fn bootstrap(&mut self, project_id: &str) -> Result<Bootstrap, String> {
+        self.bind_project(project_id)?;
         Ok(Bootstrap { project_id: project_id.to_string(), project_revision: self.project_revision, floors: Vec::new(), permissions: Vec::new() })
     }
 
-    fn pull_changes(&mut self, _project_id: &str, after_revision: u64) -> Result<(u64, Vec<ChangeEnvelope>), String> {
+    fn pull_changes(&mut self, project_id: &str, after_revision: u64) -> Result<(u64, Vec<ChangeEnvelope>), String> {
+        self.bind_project(project_id)?;
         let changes = self.change_history.iter().filter(|(revision, _)| *revision > after_revision).map(|(_, change)| change.clone()).collect();
         Ok((self.project_revision, changes))
     }
 
-    fn push_changes(&mut self, _project_id: &str, changes: &[ChangeEnvelope]) -> Result<PushResult, String> {
+    fn push_changes(&mut self, project_id: &str, changes: &[ChangeEnvelope]) -> Result<PushResult, String> {
+        self.bind_project(project_id)?;
         for change in changes {
             if change.account_id.trim().is_empty() || change.device_id.trim().is_empty() {
                 return Err("Missing account or device identity".into());
@@ -224,12 +239,14 @@ impl CollaborationTransport for MemoryTransport {
         Ok(PushResult { accepted_change_set_ids: accepted, project_revision: self.project_revision, conflicts })
     }
 
-    fn update_presence(&mut self, _project_id: &str, presence: &PresenceDto) -> Result<(), String> {
+    fn update_presence(&mut self, project_id: &str, presence: &PresenceDto) -> Result<(), String> {
+        self.bind_project(project_id)?;
         self.presences.insert(presence.account_id.clone(), presence.clone());
         Ok(())
     }
 
-    fn acquire_lease(&mut self, _project_id: &str, source_handle: &str, _revision: u64) -> Result<LeaseResult, String> {
+    fn acquire_lease(&mut self, project_id: &str, source_handle: &str, _revision: u64) -> Result<LeaseResult, String> {
+        self.bind_project(project_id)?;
         match self.leases.get(source_handle) {
             Some(owner) => Ok(LeaseResult { granted: false, owner_account_id: Some(owner.clone()), expires_unix_ms: None }),
             None => {
@@ -239,7 +256,8 @@ impl CollaborationTransport for MemoryTransport {
         }
     }
 
-    fn release_lease(&mut self, _project_id: &str, source_handle: &str) -> Result<(), String> {
+    fn release_lease(&mut self, project_id: &str, source_handle: &str) -> Result<(), String> {
+        self.bind_project(project_id)?;
         self.leases.remove(source_handle);
         Ok(())
     }
@@ -456,6 +474,17 @@ mod tests {
         runtime.apply_push_result(&PushResult { accepted_change_set_ids: vec![], project_revision: 12, conflicts: vec![] });
         assert_eq!(runtime.project_revision, 20);
         assert_eq!(runtime.health, SyncHealth::Healthy);
+    }
+
+    #[test]
+    fn one_memory_transport_cannot_leak_changes_across_projects() {
+        let mut transport = MemoryTransport::default();
+        transport.push_changes("P1", &[change(901, "A", 0, 1)]).unwrap();
+        assert!(transport.pull_changes("P2", 0).is_err());
+        assert!(transport.push_changes("P2", &[change(902, "B", 0, 1)]).is_err());
+        assert_eq!(transport.project_revision, 1);
+        assert!(transport.object_revisions.contains_key("A"));
+        assert!(!transport.object_revisions.contains_key("B"));
     }
 
 }
