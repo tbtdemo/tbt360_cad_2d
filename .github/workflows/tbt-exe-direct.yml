@@ -10,6 +10,30 @@ permissions:
   contents: read
 
 jobs:
+  source-preflight:
+    name: Validate Git checkout and source inventory
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate tracked build inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          for file in SOURCE_CAD_R65/Cargo.toml SOURCE_CAD_R65/Cargo.lock SOURCE_CAD_R65/apps/cadcraft/src/main.rs SOURCE_CAD_R65/apps/cadcraft-cli/Cargo.toml installer/CAD360_TBT_Windows.iss; do
+            test -s "$file" || { echo "::error::Missing required build input: $file"; exit 1; }
+          done
+          printf 'commit=%s\n' "$GITHUB_SHA" > TBT_SOURCE_INVENTORY.txt
+          printf 'tracked_files=%s\n' "$(git ls-files | wc -l)" >> TBT_SOURCE_INVENTORY.txt
+          printf 'rust_files=%s\n' "$(git ls-files '*.rs' | wc -l)" >> TBT_SOURCE_INVENTORY.txt
+          printf 'cargo_manifests=%s\n' "$(git ls-files '**/Cargo.toml' | wc -l)" >> TBT_SOURCE_INVENTORY.txt
+          cat TBT_SOURCE_INVENTORY.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TBT-Source-Inventory
+          path: TBT_SOURCE_INVENTORY.txt
+          if-no-files-found: error
+
   build-exe:
     name: TBT CAD360 Windows Setup
     runs-on: windows-latest
@@ -59,9 +83,9 @@ jobs:
               if ($size -eq 0) { $missing += $item }
             }
           }
-          $tracked = @(git ls-files).Count
-          $rustFiles = @(git ls-files '*.rs').Count
-          $cargoFiles = @(git ls-files '*Cargo.toml').Count
+          $tracked = @(git ls-files | Where-Object { $_ }).Count
+          $rustFiles = @(git ls-files '*.rs' | Where-Object { $_ }).Count
+          $cargoFiles = @(git ls-files '*Cargo.toml' | Where-Object { $_ }).Count
           "Tracked workspace files: $tracked" | Add-Content $report
           "Rust files: $rustFiles" | Add-Content $report
           "Cargo manifests: $cargoFiles" | Add-Content $report
