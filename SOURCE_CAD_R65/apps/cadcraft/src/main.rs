@@ -28,6 +28,7 @@ mod takeoff;
 mod bim_collab;
 mod model3d;
 mod ifc_mesh;
+mod ifc_catalog;
 mod bim_sync;
 mod bim_domain;
 mod bim_presence;
