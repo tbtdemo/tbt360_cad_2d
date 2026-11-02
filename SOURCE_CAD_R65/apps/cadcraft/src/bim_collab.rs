@@ -2166,6 +2166,22 @@ mod tests {
     }
 
     #[test]
+    fn issue_sla_validates_real_calendar_dates_and_status() {
+        for valid in ["2024-02-29", "2026-11-02", "2000-02-29"] { assert!(issue_due_date_valid(valid)); }
+        for invalid in ["2026-02-29", "1900-02-29", "2026-13-01", "2026-04-31", "2026-1-01", "2026-00-00"] { assert!(!issue_due_date_valid(invalid)); }
+        let mut state = State::default();
+        state.create_issue_from_selection(None, Discipline::Structure);
+        let issue = state.issues.last_mut().unwrap();
+        issue.due_at = "2026-11-01".into();
+        assert_eq!(issue_due_label(issue, "2026-11-02"), "QUÁ HẠN");
+        issue.due_at = "2026-11-02".into();
+        assert_eq!(issue_due_label(issue, "2026-11-02"), "Trong hạn");
+        issue.status = IssueStatus::Resolved;
+        issue.due_at = "2026-10-01".into();
+        assert_eq!(issue_due_label(issue, "2026-11-02"), "Đã xử lý");
+    }
+
+    #[test]
     fn collaboration_workspace_has_five_business_tabs() {
         assert_eq!(CollaborationTab::ALL.len(), 5);
         assert_eq!(CollaborationTab::Issues.title(), "ISSUE / CLASH");
