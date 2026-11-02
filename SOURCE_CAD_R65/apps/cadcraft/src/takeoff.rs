@@ -1242,6 +1242,20 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
         ui.label(format!("Liên kết nguồn QTO hợp lệ: {} record.",source_validation.valid_links));
     }
 
+    ui.horizontal_wrapped(|ui| {
+        if ui.button("Xác nhận tất cả phép đo nguồn hợp lệ").clicked() {
+            let ids = state.records.iter().filter(|r| r.status == MeasureStatus::Review && !source_validation.invalid_record_ids.contains(&r.id)).map(|r| r.id).collect::<Vec<_>>();
+            let mut updated = 0usize;
+            for id in ids { if state.set_status(id, MeasureStatus::Confirmed) { updated += 1; } }
+            state.import_feedback = format!("Đã xác nhận {updated} phép đo đủ điều kiện; nguồn lỗi giữ nguyên để rà soát.");
+        }
+        if ui.button("Đưa phép đo đã loại về rà soát").clicked() {
+            let ids = state.records.iter().filter(|r| r.status == MeasureStatus::Excluded).map(|r| r.id).collect::<Vec<_>>();
+            let mut updated = 0usize;
+            for id in ids { if state.set_status(id, MeasureStatus::Review) { updated += 1; } }
+            state.import_feedback = format!("Đã chuyển {updated} phép đo về trạng thái rà soát.");
+        }
+    });
     ui.separator();
     ui.horizontal(|ui| {
         if ui.button("Hoàn tác phép đo").clicked() { let _ = state.undo_measurement_change(); }
