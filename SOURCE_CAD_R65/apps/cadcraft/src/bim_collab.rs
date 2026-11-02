@@ -2352,6 +2352,17 @@ mod tests {
     }
 
     #[test]
+    fn issue_comments_invalid_workspace_records_are_reported() {
+        let state = State::default();
+        let mut saved = state.snapshot_json();
+        saved["issue_comments"] = serde_json::json!([{"issue_id":9999,"author":"tester","message":"orphan","sequence":1}]);
+        let mut restored = State::default();
+        restored.load_snapshot_json(&saved).unwrap();
+        assert!(restored.issue_comments.is_empty());
+        assert!(restored.audit_log.iter().any(|entry| entry.action == "WORKSPACE_DATA_REJECTED" && entry.detail.contains("issue_comments")));
+    }
+
+    #[test]
     fn collaboration_workspace_has_five_business_tabs() {
         assert_eq!(CollaborationTab::ALL.len(), 5);
         assert_eq!(CollaborationTab::Issues.title(), "ISSUE / CLASH");
