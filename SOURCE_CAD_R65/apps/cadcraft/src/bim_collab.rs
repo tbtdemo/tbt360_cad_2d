@@ -1422,7 +1422,10 @@ pub fn panel(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut 
                 ui.label(format!("Xung đột: {}", health.conflicts));
                 ui.label(format!("Issue đang mở: {}", health.open_issues));
             });
-            ui.label(format!("{} • {}", state.project_id, state.project_name));
+            ui.horizontal(|ui| {
+                ui.label("Mã dự án:"); ui.text_edit_singleline(&mut state.project_id);
+                ui.label("Tên dự án:"); ui.text_edit_singleline(&mut state.project_name);
+            });
             ui.label("Các chức năng cấu hình dự án và thiết lập nâng cao vẫn được giữ bên dưới.");
         }
         CollaborationTab::Workspace => {
@@ -1491,7 +1494,8 @@ pub fn panel(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut 
         }
     }
     ui.separator();
-    ui.collapsing("Công cụ BIM nâng cao / cấu hình và chức năng hiện có", |ui| {
+    ui.collapsing("Công cụ nghiệp vụ và thiết lập chi tiết", |ui| {
+        ui.label("Các công cụ cũ được giữ nguyên để bảo toàn thao tác. Trong các phiên bản tiếp theo, chức năng sẽ được đưa vào từng tab tương ứng.");
         legacy_panel(ui, app, state);
     });
     ui.ctx().data_mut(|data| { data.insert_temp(tab_id, tab); data.insert_temp(egui::Id::new("tbt360_bim_selected_issue"), selected_issue); });
