@@ -3160,6 +3160,47 @@ mod tests {
     }
 
     #[test]
+    fn duplicate_change_set_ids_remain_pending() {
+        let mut state = State::default();
+        let account_id = state.current_account_id.clone();
+
+        for handle in [94001, 94002] {
+            state.pending_changes.push(ChangeSet {
+                id: 940,
+                account_id: account_id.clone(),
+                items: vec![ChangeItem {
+                    handle: cadcraft_doc::Handle(handle),
+                    operation: ChangeOperation::Update,
+                    base_revision: 0,
+                    local_revision: 1,
+                }],
+                synced: false,
+            });
+        }
+
+        state.sync_pending_changes();
+
+        assert!(state.pending_changes.iter().all(|change| !change.synced));
+        assert_eq!(state.remote_revision(cadcraft_doc::Handle(94001)), 0);
+        assert_eq!(state.remote_revision(cadcraft_doc::Handle(94002)), 0);
+    }
+
+    #[test]
+    fn empty_change_set_cannot_be_confirmed() {
+        let mut state = State::default();
+        state.pending_changes.push(ChangeSet {
+            id: 941,
+            account_id: state.current_account_id.clone(),
+            items: vec![],
+            synced: false,
+        });
+
+        state.sync_pending_changes();
+
+        assert!(!state.pending_changes[0].synced);
+    }
+
+    #[test]
     fn many_independent_bim_changes_sync_without_conflicts() {
         let mut state = State::default();
         let account_id = state.current_account_id.clone();
