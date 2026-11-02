@@ -687,6 +687,14 @@ impl State {
     }
 
     fn can_edit_active_view(&self, app: &cadcraft_ui_egui::CadApp) -> bool {
+        if self.auth.status == AuthStatus::SignedOut {
+            return false;
+        }
+
+        if self.auth.account_id != self.current_account_id {
+            return false;
+        }
+
         let index = self.active_native_view_index(app);
         self.views.get(index).is_some_and(|slot| {
             slot.mode == ViewMode::Edit
@@ -1368,6 +1376,10 @@ impl State {
     }
 
     fn has_scope_access(&self, account_id: &str, floor_id: u64, discipline: Discipline, edit: bool) -> bool {
+        if account_id.is_empty() {
+            return false;
+        }
+
         self.access_rules.iter().any(|rule| {
             rule.account_id == account_id
                 && rule.floor_id.is_none_or(|f| f == floor_id)
@@ -3074,6 +3086,14 @@ mod tests {
         let state = State::default();
         let target = state.users.iter().find(|u| u.account_id == "struct-01").unwrap();
         assert!(state.can_view(target, 2, 1));
+    }
+
+    #[test]
+    fn signed_out_user_cannot_pass_scope_permission() {
+        let mut state = State::default();
+        state.current_account_id.clear();
+        assert!(!state.has_scope_access("", 1, Discipline::Architecture, true));
+        assert!(!state.has_scope_access("", 1, Discipline::Architecture, false));
     }
 
     #[test]
