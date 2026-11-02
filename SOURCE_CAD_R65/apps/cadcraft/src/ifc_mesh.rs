@@ -1,10 +1,47 @@
 //! Lightweight OBJ triangle reader for IfcConvert exports.
 //! Geometry is bounded to avoid uncontrolled memory use with untrusted BIM files.
-use std::{collections::HashMap, io::{BufRead, BufReader, Read}, path::Path};
+use std::{collections::HashMap, io::{BufRead, BufReader}, path::Path};
 const MAX_OBJ_LINE: usize = 4_000_000;
 
 #[derive(Clone, Default)]
 pub struct Mesh { pub vertices: Vec<[f32;3]>, pub faces: Vec<[usize;3]>, pub face_groups: Vec<usize>, pub groups: Vec<String> }
+
+fn read_limited_line<Reader: BufRead>(
+    reader: &mut Reader,
+    destination: &mut Vec<u8>,
+    maxBytes: usize,
+) -> Result<usize, String>
+{
+    destination.clear();
+
+    loop
+    {
+        let available = reader
+            .fill_buf()
+            .map_err(|error| format!("Không đọc được OBJ: {error}"))?;
+
+        if available.is_empty()
+        {
+            return Ok(destination.len());
+        }
+
+        let newlinePosition = available.iter().position(|byte| *byte == b'\n');
+        let bytesToCopy = newlinePosition.map_or(available.len(), |index| index + 1);
+
+        if destination.len().saturating_add(bytesToCopy) > maxBytes
+        {
+            return Err("Dòng OBJ vượt giới hạn 4 MB".into());
+        }
+
+        destination.extend_from_slice(&available[..bytesToCopy]);
+        reader.consume(bytesToCopy);
+
+        if newlinePosition.is_some()
+        {
+            return Ok(destination.len());
+        }
+    }
+}
 
 fn face_index(token: &str, count: usize) -> Option<usize> {
     let value: isize = token.split('/').next()?.parse().ok()?;
@@ -27,7 +64,7 @@ impl Mesh {
         let mut line = Vec::new();
         loop {
             line.clear();
-            let size = reader.by_ref().take((MAX_OBJ_LINE + 1) as u64).read_until(b'\n', &mut line).map_err(|e| e.to_string())?;
+            let size = read_limited_line(&mut reader, &mut line, MAX_OBJ_LINE)?;
             if size == 0 { break; }
             if size > MAX_OBJ_LINE { return Err("Dòng OBJ vượt giới hạn 4 MB".into()); }
             let line = std::str::from_utf8(&line).map_err(|_| "OBJ không phải UTF-8 hợp lệ")?;
