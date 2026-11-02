@@ -3149,6 +3149,34 @@ mod tests {
     }
 
     #[test]
+    fn regression_checks_staged_revisions_across_change_sets() {
+        let mut state = State::default();
+        let handle = cadcraft_doc::Handle(93001);
+        let owner = state.current_account_id.clone();
+
+        for (id, revision) in [(930, 1), (931, 2)] {
+            state.pending_changes.push(ChangeSet {
+                id,
+                account_id: owner.clone(),
+                items: vec![ChangeItem {
+                    handle,
+                    operation: ChangeOperation::Update,
+                    base_revision: 0,
+                    local_revision: revision,
+                }],
+                synced: false,
+            });
+        }
+
+        state.sync_pending_changes();
+
+        assert!(state.pending_changes[0].synced);
+        assert!(!state.pending_changes[1].synced);
+        assert_eq!(state.remote_revision(handle), 1);
+        assert_eq!(state.conflicts.len(), 1);
+    }
+
+    #[test]
     fn stage_13_rejects_leases_without_identity() {
         let mut state = State::default();
         state.auth.status = AuthStatus::SignedOut;
