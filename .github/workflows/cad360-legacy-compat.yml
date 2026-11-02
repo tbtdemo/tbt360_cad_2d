@@ -20,6 +20,10 @@ jobs:
             package: cadcraft-engine
             target: clipboard
             filter: ""
+          - name: Clipboard Real DXF
+            package: cadcraft-engine
+            target: clipboard_real_dxf
+            filter: ""
           - name: DXF BIM XData
             package: cadcraft-engine
             target: it
