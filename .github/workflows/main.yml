@@ -116,9 +116,28 @@ jobs:
       - name: Test complete workspace
         run: cargo test --workspace --locked --no-fail-fast
 
+  bim-module-regressions:
+    name: "5 - BIM ${{ matrix.module }} Regression"
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        module: [bim_coordinates, bim_sync, bim_access, bim_collab, bim_offline, bim_workset, bim_api, bim_federation, bim_clash, bim_coordination]
+    defaults:
+      run:
+        working-directory: SOURCE_CAD_R65
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: SOURCE_CAD_R65
+      - name: Run targeted BIM module tests
+        run: cargo test --locked -p cadcraft ${{ matrix.module }}::tests -- --nocapture
+
   release-windows:
     name: "Release - Single Windows Setup"
-    needs: [build-core, unified-ui, vi-tbt-branding, regression-tests]
+    needs: [build-core, unified-ui, vi-tbt-branding, regression-tests, bim-module-regressions]
     runs-on: windows-latest
     defaults:
       run:
