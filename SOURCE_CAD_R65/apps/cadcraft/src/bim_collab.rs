@@ -871,6 +871,20 @@ impl State {
         Ok(())
     }
 
+    fn update_issue_priority(&mut self, id: u64, expected_revision: u64, priority: &str) -> Result<u64, String> {
+        self.check_issue_revision(id, expected_revision)?;
+        if !["P0", "P1", "P2", "P3"].contains(&priority) { return Err("Mức ưu tiên Issue không hợp lệ".into()); }
+        let issue = self.issues.iter_mut().find(|item| item.id == id).ok_or_else(|| "Không tìm thấy Issue".to_string())?;
+        if issue.priority == priority { return Ok(issue.revision); }
+        let before = issue.priority.clone();
+        issue.revision = issue.revision.checked_add(1).ok_or_else(|| "Issue đã đạt giới hạn phiên bản".to_string())?;
+        issue.priority = priority.to_string();
+        let revision = issue.revision;
+        let (floor, discipline, handle) = (issue.floor_id, issue.source_discipline, issue.handle);
+        self.audit_issue(id, "ISSUE_UPDATED", Some(floor), Some(discipline), handle, format!("Issue #{id}: priority:{before}→{priority}"));
+        Ok(revision)
+    }
+
     fn can_edit_issue(&self, issue: &CoordinationIssue) -> bool {
         let account = self.current_account_id.trim();
         !account.is_empty() && issue.status != IssueStatus::Closed && self.users.iter().any(|user| user.account_id == account && user.can_edit) && self.has_scope_access(account, issue.floor_id, issue.source_discipline, true)
@@ -2447,6 +2461,26 @@ mod tests {
         let mut restored = State::default();
         restored.load_snapshot_json(&state.snapshot_json()).unwrap();
         assert_eq!(restored.issues.last().unwrap().revision, initial + 1);
+    }
+
+    #[test]
+    fn issue_concurrent_priority_update_rejects_stale_revision_without_audit() {
+        let mut state = State::default();
+        state.create_issue_from_selection(None, Discipline::Structure);
+        let account = state.users[0].account_id.clone();
+        state.current_account_id = account;
+        let id = state.issues.last().unwrap().id;
+        let rev = state.issues.last().unwrap().revision;
+        let updated = state.update_issue_priority(id, rev, "P1").unwrap();
+        assert_eq!(updated, rev + 1);
+        let audit_count = state.audit_log.len();
+        assert!(state.update_issue_priority(id, rev, "P0").is_err());
+        assert_eq!(state.issues.last().unwrap().priority, "P1");
+        assert_eq!(state.issues.last().unwrap().revision, updated);
+        assert_eq!(state.audit_log.len(), audit_count);
+        assert_eq!(state.update_issue_priority(id, updated, "P1").unwrap(), updated);
+        assert_eq!(state.audit_log.len(), audit_count);
+        assert_eq!(state.update_issue_priority(id, updated, "P0").unwrap(), updated + 1);
     }
 
     #[test]
