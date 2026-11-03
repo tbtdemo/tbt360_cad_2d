@@ -126,6 +126,32 @@ jobs:
         run: cargo test --locked -p cadcraft-engine --test undo_control -- --nocapture
       - name: Test XREF and XCLIP integration
         run: cargo test --locked -p cadcraft-engine --test xref -- --nocapture
+      - name: Verify critical regression tests were discovered
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $uiTests = @(cargo test --locked -p cadcraft-ui-egui --lib -- --list)
+          if ($LASTEXITCODE -ne 0) { throw "Cannot enumerate CAD UI regression tests" }
+          $appTests = @(cargo test --locked -p cadcraft --bin cadcraft -- --list)
+          if ($LASTEXITCODE -ne 0) { throw "Cannot enumerate CAD app regression tests" }
+          $engineTests = @(cargo test --locked -p cadcraft-engine --lib -- --list)
+          if ($LASTEXITCODE -ne 0) { throw "Cannot enumerate CAD engine regression tests" }
+          $required = @(
+            @{ Label = "UI"; Found = $uiTests; Name = "canvas::tests::line_command_accepts_first_point_and_keeps_second_point_prompt" },
+            @{ Label = "UI"; Found = $uiTests; Name = "canvas::tests::circle_command_accepts_the_first_point_without_second_click" },
+            @{ Label = "UI"; Found = $uiTests; Name = "canvas::primary_gesture_tests::switching_tiles_requires_press_and_release_in_same_destination_tile" },
+            @{ Label = "UI"; Found = $uiTests; Name = "canvas::draw::cpu_culling_tests::large_offscreen_drawing_does_not_reserve_one_shape_per_entity" },
+            @{ Label = "UI"; Found = $uiTests; Name = "gpu::gpu_memory_budget_tests::huge_mesh_estimate_does_not_preallocate_hundreds_of_megabytes" },
+            @{ Label = "App"; Found = $appTests; Name = "cad_bim_recovery::tests::streamed_file_checksum_matches_in_memory_and_detects_modified_tail" },
+            @{ Label = "App"; Found = $appTests; Name = "bim_collab::tests::selection_requires_foreign_owner_edit_grant_not_just_view_grant" },
+            @{ Label = "App"; Found = $appTests; Name = "bim_collab::tests::selection_rejects_wrong_floor_discipline_or_reference_view" },
+            @{ Label = "Engine"; Found = $engineTests; Name = "autosave::native::exit_recovery_tests::failed_final_snapshot_keeps_recovery_file_but_regular_exit_deletes_it" }
+          )
+          foreach ($test in $required) {
+            $match = @($test.Found | Where-Object { $_ -eq "$($test.Name): test" })
+            if ($match.Count -ne 1) { throw "$($test.Label): critical test missing or duplicated: $($test.Name)" }
+            Write-Host "DISCOVERED $($test.Label): $($test.Name)"
+          }
       - name: Test CAD canvas input and file-opening regressions
         shell: pwsh
         run: |
