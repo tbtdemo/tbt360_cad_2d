@@ -1269,7 +1269,8 @@ fn qto_report_lines(state: &State, source_validation: &SourceValidation, config:
     if !lf.is_finite() || !af.is_finite() { return Err("Đơn vị quy đổi không hợp lệ.".into()); }
     let mut result = Vec::new();
     for record in &state.records {
-        if !qto_record_in_scope(record, allowed) || state.export_omitted_ids.contains(&record.id) { continue; }
+        if !qto_record_in_scope(record, allowed) || state.export_omitted_ids.contains(&record.id)
+            || (state.methods_initialized && !qto_measure_type_allowed(record.kind, state.selected_measure_types)) { continue; }
         // Never export excluded or invalid-source measurements, even in draft mode.
         if record.status == MeasureStatus::Excluded || source_validation.invalid_record_ids.contains(&record.id) { continue; }
         if !qto_record_exportable(record, source_validation, lf, af, config.confirmed_only) { continue; }
@@ -1548,7 +1549,7 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
         }
         // Avoid constructing, sorting and grouping the complete report each GUI frame.
         let allowed_handles = qto_allowed_handles(app, state);
-        let count = state.records.iter().filter(|r| qto_record_in_scope(r, allowed_handles.as_ref()) && !state.export_omitted_ids.contains(&r.id) && r.status != MeasureStatus::Excluded && !source_validation.invalid_record_ids.contains(&r.id) && qto_record_exportable(r, &source_validation, lf, af, state.export_config.confirmed_only)).count();
+        let count = state.records.iter().filter(|r| qto_record_in_scope(r, allowed_handles.as_ref()) && !state.export_omitted_ids.contains(&r.id) && qto_measure_type_allowed(r.kind, state.selected_measure_types) && r.status != MeasureStatus::Excluded && !source_validation.invalid_record_ids.contains(&r.id) && qto_record_exportable(r, &source_validation, lf, af, state.export_config.confirmed_only)).count();
         ui.label(format!("Sẵn sàng xem xét: {count} phép đo, {} cột. File XLSX được tạo khi bấm Xuất.", state.export_config.selected().len()));
         if !state.export_config.confirmed_only {
             ui.colored_label(egui::Color32::YELLOW, "Chế độ DỰ THẢO: có thể bao gồm phép đo chưa xác nhận. Không gửi Chủ đầu tư trước khi kiểm tra.");
@@ -1638,7 +1639,7 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
                 for h in ["Xuất", "ID","Handle nguồn","Nguồn","Tầng","Bộ môn","Owner","Loại","Layer","Nhóm","Mã CT","Diễn giải","Giá trị","Trạng thái","Thao tác"] { ui.strong(h); }
                 ui.end_row();
                 for record in &state.records {
-                    if !measurement_matches_filter(record, &state.search_text, state.status_filter) || !qto_record_in_scope(record, qto_allowed_handles(app, state).as_ref()) { continue; }
+                    if !measurement_matches_filter(record, &state.search_text, state.status_filter) || !qto_record_in_scope(record, qto_allowed_handles(app, state).as_ref()) || !qto_measure_type_allowed(record.kind, state.selected_measure_types) { continue; }
                     let value = match record.kind {
                         MeasureKind::Area => record.raw_value * af,
                         MeasureKind::Length | MeasureKind::Perimeter => record.raw_value * lf,
