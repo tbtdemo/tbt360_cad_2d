@@ -79,13 +79,14 @@ pub(crate) fn draw_list_filtered(
             continue;
         }
         let pts = list.points(prim);
-        // Cull before resolving ACI/transparency or allocating screen
-        // geometry. This loop runs over every primitive in each CPU frame.
-        if !highlight_geometry_intersects(prim.kind, pts, &vis) { continue; }
+        // Compute bounds only once per primitive in the CPU fallback. Large
+        // polylines may contain thousands of vertices; scanning twice every
+        // paint frame costs more than the screen-space conversion itself.
+        let bb = if matches!(prim.kind, Kind::Infinite { .. }) { Bounds2::EMPTY } else { Bounds2::from_points(pts.iter().copied()) };
+        if !matches!(prim.kind, Kind::Infinite { .. }) && !bb.intersects(&vis) { continue; }
         let col = if opacity >= 0.999 { prim_color32(prim, bg) } else { prim_color32_opacity(prim, bg, opacity) };
         match prim.kind {
             Kind::Polyline => {
-                let bb = Bounds2::from_points(pts.iter().copied());
                 let w = if lwdisplay && prim.lw > 0.0 { (prim.lw * 3.78).clamp(1.0, 12.0) } else { 1.0 };
                 // Skip sub-pixel objects except as a dot.
                 if bb.width() < px && bb.height() < px {
