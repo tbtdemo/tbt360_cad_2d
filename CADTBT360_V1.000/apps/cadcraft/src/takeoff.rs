@@ -1285,7 +1285,8 @@ fn qto_road_report_lines(app: &CadApp, state: &State, config: &ExportConfig,
             EarthworkKind::Fill => (&start.fill,&end.fill),
         };
         for source in [sources.0.as_ref(),sources.1.as_ref()].into_iter().flatten() {
-            if !qto_is_road_cross_section_boundary(app,cadcraft_doc::Handle::parse_hex(&source.handle).unwrap())
+            if !cadcraft_doc::Handle::parse_hex(&source.handle)
+                .is_some_and(|handle|qto_is_road_cross_section_boundary(app,handle))
                 || !qto_volume_source_current(app,source,MeasureKind::Area) {
                 return Err(format!("Nguồn diện tích {} tại đoạn {} → {} đã thay đổi. Hãy quét lại trắc ngang.",
                     source.handle,takeoff_road::station_label(interval.start_m),takeoff_road::station_label(interval.end_m)));
