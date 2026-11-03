@@ -133,6 +133,12 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "Canvas batched-click regression failed" }
           cargo test --locked -p cadcraft-ui-egui canvas::point_release_tests -- --nocapture
           if ($LASTEXITCODE -ne 0) { throw "Canvas first-release regression failed" }
+          cargo test --locked -p cadcraft-ui-egui canvas::stuck_drag_tests -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw "Canvas sticky-selection regression failed" }
+          cargo test --locked -p cadcraft-ui-egui canvas::tests::line_command_accepts_first_point_and_keeps_second_point_prompt -- --exact --nocapture
+          if ($LASTEXITCODE -ne 0) { throw "LINE first-click regression failed" }
+          cargo test --locked -p cadcraft-ui-egui canvas::tests::circle_command_accepts_the_first_point_without_second_click -- --exact --nocapture
+          if ($LASTEXITCODE -ne 0) { throw "CIRCLE first-click regression failed" }
           cargo test --locked -p cadcraft-ui-egui opening::tests -- --nocapture
           if ($LASTEXITCODE -ne 0) { throw "Large CAD opening regression failed" }
           cargo test --locked -p cadcraft-engine capped_read::tests -- --nocapture
