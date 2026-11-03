@@ -160,7 +160,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $match = [regex]::Match($env:RELEASE_MESSAGE, '^release\\(cad360\\): R([0-9]{2,3})')
+          $match = [regex]::Match($env:RELEASE_MESSAGE, '^release[(]cad360[)]: R([0-9]{2,3})')
           if (!$match.Success) { throw 'Milestone marker was not found' }
           $label = "R$($match.Groups[1].Value)"
           $sourceArchive = "../dist/CAD360_TBT_Source_$label.zip"
