@@ -2,26 +2,24 @@
 //! This module intentionally owns only coordination metadata/UI. CAD geometry stays in the
 //! canonical CadApp/Session and will be bound to these scopes incrementally.
 
-/// Replace a file in the same directory. Windows std::fs::rename does not consistently
-/// replace an existing destination, so use the native replace-existing operation.
-#[cfg(windows)]
+/// Save without unsafe FFI. On Windows, fall back to a recoverable two-step
+/// replacement if rename refuses to overwrite; the previous JSON is backed up first.
 fn replace_workspace_file(source: &std::path::Path, destination: &std::path::Path) -> std::io::Result<()> {
-    use std::os::windows::ffi::OsStrExt;
-    #[link(name = "kernel32")]
-    unsafe extern "system" {
-        fn MoveFileExW(existing: *const u16, new_name: *const u16, flags: u32) -> i32;
+    match std::fs::rename(source, destination) {
+        Ok(()) => Ok(()),
+        Err(error) if destination.exists() && (error.kind() == std::io::ErrorKind::AlreadyExists || error.kind() == std::io::ErrorKind::PermissionDenied) => {
+            let previous = destination.with_extension(format!("{}.previous", std::process::id()));
+            std::fs::rename(destination, &previous)?;
+            match std::fs::rename(source, destination) {
+                Ok(()) => { let _ = std::fs::remove_file(&previous); Ok(()) }
+                Err(rename_error) => {
+                    let _ = std::fs::rename(&previous, destination);
+                    Err(rename_error)
+                }
+            }
+        }
+        Err(error) => Err(error),
     }
-    let source_wide: Vec<u16> = source.as_os_str().encode_wide().chain(std::iter::once(0)).collect();
-    let target_wide: Vec<u16> = destination.as_os_str().encode_wide().chain(std::iter::once(0)).collect();
-    const MOVEFILE_REPLACE_EXISTING: u32 = 0x00000001;
-    const MOVEFILE_WRITE_THROUGH: u32 = 0x00000008;
-    let ok = unsafe { MoveFileExW(source_wide.as_ptr(), target_wide.as_ptr(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) };
-    if ok == 0 { Err(std::io::Error::last_os_error()) } else { Ok(()) }
-}
-
-#[cfg(not(windows))]
-fn replace_workspace_file(source: &std::path::Path, destination: &std::path::Path) -> std::io::Result<()> {
-    std::fs::rename(source, destination)
 }
 
 /// Write a workspace next to its destination, flush it and only then replace the original.
@@ -31,7 +29,7 @@ fn save_workspace_safely(path: &std::path::Path, snapshot: &serde_json::Value) -
 
     let bytes = serde_json::to_vec_pretty(snapshot).map_err(|error| format!("Không mã hóa được BIM workspace: {error}"))?;
     let suffix = format!("{}.{}.tmp", std::process::id(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_err(|error| error.to_string())?.as_nanos());
-    let temp = path.with_extension(suffix);
+    let temp = path.with_extension(&suffix);
     let result = (|| -> std::io::Result<()> {
         let mut file = std::fs::OpenOptions::new().write(true).create_new(true).open(&temp)?;
         file.write_all(&bytes)?;
@@ -1938,9 +1936,9 @@ pub fn panel(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut 
                 ui.label(format!("Đang xử lý: {}", state.issues.iter().filter(|issue| issue.status == IssueStatus::InProgress).count()));
                 ui.label(format!("Đã xử lý: {}", state.issues.iter().filter(|issue| issue.status == IssueStatus::Resolved).count()));
                 ui.label(format!("Đã đóng: {}", state.issues.iter().filter(|issue| issue.status == IssueStatus::Closed).count()));
-                ui.colored_label(egui::Color32::LIGHT_RED, format!("Quá hạn: {}", state.issues.iter().filter(|issue| issue_due_label(issue, &chrono::Local::now().format("%Y-%m-%d").to_string()) == "QUÁ HẠN").count()));
+                ui.colored_label(egui::Color32::LIGHT_RED, format!("Quá hạn: {}", state.issues.iter().filter(|issue| issue_due_label(issue, &chrono::DateTime::<chrono::Utc>::from(std::time::SystemTime::now()).format("%Y-%m-%d").to_string()) == "QUÁ HẠN").count()));
             });
-            let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+            let today = chrono::DateTime::<chrono::Utc>::from(std::time::SystemTime::now()).format("%Y-%m-%d").to_string();
             let current = app.session.selection().first().copied();
             ui.horizontal_wrapped(|ui| {
                 for (discipline, label) in [(Discipline::Structure, "+ Issue Kết cấu"), (Discipline::Electrical, "+ Issue Điện"), (Discipline::Plumbing, "+ Issue Nước"), (Discipline::Hvac, "+ Issue HVAC")] {
