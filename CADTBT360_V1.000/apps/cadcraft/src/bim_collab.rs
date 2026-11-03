@@ -1992,6 +1992,19 @@ fn collaboration_metrics_row(ui: &mut egui::Ui, metrics: &[(&str, usize, &str)])
     }
 }
 
+/// One shared visual treatment for real-data dashboard panels.
+fn collaboration_dashboard_card(ui: &mut egui::Ui, title: &str, contents: impl FnOnce(&mut egui::Ui)) {
+    egui::Frame::group(ui.style())
+        .fill(egui::Color32::from_rgb(20, 35, 53))
+        .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(47, 73, 101)))
+        .show(ui, |ui| {
+            ui.set_min_width(ui.available_width().max(200.0));
+            ui.label(egui::RichText::new(title).strong().color(egui::Color32::from_rgb(220, 235, 251)));
+            ui.separator();
+            contents(ui);
+        });
+}
+
 /// A bounded, full-width dashboard with its own scroll container. It must not
 /// rely on the host eframe Ui's implicit page height: legacy BIM tools used to
 /// stretch the root into a several-screen-long left-aligned form.
@@ -2045,27 +2058,73 @@ fn collaboration_panel_content(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::Ca
                 ("Chờ đồng bộ", health.pending_changes, "Thay đổi cục bộ"),
             ]);
             ui.add_space(8.0);
-            ui.columns(2, |cols| {
-                cols[0].group(|ui| {
-                    ui.heading("TIẾN ĐỘ PHỐI HỢP");
-                    if state.progress.is_empty() { ui.label("Chưa có dữ liệu tiến độ."); }
-                    for scope in state.progress.iter().take(8) {
+            // Real metrics in a 3-column overview on wide monitors; responsive
+            // fallback to 2/1 columns on narrower windows.
+            let columns = if ui.available_width() >= 1050.0 { 3 } else if ui.available_width() >= 700.0 { 2 } else { 1 };
+            ui.columns(columns, |cols| {
+                collaboration_dashboard_card(&mut cols[0], "TRẠNG THÁI ISSUE / CLASH", |ui| {
+                    let total = state.issues.len();
+                    for (status, label, color) in [
+                        (IssueStatus::Open, "Đang mở", egui::Color32::from_rgb(241, 173, 67)),
+                        (IssueStatus::InProgress, "Đang xử lý", egui::Color32::from_rgb(75, 165, 245)),
+                        (IssueStatus::Resolved, "Đã xử lý", egui::Color32::from_rgb(57, 205, 143)),
+                        (IssueStatus::Closed, "Đã đóng", egui::Color32::from_rgb(137, 159, 185)),
+                    ] {
+                        let count = state.issues.iter().filter(|issue| issue.status == status).count();
                         ui.horizontal(|ui| {
-                            ui.label(format!("{} • {}", state.floors.iter().find(|floor| floor.id == scope.floor_id).map(|floor| floor.name.as_str()).unwrap_or("Tầng khác"), scope.discipline.label()));
-                            ui.add(egui::ProgressBar::new(f32::from(scope.percent) / 100.0).show_percentage());
+                            ui.colored_label(color, label);
+                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                ui.strong(count.to_string());
+                            });
                         });
+                        ui.add(egui::ProgressBar::new(if total == 0 { 0.0 } else { count as f32 / total as f32 }).fill(color));
+                    }
+                    ui.small(format!("Tổng cộng: {total} Issue thực tế"));
+                });
+                collaboration_dashboard_card(&mut cols[1 % columns], "TIẾN ĐỘ PHỐI HỢP", |ui| {
+                    if state.progress.is_empty() { ui.label("Chưa có dữ liệu tiến độ."); }
+                    for scope in state.progress.iter().take(5) {
+                        ui.label(format!("{} • {}", state.floors.iter().find(|floor| floor.id == scope.floor_id).map(|floor| floor.name.as_str()).unwrap_or("Tầng khác"), scope.discipline.label()));
+                        ui.add(egui::ProgressBar::new(f32::from(scope.percent) / 100.0).show_percentage());
                     }
                 });
-                cols[1].group(|ui| {
-                    ui.heading("ISSUE / CLASH GẦN ĐÂY");
-                    if state.issues.is_empty() { ui.label("Chưa có Issue trong dự án."); }
-                    for issue in state.issues.iter().rev().take(6) {
-                        ui.horizontal(|ui| {
-                            ui.strong(format!("#{:04}", issue.id));
-                            ui.label(format!("{} • {}", issue.issue_type, issue.status.label()));
-                        });
-                        ui.label(&issue.description);
+                collaboration_dashboard_card(&mut cols[2 % columns], "MÔ HÌNH & PHẠM VI DỰ ÁN", |ui| {
+                    ui.label(format!("Đối tượng CAD: {}", health.total_entities));
+                    ui.label(format!("Thiếu gắn BIM: {}", health.unscoped_entities));
+                    ui.label(format!("Tầng / cao độ: {}", state.floors.len()));
+                    ui.label(format!("Thành viên: {}", state.users.len()));
+                    ui.label(format!("Chế độ làm việc: {}", state.connection.label()));
+                    if health.is_clean() {
+                        ui.colored_label(egui::Color32::LIGHT_GREEN, "Mô hình không có cảnh báo kiểm tra");
+                    } else {
+                        ui.colored_label(egui::Color32::YELLOW, "Có mục cần kiểm tra trước khi phát hành");
                     }
+                });
+            });
+            ui.add_space(10.0);
+            let bottom_columns = if ui.available_width() >= 720.0 { 2 } else { 1 };
+            ui.columns(bottom_columns, |cols| {
+                collaboration_dashboard_card(&mut cols[0], "ISSUE / CLASH GẦN ĐÂY", |ui| {
+                    if state.issues.is_empty() { ui.label("Chưa có Issue trong dự án."); }
+                    egui::ScrollArea::vertical().id_salt("cadtbt360_overview_recent_issues").max_height(240.0).show(ui, |ui| {
+                        for issue in state.issues.iter().rev().take(12) {
+                            ui.horizontal(|ui| {
+                                ui.strong(format!("#{:04}", issue.id));
+                                ui.label(&issue.issue_type);
+                                ui.colored_label(egui::Color32::from_rgb(95, 185, 252), issue.status.label());
+                            });
+                            ui.label(&issue.description);
+                            ui.separator();
+                        }
+                    });
+                });
+                collaboration_dashboard_card(&mut cols[1 % bottom_columns], "THÔNG TIN DỰ ÁN", |ui| {
+                    ui.label(format!("Mã dự án: {}", state.project_id));
+                    ui.label(format!("Tên dự án: {}", state.project_name));
+                    ui.label(format!("Tầng đang thiết kế: {}", state.floors.iter().find(|floor| floor.id == state.active_floor_id).map(|floor| floor.name.as_str()).unwrap_or("Chưa chọn")));
+                    ui.label(format!("Bộ môn: {}", state.active_discipline.label()));
+                    ui.label(format!("Tài khoản: {}", state.current_account_id));
+                    ui.label(format!("Thay đổi chờ đồng bộ: {}", health.pending_changes));
                 });
             });
         }
