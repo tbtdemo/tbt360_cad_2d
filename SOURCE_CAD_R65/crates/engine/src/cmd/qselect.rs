@@ -289,6 +289,11 @@ fn run_qselect(s: &mut Session, p: &Value) -> Result<Value> {
         "append" => append_unique_handles(s.selection(), matched),
         _ => matched,
     };
+    // Preview evaluates the exact same QSELECT filter without changing
+    // selection or storing a large list of handles in UI state.
+    if p.get("preview").and_then(Value::as_bool) == Some(true) {
+        return Ok(json!({ "selected": sel.len(), "preview": true }));
+    }
     s.set_selection(sel);
     let sel = s.selection();
     let n = sel.len();
@@ -392,6 +397,31 @@ mod tests {
             let _ = s.execute("qselect", &json!({ "property": "radius", "operator": "*", "value": v }));
             let _ = s.execute("qselect", &json!({ "property": v, "operator": ">", "value": v, "type": v }));
         }
+    }
+
+    #[test]
+    fn qselect_preview_counts_matching_objects_without_mutating_selection() {
+        let mut s = session();
+        let existing = n(&s.execute("qselect", &json!({ "type": "Line" })).unwrap());
+        assert_eq!(existing, 2);
+        let before = s.selection();
+        let preview = s.execute("qselect", &json!({ "type": "Circle", "preview": true })).unwrap();
+        assert_eq!(preview["preview"], true);
+        assert_eq!(preview["selected"], 2);
+        assert_eq!(s.selection(), before);
+        let preview_append = s.execute("qselect", &json!({ "type": "Circle", "mode": "append", "preview": true })).unwrap();
+        assert_eq!(preview_append["selected"], 4);
+        assert_eq!(s.selection(), before);
+    }
+
+    #[test]
+    fn qselect_preview_exclude_does_not_change_original_selection() {
+        let mut s = session();
+        let before = s.selection();
+        let preview = s.execute("qselect", &json!({ "property": "layer", "operator": "=", "value": "Walls", "mode": "exclude", "preview": true })).unwrap();
+        assert_eq!(preview["selected"], 3);
+        assert!(s.selection().is_empty());
+        assert_eq!(s.selection(), before);
     }
 
     #[test]
