@@ -32,6 +32,14 @@ impl Recovery {
             ctx.request_repaint_after(INTERVAL - elapsed);
             return;
         }
+        // OPEN can temporarily hold a full input buffer and decoded geometry
+        // in RAM. Starting a multi-tab recovery DXF export at the same time
+        // multiplies memory pressure and may freeze the drawing canvas.
+        // Keep this autosave due, retry soon after the decoder queue empties.
+        if defer_recovery_while_opening(app.opening.busy()) {
+            ctx.request_repaint_after(Duration::from_secs(1));
+            return;
+        }
         self.last_save = Instant::now();
         let Some(root) = self.root.as_deref() else { return };
         let signature = match snapshot_signature(app, bim) {
@@ -98,6 +106,10 @@ impl Recovery {
         Ok(())
     }
 }
+
+/// Autosave is deferred, not skipped: tick retains the old last_save so
+/// the next idle check remains due instead of restarting the five-minute timer.
+fn defer_recovery_while_opening(loading: bool) -> bool { loading }
 
 fn snapshot_signature(app: &CadApp, bim: &bim_collab::State) -> Result<(Vec<(u64, u64)>, usize, String), String> {
     let docs = app.session.docs.iter().map(|doc| (doc.uid, doc.revision)).collect();
@@ -330,6 +342,12 @@ fn prune_generations(root: &Path) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn cad_recovery_waits_for_open_decoder_but_remains_due_afterward() {
+        assert!(defer_recovery_while_opening(true));
+        assert!(!defer_recovery_while_opening(false));
+    }
+
     #[test]
     fn corrupt_recovery_metadata_is_rejected_before_large_allocation() {
         let root = std::env::temp_dir().join(format!("cad360-recovery-metadata-limit-{}-{}", std::process::id(), SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()));
