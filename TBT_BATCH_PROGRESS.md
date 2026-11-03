@@ -20,10 +20,11 @@
 | 09/15 | Nhận sự kiện release thực tế trên canvas cho lệnh chọn điểm, không lấy nhấp từ toolbar/menu; tránh báo parse ảo khi file 0 byte | `0e97ab7c77072110037a658853deeaa2f8635383` | 2 unit tests bổ sung | Chưa có bằng chứng CI Windows PASS |
 | 10/15 | Không lấy các release từ lớp overlay/menu thành điểm CAD; mở nhiều file đúng FIFO ngay cả khi thêm file mới trong lúc finish_open | `0b9297f2a4a093978d02f6e58de373c653cb40b5` | 1 unit test thứ tự FIFO, chưa chạy Windows | Chưa xác nhận Windows CI PASS |
 | 11/15 | Giữ đúng tọa độ cho các click nhanh trong một UI frame; dừng nhập điểm khi lệnh đã hoàn tất; chặn click dư thành chọn đối tượng | `4f4ff825fa64b0e7894ee94b48e020a72b5b89cf` | 2 regression tests (tọa độ đa click và chặn click dư) | Chưa có Windows CI PASS |
+| 12/15 | Dừng replay điểm khi lệnh chuyển sang prompt không nhận tọa độ; khi tắt PICKDRAG giữa chừng dọn pending window; thêm tests LINE/CIRCLE | `b0c704f75088f8b22d1638054f7a9c4a2ff452a7` | 2 Rust integration-style tests ở tầng engine | Chưa xác minh Windows cargo/GUI PASS |
 
 ### Trạng thái
-- Hoàn thành bằng chứng mã nguồn: **11/15** lượt tối thiểu.
-- Còn ít nhất **4** lượt trước khi đóng gói định kỳ.
+- Hoàn thành bằng chứng mã nguồn: **12/15** lượt tối thiểu.
+- Còn ít nhất **3** lượt trước khi đóng gói định kỳ.
 - Source inventory (run 41561782723) và IFC metadata test/source snapshot (run 41561782535) PASS. Windows Setup/Portable được skip đúng lịch 15–30. Rust tests CAD+BIM của lượt 02 đã PASS (run 41563233121). Hai regression tests lượt 03 đang chờ xác nhận. Chưa có EXE phát hành của đợt này.
 
 ### Rà soát khả năng phục hồi
@@ -95,3 +96,10 @@
 - Đã thêm 2 unit tests để xác minh helper xử lý click dư và tọa độ màn hình khác nhau, **không phải GUI E2E**.
 - Commits `d11a845170ce0ca9bac5211a357430f1cadc17c6`, `be5b3f6c2e9b43a992a73355a5465caa17252d07`, `cecce2a2d9e5cd5674daf1f97e8edf174945b762`, `4f4ff825fa64b0e7894ee94b48e020a72b5b89cf`.
 - Nhịp phát hành **11/15 = 73,3%**. Chưa có bằng chứng thử GUI trên Windows và EXE mới.
+
+### Lượt 12 — chống nhận điểm nhầm sau khi đổi prompt và hủy kéo chọn
+- Khi lệnh tương tác chuyển prompt từ chọn tọa độ sang kiểu khác (lựa chọn đối tượng, keyword...), canvas ngừng phát các sự kiện thả chuột còn lại trong cùng frame; tránh nhận sai dữ liệu hoặc chọn đối tượng ngoài ý muốn.
+- Khi cài đặt PICKDRAG bị tắt giữa thao tác kéo chọn, xóa đúng `pending_window` do drag tạo ra, không ảnh hưởng thao tác chọn cửa sổ click-click độc lập.
+- Thêm test LINE và CIRCLE xác nhận prompt tọa độ đầu tiên được tiếp nhận ở lớp Session. Test đã được viết, **chưa chạy Windows PASS**.
+- Commits `92003c26a1d9667cb9c819e5ba3893018543c0e6`, `84a852ffb93c38f72e52e06e5dba7d46d9bfeeae`, `b0c704f75088f8b22d1638054f7a9c4a2ff452a7`.
+- Nhịp phát hành tối thiểu 12/15 = 80%, nhưng tiến độ hạng mục chức năng vẫn giữ 37,2% (ước lượng chưa nghiệm thu). Còn 3 lượt đến R15 và tối đa 18 lượt nếu dùng toàn bộ dự phòng đến R30.
