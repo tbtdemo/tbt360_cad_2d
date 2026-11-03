@@ -1,0 +1,101 @@
+name: CAD360 Windows EXE - Ubuntu Cross Fallback
+
+on:
+  push:
+    branches: [tbt/cad360-active-release]
+    paths:
+      - 'installer/CAD360_TBT_Cross.nsi'
+      - '.github/workflows/cad360-ubuntu-windows-exe.yml'
+      - 'SOURCE_CAD_R65/**'
+      - 'CAD360_WINDOWS_EXE_DELIVERY.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Independent of queued GitHub Windows runners and independent of the original
+# Windows Inno Setup build. Both may run for the same immutable commit.
+concurrency:
+  group: cad360-linux-winexe-${{ github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  cross-windows-exe:
+    if: "${{ github.event_name == 'workflow_dispatch' || startsWith(github.event.head_commit.message, 'build(cad360): B') }}"
+    name: Cross-compile native Windows CAD360 EXE and NSIS Setup on Ubuntu
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    env:
+      WINDOWS_TARGET: x86_64-pc-windows-msvc
+      CARGO_PROFILE_RELEASE_LTO: "off"
+      CARGO_BUILD_JOBS: "3"
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install cross compilation and packaging tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -y
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends clang lld llvm cmake pkg-config nasm nsis zip unzip file
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.95.0'
+          targets: x86_64-pc-windows-msvc
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/cargo-xwin
+            ~/.cargo/registry/cache
+            ~/.cargo/registry/index
+            ~/.cache/cargo-xwin
+          key: cargo-xwin-ubuntu-x64-0.22.0
+      - name: Install Windows MSVC cross compiler
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! cargo xwin --version 2>/dev/null | grep -F '0.22.0'; then
+            cargo install cargo-xwin --locked --version 0.22.0
+          fi
+          cargo xwin --version
+      - name: Cross-compile real CAD360 desktop and CLI for Windows x64
+        working-directory: SOURCE_CAD_R65
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo xwin build --release --locked --target x86_64-pc-windows-msvc -p cadcraft -p cadcraft-cli
+          for bin in cadcraft cadcraft-cli; do
+            path="target/x86_64-pc-windows-msvc/release/${bin}.exe"
+            test -s "$path"
+            test "$(stat -c %s "$path")" -gt 100000
+            file "$path" | grep -F 'PE32+'
+          done
+      - name: Package real Windows installer portable ZIP source ZIP and SHA256
+        shell: bash
+        run: |
+          set -euo pipefail
+          build_dir="$(pwd)/SOURCE_CAD_R65/target/x86_64-pc-windows-msvc/release"
+          mkdir -p dist/portable
+          cp "$build_dir/cadcraft.exe" "$build_dir/cadcraft-cli.exe" dist/portable/
+          printf 'CAD 360 Viet Nam - TBT Windows x64. Extract the whole ZIP, then run cadcraft.exe.\n' > dist/portable/README.txt
+          (cd dist/portable && zip -q -r ../CAD360_VietNam_TBT_Portable.zip .)
+          makensis -V2 -DAPP_BUILD_DIR="$build_dir" -DOUT_DIR="$(pwd)/dist" installer/CAD360_TBT_Cross.nsi
+          git archive --format=zip --output=dist/CAD360_TBT_Source_R15.zip HEAD SOURCE_CAD_R65 installer .github README.md
+          for filename in CAD360_VietNam_TBT_Setup.exe CAD360_VietNam_TBT_Portable.zip CAD360_TBT_Source_R15.zip; do
+            test -s "dist/$filename"
+          done
+          file dist/CAD360_VietNam_TBT_Setup.exe | grep -F 'PE32'
+          (cd dist && sha256sum CAD360_VietNam_TBT_Setup.exe CAD360_VietNam_TBT_Portable.zip CAD360_TBT_Source_R15.zip > SHA256SUMS.txt)
+          printf 'Commit=%s\nRunId=%s\nWindowsBuild=Ubuntu cargo-xwin x86_64-pc-windows-msvc\nInstaller=NSIS\nGUI_VERIFIED=false\n' "$GITHUB_SHA" "$GITHUB_RUN_ID" > dist/BUILD_INFO.txt
+          ls -lh dist/*.exe dist/*.zip dist/SHA256SUMS.txt
+      - name: Upload actual Windows Setup EXE and portable bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: CAD360-TBT-REAL-Windows-x64-Setup-Portable-Source-B15
+          path: |
+            dist/CAD360_VietNam_TBT_Setup.exe
+            dist/CAD360_VietNam_TBT_Portable.zip
+            dist/CAD360_TBT_Source_R15.zip
+            dist/SHA256SUMS.txt
+            dist/BUILD_INFO.txt
+          if-no-files-found: error
+          retention-days: 30
