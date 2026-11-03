@@ -4,18 +4,27 @@
 //! on the UI thread. The web build has no threads and opens synchronously.
 
 use std::sync::mpsc::{Receiver, TryRecvError, channel};
+use std::sync::{Arc, atomic::{AtomicBool, AtomicU64, Ordering}};
 use std::time::{Duration, Instant};
 
-use cadcraft_engine::cmd::file::{ReadFile, read_file};
+use cadcraft_engine::cmd::file::{ReadFile, read_file_with_progress};
 
 use crate::theme::Tokens;
 
 type Outcome = Result<ReadFile, String>;
 
+#[derive(Default)]
+struct LoadProgress {
+    bytes: AtomicU64,
+    total: AtomicU64,
+    parsing: AtomicBool,
+}
+
 struct Job {
     path: String,
     started: Instant,
     rx: Receiver<Outcome>,
+    progress: Arc<LoadProgress>,
 }
 
 /// The files being read in the background, oldest first.
@@ -29,17 +38,24 @@ impl Opening {
     pub fn start(&mut self, path: &str) {
         let (tx, rx) = channel();
         let p = path.to_string();
+        let progress = Arc::new(LoadProgress::default());
+        let worker_progress = Arc::clone(&progress);
         let spawned = std::thread::Builder::new().name("cadcraft-open".into()).spawn(move || {
-            let _ = tx.send(read_file(&p));
+            let result = read_file_with_progress(&p, |bytes, total| {
+                worker_progress.total.store(total, Ordering::Relaxed);
+                worker_progress.bytes.store(bytes, Ordering::Relaxed);
+                if bytes >= total { worker_progress.parsing.store(true, Ordering::Release); }
+            });
+            let _ = tx.send(result);
         });
         if spawned.is_err() {
             // No thread to read on: report it like any other failed open.
             let (tx, rx2) = channel();
             let _ = tx.send(Err(format!("open: {path}: could not start a reader thread")));
-            self.jobs.push(Job { path: path.to_string(), started: Instant::now(), rx: rx2 });
+            self.jobs.push(Job { path: path.to_string(), started: Instant::now(), rx: rx2, progress });
             return;
         }
-        self.jobs.push(Job { path: path.to_string(), started: Instant::now(), rx });
+        self.jobs.push(Job { path: path.to_string(), started: Instant::now(), rx, progress });
     }
 
     /// Whether any file is still being read.
@@ -70,7 +86,15 @@ impl Opening {
         let name = std::path::Path::new(&first.path).file_name().map_or_else(|| first.path.clone(), |n| n.to_string_lossy().to_string());
         let secs = first.started.elapsed().as_secs_f32();
         let more = self.jobs.len() - 1;
-        Some(if more == 0 { format!("Opening {name}... {secs:.0} s") } else { format!("Opening {name} and {more} more... {secs:.0} s") })
+        let state = if first.progress.parsing.load(Ordering::Acquire) {
+            "Đang giải mã hình học CAD".to_string()
+        } else {
+            let read = first.progress.bytes.load(Ordering::Relaxed);
+            let total = first.progress.total.load(Ordering::Relaxed);
+            if total > 0 { format!("Đọc dữ liệu: {:.1}% ({:.1}/{:.1} MiB)", 100.0 * (read.min(total) as f64) / total as f64, read as f64 / 1_048_576.0, total as f64 / 1_048_576.0) }
+            else { "Đang mở file".to_string() }
+        };
+        Some(if more == 0 { format!("Opening {name}... {secs:.0} s — {state}") } else { format!("Opening {name} and {more} more... {secs:.0} s — {state}") })
     }
 
     /// Paint the card in the middle of the window and keep frames coming while files load.
@@ -88,9 +112,21 @@ impl Opening {
                     .corner_radius(6.0)
                     .inner_margin(egui::Margin::symmetric(18, 12))
                     .show(ui, |ui| {
-                        ui.horizontal(|ui| {
-                            ui.add(egui::Spinner::new().color(t.accent));
-                            ui.label(egui::RichText::new(label).color(t.text));
+                        ui.vertical(|ui| {
+                            ui.horizontal(|ui| {
+                                ui.add(egui::Spinner::new().color(t.accent));
+                                ui.label(egui::RichText::new(label).color(t.text));
+                            });
+                            if let Some(first) = self.jobs.first() {
+                                let total = first.progress.total.load(Ordering::Relaxed);
+                                let done = first.progress.bytes.load(Ordering::Relaxed);
+                                if !first.progress.parsing.load(Ordering::Acquire) && total > 0 {
+                                    let fraction = ((done.min(total) as f64) / total as f64) as f32;
+                                    ui.add(egui::ProgressBar::new(fraction).show_percentage().desired_width(320.0));
+                                } else if first.progress.parsing.load(Ordering::Acquire) {
+                                    ui.label("Đã đọc xong dữ liệu; đang giải mã, chưa có % giải mã chính xác.");
+                                }
+                            }
                         });
                     });
             });
