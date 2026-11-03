@@ -1969,7 +1969,7 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
     // not buried beneath large measurement and summary tables.
     ui.separator();
     egui::CollapsingHeader::new("XUẤT EXCEL CHỦ ĐẦU TƯ • Cấu hình cột / nhóm / đơn vị / trang in").id_salt("cadtbt360_qto_excel_settings").default_open(false).show(ui, |ui| {
-        ui.strong("BÁO CÁO ĐO BÓC KHỐI LƯỢNG — CADTBT360_V1.001");
+        ui.strong("BÁO CÁO ĐO BÓC KHỐI LƯỢNG — CADTBT360_V1.002");
         ui.small("Tạo XLSX có tiêu đề, nhóm công việc, tổng theo đơn vị, bảng kẻ chuẩn, A4 ngang, tiêu đề lặp mỗi trang và ô ký duyệt.");
         ui.horizontal_wrapped(|ui| {
             ui.label("Tên dự án");
@@ -2013,7 +2013,8 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
                 section.chainage_m>=from-1.0e-6 && section.chainage_m<=to+1.0e-6)).cloned().collect::<Vec<_>>(),scale,state.export_config.confirmed_only).ok()
                 .map(|parts|parts.into_iter().filter(|part|takeoff_road::within_range(part,range)).collect::<Vec<_>>())));
         let road_count=road_preview.as_ref().map(|parts|parts.iter().filter(|part|allowed_handles.as_ref()
-            .is_none_or(|handles|handles.contains(&part.source_start) && handles.contains(&part.source_end))).count()).unwrap_or(0);
+            .is_none_or(|handles|(part.source_start.is_empty() || handles.contains(&part.source_start))
+                && (part.source_end.is_empty() || handles.contains(&part.source_end)))).count()).unwrap_or(0);
         ui.label(format!("Sẵn sàng xem xét: {count} phép đo 2D + {volume_count} thể tích hai nguồn + {road_count} khoảng cọc đào/đắp, {} cột.",state.export_config.selected().len()));
         if state.road_sections.len() >= 2 && road_preview.is_none() {
             ui.colored_label(egui::Color32::YELLOW,"Dữ liệu trắc ngang chưa hợp lệ hoặc chưa hiệu chuẩn. Không phát hành Excel giao thông khi chưa khắc phục lỗi.");
@@ -2024,7 +2025,7 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
         if ui.add_enabled(state.export_config.valid() && count + volume_count + road_count > 0, egui::Button::new("XUẤT EXCEL XLSX — ĐỊNH DẠNG IN A4")).clicked() {
             match qto_combined_report_lines(app, state, &source_validation, &state.export_config, allowed_handles.as_ref()) {
                 Ok(rows) => {
-                    if let Some(path) = rfd::FileDialog::new().add_filter("Excel Workbook", &["xlsx"]).set_file_name("CADTBT360_V1.001_BANG_DO_BOC_KHOI_LUONG.xlsx").save_file() {
+                    if let Some(path) = rfd::FileDialog::new().add_filter("Excel Workbook", &["xlsx"]).set_file_name("CADTBT360_V1.002_BANG_DO_BOC_KHOI_LUONG.xlsx").save_file() {
                         match takeoff_report::write_xlsx(&path, &state.export_config, &rows) {
                             Ok(()) => state.file_feedback = format!("Đã tạo Excel XLSX có bố cục in A4: {}", path.display()),
                             Err(error) => state.file_feedback = format!("Không thể xuất báo cáo Excel: {error}"),
