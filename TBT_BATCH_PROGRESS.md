@@ -19,10 +19,11 @@
 | 08/15 | Chặn selection drag tồn đọng khi chuột thả ngoài canvas / ESC / focus loss; ETA byte đọc; chuyển khởi động file tiếp sau khi finish_open | `f0cfc0fbf7d50f29f0840df0f89cfd3be457e249` | 2 unit tests bổ sung; test serial queue điều chỉnh | Windows CI/GUI chưa xác nhận PASS |
 | 09/15 | Nhận sự kiện release thực tế trên canvas cho lệnh chọn điểm, không lấy nhấp từ toolbar/menu; tránh báo parse ảo khi file 0 byte | `0e97ab7c77072110037a658853deeaa2f8635383` | 2 unit tests bổ sung | Chưa có bằng chứng CI Windows PASS |
 | 10/15 | Không lấy các release từ lớp overlay/menu thành điểm CAD; mở nhiều file đúng FIFO ngay cả khi thêm file mới trong lúc finish_open | `0b9297f2a4a093978d02f6e58de373c653cb40b5` | 1 unit test thứ tự FIFO, chưa chạy Windows | Chưa xác nhận Windows CI PASS |
+| 11/15 | Giữ đúng tọa độ cho các click nhanh trong một UI frame; dừng nhập điểm khi lệnh đã hoàn tất; chặn click dư thành chọn đối tượng | `4f4ff825fa64b0e7894ee94b48e020a72b5b89cf` | 2 regression tests (tọa độ đa click và chặn click dư) | Chưa có Windows CI PASS |
 
 ### Trạng thái
-- Hoàn thành bằng chứng mã nguồn: **10/15** lượt tối thiểu.
-- Còn ít nhất **5** lượt trước khi đóng gói định kỳ.
+- Hoàn thành bằng chứng mã nguồn: **11/15** lượt tối thiểu.
+- Còn ít nhất **4** lượt trước khi đóng gói định kỳ.
 - Source inventory (run 41561782723) và IFC metadata test/source snapshot (run 41561782535) PASS. Windows Setup/Portable được skip đúng lịch 15–30. Rust tests CAD+BIM của lượt 02 đã PASS (run 41563233121). Hai regression tests lượt 03 đang chờ xác nhận. Chưa có EXE phát hành của đợt này.
 
 ### Rà soát khả năng phục hồi
@@ -87,3 +88,10 @@
 - Khi load CAD tuần tự, yêu cầu mở mới trong khoảng thời gian worker trước hoàn thành nhưng bản vẽ chưa tích hợp **không được vượt hàng đợi cũ**. Thêm test FIFO tái hiện trường hợp này.
 - Mã nguồn: `3d6e8ce24b4cf5f0c15ed6fec53a789c5ce91693`, `0b9297f2a4a093978d02f6e58de373c653cb40b5`.
 - Chưa chạy Rust tests GUI trên Windows, chưa có benchmark 300–500 MiB, chưa đóng gói EXE. **10/15 = 66,7% nhịp phát hành**, không phải mức độ hoàn thiện CAD360.
+
+### Lượt 11 — xử lý lệnh CAD nhiều sự kiện nhấp trong một frame
+- Khi nhiều sự kiện release đến trong một lần render, các sự kiện trước cuối cùng dùng tọa độ thực của riêng mình thay vì snap đang gắn với con trỏ cuối; tránh dồn các điểm LINE/PLINE về cùng vị trí.
+- Khi một lệnh đã kết thúc ở release trước, ngừng nhập thêm và không để release cuối biến thành thao tác chọn khi idle.
+- Đã thêm 2 unit tests để xác minh helper xử lý click dư và tọa độ màn hình khác nhau, **không phải GUI E2E**.
+- Commits `d11a845170ce0ca9bac5211a357430f1cadc17c6`, `be5b3f6c2e9b43a992a73355a5465caa17252d07`, `cecce2a2d9e5cd5674daf1f97e8edf174945b762`, `4f4ff825fa64b0e7894ee94b48e020a72b5b89cf`.
+- Nhịp phát hành **11/15 = 73,3%**. Chưa có bằng chứng thử GUI trên Windows và EXE mới.
