@@ -25,6 +25,33 @@ fn clip_infinite(xf: &Xf, base: Vec2, dir: Vec2, ray: bool) -> Option<[Pos2; 2]>
     Some([xf.to_screen(a), xf.to_screen(b)])
 }
 
+/// Limit initial per-frame CPU shape storage, because most primitives in huge
+/// drawings may be invisible after culling. Visible primitives grow the Vec.
+fn cpu_shape_initial_capacity(primitive_count: usize) -> usize {
+    primitive_count.min(4096)
+}
+
+#[cfg(test)]
+mod cpu_culling_tests {
+    use super::*;
+
+    #[test]
+    fn large_offscreen_drawing_does_not_reserve_one_shape_per_entity() {
+        assert_eq!(cpu_shape_initial_capacity(0), 0);
+        assert_eq!(cpu_shape_initial_capacity(5), 5);
+        assert_eq!(cpu_shape_initial_capacity(1_000_000), 4096);
+    }
+
+    #[test]
+    fn invisible_triangle_and_mask_bounds_are_not_drawn() {
+        let viewport = Bounds2::new(Vec2::new(-10.0, -10.0), Vec2::new(10.0, 10.0));
+        let outside = [Vec2::new(500.0, 500.0), Vec2::new(510.0, 500.0), Vec2::new(500.0, 510.0)];
+        let inside = [Vec2::new(0.0, 0.0), Vec2::new(5.0, 0.0), Vec2::new(0.0, 5.0)];
+        assert!(!Bounds2::from_points(outside).intersects(&viewport));
+        assert!(Bounds2::from_points(inside).intersects(&viewport));
+    }
+}
+
 /// Draw a display list.
 pub(crate) fn draw_list(p: &egui::Painter, xf: &Xf, list: &DisplayList, bg: Rgb, lwdisplay: bool) {
     draw_list_filtered(p, xf, list, bg, lwdisplay, None, 1.0);
@@ -43,7 +70,7 @@ pub(crate) fn draw_list_filtered(
     // Large drawings may contain hundreds of thousands of primitives, most
     // outside the current viewport. Reserving one Shape per primitive on every
     // frame adds substantial transient RAM; grow only as visible shapes arrive.
-    let mut shapes: Vec<Shape> = Vec::with_capacity(list.prims.len().min(4096));
+    let mut shapes: Vec<Shape> = Vec::with_capacity(cpu_shape_initial_capacity(list.prims.len()));
     let px = 1.0 / xf.scale;
     for prim in &list.prims {
         if let Some(handles) = handles
