@@ -488,15 +488,13 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui) {
                 })
                 .collect()
         });
-        // The last one is placed below, at the cursor, like any click.
+        // The last release is dispatched by the regular cursor path below. Earlier
+        // releases must use their own geometry rather than the final cursor's snap:
+        // reusing the last snap would place multiple points at the same coordinate.
         if let Some((_, earlier)) = releases.split_last() {
             for pos in earlier.iter().filter(|p| rect.contains(**p) && ui.ctx().layer_id_at(**p) == Some(ui.layer_id())) {
-                let w = effective_point(app, xf.to_world(*pos), &xf, ui.ctx());
-                let result = match app.canvas.snap {
-                    Some(hit) => app.session.input_snapped(hit),
-                    None => app.session.input(Input::Point(w)),
-                };
-                if let Err(e) = result {
+                let w = xf.to_world(*pos);
+                if let Err(e) = app.session.input(Input::Point(w)) {
                     app.session.echo(e.to_string());
                 }
             }
