@@ -24,8 +24,11 @@ Ngày 03/11/2026; nhánh: `tbt/cad360-active-release`.
 | 08 | Tiến độ mở nhiều file/UI | Thay ID loading overlay thay đổi mỗi frame bằng ID ổn định; Việt hóa thông báo file và hàng đợi | `opening::tests::card_text_names_the_file_and_counts_queued_ones` |
 | 09 | CPU selection highlight | Không tạo CPU shapes/tô sáng cho hình học được chọn nằm hoàn toàn ngoài viewport, vẫn clip Infinite/Ray riêng | `canvas::draw::highlight_view_culling_tests` |
 | 10 | GPU selection highlight | Dự trữ có giới hạn buffer quads khi tô sáng nhiều đối tượng, tránh nhiều lần Vec grow, không giới hạn số đoạn | `gpu::gpu_memory_budget_tests::gpu_highlight_preserves_selected_segments_after_bounded_reservation` |
+| 11 | CAD lớn / an toàn hình học | Nếu nguồn file bị thu ngắn trong quá trình OPEN thì dừng với UnexpectedEof trước khi decode, không nhận hình học thiếu | `capped_read::tests::progressive_read_rejects_truncated_geometry_before_decode` |
+| 12 | CPU renderer / frame-time | Culling hình học nằm ngoài viewport trước khi chuyển ACI/transparency và cấp phát CPU Shape theo mỗi frame | `canvas::draw::highlight_view_culling_tests` và tests CPU culling hiện có |
+| 13 | FIFO / mở file lặp | Gộp các lượt OPEN trùng đường dẫn trong lúc file đang đọc hoặc đang đợi, tránh giải mã thêm một bản không cần thiết | `opening::tests::repeated_open_clicks_do_not_queue_duplicate_cad_decoders` |
 
-**Đếm: 10/15 bộ chức năng cho mốc đóng gói tiếp theo.** Một bộ có thể gồm nhiều commit; các commit CI, docs và test không được tính thêm thành bộ độc lập. Hiện còn 5 bộ chức năng cần phát triển trước mốc `build(cad360): B15`.
+**Đếm: 13/15 bộ chức năng cho mốc đóng gói tiếp theo.** Một bộ có thể gồm nhiều commit; các commit CI, docs và test không được tính thêm thành bộ độc lập. Hiện còn 2 bộ chức năng cần phát triển trước mốc `build(cad360): B15`.
 
 ## Cam kết nghiệp vụ và hạn chế nghiệm thu
 - Các thay đổi ở trên **đã được ghi trên nhánh GitHub**, chưa xác minh Rust Windows test PASS; không tự tăng phần trăm hoàn thành.
@@ -55,3 +58,10 @@ Ngày 03/11/2026; nhánh: `tbt/cad360-active-release`.
 - `a02774cc0886ac1285225700674fa39897213a1b`: `gpu.rs`, dự trữ trước `MeshData.quads` khi highlight nhiều selected primitive, giới hạn mức dự trữ ban đầu 1 MiB (không giới hạn nội dung thực tế); test giữ đúng 2048 selected line segments và chống dự trữ 100 triệu quads.
 - `dbadbeccc14e8a618df7cccfad0f48ad69c73923`: Windows CI thêm discovery và run tests CPU/GPU highlight.
 - **10/15 bộ được commit**, chưa có kết quả Windows native Cargo PASS/GUI benchmark thực tế nên tỷ lệ 8 nhóm giữ baseline 39,4%. 5 bộ tiếp theo sẽ ưu tiên CPU frame time, mở CAD >512MiB, tiết kiệm RAM đa tab, permission và ESC viewport.
+
+## Cập nhật — ba bộ 11–13
+- `28b77cb9a046327e716fe2a06e271bb82305b097`: `read_progressive` từ chối file bị thu ngắn so với metadata ban đầu bằng lỗi `UnexpectedEof`, không phát một mảng DXF thiếu cho decoder; vẫn cho phép file tăng kích thước tới EOF và báo số byte thực. Có test cho equal/grow/truncate.
+- `5913187e3d346aa231585ec11420f1bc2b23a44d`: `draw_list_filtered` dùng chung culling hình học trước tính ACI/transparency và cấp phát Shape, tránh xử lý màu cho đối tượng hoàn toàn ngoài khung nhìn. Không làm thay đổi clipping riêng của Infinite/Ray.
+- `9f8569d65c896cb7075081f0f1c68dfd984868c2`: `Opening::start` chống lặp đường dẫn khi đã có worker hoặc queued. Không ảnh hưởng mở lại sau khi hoàn tất toàn bộ yêu cầu; cùng một path lặp trong lúc chờ chỉ xử lý một lần. Có test FIFO chống duplicate.
+- `73590eb2fb33dce851c8a5e743630044670691f5` và `c4b1bd1cc2fe40c9534c6c8c558d33f42696495e`: cập nhật CI phát hiện và chạy regression tương ứng.
+- **13/15 bộ thay đổi chức năng đã được commit, không tính test/docs/CI là bộ thêm.** Windows CI/GUI và FPS/P95/RAM trên file 300–500 MiB vẫn chưa xác minh; giữ 8 nhóm baseline 39,4% chưa nghiệm thu. Sau 2 bộ tiếp theo, kích hoạt B15 một lần, không chờ B30 cũ.
