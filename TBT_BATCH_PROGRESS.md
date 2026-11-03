@@ -18,10 +18,11 @@
 | 07/15 | Canvas first click/drag; mở CAD theo khối có % đọc; bỏ ngưỡng mở file 512 MiB; hàng đợi mở tuần tự giảm áp lực RAM | `6cc13a944a756bd03b0016c3f75130a630404ed9` | 1 Rust test progressive bytes; GUI tests cần bổ sung | Chưa xác nhận Windows CI |
 | 08/15 | Chặn selection drag tồn đọng khi chuột thả ngoài canvas / ESC / focus loss; ETA byte đọc; chuyển khởi động file tiếp sau khi finish_open | `f0cfc0fbf7d50f29f0840df0f89cfd3be457e249` | 2 unit tests bổ sung; test serial queue điều chỉnh | Windows CI/GUI chưa xác nhận PASS |
 | 09/15 | Nhận sự kiện release thực tế trên canvas cho lệnh chọn điểm, không lấy nhấp từ toolbar/menu; tránh báo parse ảo khi file 0 byte | `0e97ab7c77072110037a658853deeaa2f8635383` | 2 unit tests bổ sung | Chưa có bằng chứng CI Windows PASS |
+| 10/15 | Không lấy các release từ lớp overlay/menu thành điểm CAD; mở nhiều file đúng FIFO ngay cả khi thêm file mới trong lúc finish_open | `0b9297f2a4a093978d02f6e58de373c653cb40b5` | 1 unit test thứ tự FIFO, chưa chạy Windows | Chưa xác nhận Windows CI PASS |
 
 ### Trạng thái
-- Hoàn thành bằng chứng mã nguồn: **9/15** lượt tối thiểu.
-- Còn ít nhất **6** lượt trước khi đóng gói định kỳ.
+- Hoàn thành bằng chứng mã nguồn: **10/15** lượt tối thiểu.
+- Còn ít nhất **5** lượt trước khi đóng gói định kỳ.
 - Source inventory (run 41561782723) và IFC metadata test/source snapshot (run 41561782535) PASS. Windows Setup/Portable được skip đúng lịch 15–30. Rust tests CAD+BIM của lượt 02 đã PASS (run 41563233121). Hai regression tests lượt 03 đang chờ xác nhận. Chưa có EXE phát hành của đợt này.
 
 ### Rà soát khả năng phục hồi
@@ -80,3 +81,9 @@
 - Chưa kiểm thử GUI Windows trên LINE/PLINE/CIRCLE/MOVE, không được tuyên bố lỗi click đã xử lý triệt để.
 - Repo commit: `2ec2ec4e1fc439c1e5231ce029ee2ad0e85a15ba`, `5c1ac6a235a958ffc522fccaf31c17d0b7f459ce`, `0e97ab7c77072110037a658853deeaa2f8635383`.
 - Nhịp phát hành 9/15=60%; tỷ lệ này không đại diện nghiệm thu sản phẩm.
+
+### Lượt 10 — lọc click lớp nổi và giữ thứ tự mở file
+- Canvas loại các sự kiện thả chuột trong lớp giao diện nổi khỏi chuỗi nhập nhiều điểm CAD, đồng thời không cho menu tương tác đi vào điểm lệnh.
+- Khi load CAD tuần tự, yêu cầu mở mới trong khoảng thời gian worker trước hoàn thành nhưng bản vẽ chưa tích hợp **không được vượt hàng đợi cũ**. Thêm test FIFO tái hiện trường hợp này.
+- Mã nguồn: `3d6e8ce24b4cf5f0c15ed6fec53a789c5ce91693`, `0b9297f2a4a093978d02f6e58de373c653cb40b5`.
+- Chưa chạy Rust tests GUI trên Windows, chưa có benchmark 300–500 MiB, chưa đóng gói EXE. **10/15 = 66,7% nhịp phát hành**, không phải mức độ hoàn thiện CAD360.
