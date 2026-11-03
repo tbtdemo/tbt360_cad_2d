@@ -139,6 +139,22 @@ fn prim_index_matches_a_scan_and_follows_list_rebuilds() {
     assert_eq!(ix.prims(2, &b, &hs(&[9, 3])), vec![0, 1]);
 }
 #[test]
+fn single_object_highlight_on_large_drawing_does_not_allocate_global_lookup() {
+    let mut ix = PrimIndex::default();
+    let ids: Vec<_> = (1..=55_000).collect();
+    let many = list(&ids);
+    let first = ix.prims(7, &many, &hs(&[54_999]));
+    assert_eq!(first, vec![54_998]);
+    assert_eq!(first, prims_of(&many, &hs(&[54_999])));
+    assert!(ix.by_handle.is_empty(), "single CAD selection must avoid indexing the entire drawing");
+    assert_eq!(ix.by_handle.capacity(), 0);
+    let multiple = ix.prims(7, &many, &hs(&[2, 3, 4]));
+    assert_eq!(multiple, prims_of(&many, &hs(&[2, 3, 4])));
+    assert_eq!(ix.by_handle.len(), 55_000, "multi-selection may build reusable index");
+    assert_eq!(ix.prims(7, &many, &hs(&[54_999])), vec![54_998]);
+}
+
+#[test]
 fn prim_index_releases_large_old_drawing_after_switch_with_empty_selection() {
     let mut ix = PrimIndex::default();
     let many = list(&(1..=25_000).collect::<Vec<_>>());
