@@ -1477,6 +1477,95 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
         ui.small("Tiếp theo: ghép diện tích mặt bằng + chiều cao mặt cắt thành thể tích; đo đường theo lý trình cọc + diện tích trắc ngang. Không suy diễn hình học khi chưa khai báo đủ nguồn.");
     });
 
+    ui.group(|ui| {
+        ui.strong("03 — ĐO THỂ TÍCH HAI BƯỚC: MẶT BẰNG + MẶT CẮT");
+        ui.small("Bước 1: quét đúng 1 đường bao kín trên mặt bằng (AREA). Bước 2: quét đúng 1 LINE thẳng đứng trên mặt cắt (HEIGHT). Hai hình học nguồn được kiểm tra lại trước khi xuất Excel.");
+        ui.horizontal_wrapped(|ui| {
+            if ui.button("1. LẤY DIỆN TÍCH MẶT BẰNG").clicked() {
+                let areas=selected_measurements(app).into_iter().filter(|m| m.kind == MeasureKind::Area && m.raw_value > 0.0).collect::<Vec<_>>();
+                if areas.len() == 1 {
+                    let measurement=&areas[0];
+                    state.volume_plan=Some(GeometricSource{handle:measurement.source_handle.hex(),signature:geometry_signature(measurement),raw_value:measurement.raw_value});
+                    state.import_feedback=format!("Đã lấy diện tích mặt bằng từ {}: {:.3} đơn vị².", measurement.source_handle.hex(),measurement.raw_value);
+                } else {
+                    state.import_feedback=format!("Cần đúng 1 diện tích khép kín; vùng đang chọn có {} phép đo diện tích. Hãy chọn lại.",areas.len());
+                }
+            }
+            if ui.button("2. LẤY CHIỀU CAO MẶT CẮT").clicked() {
+                let mut heights=Vec::new();
+                let mut incorrect=0usize;
+                if let Ok(doc)=app.session.doc() {
+                    for measurement in selected_measurements(app) {
+                        if measurement.kind != MeasureKind::Length { continue; }
+                        let line=doc.model.get(measurement.source_handle)
+                            .is_some_and(|entity| matches!(&entity.kind,EntityKind::Line(_)));
+                        if !line { continue; }
+                        match takeoff_composite::section_height(&measurement.points) {
+                            Ok(height) => heights.push((measurement,height)),
+                            Err(_) => incorrect+=1,
+                        }
+                    }
+                }
+                if heights.len() == 1 && incorrect == 0 {
+                    let (measurement,height)=&heights[0];
+                    state.volume_section=Some(GeometricSource{handle:measurement.source_handle.hex(),signature:geometry_signature(measurement),raw_value:*height});
+                    state.import_feedback=format!("Đã nhận chiều cao mặt cắt từ {}: {:.3} đơn vị.",measurement.source_handle.hex(),height);
+                } else {
+                    state.import_feedback=format!("Mặt cắt cần đúng 1 LINE thẳng đứng (hiện {} hợp lệ, {} nghiêng/không đạt). Hãy chọn lại.",heights.len(),incorrect);
+                }
+            }
+        });
+        ui.horizontal_wrapped(|ui| {
+            ui.label(format!("Mặt bằng: {}",state.volume_plan.as_ref().map(|x|format!("{} • {:.3} đv²",x.handle,x.raw_value)).unwrap_or_else(||"Chưa chọn".into())));
+            ui.separator();
+            ui.label(format!("Mặt cắt: {}",state.volume_section.as_ref().map(|x|format!("{} • {:.3} đv",x.handle,x.raw_value)).unwrap_or_else(||"Chưa chọn".into())));
+        });
+        ui.horizontal_wrapped(|ui| {
+            ui.label("Nhóm"); ui.add(egui::TextEdit::singleline(&mut state.volume_work_group).desired_width(125.0));
+            ui.label("Mã CT"); ui.add(egui::TextEdit::singleline(&mut state.volume_work_code).desired_width(125.0));
+            ui.label("Diễn giải"); ui.add(egui::TextEdit::singleline(&mut state.volume_description).desired_width(200.0));
+        });
+        let ready=state.volume_plan.as_ref().zip(state.volume_section.as_ref()).filter(|(plan,section)| plan.handle!=section.handle)
+            .and_then(|(plan,section)|state.scale_to_m().and_then(|scale|takeoff_composite::volume(plan.raw_value,section.raw_value,scale).ok()));
+        if let Some(value)=ready { ui.colored_label(egui::Color32::LIGHT_GREEN,format!("Thể tích dự kiến: {value:.3} m³ = S mặt bằng × H mặt cắt (chưa xác nhận).")); }
+        else { ui.colored_label(egui::Color32::YELLOW,"Cần hai nguồn hình học độc lập và tỷ lệ bản vẽ hợp lệ trước khi tính thể tích."); }
+        if ui.add_enabled(ready.is_some(),egui::Button::new("LƯU PHÉP ĐO THỂ TÍCH HAI NGUỒN")).clicked() {
+            let plan=state.volume_plan.clone().unwrap();
+            let section=state.volume_section.clone().unwrap();
+            if !qto_volume_source_current(app,&plan,MeasureKind::Area) || !qto_volume_source_current(app,&section,MeasureKind::Length) {
+                state.import_feedback="Một trong hai nguồn CAD đã thay đổi; cần quét và khai báo lại.".into();
+            } else if state.volume_records.iter().any(|r|r.plan.handle==plan.handle && r.section.handle==section.handle) {
+                state.import_feedback="Cặp mặt bằng/mặt cắt này đã được đo bóc, không ghi trùng.".into();
+            } else {
+                state.captured_handles.insert(plan.handle.clone());
+                state.captured_handles.insert(section.handle.clone());
+                state.source_mode=QtoSourceMode::CapturedRegion;
+                state.volume_records.push(PlanSectionVolume {
+                    plan,section,work_group:state.volume_work_group.trim().to_string(),
+                    work_code:state.volume_work_code.trim().to_string(),
+                    description:state.volume_description.trim().to_string(),confirmed:false,
+                });
+                state.import_feedback="Đã lưu thể tích có truy vết hai nguồn CAD. Hãy kiểm tra và xác nhận trước khi xuất hồ sơ.".into();
+            }
+        }
+        if !state.volume_records.is_empty() {
+            ui.separator();
+            ui.strong(format!("THỂ TÍCH HAI NGUỒN ĐÃ LƯU: {}",state.volume_records.len()));
+            egui::ScrollArea::vertical().id_salt("cadtbt360_plan_section_volumes").max_height(185.0).show(ui,|ui| {
+                let mut remove=None;
+                for (index, item) in state.volume_records.iter_mut().enumerate() {
+                    ui.horizontal_wrapped(|ui| {
+                        ui.checkbox(&mut item.confirmed,"Đã kiểm tra");
+                        ui.label(format!("#{} {} • S={} đv² × H={} đv",index+1,item.work_code,item.plan.raw_value,item.section.raw_value));
+                        if ui.small_button("Xóa").clicked() {remove=Some(index);}
+                    });
+                }
+                if let Some(index)=remove {state.volume_records.remove(index);}
+            });
+        }
+        ui.small("Đây là phương pháp diện tích mặt bằng × chiều cao mặt cắt có cùng tỷ lệ bản vẽ. Trắc ngang giao thông, đất đắp/đào và chuyển đổi tỷ lệ khác nhau sẽ có module tính riêng, không dùng công thức này.");
+    });
+
     ui.collapsing("CÔNG CỤ CŨ — nhập nhanh từ đối tượng đang chọn", |ui| {
     ui.horizontal(|ui| {
         if ui.button("Thêm phép đo từ CAD đang chọn").clicked() {
