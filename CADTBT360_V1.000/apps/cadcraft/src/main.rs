@@ -27,6 +27,7 @@ mod workspace;
 mod takeoff;
 mod takeoff_report;
 mod takeoff_composite;
+mod takeoff_road;
 mod bim_collab;
 mod cad_bim_recovery;
 mod model3d;
