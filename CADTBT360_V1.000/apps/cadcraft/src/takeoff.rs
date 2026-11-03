@@ -1,7 +1,7 @@
 //! Live, read-only quantities from the canonical CAD drawing.
 //! Geometry changes are owned by the native CAD command/undo system.
 //! These are drawing-unit quantities, NOT validated BIM/IFC/steel QTO.
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use cadcraft_doc::EntityKind;
 use cadcraft_ui_egui::CadApp;
@@ -90,6 +90,24 @@ struct AuditEntry {
     after: Option<String>,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+enum QtoSourceMode {
+    #[default]
+    CurrentSelection,
+    CapturedRegion,
+    EntireProject,
+}
+impl QtoSourceMode {
+    fn label(self) -> &'static str {
+        match self {
+            Self::CurrentSelection => "Đối tượng đang quét/chọn",
+            Self::CapturedRegion => "Phạm vi đã lưu",
+            Self::EntireProject => "Toàn bộ bản vẽ (chủ động chọn)",
+        }
+    }
+    const ALL: [Self; 3] = [Self::CurrentSelection, Self::CapturedRegion, Self::EntireProject];
+}
+
 #[derive(Default)]
 pub struct State {
     drawing_distance: f64,
@@ -107,6 +125,9 @@ pub struct State {
     file_feedback: String,
     export_confirmed_only: bool,
     export_config: ExportConfig,
+    source_mode: QtoSourceMode,
+    captured_handles: BTreeSet<String>,
+    selected_measure_types: [bool; 4],
     edit_work_group: String,
     edit_work_code: String,
     edit_description: String,
@@ -1054,6 +1075,31 @@ fn selected_measurements(app:&CadApp)->Vec<PendingMeasurement> {
     out
 }
 
+fn qto_live_handles(app: &CadApp) -> BTreeSet<String> {
+    app.session.selection().into_iter().map(|handle| handle.hex()).collect()
+}
+fn qto_allowed_handles(app: &CadApp, state: &State) -> Option<BTreeSet<String>> {
+    match state.source_mode {
+        QtoSourceMode::CurrentSelection => Some(qto_live_handles(app)),
+        QtoSourceMode::CapturedRegion => Some(state.captured_handles.clone()),
+        QtoSourceMode::EntireProject => None,
+    }
+}
+fn qto_measure_type_allowed(kind: MeasureKind, chosen: [bool; 4]) -> bool {
+    match kind {
+        MeasureKind::Length => chosen[0],
+        MeasureKind::Area => chosen[1],
+        MeasureKind::Perimeter => chosen[2],
+        MeasureKind::Count => chosen[3],
+    }
+}
+fn qto_record_in_scope(record: &MeasurementRecord, allowed: Option<&BTreeSet<String>>) -> bool {
+    match allowed {
+        None => true,
+        Some(handles) => record.source_handle.as_ref().is_some_and(|handle| handles.contains(handle)),
+    }
+}
+
 fn quantities(app: &CadApp) -> BTreeMap<String, Quantity> {
     let mut groups = BTreeMap::<String, Quantity>::new();
     if let Ok(drawing) = app.session.doc() {
@@ -1151,7 +1197,7 @@ fn qto_detail_csv(state: &State, source_validation: &SourceValidation, lf: f64, 
 
 /// Build report data from the same validated measurements shown in CAD QTO.
 /// Values remain numeric Excel cells; units are never mixed in the same subtotal.
-fn qto_report_lines(state: &State, source_validation: &SourceValidation, config: &ExportConfig) -> Result<Vec<ReportLine>, String> {
+fn qto_report_lines(state: &State, source_validation: &SourceValidation, config: &ExportConfig, allowed: Option<&BTreeSet<String>>) -> Result<Vec<ReportLine>, String> {
     if !config.valid() { return Err("Cần bật cột Khối lượng, Đơn vị và ít nhất một cột khác.".into()); }
     if config.project.trim().is_empty() || config.investor.trim().is_empty() {
         return Err("Nhập đầy đủ tên dự án và Chủ đầu tư trước khi xuất báo cáo.".into());
@@ -1165,6 +1211,7 @@ fn qto_report_lines(state: &State, source_validation: &SourceValidation, config:
     if !lf.is_finite() || !af.is_finite() { return Err("Đơn vị quy đổi không hợp lệ.".into()); }
     let mut result = Vec::new();
     for record in &state.records {
+        if !qto_record_in_scope(record, allowed) { continue; }
         // Never export excluded or invalid-source measurements, even in draft mode.
         if record.status == MeasureStatus::Excluded || source_validation.invalid_record_ids.contains(&record.id) { continue; }
         if !qto_record_exportable(record, source_validation, lf, af, config.confirmed_only) { continue; }
@@ -1204,7 +1251,7 @@ fn qto_report_lines(state: &State, source_validation: &SourceValidation, config:
 }
 
 fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Scope) {
-    let groups = quantities(app);
+    let groups = if state.source_mode == QtoSourceMode::EntireProject { quantities(app) } else { BTreeMap::new() };
     ui.heading("Đo bóc khối lượng — CAD native");
     ui.label("Số liệu trực tiếp từ bản vẽ CAD đang mở; thay đổi ngay sau khi vẽ, sửa, Undo hoặc Redo.");
     let review_count = state.records.iter().filter(|r| r.status == MeasureStatus::Review).count();
@@ -1245,6 +1292,70 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
     let af = lf * lf;
     if !af.is_finite() { ui.colored_label(egui::Color32::RED, "Tỷ lệ diện tích vượt phạm vi tính toán. Không sử dụng kết quả diện tích để nghiệm thu."); }
 
+    ui.group(|ui| {
+        ui.strong("01 — CHỌN PHẠM VI TRỰC TIẾP TRÊN BẢN VẼ");
+        ui.label("Rê chuột và quét cửa sổ (trái → phải chọn nằm trong; phải → trái chọn cắt qua) ở vùng CAD bên trái. Đối tượng được chọn xuất hiện ngay trong bảng xem trước; KHÔNG tự lấy toàn dự án.");
+        ui.horizontal_wrapped(|ui| {
+            ui.label("Phạm vi bóc:");
+            egui::ComboBox::from_id_salt("cadtbt360_qto_source_mode").selected_text(state.source_mode.label()).show_ui(ui, |ui| {
+                for mode in QtoSourceMode::ALL { ui.selectable_value(&mut state.source_mode, mode, mode.label()); }
+            });
+            if ui.button("Lưu phạm vi đang quét").clicked() {
+                let handles = qto_live_handles(app);
+                if handles.is_empty() {
+                    state.import_feedback = "Hãy quét/chọn đối tượng trong CAD trước khi lưu phạm vi.".into();
+                } else {
+                    state.captured_handles = handles;
+                    state.source_mode = QtoSourceMode::CapturedRegion;
+                    state.import_feedback = format!("Đã lưu {} handle CAD cho vùng đo bóc.", state.captured_handles.len());
+                }
+            }
+            ui.label(format!("Đang chọn: {} | Đã lưu: {}", app.session.selection().len(), state.captured_handles.len()));
+        });
+        ui.strong("02 — CHỌN PHƯƠNG PHÁP ĐO (CÓ THỂ KẾT HỢP)");
+        ui.horizontal_wrapped(|ui| {
+            for (index, label) in ["Chiều dài", "Diện tích", "Chu vi", "Đếm cấu kiện"].iter().enumerate() {
+                // Start with geometry quantities, not automatic object counting.
+                ui.checkbox(&mut state.selected_measure_types[index], *label);
+            }
+        });
+        if !state.selected_measure_types.iter().any(|chosen| *chosen) {
+            ui.colored_label(egui::Color32::YELLOW, "Chọn ít nhất một phương pháp; hệ thống không tự đếm toàn bộ đối tượng.");
+        }
+        let handles = qto_allowed_handles(app, state);
+        if let Some(handles) = &handles {
+            let selections = if state.source_mode == QtoSourceMode::CurrentSelection { selected_measurements(app) } else {
+                handles.iter().filter_map(|handle| cadcraft_doc::Handle::parse_hex(handle))
+                    .flat_map(|handle| measurements_for_handle(app, handle)).collect::<Vec<_>>()
+            };
+            let matches = selections.iter().filter(|m| qto_measure_type_allowed(m.kind, state.selected_measure_types)).collect::<Vec<_>>();
+            ui.label(format!("Xem trước phạm vi: {} đối tượng nguồn; {} phép đo hình học phù hợp.", handles.len(), matches.len()));
+            egui::ScrollArea::vertical().id_salt("cadtbt360_qto_live_preview").max_height(165.0).show(ui, |ui| {
+                egui::Grid::new("cadtbt360_qto_preview_grid").striped(true).show(ui, |ui| {
+                    ui.strong("Nguồn CAD"); ui.strong("Layer"); ui.strong("Phương pháp"); ui.strong("Giá trị thô"); ui.end_row();
+                    for m in matches.iter().take(35) {
+                        ui.label(m.source_handle.hex()); ui.label(&m.layer);
+                        ui.label(match m.kind { MeasureKind::Length => "Chiều dài", MeasureKind::Area => "Diện tích", MeasureKind::Perimeter => "Chu vi", MeasureKind::Count => "Đếm" });
+                        ui.label(format!("{:.3}", m.raw_value)); ui.end_row();
+                    }
+                });
+            });
+            if matches.len() > 35 { ui.small(format!("Đang hiển thị 35/{} phép đo; nhập danh sách sẽ dùng đầy đủ.", matches.len())); }
+            if ui.add_enabled(!matches.is_empty(), egui::Button::new("THÊM CÁC PHÉP ĐO ĐÃ CHỌN VÀO BẢNG")).clicked() {
+                let mut added = 0usize; let mut skipped = 0usize;
+                for measurement in matches {
+                    let (entity_scope, revision) = scope_from_entity_or_active(app, measurement.source_handle, scope);
+                    if state.add_measurement_from_entity(measurement.clone(), &entity_scope, revision).is_ok() { added += 1; } else { skipped += 1; }
+                }
+                state.import_feedback = format!("Đã tạo {added} phép đo có nguồn CAD, bỏ qua {skipped} mục trùng hoặc không hợp lệ. Hãy rà soát và xác nhận trước khi xuất.");
+            }
+        } else {
+            ui.colored_label(egui::Color32::YELLOW, "Đã chọn toàn bộ bản vẽ. Cách này chỉ áp dụng khi chủ động chọn; khuyến nghị quét vùng cần bóc.");
+        }
+        ui.small("Tiếp theo: ghép diện tích mặt bằng + chiều cao mặt cắt thành thể tích; đo đường theo lý trình cọc + diện tích trắc ngang. Không suy diễn hình học khi chưa khai báo đủ nguồn.");
+    });
+
+    ui.collapsing("CÔNG CỤ CŨ — nhập nhanh từ đối tượng đang chọn", |ui| {
     ui.horizontal(|ui| {
         if ui.button("Thêm phép đo từ CAD đang chọn").clicked() {
             let measurements=selected_measurements(app);
@@ -1280,6 +1391,7 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
         }
         ui.label(format!("Đang chọn {} đối tượng CAD", app.session.selection().len()));
     });
+    }); // Công cụ nhập nhanh cũ
     if !state.import_feedback.is_empty() { ui.label(&state.import_feedback); }
 
     ui.horizontal(|ui| {
@@ -1366,13 +1478,14 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
             ui.colored_label(egui::Color32::YELLOW, "Đang bật hơn 9 cột: Excel sẽ thu nhỏ khi in A4 ngang. Nên ẩn bớt cột kỹ thuật nếu gửi Chủ đầu tư.");
         }
         // Avoid constructing, sorting and grouping the complete report each GUI frame.
-        let count = state.records.iter().filter(|r| r.status != MeasureStatus::Excluded && !source_validation.invalid_record_ids.contains(&r.id) && qto_record_exportable(r, &source_validation, lf, af, state.export_config.confirmed_only)).count();
+        let allowed_handles = qto_allowed_handles(app, state);
+        let count = state.records.iter().filter(|r| qto_record_in_scope(r, allowed_handles.as_ref()) && r.status != MeasureStatus::Excluded && !source_validation.invalid_record_ids.contains(&r.id) && qto_record_exportable(r, &source_validation, lf, af, state.export_config.confirmed_only)).count();
         ui.label(format!("Sẵn sàng xem xét: {count} phép đo, {} cột. File XLSX được tạo khi bấm Xuất.", state.export_config.selected().len()));
         if !state.export_config.confirmed_only {
             ui.colored_label(egui::Color32::YELLOW, "Chế độ DỰ THẢO: có thể bao gồm phép đo chưa xác nhận. Không gửi Chủ đầu tư trước khi kiểm tra.");
         }
         if ui.add_enabled(state.export_config.valid() && count > 0, egui::Button::new("XUẤT EXCEL XLSX — ĐỊNH DẠNG IN A4")).clicked() {
-            match qto_report_lines(state, &source_validation, &state.export_config) {
+            match qto_report_lines(state, &source_validation, &state.export_config, allowed_handles.as_ref()) {
                 Ok(rows) => {
                     if let Some(path) = rfd::FileDialog::new().add_filter("Excel Workbook", &["xlsx"]).set_file_name("CADTBT360_V1.000_BANG_DO_BOC_KHOI_LUONG.xlsx").save_file() {
                         match takeoff_report::write_xlsx(&path, &state.export_config, &rows) {
@@ -1629,17 +1742,17 @@ mod tests {
         let removed = state.add_measurement(MeasureKind::Count, vec![], 9.0, "Layer B".into()).unwrap();
         assert!(state.set_status(removed, MeasureStatus::Excluded));
         let cfg = ExportConfig { project: "Dự án thử nghiệm".into(), investor: "Chủ đầu tư A".into(), ..Default::default() };
-        let records = qto_report_lines(&state, &SourceValidation::default(), &cfg).unwrap();
+        let records = qto_report_lines(&state, &SourceValidation::default(), &cfg, None).unwrap();
         assert_eq!(records.len(), 1);
         assert_eq!(records[0].quantity, 3.0);
         assert_eq!(records[0].unit, "cái");
         assert_eq!(records[0].group, "Kết cấu");
         let mut draft = cfg.clone();
         draft.confirmed_only = false;
-        assert_eq!(qto_report_lines(&state, &SourceValidation::default(), &draft).unwrap().len(), 1);
+        assert_eq!(qto_report_lines(&state, &SourceValidation::default(), &draft, None).unwrap().len(), 1);
         let mut invalid = SourceValidation::default();
         invalid.invalid_record_ids.insert(id);
-        assert!(qto_report_lines(&state, &invalid, &cfg).is_err());
+        assert!(qto_report_lines(&state, &invalid, &cfg, None).is_err());
     }
 
     #[test]
@@ -1652,7 +1765,7 @@ mod tests {
         state.real_distance_m = 1.0;
         let cfg = ExportConfig { project: "Dự án B".into(), investor: "CĐT B".into(), length_unit: "cm".into(), ..Default::default() };
         state.export_config = cfg.clone();
-        let records = qto_report_lines(&state, &SourceValidation::default(), &cfg).unwrap();
+        let records = qto_report_lines(&state, &SourceValidation::default(), &cfg, None).unwrap();
         assert_eq!(records.len(), 1);
         assert!((records[0].quantity - 100.0).abs() < 1.0e-9);
         assert_eq!(records[0].unit, "cm");
