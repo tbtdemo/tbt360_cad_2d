@@ -466,6 +466,11 @@ mod tests {
         prune_generations(&root);
         assert!(good.exists(), "a valid recovery must not be pruned by malformed generations");
         assert_eq!(latest_pair(&root).as_deref(), Some(good.as_path()));
+        let (fallback, paths, snapshot, active) = latest_bundle(&root).unwrap();
+        assert_eq!(fallback, good, "recovery must fall back past corrupted generations");
+        assert_eq!(paths, vec![good.join("drawing.dxf")]);
+        assert_eq!(snapshot["project_id"], "keep-good");
+        assert_eq!(active, 0);
         std::fs::remove_dir_all(&root).unwrap();
     }
 
