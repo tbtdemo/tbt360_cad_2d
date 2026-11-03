@@ -1284,7 +1284,7 @@ impl State {
             .sum();
     }
 
-    fn snapshot_json(&self) -> serde_json::Value {
+    pub(crate) fn snapshot_json(&self) -> serde_json::Value {
         let floors = self.floors.iter().map(|f| serde_json::json!({
             "id": f.id, "name": f.name, "elevation_m": f.elevation_m, "height_m": f.height_m
         })).collect::<Vec<_>>();
@@ -1713,7 +1713,7 @@ impl State {
             && self.has_share_access(&me.account_id, &target.account_id, target_floor, target.discipline, false)
     }
 
-    fn load_snapshot_json(&mut self,value:&serde_json::Value)->Result<(),String> {
+    pub(crate) fn load_snapshot_json(&mut self,value:&serde_json::Value)->Result<(),String> {
         let target_project_id = value.get("project_id").and_then(serde_json::Value::as_str).unwrap_or("").trim();
         if !self.pending_changes.iter().all(|change| change.synced) {
             if target_project_id != self.project_id {
