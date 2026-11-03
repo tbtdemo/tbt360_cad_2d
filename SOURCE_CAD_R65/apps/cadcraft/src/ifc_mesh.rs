@@ -3,6 +3,7 @@
 use std::{collections::HashMap, io::{BufRead, BufReader}, path::Path};
 use crate::bounded_io::read_bounded_line;
 const MAX_OBJ_LINE: usize = 4_000_000;
+const MAX_OBJ_GROUP_NAME_BYTES: usize = 1024;
 
 #[derive(Clone, Default)]
 pub struct Mesh { pub vertices: Vec<[f32;3]>, pub faces: Vec<[usize;3]>, pub face_groups: Vec<usize>, pub groups: Vec<String> }
@@ -37,6 +38,7 @@ impl Mesh {
                 Some("o" | "g") => {
                     let name = parts.collect::<Vec<_>>().join(" ");
                     if !name.is_empty() {
+                        if name.len() > MAX_OBJ_GROUP_NAME_BYTES { return Err("Tên nhóm OBJ vượt giới hạn 1024 byte".into()); }
                         if let Some(group_index) = group_indices.get(&name) {
                             current_group = *group_index;
                         } else {
@@ -59,7 +61,7 @@ impl Mesh {
                     let tokens: Vec<&str> = parts.collect();
                     if tokens.len() < 3 || tokens.len() > 128 { return Err("OBJ có mặt không hợp lệ".into()); }
                     let ids = tokens.iter().map(|v| face_index(v,mesh.vertices.len()).ok_or_else(|| "Chỉ số mặt OBJ không hợp lệ".to_string())).collect::<Result<Vec<_>,_>>()?;
-                    if ids.windows(2).any(|pair| pair[0] == pair[1]) || ids[0] == *ids.last().unwrap_or(&usize::MAX) { return Err("Mặt OBJ có các đỉnh trùng nhau".into()); }
+                    if ids.iter().copied().collect::<std::collections::HashSet<_>>().len() != ids.len() { return Err("Mặt OBJ có các đỉnh trùng nhau".into()); }
                     for i in 1..ids.len()-1 {
                         let a = mesh.vertices[ids[0]]; let b = mesh.vertices[ids[i]]; let c = mesh.vertices[ids[i+1]];
                         let ab = [f64::from(b[0])-f64::from(a[0]),f64::from(b[1])-f64::from(a[1]),f64::from(b[2])-f64::from(a[2])];
@@ -126,6 +128,21 @@ mod tests {
         assert!(face_index("-4", 3).is_none());
         assert!(face_index("4", 3).is_none());
         assert!(face_index("abc", 3).is_none());
+    }
+    #[test] fn rejects_nonadjacent_duplicate_face_indices() {
+        let data = b"v 0 0 0\nv 1 0 0\nv 1 1 0\nv 0 1 0\nf 1 2 3 2 4\n";
+        let error = Mesh::read_from(std::io::Cursor::new(data)).err().unwrap();
+        assert!(error.contains("trùng"));
+    }
+    #[test] fn rejects_oversized_object_names_before_storing_group_metadata() {
+        let data = format!("v 0 0 0\nv 1 0 0\nv 0 1 0\no {}\nf 1 2 3\n", "A".repeat(MAX_OBJ_GROUP_NAME_BYTES + 1));
+        let error = Mesh::read_from(std::io::Cursor::new(data)).err().unwrap();
+        assert!(error.contains("1024"));
+    }
+    #[test] fn accepts_group_names_up_to_the_limit() {
+        let data = format!("v 0 0 0\nv 1 0 0\nv 0 1 0\no {}\nf 1 2 3\n", "A".repeat(MAX_OBJ_GROUP_NAME_BYTES));
+        let mesh = Mesh::read_from(std::io::Cursor::new(data)).unwrap();
+        assert_eq!(mesh.groups[1].len(), MAX_OBJ_GROUP_NAME_BYTES);
     }
     #[test] fn reads_positive_and_negative_indices() {
         assert_eq!(face_index("1/2/3", 3),Some(0));
