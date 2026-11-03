@@ -55,6 +55,17 @@ fn qselect_matching_choices<'a>(choices: &'a [String], query: &str, max_results:
     (results, count)
 }
 
+/// Keep identifiers (especially the common CAD layer "0") as text.
+/// Only scalar numeric properties should be encoded as JSON numbers; the
+/// engine can still parse numeric strings, but a layer name must remain a name.
+fn qselect_value_for_property(property: &str, raw: &str) -> Value {
+    let value = raw.trim();
+    if ["layer", "linetype", "type", "handle", "color", "visible"].contains(&property.to_ascii_lowercase().as_str()) {
+        return json!(value);
+    }
+    value.parse::<f64>().ok().filter(|n| n.is_finite()).map_or_else(|| json!(value), |n| json!(n))
+}
+
 /// Avoid an unintended select-all operation when the dialog has no usable filter.
 /// Filtering by object type alone remains valid.
 fn qselect_has_criteria(ty: &str, property: &str, value: &str) -> bool {
@@ -251,7 +262,7 @@ pub fn qselect_dialog(app: &mut CadApp, ctx: &egui::Context, open: &mut bool) {
                                 o.insert("property".into(), json!(st.property));
                                 o.insert("operator".into(), json!(st.operator));
                                 let v = st.value.trim();
-                                o.insert("value".into(), v.parse::<f64>().map(|f| json!(f)).unwrap_or_else(|_| json!(v)));
+                                o.insert("value".into(), qselect_value_for_property(&st.property, v));
                             }
                         }
                         run = Some(p);
@@ -505,6 +516,20 @@ mod qselect_filter_tests {
         assert_eq!(count, 500);
         assert_eq!(matches.len(), 100);
         assert_eq!(matches[0], "LAYER-000");
+    }
+
+    #[test]
+    fn qselect_keeps_numeric_layer_zero_as_text() {
+        assert_eq!(super::qselect_value_for_property("layer", "0"), serde_json::json!("0"));
+        assert_eq!(super::qselect_value_for_property("color", "1"), serde_json::json!("1"));
+        assert_eq!(super::qselect_value_for_property("linetype", " 0 "), serde_json::json!("0"));
+    }
+
+    #[test]
+    fn qselect_numeric_geometry_properties_are_finite_json_numbers() {
+        assert_eq!(super::qselect_value_for_property("radius", "2.5"), serde_json::json!(2.5));
+        assert_eq!(super::qselect_value_for_property("centerX", "1e3"), serde_json::json!(1000.0));
+        assert_eq!(super::qselect_value_for_property("radius", "NaN"), serde_json::json!("NaN"));
     }
 
     #[test]
