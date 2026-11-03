@@ -106,7 +106,14 @@ impl Opening {
 
     /// The text of the card: the file and how long it has taken, or how many files are queued.
     fn label(&self) -> Option<String> {
-        let first = self.jobs.first()?;
+        // A completed decoder can leave queued files waiting for the UI thread to
+        // install the drawing. Keep the loading indicator visible during this gap.
+        let Some(first) = self.jobs.first() else {
+            return self.queued.front().map(|path| {
+                let name = std::path::Path::new(path).file_name().map_or_else(|| path.clone(), |n| n.to_string_lossy().to_string());
+                format!("Đang chờ mở {name} ({} file trong hàng đợi)", self.queued.len())
+            });
+        };
         let name = std::path::Path::new(&first.path).file_name().map_or_else(|| first.path.clone(), |n| n.to_string_lossy().to_string());
         let secs = first.started.elapsed().as_secs_f32();
         let more = self.jobs.len() + self.queued.len() - 1;
@@ -258,6 +265,17 @@ mod tests {
         p.bytes.store(100, std::sync::atomic::Ordering::Relaxed);
         p.parsing.store(true, std::sync::atomic::Ordering::Release);
         assert!(p.parsing.load(std::sync::atomic::Ordering::Acquire));
+    }
+
+    #[test]
+    fn pending_file_remains_visible_between_decoder_and_ui_install() {
+        let mut opening = super::Opening::default();
+        opening.queued.push_back("C:/drawings/large-01.dxf".to_string());
+        opening.queued.push_back("C:/drawings/large-02.dxf".to_string());
+        assert!(opening.busy());
+        let label = opening.label().unwrap_or_default();
+        assert!(label.contains("large-01.dxf"), "{label}");
+        assert!(label.contains("2 file"), "{label}");
     }
 
     #[test]
