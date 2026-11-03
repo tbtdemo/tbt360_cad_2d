@@ -1,3 +1,18 @@
+## B24 — QSELECT Remove: bỏ đối tượng phù hợp khỏi tập chọn (03/11/2026)
+
+**B22 đã có bộ cài**: run [41643336730](https://github.com/tbtdemo/tbt360_cad_2d/actions/runs/41643336730) commit `e6ab7583`, artifact [13234886102](https://github.com/tbtdemo/tbt360_cad_2d/actions/runs/41643336730/artifacts/13234886102) tên `CAD360-TBT-Windows-x64-Setup-Portable-Source-B22-QSELECT` 63,895,787 bytes. Khâu biên dịch + upload PASS, step regression QSELECT đang chạy khi kiểm tra. Không có kiểm chứng GUI Windows.
+
+**Nâng cấp mới B24 thực sự vào code:**
+- Engine `SOURCE_CAD_R65/crates/engine/src/cmd/qselect.rs` thêm `mode: "remove"`: chỉ quét đối tượng đang chọn, bỏ những handle khớp toàn bộ điều kiện `type/property/operator/value`, giữ nguyên thứ tự những đối tượng không khớp. Không xóa entity/hình học khỏi bản vẽ. `preview:true` xem trước tổng số đối tượng còn lại không thay đổi selection.
+- Giao diện `SOURCE_CAD_R65/crates/ui-egui/src/quick.rs`: checkbox tiếng Việt `Bỏ đối tượng phù hợp khỏi tập chọn hiện tại`, vô hiệu hóa các lựa chọn new/append/exclude khi đang remove và vô hiệu hóa OK/Preview nếu chưa có selection. Hai hành vi Preview/OK dùng chung `qselect_request`.
+- Thêm hai test engine `qselect_remove_subtracts_matching_entities_from_current_selection` và `qselect_remove_respects_property_and_preserves_other_selected_handles`; mở rộng test GUI về request mode remove.
+- [Commit engine `0d4261fe`](https://github.com/tbtdemo/tbt360_cad_2d/commit/0d4261fe8d01bc7147729c6d7593c52ebd6e8133), [commit giao diện `8280e227`](https://github.com/tbtdemo/tbt360_cad_2d/commit/8280e22782d689c9b467e66b1ae78f561bf6e0fc).
+- Workflow [commit `7159fbe9`](https://github.com/tbtdemo/tbt360_cad_2d/commit/7159fbe916263a4a1a530877f9b56691cd58bc67), artifact mới tên `CAD360-TBT-Windows-x64-Setup-Portable-Source-B24-QSELECT`. Gating sẵn có chạy test QSELECT engine/UI và BIM sau upload.
+- [Ubuntu Windows B24 run 41644498802](https://github.com/tbtdemo/tbt360_cad_2d/actions/runs/41644498802) đang chạy, [Windows Native run 41644498750](https://github.com/tbtdemo/tbt360_cad_2d/actions/runs/41644498750) đang chạy, **chưa có EXE B24** lúc kiểm tra.
+- **Cổng bàn giao B24** 1/4=**25%** (source), chưa xác minh compile/EXE artifact/GUI; 2 test nguồn mới chưa xác nhận PASS.
+- **Cổng bàn giao B22** 3/4=**75%** (source/build/upload), GUI Windows chưa xác nhận, các test QSELECT đang chạy.
+
+
 ## B23 — QSELECT Preview bám đúng tập chọn CAD (03/11/2026)
 
 **Phát hiện lỗi hành vi:** Trong QSELECT `applyTo=drawing, mode=append`, khi tập chọn thay đổi nhưng drawing revision không đổi, `qselect.info` cache giữ nguyên là hợp lý, nhưng chữ ký kết quả `Xem trước` cũng giữ nguyên nên có thể hiển thị số đếm cũ. Ví dụ: chọn thêm 10 đối tượng sau khi preview và chưa sửa bản vẽ.
