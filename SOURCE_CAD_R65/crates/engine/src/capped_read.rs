@@ -53,6 +53,15 @@ fn read_retry_interrupted(reader: &mut impl Read, buf: &mut [u8]) -> io::Result<
     }
 }
 
+/// A file shortened while OPEN is reading must not be passed to the DXF
+/// decoder as if its geometry had been read completely.
+fn check_progressive_read_length(expected: u64, read: u64) -> io::Result<()> {
+    if read < expected {
+        return Err(io::Error::new(io::ErrorKind::UnexpectedEof, format!("drawing changed or was truncated during OPEN: read {read} of {expected} bytes")));
+    }
+    Ok(())
+}
+
 /// Progressive read for large regular drawing files. Unlike read_capped, this API does not
 /// impose a fixed on-disk file-size ceiling. Each allocation is fallible and chunked.
 /// A file may still fail to decode if actual memory is insufficient; callers must report that.
@@ -101,6 +110,9 @@ pub fn read_progressive(path: &Path, mut report: impl FnMut(u64, u64)) -> io::Re
         read_total = read_total.saturating_add(n as u64);
         report(read_total, total);
     }
+    check_progressive_read_length(total, read_total)?;
+    // A drawing that grew while being read is still reported by its actual
+    // final byte count; a shortened snapshot is explicitly rejected instead.
     report(read_total, read_total);
     Ok(output)
 }
@@ -108,6 +120,15 @@ pub fn read_progressive(path: &Path, mut report: impl FnMut(u64, u64)) -> io::Re
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn progressive_read_rejects_truncated_geometry_before_decode() {
+        assert!(check_progressive_read_length(1024, 1024).is_ok());
+        assert!(check_progressive_read_length(1024, 2048).is_ok(), "growing CAD file is read to actual EOF");
+        let err = check_progressive_read_length(1024, 700).unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::UnexpectedEof);
+        assert!(err.to_string().contains("700 of 1024"));
+    }
 
     #[test]
     fn transient_interrupted_read_retries_without_losing_geometry_bytes() {
