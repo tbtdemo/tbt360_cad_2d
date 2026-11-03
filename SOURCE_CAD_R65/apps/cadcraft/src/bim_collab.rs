@@ -2661,6 +2661,42 @@ mod tests {
     use super::*;
 
     #[test]
+    fn selection_requires_foreign_owner_edit_grant_not_just_view_grant() {
+        let mut state = State::default();
+        let mut slot = state.views[0].clone();
+        slot.owner_account_id = None;
+        slot.show_other_users = true;
+        let meta = BimEntityMeta { floor_id: slot.floor_id, discipline: slot.discipline, owner_account_id: "foreign-designer".into(), revision: 1, entity_handle: None };
+        state.auth.status = AuthStatus::OfflineProfile;
+        state.auth.account_id = state.current_account_id.clone();
+        assert!(!can_edit_scoped_entity(&state, &slot, &meta), "visibility alone must never grant editing");
+        state.share_grants.push(ShareGrant { viewer_account_id: state.current_account_id.clone(), owner_account_id: meta.owner_account_id.clone(), floor_id: Some(meta.floor_id), discipline: Some(meta.discipline), can_view: true, can_edit: false });
+        assert!(!can_edit_scoped_entity(&state, &slot, &meta), "read-only share cannot grant CAD mutation");
+        state.share_grants.last_mut().unwrap().can_edit = true;
+        assert!(can_edit_scoped_entity(&state, &slot, &meta), "explicit edit share permits editing the matching foreign object");
+    }
+
+    #[test]
+    fn selection_rejects_wrong_floor_discipline_or_reference_view() {
+        let mut state = State::default();
+        state.auth.status = AuthStatus::OfflineProfile;
+        state.auth.account_id = state.current_account_id.clone();
+        let mut slot = state.views[0].clone();
+        let meta = BimEntityMeta { floor_id: slot.floor_id, discipline: slot.discipline, owner_account_id: state.current_account_id.clone(), revision: 1, entity_handle: None };
+        assert!(can_edit_scoped_entity(&state, &slot, &meta));
+        slot.mode = ViewMode::Reference;
+        assert!(!can_edit_scoped_entity(&state, &slot, &meta));
+        slot.mode = ViewMode::Edit;
+        slot.floor_id += 1;
+        assert!(!can_edit_scoped_entity(&state, &slot, &meta));
+        slot.floor_id = meta.floor_id;
+        slot.discipline = Discipline::Electrical;
+        assert!(!can_edit_scoped_entity(&state, &slot, &meta));
+    }
+
+
+
+    #[test]
     fn issue_close_requires_independent_confirmation_and_persists() {
         let mut state = State::default();
         for account in ["reviewer", "coordinator"] { let mut user = state.users[0].clone(); user.account_id = account.into(); user.can_edit = true; state.users.push(user); let mut rule = state.access_rules[0].clone(); rule.account_id = account.into(); rule.can_edit = true; state.access_rules.push(rule); }
