@@ -1800,13 +1800,15 @@ pub fn enforce_selection_scope(app: &mut cadcraft_ui_egui::CadApp, state: &State
     }
     let Some(filter) = app.tile_render_filters.get(index).filter(|f| f.enabled) else { return };
     let selected = app.session.selection();
-    let allowed_handles: std::collections::HashSet<_> = app.session.doc().map(|doc| {
-        doc.model.iter().filter_map(|entity| {
-            let meta = bim_meta(&entity.common)?;
-            (filter.primary_handles.binary_search(&entity.handle).is_ok() && can_edit_scoped_entity(state, slot, &meta)).then_some(entity.handle)
-        }).collect()
+    // Check only selected handles through the model index. Scanning every
+    // entity each frame is prohibitively expensive on a large CAD drawing.
+    let allowed = app.session.doc().map(|doc| {
+        selected.iter().copied().filter(|handle| {
+            if filter.primary_handles.binary_search(handle).is_err() { return false; }
+            doc.model.get(*handle).and_then(|entity| bim_meta(&entity.common))
+                .is_some_and(|meta| can_edit_scoped_entity(state, slot, &meta))
+        }).collect::<Vec<_>>()
     }).unwrap_or_default();
-    let allowed = selected.iter().copied().filter(|handle| allowed_handles.contains(handle)).collect::<Vec<_>>();
     if allowed != selected {
         app.session.set_selection(allowed);
     }
