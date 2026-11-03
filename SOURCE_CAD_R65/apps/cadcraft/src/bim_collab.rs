@@ -3095,6 +3095,34 @@ mod tests {
     }
 
     #[test]
+    fn pending_changes_block_switch_to_another_project_workspace() {
+        let mut state = State::default();
+        let original_project = state.project_id.clone();
+        state.queue_update(cadcraft_doc::Handle(61001), 0, 1);
+        let mut other = state.snapshot_json();
+        other["project_id"] = serde_json::json!("another-project");
+
+        let error = state.load_snapshot_json(&other).unwrap_err();
+
+        assert!(error.contains("ChangeSet"));
+        assert_eq!(state.project_id, original_project);
+        assert_eq!(state.pending_changes.len(), 1);
+        assert!(!state.pending_changes[0].synced);
+        assert_eq!(state.dirty_local_changes, 1);
+    }
+
+    #[test]
+    fn switch_project_workspace_is_allowed_after_queue_confirmed() {
+        let mut state = State::default();
+        let mut other = state.snapshot_json();
+        other["project_id"] = serde_json::json!("another-project");
+
+        state.load_snapshot_json(&other).unwrap();
+
+        assert_eq!(state.project_id, "another-project");
+    }
+
+    #[test]
     fn new_change_id_skips_ids_already_present_in_loaded_queue() {
         let mut state = State::default();
         state.pending_changes.push(ChangeSet {
