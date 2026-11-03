@@ -2799,9 +2799,10 @@ mod tests {
     fn conflict_resolution_keep_mine_rebases_local_change() {
         let mut state = State::default();
         let h = cadcraft_doc::Handle(77);
+        state.set_remote_revision(h, 5);
         state.pending_changes.push(ChangeSet {
             id: 1,
-            account_id: "local-owner".into(),
+            account_id: state.current_account_id.clone(),
             items: vec![ChangeItem { handle: h, operation: ChangeOperation::Update, base_revision: 2, local_revision: 3 }],
             synced: false,
         });
@@ -3293,6 +3294,44 @@ mod tests {
 
         assert_eq!(state.pending_changes[0].items.len(), 1);
         assert!(!state.pending_changes[0].synced);
+    }
+
+    #[test]
+    fn keep_mine_rejects_stale_conflict_without_dropping_local_change() {
+        let mut state = State::default();
+        let handle = cadcraft_doc::Handle(96010);
+        state.set_remote_revision(handle, 8);
+        state.pending_changes.push(ChangeSet {
+            id: 96010,
+            account_id: state.current_account_id.clone(),
+            items: vec![ChangeItem { handle, operation: ChangeOperation::Update, base_revision: 3, local_revision: 4 }],
+            synced: false,
+        });
+        state.conflicts.push(SyncConflict { handle, base_revision: 3, local_revision: 4, remote_revision: 7 });
+        state.resolve_conflict(handle, ConflictResolution::KeepMine);
+        assert_eq!(state.conflicts.len(), 1);
+        assert_eq!(state.remote_revision(handle), 8);
+        assert_eq!(state.pending_changes[0].items[0].base_revision, 3);
+        assert!(!state.pending_changes[0].synced);
+    }
+
+    #[test]
+    fn keep_mine_rejects_multiple_pending_changes_for_same_handle() {
+        let mut state = State::default();
+        let handle = cadcraft_doc::Handle(96011);
+        state.set_remote_revision(handle, 5);
+        for id in [96011, 96012] {
+            state.pending_changes.push(ChangeSet {
+                id,
+                account_id: state.current_account_id.clone(),
+                items: vec![ChangeItem { handle, operation: ChangeOperation::Update, base_revision: 2, local_revision: 3 }],
+                synced: false,
+            });
+        }
+        state.conflicts.push(SyncConflict { handle, base_revision: 2, local_revision: 3, remote_revision: 5 });
+        state.resolve_conflict(handle, ConflictResolution::KeepMine);
+        assert_eq!(state.conflicts.len(), 1);
+        assert!(state.pending_changes.iter().all(|change| !change.synced && change.items[0].base_revision == 2));
     }
 
     #[test]
