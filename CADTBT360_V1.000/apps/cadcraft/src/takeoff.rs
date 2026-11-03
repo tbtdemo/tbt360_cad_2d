@@ -1224,21 +1224,41 @@ fn qto_road_station_from_entity(doc: &cadcraft_doc::Drawing, entity: &cadcraft_d
     }
 }
 
-fn qto_road_scan_markers(app: &CadApp, all_model: bool) -> (Vec<takeoff_road::RoadPlanMarker>,usize) {
+/// Resolve source handles across model and paper-space layouts. Refuse
+/// collisions instead of selecting an arbitrary drawing entity.
+fn qto_road_find_marker_entity<'a>(doc: &'a cadcraft_doc::Drawing, handle: cadcraft_doc::Handle) -> Result<Option<&'a cadcraft_doc::Entity>,String> {
+    let mut found=doc.model.get(handle).map(|entity|entity.as_ref());
+    for layout in &doc.layouts {
+        if let Some(entity)=layout.entities.get(handle) {
+            if found.is_some() {return Err(format!("Handle cọc {} xuất hiện ở nhiều không gian CAD; cần kiểm tra bản vẽ.",handle.hex()));}
+            found=Some(entity.as_ref());
+        }
+    }
+    Ok(found)
+}
+
+fn qto_road_scan_markers(app: &CadApp, all_model: bool, include_layouts: bool) -> (Vec<takeoff_road::RoadPlanMarker>,usize) {
     let selected=if all_model {Vec::new()} else {app.session.selection()};
     let Ok(doc)=app.session.doc() else {return (Vec::new(),selected.len());};
     let mut markers=Vec::new();
     let mut skipped=0usize;
+    let mut handles=BTreeSet::<String>::new();
     let mut inspect=|entity: &cadcraft_doc::Entity| {
         if !matches!(&entity.kind,EntityKind::Text(_) | EntityKind::MText(_) | EntityKind::Insert(_)) {return;}
+        let key=qto_station_handle_key(&entity.handle.hex());
+        if !handles.insert(key) {skipped+=1;return;}
         match qto_road_station_from_entity(doc,entity) {
             Ok(chainage_m)=>markers.push(takeoff_road::RoadPlanMarker{chainage_m,handle:entity.handle.hex()}),
             Err(_)=>skipped+=1,
         }
     };
     if all_model {
-        // Explicit user action: scan the current model space, bounded for UI responsiveness.
-        for entity in doc.model.iter().take(100_000) {inspect(entity);}
+        for entity in doc.model.iter() {inspect(entity);}
+        if include_layouts {
+            for layout in &doc.layouts {
+                for entity in layout.entities.iter() {inspect(entity);}
+            }
+        }
     } else {
         for handle in selected {
             if let Some(entity)=doc.model.get(handle) {inspect(entity);}
@@ -1445,7 +1465,7 @@ fn qto_road_report_lines(app: &CadApp, state: &State, config: &ExportConfig,
                     return Err(format!("Handle cọc bình đồ tại {} không hợp lệ.",takeoff_road::station_label(section.chainage_m)));
                 };
                 let Some(doc)=app.session.doc().ok() else {return Err("Không mở được bản vẽ CAD để đối chiếu cọc.".into());};
-                let Some(entity)=doc.model.get(handle) else {
+                let Some(entity)=qto_road_find_marker_entity(doc,handle)? else {
                     return Err(format!("Cọc bình đồ tại {} đã bị xóa. Hãy quét lại.",takeoff_road::station_label(section.chainage_m)));
                 };
                 if !matches!(&entity.kind,EntityKind::Text(_) | EntityKind::MText(_) | EntityKind::Insert(_)) {
@@ -1901,7 +1921,7 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
                 }
             }
             if ui.button("QUÉT NHÃN CỌC TỪ VÙNG CHỌN").clicked() {
-                let (markers,skipped)=qto_road_scan_markers(app,false);
+                let (markers,skipped)=qto_road_scan_markers(app,false,false);
                 let (linked,not_found,ambiguous)=qto_road_attach_markers(&mut state.road_sections,&markers);
                 state.import_feedback=format!("Quét {} nhãn cọc hợp lệ; ghép {} trắc ngang; chưa tìm thấy {}; xung đột {}; bỏ qua {} đối tượng. Chưa tự phê duyệt; kiểm tra từng dòng trước khi xác nhận.",markers.len(),linked,not_found,ambiguous,skipped);
             }
@@ -1910,9 +1930,19 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
                 if incomplete {
                     state.import_feedback="MODEL vượt 100.000 đối tượng. Chưa ghép tự động từ dữ liệu quét thiếu; hãy chọn phạm vi nhỏ hơn.".into();
                 } else {
-                    let (markers,skipped)=qto_road_scan_markers(app,true);
+                    let (markers,skipped)=qto_road_scan_markers(app,true,false);
                     let (matched,missing,ambiguous)=qto_road_attach_markers(&mut state.road_sections,&markers);
                     state.import_feedback=format!("Quét MODEL: {} nhãn; ghép {}; thiếu {}; xung đột {}; bỏ qua {}. Chưa phê duyệt số liệu.",markers.len(),matched,missing,ambiguous,skipped);
+                }
+            }
+            if ui.button("QUÉT CỌC MODEL + TẤT CẢ LAYOUT").clicked() {
+                let total=app.session.doc().ok().map(|doc|doc.model.len()+doc.layouts.iter().map(|layout|layout.entities.len()).sum::<usize>()).unwrap_or(0);
+                if total>100_000 {
+                    state.import_feedback=format!("MODEL và Layout có {} đối tượng, vượt giới hạn quét 100.000; hãy giới hạn bản vẽ.",total);
+                } else {
+                    let (markers,skipped)=qto_road_scan_markers(app,true,true);
+                    let (linked,missing,conflicts)=qto_road_attach_markers(&mut state.road_sections,&markers);
+                    state.import_feedback=format!("Quét MODEL + {} Layout: {} nhãn, ghép {}, thiếu {}, xung đột {}, bỏ qua {}. Đối chiếu nhãn trên từng Layout trước khi duyệt.",app.session.doc().ok().map(|doc|doc.layouts.len()).unwrap_or(0),markers.len(),linked,missing,conflicts,skipped);
                 }
             }
             if ui.small_button("Bỏ gắn cọc").clicked(){state.road_plan_marker_handle=None;}
@@ -1994,7 +2024,7 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
                 let Some(marker)=section.plan_marker_handle.as_deref() else {missing+=1;continue;};
                 if !used.insert(qto_station_handle_key(marker)) {duplicates+=1;}
                 let current=cadcraft_doc::Handle::parse_hex(marker)
-                    .and_then(|handle|app.session.doc().ok().and_then(|doc|doc.model.get(handle).map(|entity|(doc,entity))));
+                    .and_then(|handle|app.session.doc().ok().and_then(|doc|qto_road_find_marker_entity(doc,handle).ok().flatten().map(|entity|(doc,entity))));
                 match current {
                     Some((doc,entity))=>{
                         if !matches!(&entity.kind,EntityKind::Text(_) | EntityKind::MText(_) | EntityKind::Insert(_))
