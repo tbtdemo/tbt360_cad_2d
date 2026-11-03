@@ -87,8 +87,12 @@ pub fn station_from_marker_text(text: &str) -> Result<f64,String> {
 }
 
 pub fn station_label(metres: f64) -> String {
-    let km = (metres / 1000.0).floor() as u64;
-    format!("Km{}+{:06.2}", km, metres - km as f64 * 1000.0)
+    // Round the complete chainage before extracting Km. Otherwise a station
+    // just below the boundary (999.999 m) prints an invalid Km0+1000.00.
+    let total_centimetres = (metres * 100.0).round().max(0.0) as u64;
+    let km = total_centimetres / 100_000;
+    let remaining_centimetres = total_centimetres % 100_000;
+    format!("Km{}+{:06.2}", km, remaining_centimetres as f64 / 100.0)
 }
 /// Normalize a CAD handle through its numeric value rather than its spelling.
 /// For example AA, aa and 0AA all refer to the same drawing entity.
@@ -381,6 +385,8 @@ mod tests {
         assert!(station_to_metres("XKM12+345").is_err());
         assert_eq!(station_to_metres("1250.5").unwrap(),1250.5);
         assert_eq!(station_label(12345.5),"Km12+345.50");
+        assert_eq!(station_label(999.999),"Km1+000.00");
+        assert_eq!(station_label(1999.995),"Km2+000.00");
         for invalid in ["12+1000","Km-1+100","3+abc","Km3+","NaN",""] {
             assert!(station_to_metres(invalid).is_err(),"{invalid}");
         }
