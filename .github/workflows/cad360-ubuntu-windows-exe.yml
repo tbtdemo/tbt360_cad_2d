@@ -89,6 +89,8 @@ jobs:
           unzip -p dist/CAD360_TBT_Source_R15_UI.zip SOURCE_CAD_R65/apps/cadcraft/src/bim_collab.rs | grep -F 'read(true).write(true).open(&backup_temp)'
           unzip -p dist/CAD360_TBT_Source_R15_UI.zip SOURCE_CAD_R65/crates/ui-egui/src/canvas/list.rs | grep -F 'fn cached_primitive_count'
           unzip -p dist/CAD360_TBT_Source_R15_UI.zip SOURCE_CAD_R65/crates/ui-egui/src/canvas/tests.rs | grep -F 'ix.cached_primitive_capacity()'
+          unzip -p dist/CAD360_TBT_Source_R15_UI.zip SOURCE_CAD_R65/crates/ui-egui/src/quick.rs | grep -F 'qselect_matching_choices'
+          unzip -p dist/CAD360_TBT_Source_R15_UI.zip SOURCE_CAD_R65/crates/ui-egui/src/quick.rs | grep -F 'qselect_large_layer_list_caps_rendered_rows_but_keeps_total'
           for filename in CAD360_VietNam_TBT_Setup.exe CAD360_VietNam_TBT_Portable.zip CAD360_TBT_Source_R15_UI.zip; do
             test -s "dist/$filename"
           done
