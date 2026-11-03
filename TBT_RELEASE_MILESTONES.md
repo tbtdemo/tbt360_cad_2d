@@ -15,3 +15,7 @@
 
 ## R05 - build retry after YAML repair
 - Rebuild with corrected workflow expression. Only a release containing the Windows installer counts as delivered.
+
+## R05 - sửa lỗi biên dịch thực tế
+- Sửa 6 lỗi đã được xác nhận trong Windows Cargo log: chrono Local, egui scroll, cấm unsafe FFI, borrow/move suffix.
+- Bắt buộc chạy lại các gate trước khi phát hành EXE.
