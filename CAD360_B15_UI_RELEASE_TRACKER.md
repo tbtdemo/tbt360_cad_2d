@@ -1,3 +1,18 @@
+## B19 — QSELECT Append nhanh trên bản vẽ lớn (03/11/2026)
+
+**B18 artifact đã xác minh:** run [41639678494](https://github.com/tbtdemo/tbt360_cad_2d/actions/runs/41639678494), commit `a5f3c105`, artifact [13232447591](https://github.com/tbtdemo/tbt360_cad_2d/actions/runs/41639678494/artifacts/13232447591) `CAD360-TBT-REAL-Windows-x64-Setup-Portable-Source-B15-UI` (63,951,592 bytes). Cross-compile, package, upload PASS; test hồi quy BIM đang chạy lúc ghi, GUI Windows chưa nghiệm thu. Tên artifact B15-UI giữ theo workflow nhưng mã commit là B18.
+
+**B19: cải tiến động cơ CAD QSELECT (không phải chỉ UI)**:
+- `SOURCE_CAD_R65/crates/engine/src/cmd/qselect.rs`: chế độ `append` sử dụng `HashSet<Handle>` chống trùng lặp thay phép `Vec.contains` từng phần tử gây chi phí bậc hai; vẫn giữ thứ tự đối tượng đã chọn và thêm mới theo thứ tự quét.
+- Tái sử dụng một `filter_value` dùng chung, tránh clone dữ liệu JSON cho từng đối tượng của bản vẽ lớn.
+- Thêm 2 unit test `qselect_append_preserves_original_order_without_duplicates` và `qselect_append_handles_large_selection_without_duplication` (20k + 20k handles, kết quả 30k không trùng).
+- Commit chức năng [f6fe6d97](https://github.com/tbtdemo/tbt360_cad_2d/commit/f6fe6d97de2f61ace428b48f8c9d51feb371dcd0).
+- Commit đóng gói [0e5ac8a1](https://github.com/tbtdemo/tbt360_cad_2d/commit/0e5ac8a18663e31d84e8f30520501a7c83d5cec9).
+- Ubuntu Windows cross [run 41640950657](https://github.com/tbtdemo/tbt360_cad_2d/actions/runs/41640950657) và Windows Native [run 41640950401](https://github.com/tbtdemo/tbt360_cad_2d/actions/runs/41640950401) được kích hoạt; chưa thấy EXE B19 khi kiểm tra.
+- **B19 nghiệm thu 4 cổng: 1/4=25%** (source). Đã viết test nhưng chưa có CI PASS, chưa có artifact đúng commit/GUI.
+- **B18 nghiệm thu 4 cổng: 3/4=75%** (source, compiled EXE, artifact), chưa có GUI Windows.
+
+
 ## B18 — CAD QSELECT: bảo toàn tên Layer dạng số (03/11/2026)
 
 **Kết quả B17 đã xác minh qua GitHub:** run [41636304823](https://github.com/tbtdemo/tbt360_cad_2d/actions/runs/41636304823) **success**, artifact [13231701354](https://github.com/tbtdemo/tbt360_cad_2d/actions/runs/41636304823/artifacts/13231701354) `CAD360-TBT-REAL-Windows-x64-Setup-Portable-Source-B15-UI` (63,957,278 bytes) cho commit `39a375bc`. Mặc dù tên artifact giữ B15-UI theo workflow, mã bên trong là commit B17; vẫn cần GUI Windows smoke test.
