@@ -5,6 +5,7 @@ use std::collections::BTreeMap;
 
 use cadcraft_doc::EntityKind;
 use cadcraft_ui_egui::CadApp;
+use crate::takeoff_report::{self, ExportConfig, GroupBy, ReportLine, FIELDS};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum MeasureKind { Length, Area, Perimeter, Count }
@@ -105,6 +106,7 @@ pub struct State {
     import_feedback: String,
     file_feedback: String,
     export_confirmed_only: bool,
+    export_config: ExportConfig,
     edit_work_group: String,
     edit_work_code: String,
     edit_description: String,
@@ -1112,6 +1114,55 @@ fn qto_detail_csv(state: &State, source_validation: &SourceValidation, lf: f64, 
     csv
 }
 
+/// Build report data from the same validated measurements shown in CAD QTO.
+/// Values remain numeric Excel cells; units are never mixed in the same subtotal.
+fn qto_report_lines(state: &State, source_validation: &SourceValidation, config: &ExportConfig) -> Result<Vec<ReportLine>, String> {
+    if !config.valid() { return Err("Cần bật cột Khối lượng, Đơn vị và ít nhất một cột khác.".into()); }
+    if config.project.trim().is_empty() || config.investor.trim().is_empty() {
+        return Err("Nhập đầy đủ tên dự án và Chủ đầu tư trước khi xuất báo cáo.".into());
+    }
+    let length_scale = config.unit_scale();
+    let needs_calibration = state.records.iter().any(|r| r.status == MeasureStatus::Confirmed && r.kind != MeasureKind::Count);
+    let base = state.scale_to_m();
+    if needs_calibration && base.is_none() { return Err("Phải hiệu chuẩn tỷ lệ bản vẽ sang mét trước khi xuất khối lượng chiều dài/diện tích.".into()); }
+    let lf = base.unwrap_or(1.0) * length_scale;
+    let af = lf * lf;
+    if !lf.is_finite() || !af.is_finite() { return Err("Đơn vị quy đổi không hợp lệ.".into()); }
+    let mut result = Vec::new();
+    for record in &state.records {
+        if !qto_record_exportable(record, source_validation, lf, af, config.confirmed_only) { continue; }
+        let (quantity, unit, kind) = match record.kind {
+            MeasureKind::Length => (record.raw_value * lf, config.length_unit.clone(), "Chiều dài"),
+            MeasureKind::Perimeter => (record.raw_value * lf, config.length_unit.clone(), "Chu vi"),
+            MeasureKind::Area => (record.raw_value * af, format!("{}²", config.length_unit), "Diện tích"),
+            MeasureKind::Count => (record.raw_value, "cái".to_string(), "Số lượng"),
+        };
+        if !quantity.is_finite() || quantity < 0.0 { continue; }
+        let group = match config.group_by {
+            GroupBy::WorkGroup => record.work_group.as_str(),
+            GroupBy::WorkCode => record.work_code.as_str(),
+            GroupBy::Layer => record.layer.as_str(),
+            GroupBy::Floor => "",
+            GroupBy::Discipline => record.scope.discipline.as_deref().unwrap_or(""),
+            GroupBy::None => "",
+        };
+        let group = if config.group_by == GroupBy::Floor { record.scope.floor_id.map(|id| format!("Tầng {id}")).unwrap_or_else(|| "Chưa gán tầng".into()) }
+            else if group.trim().is_empty() { "Chưa phân nhóm".into() } else { group.to_string() };
+        let fields = [
+            String::new(), record.work_code.clone(), record.description.clone(),
+            record.work_group.clone(), record.layer.clone(),
+            record.scope.floor_id.map(|v| v.to_string()).unwrap_or_default(),
+            record.scope.discipline.clone().unwrap_or_default(),
+            kind.into(), String::new(), unit.clone(), record.note.clone(),
+            record.source_handle.clone().unwrap_or_default(),
+        ];
+        result.push(ReportLine { group, fields, quantity, unit });
+    }
+    result.sort_by(|a,b| a.group.cmp(&b.group).then(a.fields[1].cmp(&b.fields[1])).then(a.fields[2].cmp(&b.fields[2])));
+    if result.is_empty() { return Err("Không có khối lượng hợp lệ theo điều kiện xuất đã chọn.".into()); }
+    Ok(result)
+}
+
 fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Scope) {
     let groups = quantities(app);
     ui.heading("Đo bóc khối lượng — CAD native");
@@ -1415,6 +1466,59 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
                 ui.end_row();
             }
         });
+    });
+
+    ui.separator();
+    ui.collapsing("XUẤT EXCEL CHỦ ĐẦU TƯ • CẤU HÌNH CỘT / NHÓM / ĐƠN VỊ / TRANG IN", |ui| {
+        ui.strong("BÁO CÁO ĐO BÓC KHỐI LƯỢNG — CADTBT360_V1.000");
+        ui.small("Tạo XLSX có tiêu đề, nhóm công việc, tổng theo đơn vị, bảng kẻ chuẩn, A4 ngang, tiêu đề lặp mỗi trang và ô ký duyệt.");
+        ui.horizontal_wrapped(|ui| {
+            ui.label("Tên dự án");
+            ui.add(egui::TextEdit::singleline(&mut state.export_config.project).desired_width(260.0).hint_text("Tên công trình / dự án"));
+            ui.label("Chủ đầu tư");
+            ui.add(egui::TextEdit::singleline(&mut state.export_config.investor).desired_width(260.0).hint_text("Tên Chủ đầu tư"));
+            ui.label("Số hiệu biểu mẫu");
+            ui.add(egui::TextEdit::singleline(&mut state.export_config.document_number).desired_width(160.0).hint_text("VD: BB-DB-001"));
+        });
+        ui.horizontal_wrapped(|ui| {
+            ui.label("Phân nhóm");
+            egui::ComboBox::from_id_salt("cadtbt360_qto_group_by").selected_text(state.export_config.group_by.label()).show_ui(ui, |ui| {
+                for group in GroupBy::ALL { ui.selectable_value(&mut state.export_config.group_by, group, group.label()); }
+            });
+            ui.label("Đơn vị chiều dài");
+            egui::ComboBox::from_id_salt("cadtbt360_qto_length_unit").selected_text(&state.export_config.length_unit).show_ui(ui, |ui| {
+                for unit in ["m", "cm", "mm"] { ui.selectable_value(&mut state.export_config.length_unit, unit.to_string(), unit); }
+            });
+            ui.label("Số chữ số lẻ");
+            ui.add(egui::DragValue::new(&mut state.export_config.decimals).range(0..=6));
+            ui.checkbox(&mut state.export_config.confirmed_only, "Chỉ xuất khối lượng đã xác nhận và nguồn hợp lệ");
+        });
+        ui.strong("CHỌN NỘI DUNG HIỂN THỊ TRONG BẢNG EXCEL");
+        ui.columns(3, |columns| {
+            for (idx, (label, _)) in FIELDS.iter().enumerate() {
+                let mandatory = idx == 8 || idx == 9;
+                if mandatory { state.export_config.columns[idx] = true; }
+                columns[idx % 3].add_enabled(!mandatory, egui::Checkbox::new(&mut state.export_config.columns[idx], *label));
+            }
+        });
+        let report = qto_report_lines(state, &source_validation, &state.export_config);
+        match &report {
+            Ok(rows) => { ui.colored_label(egui::Color32::LIGHT_GREEN, format!("Sẵn sàng: {} phép đo, {} cột, phân nhóm theo {}.", rows.len(), state.export_config.selected().len(), state.export_config.group_by.label())); },
+            Err(message) => { ui.colored_label(egui::Color32::YELLOW, message); },
+        }
+        if !state.export_config.confirmed_only {
+            ui.colored_label(egui::Color32::YELLOW, "Chế độ DỰ THẢO: có thể bao gồm phép đo chưa xác nhận. Không gửi Chủ đầu tư trước khi kiểm tra.");
+        }
+        if ui.add_enabled(report.is_ok(), egui::Button::new("XUẤT EXCEL XLSX — ĐỊNH DẠNG IN A4")).clicked() {
+            if let Ok(rows) = report {
+                if let Some(path) = rfd::FileDialog::new().add_filter("Excel Workbook", &["xlsx"]).set_file_name("CADTBT360_V1.000_BANG_DO_BOC_KHOI_LUONG.xlsx").save_file() {
+                    match takeoff_report::write_xlsx(&path, &state.export_config, &rows) {
+                        Ok(()) => state.file_feedback = format!("Đã tạo Excel XLSX có bố cục in A4: {}", path.display()),
+                        Err(error) => state.file_feedback = format!("Không thể xuất báo cáo Excel: {error}"),
+                    }
+                }
+            }
+        }
     });
 
     ui.separator();
