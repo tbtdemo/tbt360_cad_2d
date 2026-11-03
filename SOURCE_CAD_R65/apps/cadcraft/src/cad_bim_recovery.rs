@@ -13,12 +13,14 @@ pub struct Recovery {
     root: Option<PathBuf>,
     last_save: Instant,
     last_signature: Option<(u64, u64, usize)>,
+    available: bool,
     pub error: Option<String>,
 }
 
 impl Recovery {
     pub fn new(root: Option<PathBuf>) -> Self {
-        Self { root, last_save: Instant::now(), last_signature: None, error: None }
+        let available = root.as_deref().is_some_and(|dir| latest_pair(dir).is_some());
+        Self { root, last_save: Instant::now(), last_signature: None, available, error: None }
     }
 
     pub fn tick(&mut self, app: &CadApp, bim: &bim_collab::State, ctx: &egui::Context) {
@@ -32,14 +34,14 @@ impl Recovery {
         let Some(doc) = app.session.docs.get(app.session.active) else { return };
         let signature = (doc.uid, doc.revision, bim.dirty_local_changes);
         match save_pair(root, app, bim) {
-            Ok(()) => { self.last_signature = Some(signature); self.error = None; }
+            Ok(()) => { self.last_signature = Some(signature); self.available = true; self.error = None; }
             Err(error) => { log::error!("CAD+BIM recovery autosave: {error}"); self.error = Some(error); }
         }
         ctx.request_repaint_after(INTERVAL);
     }
 
     pub fn has_recovery(&self) -> bool {
-        self.root.as_deref().is_some_and(|root| latest_pair(root).is_some())
+        self.available
     }
 
     pub fn restore_latest(&mut self, app: &mut CadApp, bim: &mut bim_collab::State) -> Result<(), String> {
@@ -64,6 +66,7 @@ impl Recovery {
         save_pair(root, app, bim)?;
         self.last_save = Instant::now();
         self.last_signature = app.session.docs.get(app.session.active).map(|doc| (doc.uid, doc.revision, bim.dirty_local_changes));
+        self.available = true;
         self.error = None;
         Ok(())
     }
