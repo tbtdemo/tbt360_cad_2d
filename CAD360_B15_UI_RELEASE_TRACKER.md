@@ -40,6 +40,14 @@ Cập nhật: 2026-11-03 (Asia/Bangkok). Nhánh phát triển: `tbt/cad360-activ
 
 Chỉ ghi **ĐÃ CÓ B15-UI EXE** sau khi có run và artifact cụ thể đúng SHA, kiểm tra tệp setup/portable/source và SHA256. Chỉ ghi **ĐÃ NGHIỆM THU GIAO DIỆN** sau khi chạy ứng dụng trên Windows thực, chụp màn hình chương trình đang chạy (không phải ảnh dựng) và kiểm tra các tab.
 
+## Lượt nâng cấp nhận diện chính xác EXE đang chạy (03/11/2026)
+
+- Đã thêm nhãn `CAD360 · <8 ký tự commit>` vào thanh công cụ desktop thực tế, có tooltip hiển thị toàn bộ SHA, từ commit `4f273ad5172a01f112b09573e9ab46302cb4afa8`.
+- Đường Ubuntu cross-compile gắn `CAD360_BUILD_SHA=${{ github.sha }}` trong môi trường build và kiểm tra mã nhãn trong gói source: commit `e8f7af28a939f0e20a7755507bfe91688b77c672`, run [41629152826](https://github.com/tbtdemo/tbt360_cad_2d/actions/runs/41629152826), **đang chạy** khi kiểm tra.
+- Đường Windows native cũng được cấu hình để nhúng SHA: commit `7bd0cb3707fc3664ea8e7ea853b7e405431ce1c0`, run [41629180328](https://github.com/tbtdemo/tbt360_cad_2d/actions/runs/41629180328), **đang xếp hàng** khi kiểm tra.
+- Bản EXE Responsive **đã xác nhận có artifact** vẫn là `e34815ef`: [run 41627300710, artifact 13225968966](https://github.com/tbtdemo/tbt360_cad_2d/actions/runs/41627300710/artifacts/13225968966); chưa chứa tính năng hiển thị SHA vừa bổ sung.
+- Tỷ lệ bàn giao bản mới có nhãn SHA: 1/4 = **25%** đã xác nhận (commit mã); build, artifact và ảnh chụp chạy thật chưa đủ bằng chứng. Tỷ lệ bàn giao bản Responsive `e34815ef` vẫn là 3/4 = **75%**.
+
 ## B15-UI Responsive — artifact Windows đã xác nhận (03/11/2026)
 
 - Run [41627300710](https://github.com/tbtdemo/tbt360_cad_2d/actions/runs/41627300710), commit `e34815ef4eb098c7d25786e645cbf0fca0cb8d35`.
