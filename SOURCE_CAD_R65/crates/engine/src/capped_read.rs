@@ -62,6 +62,16 @@ fn check_progressive_read_length(expected: u64, read: u64) -> io::Result<()> {
     Ok(())
 }
 
+/// Do not decode a mixed snapshot when the source changed during a slow
+/// multi-hundred-MiB OPEN. Metadata is a best-effort consistency check; a
+/// writer that preserves both size and timestamp cannot be detected here.
+fn check_open_snapshot(before: &std::fs::Metadata, after: &std::fs::Metadata) -> io::Result<()> {
+    if before.len() != after.len() || (before.modified().ok().zip(after.modified().ok()).is_some_and(|(a, b)| a != b)) {
+        return Err(io::Error::new(io::ErrorKind::InvalidData, "drawing changed while OPEN was reading; retry after saving the source file"));
+    }
+    Ok(())
+}
+
 /// Progressive read for large regular drawing files. Unlike read_capped, this API does not
 /// impose a fixed on-disk file-size ceiling. Each allocation is fallible and chunked.
 /// A file may still fail to decode if actual memory is insufficient; callers must report that.
@@ -111,8 +121,10 @@ pub fn read_progressive(path: &Path, mut report: impl FnMut(u64, u64)) -> io::Re
         report(read_total, total);
     }
     check_progressive_read_length(total, read_total)?;
-    // A drawing that grew while being read is still reported by its actual
-    // final byte count; a shortened snapshot is explicitly rejected instead.
+    // Reject both growth and same-size rewrites detected by modified time:
+    // an inconsistent DXF can decode successfully yet omit entire entities.
+    let final_meta = file.metadata()?;
+    check_open_snapshot(&meta, &final_meta)?;
     report(read_total, read_total);
     Ok(output)
 }
@@ -120,6 +132,27 @@ pub fn read_progressive(path: &Path, mut report: impl FnMut(u64, u64)) -> io::Re
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn opening_a_growing_cad_file_must_not_return_mixed_geometry() {
+        let dir = std::env::temp_dir().join(format!("cadcraft-open-snapshot-{}-{}", std::process::id(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("changing.dxf");
+        let original = vec![0x33u8; 2 * 1024 * 1024];
+        std::fs::write(&path, &original).unwrap();
+        let mut changed = false;
+        let result = read_progressive(&path, |bytes, _| {
+            if !changed && bytes >= 1024 * 1024 {
+                changed = true;
+                let mut writer = std::fs::OpenOptions::new().append(true).open(&path).unwrap();
+                use std::io::Write;
+                writer.write_all(&[0x55; 64]).unwrap();
+            }
+        });
+        assert!(changed);
+        assert_eq!(result.unwrap_err().kind(), io::ErrorKind::InvalidData);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 
     #[test]
     fn progressive_read_rejects_truncated_geometry_before_decode() {
