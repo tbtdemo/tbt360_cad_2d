@@ -513,17 +513,27 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui) {
     if resp.dragged_by(egui::PointerButton::Primary) && app.session.realtime_zoom_active() {
         let _ = app.session.realtime_zoom(f64::from(resp.drag_delta().y));
     }
-    // A click in another tile makes it current (or answers -VPORTS Join's prompts).
+    // Switching native CAD viewports must be based on a real click inside the
+    // target viewport, not a global toolbar click or a drag from another tile.
+    // The same physical press/release matching is used for drawing points.
     if pressed_primary
         && let Some(hp) = hover_pos
         && !rect.contains(hp)
-        && let Some(i) = tiles.iter().position(|(r, _)| r.contains(hp))
+        && ui.ctx().layer_id_at(hp) == Some(ui.layer_id())
+        && !over_canvas_menu(app, hp)
+        && let Some((i, (target_rect, _))) = tiles.iter().enumerate().find(|(_, (r, _))| r.contains(hp))
     {
-        if let Err(e) = app.session.click_tile(i) {
-            app.session.echo(e.to_string());
+        let clicked_target = ui.input(|input| {
+            let earlier_press = input.pointer.press_origin().is_some_and(|origin| target_rect.contains(origin));
+            !primary_canvas_releases(&input.events, *target_rect, earlier_press).is_empty()
+        });
+        if clicked_target {
+            if let Err(e) = app.session.click_tile(i) {
+                app.session.echo(e.to_string());
+            }
+            ui.ctx().request_repaint();
+            return;
         }
-        ui.ctx().request_repaint();
-        return;
     }
     // Re-read the view after navigation.
     let view = app.session.state().map(|s| s.view()).unwrap_or(view);
