@@ -19,6 +19,7 @@ struct QsState {
     value: String,
     exclude: bool,
     append: bool,
+    remove: bool,
     /// (drawing identity, revision, selected handles, applyTo, type) → info reply.
     info_key: Option<(usize, u64, u64, bool, String)>,
     info: Value,
@@ -36,6 +37,7 @@ impl Default for QsState {
             value: String::new(),
             exclude: false,
             append: false,
+            remove: false,
             info_key: None,
             info: Value::Null,
             preview_result: None,
@@ -46,7 +48,7 @@ impl Default for QsState {
 /// Build one shared request for both Preview and Apply so the count shown
 /// cannot accidentally use different filters from the actual selection.
 fn qselect_request(st: &QsState) -> Value {
-    let mode = if st.exclude { "exclude" } else if st.append { "append" } else { "new" };
+    let mode = if st.remove { "remove" } else if st.exclude { "exclude" } else if st.append { "append" } else { "new" };
     let mut p = json!({ "applyTo": if st.apply_selection { "selection" } else { "drawing" }, "mode": mode });
     if let Some(o) = p.as_object_mut() {
         if st.ty != "Multiple" { o.insert("type".into(), json!(st.ty)); }
@@ -250,11 +252,14 @@ pub fn qselect_dialog(app: &mut CadApp, ctx: &egui::Context, open: &mut bool) {
             });
             ui.separator();
             ui.label(crate::tl!("How to apply:"));
-            ui.radio_value(&mut st.exclude, false, crate::tl!("Include in new selection set"));
-            ui.radio_value(&mut st.exclude, true, crate::tl!("Exclude from new selection set"));
-            ui.checkbox(&mut st.append, crate::tl!("Append to current selection set"));
+            ui.add_enabled_ui(!st.remove, |ui| {
+                ui.radio_value(&mut st.exclude, false, crate::tl!("Include in new selection set"));
+                ui.radio_value(&mut st.exclude, true, crate::tl!("Exclude from new selection set"));
+                ui.checkbox(&mut st.append, crate::tl!("Append to current selection set"));
+            });
+            ui.checkbox(&mut st.remove, "Bỏ đối tượng phù hợp khỏi tập chọn hiện tại");
             ui.separator();
-            let valid_filter = qselect_has_criteria(&st.ty, &st.property, &st.value);
+            let valid_filter = qselect_has_criteria(&st.ty, &st.property, &st.value) && (!st.remove || has_sel);
             if !valid_filter { ui.colored_label(egui::Color32::YELLOW, "Chọn loại đối tượng hoặc nhập giá trị thuộc tính trước khi lọc."); }
             let signature = qselect_preview_signature(&st, selection_hash);
             if let Some((previous, count)) = &st.preview_result {
@@ -268,6 +273,7 @@ pub fn qselect_dialog(app: &mut CadApp, ctx: &egui::Context, open: &mut bool) {
                     st.value.clear();
                     st.exclude = false;
                     st.append = false;
+                    st.remove = false;
                     st.info_key = None;
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -568,6 +574,8 @@ mod qselect_filter_tests {
         assert_eq!(p["mode"], "new");
         st.append = true;
         assert_eq!(super::qselect_request(&st)["mode"], "append");
+        st.remove = true;
+        assert_eq!(super::qselect_request(&st)["mode"], "remove");
     }
 
     #[test]
