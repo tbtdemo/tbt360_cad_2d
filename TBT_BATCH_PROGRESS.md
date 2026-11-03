@@ -6,6 +6,16 @@
 - Mọi thay đổi vẫn có mã nguồn sao lưu theo commit. Không tính job `skipped` là EXE PASS.
 - Chưa kích hoạt đóng gói cho đợt này.
 
+## Phạm vi ưu tiên từ R17 — quyết định ngày 03/11/2026
+
+**Tạm dừng phát triển mới**: đồng bộ online/offline, xử lý xung đột thay đổi giữa các client, clash/xung đột giữa các bộ môn. Không xóa chức năng cũ, không tự thay đổi hành vi nghiệp vụ đã có. Tests hồi quy hiện hữu vẫn phải chạy.
+
+**Giữ lại**: đăng nhập và kiểm tra account, phân quyền xem/sửa theo user, tầng/bộ môn ở mức quyền truy cập, kiểm tra cấu hình quyền. Không mở rộng thành engine giải quyết xung đột giữa các chuyên ngành.
+
+**Ưu tiên**: 1) Windows CI/EXE thực, 2) chuột/click/ESC, 3) mở file CAD kích thước lớn và giữ giao diện phản hồi, 4) RAM/render/zoom/pan, 5) autosave/recovery, 6) quyền tài khoản và thiết lập phân quyền.
+
+**Cách tính tiến độ mới**: giữ 8 đầu việc hoạt động từ bảng cũ và loại hạng mục C2 Sync/Conflict đang tạm ngưng. Các tỷ lệ [45,45,45,70,15,50,35,10] có trung bình **39,4%** (ước lượng kỹ thuật, chưa nghiệm thu). Không đưa tiến độ các việc dừng vào mẫu số. Các mục chưa đạt Windows PASS không được tự tăng %.
+
 ## Tiến độ đợt hiện tại
 | Lượt | Phạm vi | Commit mã nguồn | Test bổ sung | CI |
 | --- | --- | --- | --- | --- |
@@ -25,6 +35,7 @@
 | 14/15 | Kiểm tra quyền xem scope và chia sẻ trên lớp render chính; kiểm tra quyền sửa trước phiên thiết kế/chọn/lease; từ chối lease revision cũ | `9d94bbfe9c44edf502f86a06c16896b2209c7856` | 3 regression tests quyền xem/sửa và lease | Chưa xác minh Windows CI/2-user server PASS |
 | 15/15 | Windows workflow kích hoạt trên nhánh active; kiểm thử targeted canvas/open/read; thử đóng gói Setup/Portable candidate sau các gates; sửa test LINE đếm model | `5d442914d5b2131c9820139467bc25357300ff92` | Bổ sung các lệnh Rust kiểm thử tập trung vào CI | Chưa có artifact hay CI Windows PASS được xác minh |
 | 16/30 | Không hủy Windows build khi có push mới; ghi BUILD_INFO commit/run/ref; xác minh lại SHA256 cả Setup + Portable; in Actions step summary | `f5d95c61637c64eb448869ca76efca7f81bac99b` | Bổ sung kiểm tra manifest/artefact trong workflow; chưa kiểm tra Windows thực | CI Windows và artifact vẫn chưa có bằng chứng PASS |
+| 17/30 | Tạm ngưng phát triển sync/conflict; giữ account permissions; sửa trạng thái hàng đợi OPEN và thêm gates LINE/CIRCLE/ESC trên Windows | `6c8a66fcecc9cdc808e2e616908662eb36d3ad5f` | 1 regression test trạng thái queued; 4 gates mục tiêu bổ sung | Windows test PASS + artifact chưa xác minh |
 
 ### Trạng thái
 - Hoàn thành bằng chứng mã nguồn: **16 lượt mã nguồn (15 tối thiểu + 1 dự phòng)**.
@@ -140,3 +151,11 @@
 - Kiểm tra 2 file Setup/Portable thực sự tồn tại và hash của từng file trùng đúng một dòng trong `SHA256SUMS.txt`; ghi Actions summary giúp kiểm tra kết quả theo run.
 - SHA `f5d95c61637c64eb448869ca76efca7f81bac99b`. Chưa có EXE mới verified; chưa có Cargo/Windows GUI/benchmark PASS qua các công cụ hiện tại.
 - **16/30 lượt kế hoạch tối đa; nhưng số lượt không thể thay thế build/test hay artifact thực**. Chuyển R17 sang phân tích lỗi CI từ log thật và loại bỏ blocker Windows.
+
+### Lượt 17 — tập trung hoàn thiện các lỗi CAD và đóng gói, tạm dừng sync/conflict
+- Chấp nhận chỉ đạo mới: dừng phát triển đồng bộ và xử lý xung đột; giữ scope đăng nhập/tài khoản/phân quyền. Không làm thêm clash theo bộ môn.
+- Cập nhật `opening.rs`: khi file đầu đã giải mã nhưng còn các file xếp hàng chờ UI cài đặt, thanh hiển thị không biến mất; hiển thị file tiếp theo và số file còn hàng đợi. Thêm regression test cho khoảng trống này.
+- Cập nhật Windows CI: test có tên chính xác cho LINE nhận điểm đầu tiên, CIRCLE nhận tâm, hủy kéo chọn ESC/focus, các test OPEN và file lớn. Các gates mới chưa có bằng chứng Windows PASS.
+- Commits: `0224fa77d98b3f046bd8be3846189e0b609c3e2e`, `6c8a66fcecc9cdc808e2e616908662eb36d3ad5f`.
+- Tiến độ hoạt động = 39,4% dự kiến, so với 37,2% cũ **chỉ do thay đổi phạm vi tính (bỏ C2)**; không phải 2,2 điểm phần trăm chức năng được hoàn thành mới.
+- Trạng thái build: CI Windows và EXE Candidate chưa xác nhận có artifact. R18 ưu tiên log lỗi và khóa release gate, tiếp tục xử lý mouse/open/performance.
