@@ -47,6 +47,7 @@
 | 26/30 | Giới hạn dự trữ trước GPU Mesh CPU 1 MiB mỗi vertex buffer, bỏ Vec cho transform mỗi frame, bảo vệ upload lặp | `dc8c785167c5909caf9bd1db3ccf5899e0bf6ed7` | 2 regression tests dự trữ hình học, targeted Windows CI | Chưa xác minh Cargo/Windows PASS, RAM/VRAM/EXE |
 | 27/30 | Chuyển ghi CAD+BIM multi-tab từ giữ tất cả DXF trong RAM sang từng bản vẽ; tăng budget phục hồi lên 4 GiB; kiểm tra checksum theo streaming | `2dc46e8a239a6fd2db890fd7b29ef42e4280d81c` | 2 tests checksum/giới hạn + CI toàn bộ cad_bim_recovery::tests | Chưa có Windows CI/GUI/recovery PASS được xác minh |
 | 28/30 | Thoát lỗi lưu CAD+BIM không xóa autosave các bản vẽ còn dirty; thử lưu DXF khẩn cấp và chờ worker; test bảo toàn file | `6a7be12fe0352bfd116430270b3b0853bf1f4782` | Test giữ file khi snapshot lỗi / xóa ở clean exit; targeted Windows CI | Chưa xác minh Windows Cargo/GUI/recovery PASS |
+| 29/30 | Không cho chọn/sửa đối tượng BIM của chủ khác chỉ có quyền xem; kiểm quyền edit grant theo floor/discipline; tra theo Handle thay vì quét toàn bộ CAD | `088506c8e821d1ca85b10bb476a116aab0e2de5e` | 2 test quyền chia sẻ read-only và sai scope, Windows targeted gate | Chưa có CI PASS; guard client không thay thế server authorization |
 
 ### Trạng thái
 - Hoàn thành bằng chứng mã nguồn: **16 lượt mã nguồn (15 tối thiểu + 1 dự phòng)**.
@@ -259,3 +260,12 @@
 - Commits: `9a49287e91a5e1ce74585f2f8eebcea4fcecce6d`, `ec1f780ed8b90e179b8728505ebb708ac7a6c89a`, `cb1d9c2b0ede8adf11527e1102927f22d61f70a7`, `b8d07268e99d8d7ff9171b2aa8af46c45116e83e`, `8c073c9166dc10f515c6155efd22dc6578562d43`, `7b65dbdc9095077738adfcc8afd0302eff5c3bec`, `6a7be12fe0352bfd116430270b3b0853bf1f4782`.
 - **Giới hạn:** Cặp snapshot CAD+BIM 5 phút vẫn encode trên UI; R28 không khẳng định đã giải quyết lag. Khi `SAVETIME=0` hoặc hệ thống mất dung lượng, không bảo đảm cứu được phần hình học chưa ghi; chỉ bảo vệ các autosave đã có và thử ghi thêm. Chưa có Windows CI PASS, GUI smoke hay EXE artifact được xác minh.
 - Mốc **28/30**, còn hai lượt trong kế hoạch ban đầu, nhưng số lượt không thay thế release gate. 8 nhóm active vẫn 39,4% ước lượng chưa nghiệm thu; Sync/conflict/clash PAUSED, account permissions ACTIVE.
+
+### Lượt 29 — tăng cường phân quyền sửa theo từng đối tượng CAD/BIM
+- Phát hiện: `enforce_selection_scope` chỉ dựa vào `filter.primary_handles` (tập đối tượng được xem trong viewport) và quyền sửa chung của user/tầng; chưa phân biệt owner ngoại bộ chỉ cho xem hoặc cấp edit. Với menu sửa dùng selection, có khả năng thao tác nhầm vào đối tượng từ tài khoản khác.
+- `bim_collab.rs`: thêm `can_edit_scoped_entity`, yêu cầu đúng floor/discipline, viewport Edit, owner filter, authenticated account, vai trò user can_edit, scope can_edit và **edit share grant** nếu object thuộc tài khoản khác. Nếu sai bất kỳ điều kiện nào, object không còn ở selection editable.
+- Tối ưu không duyệt toàn bộ geometry trên mỗi frame: với các handle đang chọn, gọi `doc.model.get(handle)` theo chỉ mục và kiểm `BimEntityMeta`. Duy trì kiểm tra primary handles đã được scope theo render filter.
+- Thêm 2 regression tests chứng minh read-only share không cho sửa, grant edit mới hợp lệ; các trường hợp reference view, sai tầng/bộ môn đều bị loại. Windows CI bổ sung targeted tests `bim_collab::tests::selection_...`.
+- Commits `f324fde1ccb2d2d5d88f026ebb00b7992d3f7726`, `5f7921492fe8a3d0db6dd50856b2915da36a8bb0`, `2fbdaab6de18d9e5bee0ffb0ef9ced43867175b7`, `088506c8e821d1ca85b10bb476a116aab0e2de5e`.
+- **Giới hạn thiết yếu:** Đây là guard selection trong CAD UI, không phải chặn toàn bộ mutation ở command engine, control server hay API. Muốn phân quyền chống vượt quyền phải có server-side authoritative checks trước mọi Create/Update/Delete/Publish; chỉ có UI validation không đủ. Chưa có Windows Cargo/test PASS hay EXE xác minh.
+- R29/30, còn R30 trong nhịp kế hoạch; **không coi 30/30 là nghiệm thu**. Tiến độ 8 nhóm đang hoạt động giữ 39,4% ước lượng vì chưa nghiệm thu. Sync/conflict/clash vẫn PAUSED.
