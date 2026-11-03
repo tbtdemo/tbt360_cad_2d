@@ -125,6 +125,9 @@ impl MeshData {
     /// buffer zero-fills and copies it: about 0.35 s for a million-primitive drawing, which a
     /// background rebuild does off the UI thread (see `canvas::rebuild`).
     pub fn upload_now(&mut self, device: &wgpu::Device) {
+        // An already-uploaded mesh has released its CPU geometry. Uploading it
+        // again would replace valid GPU buffers with empty buffers.
+        if self.uploaded.is_some() { return; }
         let usage = wgpu::BufferUsages::VERTEX;
         self.uploaded = Some(Uploaded {
             lines: upload(device, "cad_lines", &self.lines, VERTEX_SIZE, usage),
