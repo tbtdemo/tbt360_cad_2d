@@ -3087,6 +3087,19 @@ mod tests {
         assert!(!can_sync_from_dashboard(&state), "switching UI mode must not authenticate a user");
         state.auth.status = AuthStatus::OnlineAuthenticated;
         assert!(!can_sync_from_dashboard(&state), "empty queue must not enable syncing");
+        state.pending_changes.push(ChangeSet {
+            id: 7001, account_id: state.current_account_id.clone(), synced: false,
+            items: vec![ChangeItem { handle: cadcraft_doc::Handle(7001), operation: ChangeOperation::Update, base_revision: 0, local_revision: 1 }],
+        });
+        assert!(can_sync_from_dashboard(&state), "authenticated owner with pending work may use local sync simulation");
+        state.conflicts.push(SyncConflict { handle: cadcraft_doc::Handle(7001), base_revision: 0, local_revision: 1, remote_revision: 2 });
+        assert!(!can_sync_from_dashboard(&state), "unresolved conflict must block dashboard sync");
+        state.conflicts.clear();
+        state.auth.account_id = "another-user".into();
+        assert!(!can_sync_from_dashboard(&state), "session account must match workspace owner");
+        state.auth.account_id = state.current_account_id.clone();
+        state.pending_changes[0].synced = true;
+        assert!(!can_sync_from_dashboard(&state), "synced changes must not trigger an empty operation");
     }
 
     #[test]
