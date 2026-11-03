@@ -42,6 +42,7 @@
 | 21/30 | Không xử lý cú thả kéo chọn thành idle click; dùng press-origin một lần; ESC/focus ưu tiên hủy; Windows tests phân xử click/drag | `501ee9f06799035a2bab5ea93cafa989d37342bc` | 5 regression tests mới về release/drag/cancel | Chưa có Windows CI/GUI PASS được xác minh |
 | 22/30 | Chuyển viewport chỉ với cặp nhấn/thả trong đúng vùng đích và không thuộc menu nổi; test chặn drag từ viewport/toolbar khác | `8c6028f5e2792f86e9a99a14237a7bb42ee01357` | 2 test bổ sung trong primary_gesture_tests (Windows CI đã gọi) | Chưa có Windows CI/GUI PASS được xác minh |
 | 23/30 | Đọc file CAD trực tiếp vào Vec theo khối không sao chép qua scratch 1 MiB; kích thước block cuối theo metadata; kiểm thử đuôi file | `e1fad57607404d3a271f9ff9f9fa9946d2722c56` | 1 test phần đuôi và toàn vẹn dữ liệu; CI capped_read::tests đã cấu hình | Chưa có Cargo/Windows benchmark PASS được xác minh |
+| 24/30 | Giữ nguyên display list khi worker dựng hình thất bại, ngăn spawn lặp cùng view; đo riêng install_ms của bản vẽ/XREF; tăng Windows CI test | `b74a92cd2d9749652ea976a98ca2ed4a9a51876a` | 2 unit tests retry key + renderer worker tests (đã cấu hình) | Chưa có Cargo/Windows benchmark PASS được xác minh |
 
 ### Trạng thái
 - Hoàn thành bằng chứng mã nguồn: **16 lượt mã nguồn (15 tối thiểu + 1 dự phòng)**.
@@ -212,3 +213,11 @@
 - Bảo toàn lỗi trả về khi không đủ RAM/IO, không áp trần 512MiB cho file OPEN; giữ nguyên callback tiến độ. Có test dữ liệu mẫu 2MiB+17 byte bảo đảm không thêm byte 0 hoặc mất tail.
 - Commits `09a3cfa874ec2e376c7d734b2923c4826e806cf3`, `e1fad57607404d3a271f9ff9f9fa9946d2722c56`.
 - Chưa có Cargo trên môi trường thao tác, chưa có CI Windows PASS hoặc benchmark file 300/500MiB. Tiến độ 8 nhóm vẫn 39,4% ước lượng chưa nghiệm thu. Lượt 23/30, còn 7 lượt dự kiến; nhóm sync/conflict/clash PAUSED, quyền tài khoản ACTIVE.
+
+### Lượt 24 — fallback dựng hình không làm nghẽn UI và đo thời gian cài đặt bản vẽ
+- `canvas.rs`: lưu `failed_rebuild_key` và reset khi install display list thành công. Khi background job lỗi, giữ display list đang hiển thị, không xóa list để cưỡng bức dựng đầy đủ trên UI thread như trước.
+- `canvas/list.rs`: worker lỗi ở cùng view key không tự spawn lại mỗi frame; khác zoom band/view key thì cho phép thử lại. Nếu dữ liệu bản vẽ thay đổi, đường content rebuild vẫn chạy như trước. 2 regression tests kiểm tra retry policy.
+- `lib.rs`: đo `CAD OPEN INSTALL install_ms` riêng cho `finish_open` để thấy độ trễ đưa hình học và XREF vào Session sau decode. Không coi đây là benchmark render hoặc cam kết hết lag.
+- `.github/workflows/main.yml`: thêm targeted gates cho `canvas::list::background_failure_tests` và các tests `canvas::rebuild::tests` hiện có.
+- Commits: `fb825b081d333cfbb5e2cfd7d56f3d17347f7201`, `bb0389449b04b9e52253cc51dca215aa9b883cda`, `1f951de396db9501fd68895e10818687724ca5da`, `143aa3f3c7f1880cff7bbaaf4ed52c665fdfc73e`, `b74a92cd2d9749652ea976a98ca2ed4a9a51876a`.
+- Tiến độ: 24/30 lượt kế hoạch, 6 lượt còn lại. 8 nhóm active vẫn 39,4% ước lượng chưa nghiệm thu; không có bằng chứng Cargo/Windows artifact PASS hay benchmark thực. Sync/conflict và clash bộ môn PAUSED; account permissions ACTIVE.
