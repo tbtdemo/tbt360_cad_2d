@@ -1977,7 +1977,7 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
                 match current {
                     Some((doc,entity))=>{
                         if matches!(&entity.kind,EntityKind::Text(_) | EntityKind::MText(_) | EntityKind::Insert(_)) {
-                            if qto_road_station_from_entity(doc,entity).is_err_or(|m|(m-section.chainage_m).abs()>0.001) {altered+=1;}
+                            if qto_road_station_from_entity(doc,entity).map_or(true,|m|(m-section.chainage_m).abs()>0.001) {altered+=1;}
                         }
                     },
                     None=>altered+=1,
