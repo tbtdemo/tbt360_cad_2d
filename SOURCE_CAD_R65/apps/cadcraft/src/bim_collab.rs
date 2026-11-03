@@ -1918,34 +1918,78 @@ fn issue_audit_entries<'a>(entries: &'a [AuditEntry], issue_id: u64) -> Vec<&'a 
     entries.iter().filter(|entry| match entry.issue_id { Some(id) => id == issue_id, None => (entry.action == "ISSUE_UPDATED" && entry.detail.starts_with(&prefix)) || (entry.action == "ISSUE_CONFIRMED_CLOSED" && entry.detail.starts_with(&closed)) }).collect()
 }
 
+/// Dashboard cells intentionally use real BIM session values, never mock sample counts.
+fn collaboration_metric(ui: &mut egui::Ui, title: &str, value: usize, description: &str) {
+    egui::Frame::group(ui.style()).show(ui, |ui| {
+        ui.set_min_width(120.0);
+        ui.label(title);
+        ui.heading(value.to_string());
+        ui.small(description);
+    });
+}
+
 pub fn panel(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut State) {
     let tab_id = egui::Id::new("tbt360_bim_collaboration_active_tab");
     let mut tab = ui.ctx().data_mut(|data| data.get_temp::<u8>(tab_id).unwrap_or(2));
     let mut selected_issue = ui.ctx().data_mut(|data| data.get_temp::<u64>(egui::Id::new("tbt360_bim_selected_issue")));
     ui.heading("PHỐI HỢP THIẾT KẾ");
-    ui.label("BIM CỘNG TÁC • RFI / BCF • Issue / Clash • Đồng bộ");
-    ui.add_space(8.0);
-    ui.horizontal_wrapped(|ui| {
-        for (idx, section) in CollaborationTab::ALL.iter().enumerate() {
-            ui.selectable_value(&mut tab, idx as u8, section.title());
+    ui.label("BIM CỘNG TÁC  •  RFI / BCF  •  Issue / Clash  •  Đồng bộ");
+    ui.add_space(10.0);
+    // Fixed five-column navigation: each tab occupies an equal horizontal cell.
+    ui.columns(5, |columns| {
+        for (index, section) in CollaborationTab::ALL.iter().enumerate() {
+            columns[index].add_sized([columns[index].available_width(), 34.0],
+                egui::Button::new(section.title()).selected(tab == index as u8)).clicked().then(|| tab = index as u8);
         }
     });
+    ui.add_space(8.0);
     ui.separator();
     match CollaborationTab::ALL.get(tab as usize).copied().unwrap_or(CollaborationTab::Issues) {
         CollaborationTab::Overview => {
             let health = state.model_health(app);
-            ui.heading("TỔNG QUAN DỰ ÁN");
-            ui.horizontal_wrapped(|ui| {
-                ui.label(format!("Đối tượng: {}", health.total_entities));
-                ui.label(format!("Chưa gắn BIM: {}", health.unscoped_entities));
-                ui.label(format!("Xung đột: {}", health.conflicts));
-                ui.label(format!("Issue đang mở: {}", health.open_issues));
+            ui.group(|ui| {
+                ui.horizontal(|ui| {
+                    ui.strong("DỰ ÁN BIM");
+                    ui.separator();
+                    ui.label(format!("Mã: {}", state.project_id));
+                    ui.separator();
+                    ui.label(format!("Tên: {}", state.project_name));
+                    ui.separator();
+                    ui.label(state.connection.label());
+                });
             });
-            ui.horizontal(|ui| {
-                ui.label("Mã dự án:"); ui.text_edit_singleline(&mut state.project_id);
-                ui.label("Tên dự án:"); ui.text_edit_singleline(&mut state.project_name);
+            ui.add_space(8.0);
+            ui.columns(5, |cols| {
+                collaboration_metric(&mut cols[0], "Đối tượng CAD", health.total_entities, "Dữ liệu trong bản vẽ");
+                collaboration_metric(&mut cols[1], "Thiếu BIM scope", health.unscoped_entities, "Chưa gắn bộ môn / tầng");
+                collaboration_metric(&mut cols[2], "Issue đang mở", health.open_issues, "Yêu cầu phối hợp");
+                collaboration_metric(&mut cols[3], "Xung đột", health.conflicts, "Cần giải quyết");
+                collaboration_metric(&mut cols[4], "Chờ đồng bộ", health.pending_changes, "Thay đổi cục bộ");
             });
-            ui.label("Các chức năng cấu hình dự án và thiết lập nâng cao vẫn được giữ bên dưới.");
+            ui.add_space(8.0);
+            ui.columns(2, |cols| {
+                cols[0].group(|ui| {
+                    ui.heading("TIẾN ĐỘ PHỐI HỢP");
+                    if state.progress.is_empty() { ui.label("Chưa có dữ liệu tiến độ."); }
+                    for scope in state.progress.iter().take(8) {
+                        ui.horizontal(|ui| {
+                            ui.label(format!("{} • {}", state.floors.iter().find(|floor| floor.id == scope.floor_id).map(|floor| floor.name.as_str()).unwrap_or("Tầng khác"), scope.discipline.label()));
+                            ui.add(egui::ProgressBar::new(f32::from(scope.percent) / 100.0).show_percentage());
+                        });
+                    }
+                });
+                cols[1].group(|ui| {
+                    ui.heading("ISSUE / CLASH GẦN ĐÂY");
+                    if state.issues.is_empty() { ui.label("Chưa có Issue trong dự án."); }
+                    for issue in state.issues.iter().rev().take(6) {
+                        ui.horizontal(|ui| {
+                            ui.strong(format!("#{:04}", issue.id));
+                            ui.label(format!("{} • {}", issue.issue_type, issue.status.label()));
+                        });
+                        ui.label(&issue.description);
+                    }
+                });
+            });
         }
         CollaborationTab::Workspace => {
             ui.heading("KHÔNG GIAN PHỐI HỢP");
@@ -2106,41 +2150,106 @@ pub fn panel(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut 
         }
         CollaborationTab::Sync => {
             ui.heading("ĐỒNG BỘ & PHIÊN LÀM VIỆC");
-            ui.label(format!("Thay đổi chờ đồng bộ: {} • Conflict: {}", state.dirty_local_changes, state.conflicts.len()));
-            ui.label(format!("Người đang hiện diện: {} • Nhật ký: {}", state.presence.len(), state.audit_log.len()));
-            ui.horizontal_wrapped(|ui| {
-                ui.label("Chế độ:");
-                for mode in [ConnectionMode::Offline, ConnectionMode::Online] { ui.selectable_value(&mut state.connection, mode, mode.label()); }
-                if state.connection == ConnectionMode::Online && state.dirty_local_changes > 0 {
-                    if ui.button("Đồng bộ thay đổi (mô phỏng)").clicked() { state.sync_pending_changes(); }
-                }
+            let pending = state.pending_changes.iter().filter(|change| !change.synced).count();
+            ui.columns(4, |cols| {
+                collaboration_metric(&mut cols[0], "ChangeSet chờ gửi", pending, "Dữ liệu cục bộ");
+                collaboration_metric(&mut cols[1], "Xung đột", state.conflicts.len(), "Cần xử lý trước khi phát hành");
+                collaboration_metric(&mut cols[2], "Thành viên hiện diện", state.presence.len(), "Phiên online hiện tại");
+                collaboration_metric(&mut cols[3], "Nhật ký thay đổi", state.audit_log.len(), "Lịch sử có thật");
             });
-            ui.collapsing("Nhật ký thay đổi", |ui| {
-                egui::ScrollArea::vertical().max_height(210.0).show(ui, |ui| {
-                    for entry in state.audit_log.iter().rev().take(100) {
-                        ui.label(format!("#{} • {} • {} • {}", entry.sequence, entry.account_id, entry.action, entry.detail));
-                    }
+            ui.add_space(8.0);
+            ui.group(|ui| {
+                ui.horizontal_wrapped(|ui| {
+                    ui.strong("CHẾ ĐỘ LÀM VIỆC");
+                    for mode in [ConnectionMode::Offline, ConnectionMode::Online] { ui.selectable_value(&mut state.connection, mode, mode.label()); }
+                    // This action only updates the local prototype, not a remote BIM server.
+                    if ui.add_enabled(state.connection == ConnectionMode::Online && pending > 0 && state.conflicts.is_empty(),
+                        egui::Button::new("Đồng bộ thay đổi (cục bộ / mô phỏng)")).clicked() { state.sync_pending_changes(); }
+                });
+            });
+            ui.add_space(8.0);
+            ui.columns(2, |cols| {
+                cols[0].group(|ui| {
+                    ui.heading("CHANGESET CỤC BỘ");
+                    if state.pending_changes.is_empty() { ui.label("Chưa có ChangeSet."); }
+                    egui::ScrollArea::vertical().max_height(290.0).show(ui, |ui| {
+                        egui::Grid::new("collab_dashboard_changes").striped(true).show(ui, |ui| {
+                            for heading in ["Mã", "Tài khoản", "Đối tượng", "Trạng thái"] { ui.strong(heading); }
+                            ui.end_row();
+                            for change in state.pending_changes.iter().rev().take(40) {
+                                ui.label(format!("#{}", change.id));
+                                ui.label(&change.account_id);
+                                ui.label(change.items.len().to_string());
+                                ui.label(if change.synced { "Đã đồng bộ" } else { "Chờ gửi" });
+                                ui.end_row();
+                            }
+                        });
+                    });
+                });
+                cols[1].group(|ui| {
+                    ui.heading("NHẬT KÝ & XUNG ĐỘT");
+                    if !state.conflicts.is_empty() { ui.colored_label(egui::Color32::LIGHT_RED, format!("{} xung đột chưa xử lý", state.conflicts.len())); }
+                    if state.audit_log.is_empty() { ui.label("Chưa có lịch sử đồng bộ."); }
+                    egui::ScrollArea::vertical().max_height(290.0).show(ui, |ui| {
+                        for entry in state.audit_log.iter().rev().take(30) {
+                            ui.horizontal(|ui| { ui.strong(format!("#{}", entry.sequence)); ui.label(&entry.account_id); ui.label(&entry.action); });
+                            ui.small(&entry.detail);
+                            ui.separator();
+                        }
+                    });
                 });
             });
         }
         CollaborationTab::Permissions => {
             ui.heading("QUYỀN TRUY CẬP");
-            ui.label(format!("Tài khoản: {} • Rule: {} • Chia sẻ: {}", state.users.len(), state.access_rules.len(), state.share_grants.len()));
-            egui::Grid::new("bim_new_permissions_table").striped(true).show(ui, |ui| {
-                ui.strong("Tài khoản"); ui.strong("Bộ môn"); ui.strong("Cho phép sửa"); ui.strong("Xem bộ môn khác"); ui.end_row();
-                for user in &mut state.users {
-                    ui.label(&user.display_name);
-                    ui.label(user.discipline.label());
-                    ui.checkbox(&mut user.can_edit, "");
-                    ui.checkbox(&mut user.can_view_other_disciplines, "");
-                    ui.end_row();
-                }
+            ui.columns(4, |cols| {
+                collaboration_metric(&mut cols[0], "Thành viên", state.users.len(), "Tài khoản trong workspace");
+                collaboration_metric(&mut cols[1], "Quy tắc truy cập", state.access_rules.len(), "Theo tài khoản và bộ môn");
+                collaboration_metric(&mut cols[2], "Phạm vi chia sẻ", state.share_grants.len(), "Quyền được cấp");
+                collaboration_metric(&mut cols[3], "Đang hiện diện", state.presence.len(), "Phiên online");
+            });
+            ui.add_space(8.0);
+            ui.columns(2, |cols| {
+                cols[0].group(|ui| {
+                    ui.heading("DANH SÁCH THÀNH VIÊN");
+                    egui::ScrollArea::horizontal().show(ui, |ui| {
+                        egui::Grid::new("bim_new_permissions_table").striped(true).min_col_width(70.0).show(ui, |ui| {
+                            for heading in ["Tài khoản", "Bộ môn", "Chỉnh sửa", "Xem bộ môn khác", "Xem tầng khác"] { ui.strong(heading); }
+                            ui.end_row();
+                            for user in &mut state.users {
+                                ui.label(&user.display_name);
+                                ui.label(user.discipline.label());
+                                ui.checkbox(&mut user.can_edit, "");
+                                ui.checkbox(&mut user.can_view_other_disciplines, "");
+                                ui.checkbox(&mut user.can_view_other_floors, "");
+                                ui.end_row();
+                            }
+                        });
+                    });
+                });
+                cols[1].group(|ui| {
+                    ui.heading("PHẠM VI QUYỀN & CHIA SẺ");
+                    egui::ScrollArea::vertical().max_height(290.0).show(ui, |ui| {
+                        if state.access_rules.is_empty() { ui.label("Chưa thiết lập quy tắc truy cập."); }
+                        for rule in &state.access_rules {
+                            ui.horizontal(|ui| {
+                                ui.strong(&rule.account_id);
+                                ui.label(rule.discipline.map(|d| d.label()).unwrap_or("Tất cả bộ môn"));
+                                ui.label(if rule.can_edit { "Được chỉnh sửa" } else if rule.can_view { "Chỉ xem" } else { "Không truy cập" });
+                            });
+                            ui.separator();
+                        }
+                        ui.strong(format!("Chia sẻ giữa tài khoản: {}", state.share_grants.len()));
+                        for grant in &state.share_grants {
+                            ui.label(format!("{} → {} • {} • {}", grant.owner_account_id, grant.viewer_account_id, grant.discipline.map(|d| d.label()).unwrap_or("Tất cả bộ môn"), if grant.can_edit { "Được sửa" } else { "Chỉ xem" }));
+                        }
+                    });
+                });
             });
         }
     }
     ui.separator();
-    ui.collapsing("Công cụ nghiệp vụ và thiết lập chi tiết", |ui| {
-        ui.label("Các công cụ cũ được giữ nguyên để bảo toàn thao tác. Trong các phiên bản tiếp theo, chức năng sẽ được đưa vào từng tab tương ứng.");
+    ui.collapsing("Công cụ BIM nâng cao (tọa độ, tầng, viewport, tài khoản, cấu hình)", |ui| {
         legacy_panel(ui, app, state);
     });
     ui.ctx().data_mut(|data| { data.insert_temp(tab_id, tab); data.insert_temp(egui::Id::new("tbt360_bim_selected_issue"), selected_issue); });
