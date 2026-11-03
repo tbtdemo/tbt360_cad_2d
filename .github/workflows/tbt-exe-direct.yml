@@ -156,7 +156,7 @@ jobs:
           if-no-files-found: error
           retention-days: 30
       - name: Build milestone source archive
-        if: ${{ github.event_name == 'push' && startsWith(github.event.head_commit.message, 'release(cad360): R') }}
+        if: "${{ github.event_name == 'push' && startsWith(github.event.head_commit.message, 'release(cad360): R') }}"
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
@@ -174,7 +174,7 @@ jobs:
         env:
           RELEASE_MESSAGE: ${{ github.event.head_commit.message }}
       - name: Publish validated Windows milestone release
-        if: ${{ github.event_name == 'push' && startsWith(github.event.head_commit.message, 'release(cad360): R') }}
+        if: "${{ github.event_name == 'push' && startsWith(github.event.head_commit.message, 'release(cad360): R') }}"
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
