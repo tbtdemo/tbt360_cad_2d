@@ -46,13 +46,18 @@ jobs:
           Write-Host "Target: Windows x64"
       - name: Verify locked Cargo workspace metadata
         working-directory: CADTBT360_V1.000
-        run: cargo metadata --locked --no-deps --format-version 1 | Out-Null
+        run: |
+          $ErrorActionPreference = 'Stop'
+          cargo metadata --locked --no-deps --format-version 1 | Out-Null
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Check road takeoff logic tests
         working-directory: CADTBT360_V1.000
         run: cargo test --locked -p cadcraft --bin cadcraft takeoff_road::tests -- --nocapture
+
       - name: Check station matching and QTO integration tests
         working-directory: CADTBT360_V1.000
         run: cargo test --locked -p cadcraft --bin cadcraft road_station_matching_tests -- --nocapture
+
       - name: Verify Km boundary rounding regression is registered
         working-directory: CADTBT360_V1.000
         run: |
@@ -70,6 +75,7 @@ jobs:
           CADCRAFT_BUILD_SHA: ${{ github.sha }}
           CADTBT360_RELEASE_VERSION: CADTBT360_V1.021
         run: cargo check --locked -p cadcraft --bin cadcraft
+
       - name: Compile Windows desktop application with embedded Git SHA
         working-directory: CADTBT360_V1.000
         env:
@@ -77,6 +83,7 @@ jobs:
           CADCRAFT_BUILD_SHA: ${{ github.sha }}
           CADTBT360_RELEASE_VERSION: CADTBT360_V1.021
         run: cargo build --locked --release -p cadcraft --bin cadcraft
+
       - name: Verify compiled target and release identity
         working-directory: CADTBT360_V1.000
         run: |
