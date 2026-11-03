@@ -16,7 +16,7 @@
 | 05/15 | CAD+BIM: nếu phục hồi nhiều tab lỗi giữa chừng thì đóng tab mới, khôi phục chỉ số tab gốc; giới hạn 256 bản vẽ và 64 MiB workspace ngay trước ghi; kiểm tra active index sai | `df80c04c43043e4a979a5fe8f3739e1f0385f6db` | 1 regression test | Chưa xác nhận Windows CI |
 | 06/15 | CAD+BIM: fingerprint gồm revision của mọi CAD tab + checksum workspace BIM; bỏ qua ghi tự lưu khi không thay đổi | `70a259938af27788f355b2ba43684d2efcae7feb` | Chưa bổ sung kiểm thử hành vi timer | Chưa xác nhận Windows CI |
 | 07/15 | Canvas first click/drag; mở CAD theo khối có % đọc; bỏ ngưỡng mở file 512 MiB; hàng đợi mở tuần tự giảm áp lực RAM | `6cc13a944a756bd03b0016c3f75130a630404ed9` | 1 Rust test progressive bytes; GUI tests cần bổ sung | Chưa xác nhận Windows CI |
-| 08/15 | Chặn selection drag tồn đọng khi chuột thả ngoài canvas / ESC / focus loss; ETA đọc file theo byte; regression tests | `f8270491c1f49c7852507237633a321756995fc2` | 2 unit tests bổ sung | Windows CI/GUI chưa xác nhận PASS |
+| 08/15 | Chặn selection drag tồn đọng khi chuột thả ngoài canvas / ESC / focus loss; ETA byte đọc; chuyển khởi động file tiếp sau khi finish_open | `f0cfc0fbf7d50f29f0840df0f89cfd3be457e249` | 2 unit tests bổ sung; test serial queue điều chỉnh | Windows CI/GUI chưa xác nhận PASS |
 
 ### Trạng thái
 - Hoàn thành bằng chứng mã nguồn: **8/15** lượt tối thiểu.
@@ -67,3 +67,8 @@
 - Commit: `150ba828c6f61155b00b10a8eaf1b1bce21b15b1`, `ff6ae5d485587a478cefbd74781df2a2ea1c7b2c`, `f8270491c1f49c7852507237633a321756995fc2`.
 - Còn thiếu: test GUI click đầu tiên theo mọi lệnh, CI Windows của R07–R08, benchmark file 300–500 MiB, kiểm tra phạm vi user trên server, thiết kế streaming parser/render.
 - Tiến độ nhịp: **8/15 = 53,3%**, không đồng nghĩa chất lượng hay độ hoàn thiện tổng thể.
+
+### Cập nhật cuối lượt 08 — thứ tự bàn giao dữ liệu lớn
+- Thay đổi `opening.poll()`: không khởi động decoder của file tiếp ngay trong lúc kết quả `ReadFile` của file trước còn đang được xử lý.
+- `CadApp.finish_opening()` hoàn thành tích hợp kết quả file trước vào `Session` rồi mới gọi `opening.start_next_after_install()` để giảm đỉnh RAM khi mở hàng loạt.
+- Commit bổ sung: `af9d308c9e527ec384ac9dbeece3132489e5a7d5`, `f0cfc0fbf7d50f29f0840df0f89cfd3be457e249`.
