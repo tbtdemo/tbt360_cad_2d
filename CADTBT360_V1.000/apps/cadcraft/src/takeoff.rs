@@ -145,6 +145,8 @@ pub struct State {
     road_plan_marker_handle: Option<String>,
     road_cut: Option<GeometricSource>,
     road_fill: Option<GeometricSource>,
+    road_cut_zero_confirmed: bool,
+    road_fill_zero_confirmed: bool,
     road_sections: Vec<RoadCrossSection>,
     road_work_group: String,
     road_range_start: String,
@@ -517,7 +519,8 @@ impl State {
                 "sections": self.road_sections.iter().map(RoadCrossSection::json).collect::<Vec<_>>(),
                 "draft": {"chainage":self.road_chainage,"name":self.road_name,"plan_marker_handle":self.road_plan_marker_handle,
                           "cut":self.road_cut.as_ref().map(GeometricSource::json),
-                          "fill":self.road_fill.as_ref().map(GeometricSource::json)},
+                          "fill":self.road_fill.as_ref().map(GeometricSource::json),
+                          "cut_zero_confirmed":self.road_cut_zero_confirmed,"fill_zero_confirmed":self.road_fill_zero_confirmed},
                 "work_group":self.road_work_group,
                 "range_start":self.road_range_start,
                 "range_end":self.road_range_end,
@@ -703,6 +706,8 @@ impl State {
         self.road_plan_marker_handle=road.and_then(|v|v.get("draft")).and_then(|v|v.get("plan_marker_handle")).and_then(serde_json::Value::as_str).filter(|h|cadcraft_doc::Handle::parse_hex(h).is_some()).map(str::to_string);
         self.road_cut=road.and_then(|v|v.get("draft")).and_then(|v|v.get("cut")).and_then(GeometricSource::read);
         self.road_fill=road.and_then(|v|v.get("draft")).and_then(|v|v.get("fill")).and_then(GeometricSource::read);
+        self.road_cut_zero_confirmed=road.and_then(|v|v.get("draft")).and_then(|v|v.get("cut_zero_confirmed")).and_then(serde_json::Value::as_bool).unwrap_or(false);
+        self.road_fill_zero_confirmed=road.and_then(|v|v.get("draft")).and_then(|v|v.get("fill_zero_confirmed")).and_then(serde_json::Value::as_bool).unwrap_or(false);
         self.road_chainage=road.and_then(|v|v.get("draft")).and_then(|v|v.get("chainage")).and_then(serde_json::Value::as_str).unwrap_or("").chars().take(50).collect();
         self.road_name=road.and_then(|v|v.get("draft")).and_then(|v|v.get("name")).and_then(serde_json::Value::as_str).unwrap_or("").chars().take(180).collect();
         self.road_work_group=road.and_then(|v|v.get("work_group")).and_then(serde_json::Value::as_str).unwrap_or("Nền đường").chars().take(250).collect();
@@ -1252,14 +1257,16 @@ fn qto_is_road_cross_section_boundary(app: &CadApp, handle: cadcraft_doc::Handle
             _ => false,
         })).unwrap_or(false)
 }
-fn qto_road_source_in_scope(source: &GeometricSource, allowed: Option<&BTreeSet<String>>) -> bool {
-    allowed.is_none_or(|handles| handles.contains(&source.handle))
-}
 fn qto_road_interval_in_scope(left: &RoadCrossSection, right: &RoadCrossSection, kind: EarthworkKind, allowed: Option<&BTreeSet<String>>) -> bool {
-    let get=|section: &RoadCrossSection| match kind {
-        EarthworkKind::Cut => section.cut.as_ref(), EarthworkKind::Fill => section.fill.as_ref()
+    let permitted=|section: &RoadCrossSection| {
+        let (source,zero) = match kind {
+            EarthworkKind::Cut => (section.cut.as_ref(),section.cut_zero_confirmed),
+            EarthworkKind::Fill => (section.fill.as_ref(),section.fill_zero_confirmed)
+        };
+        if let Some(source)=source {return allowed.is_none_or(|handles|handles.contains(&source.handle));}
+        zero
     };
-    get(left).zip(get(right)).is_some_and(|(a,b)| qto_road_source_in_scope(a,allowed) && qto_road_source_in_scope(b,allowed))
+    permitted(left) && permitted(right)
 }
 fn qto_road_report_lines(app: &CadApp, state: &State, config: &ExportConfig,
     allowed: Option<&BTreeSet<String>>) -> Result<Vec<ReportLine>,String> {
@@ -1305,13 +1312,15 @@ fn qto_road_report_lines(app: &CadApp, state: &State, config: &ExportConfig,
             return Err(format!("Chưa khai báo mã công tác {} để phát hành Excel.",kind));
         }
         let unit=format!("{}³",config.length_unit);
+        let evidence_start=if interval.source_start.is_empty(){"0 (đã xác nhận)"}else{&interval.source_start};
+        let evidence_end=if interval.source_end.is_empty(){"0 (đã xác nhận)"}else{&interval.source_end};
         let fields=[
             String::new(),code.clone(),format!("{} {} → {}",kind,
                 takeoff_road::station_label(interval.start_m),takeoff_road::station_label(interval.end_m)),
-            state.road_work_group.clone(),format!("{} + {}",interval.source_start,interval.source_end),
+            state.road_work_group.clone(),format!("{} + {}",evidence_start,evidence_end),
             String::new(),"Giao thông".into(),kind.into(),String::new(),unit.clone(),
             format!("AEA: L={:.3}m; Ađầu={:.3}m²; Acuối={:.3}m². Tách riêng đào/đắp.",interval.length_m,interval.area_start_m2,interval.area_end_m2),
-            format!("{} + {}",interval.source_start,interval.source_end)
+            format!("{} + {}",evidence_start,evidence_end)
         ];
         out.push(ReportLine{group:if state.road_work_group.is_empty(){"Nền đường".into()}else{state.road_work_group.clone()},
             fields,quantity:interval.volume_m3*multiplier,unit});
@@ -1739,7 +1748,10 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
                     } else {
                         let measure=&candidates[0];
                         let source=GeometricSource{handle:measure.source_handle.hex(),signature:geometry_signature(measure),raw_value:measure.raw_value};
-                        match kind { EarthworkKind::Cut=>state.road_cut=Some(source), EarthworkKind::Fill=>state.road_fill=Some(source) }
+                        match kind {
+                            EarthworkKind::Cut=>{state.road_cut=Some(source);state.road_cut_zero_confirmed=false;},
+                            EarthworkKind::Fill=>{state.road_fill=Some(source);state.road_fill_zero_confirmed=false;},
+                        }
                         state.import_feedback=format!("Đã lấy diện tích {} tại cọc đang khai báo: {:.3} đơn vị².",kind.label(),measure.raw_value);
                     }
                 }
@@ -1747,15 +1759,21 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
             if ui.small_button("Xóa nguồn đào").clicked() {state.road_cut=None;}
             if ui.small_button("Xóa nguồn đắp").clicked() {state.road_fill=None;}
         });
-        let source_label=|source:&Option<GeometricSource>| source.as_ref()
-            .map(|value|format!("{} • {:.3} đv²",value.handle,value.raw_value)).unwrap_or_else(||"Chưa chọn".into());
+        ui.horizontal_wrapped(|ui| {
+            if ui.checkbox(&mut state.road_cut_zero_confirmed,"Xác nhận diện tích ĐÀO = 0 m²").changed() && state.road_cut_zero_confirmed {state.road_cut=None;}
+            if ui.checkbox(&mut state.road_fill_zero_confirmed,"Xác nhận diện tích ĐẮP = 0 m²").changed() && state.road_fill_zero_confirmed {state.road_fill=None;}
+        });
+        ui.small("Chỉ đánh dấu bằng 0 sau khi kiểm tra trắc ngang thực tế. Bỏ chọn không có nghĩa là diện tích bằng 0.");
+        let source_label=|source:&Option<GeometricSource>,zero:bool| source.as_ref()
+            .map(|value|format!("{} • {:.3} đv²",value.handle,value.raw_value)).unwrap_or_else(||if zero {"0 m² (đã xác nhận)".into()} else {"Chưa chọn".into()});
         ui.columns(2,|cols| {
-            cols[0].label(format!("DIỆN TÍCH ĐÀO: {}",source_label(&state.road_cut)));
-            cols[1].label(format!("DIỆN TÍCH ĐẮP: {}",source_label(&state.road_fill)));
+            cols[0].label(format!("DIỆN TÍCH ĐÀO: {}",source_label(&state.road_cut,state.road_cut_zero_confirmed)));
+            cols[1].label(format!("DIỆN TÍCH ĐẮP: {}",source_label(&state.road_fill,state.road_fill_zero_confirmed)));
         });
         let station=takeoff_road::station_to_metres(&state.road_chainage).ok().map(|chainage_m|RoadCrossSection {
             chainage_m,name:state.road_name.trim().to_string(),plan_marker_handle:state.road_plan_marker_handle.clone(),
-            cut:state.road_cut.clone(),fill:state.road_fill.clone(),confirmed:false,
+            cut:state.road_cut.clone(),fill:state.road_fill.clone(),
+            cut_zero_confirmed:state.road_cut_zero_confirmed,fill_zero_confirmed:state.road_fill_zero_confirmed,confirmed:false,
         });
         let valid=station.as_ref().is_some_and(|candidate|takeoff_road::validate_section(candidate).is_ok()
             && state.road_sections.iter().all(|old|(old.chainage_m-candidate.chainage_m).abs()>1.0e-6 && candidate.plan_marker_handle.as_deref().is_none_or(|h|old.plan_marker_handle.as_deref()!=Some(h))));
@@ -1767,6 +1785,8 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
             state.source_mode=QtoSourceMode::CapturedRegion;
             state.road_cut=None;
             state.road_fill=None;
+            state.road_cut_zero_confirmed=false;
+            state.road_fill_zero_confirmed=false;
             state.road_plan_marker_handle=None;
             state.import_feedback=format!("Đã lưu {} mặt cắt. Phải kiểm tra và xác nhận trước khi xuất.",state.road_sections.len());
         }
@@ -1803,8 +1823,8 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
                     ui.label(takeoff_road::station_label(section.chainage_m));
                     ui.label(&section.name);
                     ui.label(section.plan_marker_handle.as_deref().unwrap_or("Chưa gắn"));
-                    ui.label(section.cut.as_ref().map(|s|format!("{:.3}",s.raw_value)).unwrap_or_else(||"-".into()));
-                    ui.label(section.fill.as_ref().map(|s|format!("{:.3}",s.raw_value)).unwrap_or_else(||"-".into()));
+                    ui.label(section.cut.as_ref().map(|s|format!("{:.3}",s.raw_value)).unwrap_or_else(||if section.cut_zero_confirmed {"0 (xác nhận)".into()}else{"-".into()}));
+                    ui.label(section.fill.as_ref().map(|s|format!("{:.3}",s.raw_value)).unwrap_or_else(||if section.fill_zero_confirmed {"0 (xác nhận)".into()}else{"-".into()}));
                     if ui.small_button("Xóa").clicked(){delete=Some(i);}
                     ui.end_row();
                 }
@@ -1853,7 +1873,7 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
         } else {
             ui.colored_label(egui::Color32::YELLOW,"Cần hiệu chuẩn tỷ lệ CAD sang mét trước khi tính khối lượng giao thông.");
         }
-        ui.small("Lưu ý: chưa tự bắt cọc/nhận dạng mặt cắt từ block hoặc nội suy tại điểm chuyển đào–đắp. Khi thiếu một đầu diện tích hệ thống dừng, KHÔNG tự gán diện tích bằng 0.");
+        ui.small("Tại cọc chuyển đào–đắp có thể xác nhận bằng 0 cho từng loại. V1.002 không tự nội suy điểm chuyển giữa hai lý trình; nếu chưa có mặt cắt xác nhận thì báo thiếu dữ liệu.");
     });
 
     ui.collapsing("CÔNG CỤ CŨ — nhập nhanh từ đối tượng đang chọn", |ui| {
