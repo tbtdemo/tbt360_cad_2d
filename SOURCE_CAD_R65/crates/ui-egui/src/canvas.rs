@@ -202,6 +202,9 @@ impl CanvasState {
     /// Put a finished background build in place, with its GPU vertex data when it has some.
     fn install(&mut self, key: ListKey, window: Option<Bounds2>, built: rebuild::Built) {
         self.list_gen = self.list_gen.wrapping_add(1);
+        // Drop the previous drawing's potentially multi-million-entry lookup
+        // immediately, even if the user doesn't hover/select anything afterward.
+        self.prim_index = PrimIndex::default();
         if let Some(m) = built.mesh {
             if let Ok(mut slot) = self.mesh_slot.lock() {
                 *slot = Some(m.data);
