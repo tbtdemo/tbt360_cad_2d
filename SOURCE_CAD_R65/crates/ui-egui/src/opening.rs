@@ -140,14 +140,14 @@ impl Opening {
                 format!("Đọc dữ liệu: {progress:.1}% ({:.1}/{:.1} MiB){eta}", read as f64 / 1_048_576.0, total as f64 / 1_048_576.0)
             } else { "Đang mở file".to_string() }
         };
-        Some(if more == 0 { format!("Opening {name}... {secs:.0} s — {state}") } else { format!("Opening {name} and {more} more... {secs:.0} s — {state}") })
+        Some(if more == 0 { format!("Đang mở {name}... {secs:.0} giây — {state}") } else { format!("Đang mở {name} và {more} file khác... {secs:.0} giây — {state}") })
     }
 
     /// Paint the card in the middle of the window and keep frames coming while files load.
     pub fn show(&self, ctx: &egui::Context) {
         let Some(label) = self.label() else { return };
         let t = Tokens::get();
-        egui::Area::new(egui::Id::unique("cc_opening"))
+        egui::Area::new(egui::Id::new("cc_opening"))
             .order(egui::Order::Foreground)
             .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
             .interactable(false)
@@ -327,6 +327,6 @@ mod tests {
         o.start("/nonexistent/dir/a.dxf");
         o.start("/nonexistent/dir/b.dxf");
         let l = o.label().unwrap_or_default();
-        assert!(l.starts_with("Opening a.dxf and 1 more"), "{l}");
+        assert!(l.starts_with("Đang mở a.dxf và 1 file khác"), "{l}");
     }
 }
