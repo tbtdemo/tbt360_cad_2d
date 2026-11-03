@@ -69,6 +69,10 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "QTO XLSX Rust workbook tests failed" }
           cargo test --locked -p cadcraft --bin cadcraft takeoff::tests::qto_investor_excel -- --test-threads=1
           if ($LASTEXITCODE -ne 0) { throw "QTO investor export tests failed" }
+          cargo test --locked -p cadcraft --bin cadcraft takeoff::tests::qto_selection_ -- --test-threads=1
+          if ($LASTEXITCODE -ne 0) { throw "QTO CAD selection scope tests failed" }
+          cargo test --locked -p cadcraft --bin cadcraft takeoff::tests::qto_excel_respects_manual_row_checkboxes -- --test-threads=1
+          if ($LASTEXITCODE -ne 0) { throw "QTO per-record Excel checkbox test failed" }
           python scripts/verify_qto_xlsx.py $env:CADTBT360_QTO_XLSX_FIXTURE
           if ($LASTEXITCODE -ne 0) { throw "Real XLSX Office XML or A4 print validation failed" }
       - name: Verify CAD Text Style Manager and font properties
