@@ -40,6 +40,24 @@ Cập nhật: 2026-11-03 (Asia/Bangkok). Nhánh phát triển: `tbt/cad360-activ
 
 Chỉ ghi **ĐÃ CÓ B15-UI EXE** sau khi có run và artifact cụ thể đúng SHA, kiểm tra tệp setup/portable/source và SHA256. Chỉ ghi **ĐÃ NGHIỆM THU GIAO DIỆN** sau khi chạy ứng dụng trên Windows thực, chụp màn hình chương trình đang chạy (không phải ảnh dựng) và kiểm tra các tab.
 
+## Kết quả chạy GitHub Actions đã kiểm tra (2026-11-03, giờ Việt Nam)
+
+**B15-UI gốc — ĐÃ CÓ BỘ CÀI:**
+- Run [41623015347](https://github.com/tbtdemo/tbt360_cad_2d/actions/runs/41623015347): **completed / success**, commit `2625310f19301b91a6b882ba0660ec2cd0209ee3`.
+- Job Windows cross-compile, kiểm tra PE, NSIS packaging và upload artifact đều **success**.
+- Artifact ID `13225806171`: `CAD360-TBT-REAL-Windows-x64-Setup-Portable-Source-B15-UI` (63,922,540 bytes, không hết hạn tại thời điểm kiểm tra).
+- [Tải artifact trực tiếp](https://github.com/tbtdemo/tbt360_cad_2d/actions/runs/41623015347/artifacts/13225806171).
+- Bản này có dashboard BIM 5 tab đã commit trước `2625310f`, **không có** tối ưu cuộn ngang của commit `736efce1`.
+- Cổng nghiệm thu B15-UI gốc: **3/4 = 75%** (source đúng SHA + Rust cross-build PASS + artifact PASS; GUI Windows chưa chạy nghiệm thu).
+
+**B15-UI responsive mới hơn — ĐANG BUILD:**
+- Run [41627300710](https://github.com/tbtdemo/tbt360_cad_2d/actions/runs/41627300710), commit `e34815ef4eb098c7d25786e645cbf0fca0cb8d35`.
+- Bước chuẩn bị 1–6 success; bước 7 `Cross-compile real CAD360 desktop and CLI for Windows x64` đang in_progress lúc kiểm tra; các bước packaging/upload/regression chờ.
+- Cổng nghiệm thu bản responsive tại thời điểm kiểm tra: **1/4 = 25%**; chưa có artifact xác nhận; không gọi là build PASS.
+- Sau khi bước upload hoàn tất và có artifact đúng SHA, tỷ lệ cổng có thể cập nhật lên 75%. Kiểm thử UI thực tế vẫn riêng biệt.
+
+**Quy tắc thống kê:** Kết quả 75% và 25% là tỷ lệ 4 cổng xác minh, không phải độ hoàn thiện phần mềm hay % số dòng code.
+
 ## Lượt cập nhật giao diện và đóng gói mới nhất (2026-11-03)
 
 - Commit UI `736efce12f774f136acf941dd6d001d095c7144e`: thay 5 tab + dãy KPI bằng hàng ngang cuộn khi cửa sổ hẹp, không nén mỗi ô vào cột nhỏ.
