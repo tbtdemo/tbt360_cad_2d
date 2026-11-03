@@ -1578,30 +1578,181 @@ struct Style {
     fields: Vec<Field>,
 }
 
+/// Persist the draft between immediate-mode egui frames. Edits are saved to the
+/// drawing ONLY on Apply/New, never on every keystroke.
+#[derive(Clone)]
+struct TextStyleEditor {
+    selected: String,
+    new_name: String,
+    font: String,
+    big_font: String,
+    height: f64,
+    width_factor: f64,
+    oblique: f64,
+    backwards: bool,
+    upside_down: bool,
+    vertical: bool,
+    annotative: bool,
+}
+impl TextStyleEditor {
+    fn from_style(style: &cadcraft_doc::TextStyle) -> Self {
+        Self {
+            selected: style.name.clone(), new_name: String::new(),
+            font: style.font.clone(), big_font: style.big_font.clone(),
+            height: style.height, width_factor: style.width_factor,
+            oblique: style.oblique.to_degrees(), backwards: style.backwards,
+            upside_down: style.upside_down, vertical: style.vertical,
+            annotative: style.annotative,
+        }
+    }
+    fn valid(&self) -> bool {
+        !self.font.trim().is_empty() && self.height.is_finite() && self.height >= 0.0
+            && self.width_factor.is_finite() && self.width_factor > 0.0 && self.width_factor <= 100.0
+            && self.oblique.is_finite() && self.oblique.abs() <= 85.0
+    }
+    fn params(&self, name: &str) -> Value {
+        json!({
+            "name": name, "font": self.font.trim(), "bigFont": self.big_font.trim(),
+            "height": self.height, "widthFactor": self.width_factor, "oblique": self.oblique,
+            "backwards": self.backwards, "upsideDown": self.upside_down,
+            "vertical": self.vertical, "annotative": self.annotative, "current": false
+        })
+    }
+}
+
 fn text_style(app: &mut CadApp, ctx: &egui::Context, open: &mut bool) -> Action {
     let Ok(d) = app.session.doc() else {
-        no_drawing(ctx, "Text Style", open);
+        no_drawing(ctx, "Quản lý kiểu chữ CAD", open);
         return None;
     };
-    let mut styles: Vec<Style> = d
-        .text_styles
-        .iter()
-        .map(|s| Style {
-            name: s.name.clone(),
-            fields: vec![
-                Field::Num("height", "Height (0 = ask)", s.height),
-                Field::Num("widthFactor", "Width factor", s.width_factor),
-                Field::Bool("backwards", "Backwards", s.backwards),
-                Field::Bool("upsideDown", "Upside down", s.upside_down),
-            ],
-        })
-        .collect();
-    if styles.is_empty() {
-        let s = cadcraft_doc::TextStyle::default();
-        styles.push(Style { name: s.name, fields: Vec::new() });
+    let current = d.header.str("TEXTSTYLE", "Standard").to_string();
+    let selected = temp::<String>(ctx, "cadtbt360_font_style_selected")
+        .filter(|name| d.text_styles.iter().any(|style| style.name == *name))
+        .unwrap_or_else(|| current.clone());
+    let Some(style) = d.text_styles.iter().find(|style| style.name == selected).or_else(|| d.text_styles.first()) else { return None };
+    let mut form = temp::<TextStyleEditor>(ctx, "cadtbt360_font_style_editor")
+        .filter(|form| form.selected == style.name)
+        .unwrap_or_else(|| TextStyleEditor::from_style(style));
+    let mut action: Action = None;
+    egui::Window::new("QUẢN LÝ KIỂU CHỮ CAD (STYLE)")
+        .id(egui::Id::new("cadtbt360_text_style_manager"))
+        .open(open).default_size(vec2(850.0, 540.0)).min_width(650.0)
+        .resizable(true).show(ctx, |ui| {
+            ui.label(format!("Bản vẽ hiện tại • Kiểu chữ đang dùng: {current} • {} kiểu chữ", d.text_styles.len()));
+            ui.separator();
+            ui.columns(2, |cols| {
+                cols[0].set_min_width(230.0);
+                cols[0].heading("DANH SÁCH KIỂU CHỮ");
+                egui::ScrollArea::vertical().id_salt("cadtbt360_font_style_list").max_height(310.0).show(&mut cols[0], |ui| {
+                    for item in &d.text_styles {
+                        let label = if item.name.eq_ignore_ascii_case(&current) { format!("● {} (hiện hành)", item.name) } else { item.name.clone() };
+                        if ui.selectable_label(form.selected == item.name, label).clicked() {
+                            form = TextStyleEditor::from_style(item);
+                        }
+                    }
+                });
+                cols[0].separator();
+                cols[0].label("Tạo kiểu chữ mới");
+                cols[0].add(egui::TextEdit::singleline(&mut form.new_name).hint_text("Ví dụ: TBT_GhiChu_250").desired_width(205.0));
+                let new_name = form.new_name.trim();
+                let can_create = !new_name.is_empty() && new_name.len() <= 255
+                    && !d.text_styles.iter().any(|item| item.name.eq_ignore_ascii_case(new_name)) && form.valid();
+                if cols[0].add_enabled(can_create, egui::Button::new("+ Tạo kiểu chữ")).clicked() {
+                    action = Some(("style", form.params(new_name)));
+                    let name = new_name.to_string();
+                    form.selected = name;
+                    form.new_name.clear();
+                }
+                cols[1].heading(format!("THUỘC TÍNH — {}", form.selected));
+                egui::Grid::new("cadtbt360_text_style_properties").num_columns(2).spacing(vec2(14.0, 9.0)).show(&mut cols[1], |ui| {
+                    ui.label("Font chữ");
+                    ui.add(egui::TextEdit::singleline(&mut form.font).hint_text("Arial, Tahoma, simplex.shx...").desired_width(240.0));
+                    ui.end_row();
+                    ui.label("Font thông dụng");
+                    egui::ComboBox::from_id_salt("cadtbt360_font_presets").selected_text("Chọn gợi ý...").show_ui(ui, |ui| {
+                        for font in ["Arial", "Tahoma", "Times New Roman", "Segoe UI", "Consolas", "Calibri", "simplex.shx", "romans.shx", "txt.shx"] {
+                            if ui.selectable_label(form.font.eq_ignore_ascii_case(font), font).clicked() { form.font = font.to_string(); }
+                        }
+                    });
+                    ui.end_row();
+                    ui.label("Big Font (SHX)");
+                    ui.add(egui::TextEdit::singleline(&mut form.big_font).hint_text("Tùy chọn, để trống nếu không dùng").desired_width(240.0));
+                    ui.end_row();
+                    ui.label("Chiều cao mặc định");
+                    ui.add(egui::DragValue::new(&mut form.height).speed(0.1).range(0.0..=100000.0));
+                    ui.end_row();
+                    ui.label("Hệ số chiều rộng");
+                    ui.add(egui::DragValue::new(&mut form.width_factor).speed(0.05).range(0.01..=100.0));
+                    ui.end_row();
+                    ui.label("Độ nghiêng (°)");
+                    ui.add(egui::DragValue::new(&mut form.oblique).speed(1.0).range(-85.0..=85.0));
+                    ui.end_row();
+                    ui.label("Viết ngược");
+                    ui.checkbox(&mut form.backwards, "");
+                    ui.end_row();
+                    ui.label("Lật ngược");
+                    ui.checkbox(&mut form.upside_down, "");
+                    ui.end_row();
+                    ui.label("Chữ đứng dọc");
+                    ui.checkbox(&mut form.vertical, "");
+                    ui.end_row();
+                    ui.label("Theo tỷ lệ chú thích");
+                    ui.checkbox(&mut form.annotative, "");
+                    ui.end_row();
+                });
+                cols[1].separator();
+                cols[1].label(egui::RichText::new("Bản xem mẫu: ABC abc 0123 — Tiếng Việt có dấu").size(18.0));
+                cols[1].small("Mẫu trên sử dụng font giao diện; nét chữ CAD phụ thuộc font được cài và bộ dựng chữ của bản vẽ.");
+                if !form.valid() { cols[1].colored_label(egui::Color32::YELLOW, "Kiểm tra font, chiều cao, hệ số rộng và độ nghiêng."); }
+                cols[1].horizontal_wrapped(|ui| {
+                    if ui.add_enabled(form.valid(), egui::Button::new("Lưu thuộc tính")).clicked() {
+                        action = Some(("style", form.params(&form.selected)));
+                    }
+                    if ui.add_enabled(!form.selected.eq_ignore_ascii_case(&current), egui::Button::new("Đặt hiện hành")).clicked() {
+                        action = Some(("style.current", json!({"name": form.selected})));
+                    }
+                    if ui.add_enabled(!form.selected.eq_ignore_ascii_case("Standard"), egui::Button::new("Đổi tên")).clicked() {
+                        if !form.new_name.trim().is_empty() && !d.text_styles.iter().any(|s| s.name.eq_ignore_ascii_case(form.new_name.trim())) {
+                            action = Some(("style.rename", json!({"from": form.selected, "to": form.new_name.trim()})));
+                            form.selected = form.new_name.trim().to_string();
+                            form.new_name.clear();
+                        }
+                    }
+                    if ui.add_enabled(!form.selected.eq_ignore_ascii_case("Standard") && !form.selected.eq_ignore_ascii_case(&current), egui::Button::new("Xóa kiểu chữ")).clicked() {
+                        action = Some(("style.delete", json!({"name": form.selected})));
+                        form = d.text_style(&current).map(TextStyleEditor::from_style).unwrap_or_else(|| TextStyleEditor::from_style(&cadcraft_doc::TextStyle::default()));
+                    }
+                });
+            });
+            ui.separator();
+            ui.small("Mở nhanh bằng lệnh STYLE hoặc ST. Font được lưu vào bảng Text Style của bản vẽ, không chỉ là tùy chọn giao diện. Font ngoài cần được cài đặt trên máy.");
+        });
+    set_temp(ctx, "cadtbt360_font_style_selected", form.selected.clone());
+    set_temp(ctx, "cadtbt360_font_style_editor", form);
+    action
+}
+
+#[cfg(test)]
+mod text_style_editor_tests {
+    use super::*;
+    #[test]
+    fn text_style_editor_preserves_font_properties_in_engine_command() {
+        let mut form = TextStyleEditor::from_style(&cadcraft_doc::TextStyle::default());
+        form.font = "Arial".into();
+        form.big_font = "gbcbig.shx".into();
+        form.height = 2.5;
+        form.width_factor = 0.8;
+        form.oblique = 15.0;
+        assert!(form.valid());
+        let payload = form.params("TBT_GhiChu");
+        assert_eq!(payload["name"], "TBT_GhiChu");
+        assert_eq!(payload["font"], "Arial");
+        assert_eq!(payload["bigFont"], "gbcbig.shx");
+        assert_eq!(payload["height"], 2.5);
+        assert_eq!(payload["current"], false);
+        form.width_factor = 0.0;
+        assert!(!form.valid());
     }
-    let current = d.header.str("TEXTSTYLE", "Standard");
-    style_manager(ctx, open, "Text Style", "style", &current, &styles)
 }
 
 fn table_style(app: &mut CadApp, ctx: &egui::Context, open: &mut bool) -> Action {
