@@ -222,6 +222,21 @@ pub fn validate_range_station_coverage(sections: &[RoadCrossSection], range: Opt
     Ok(())
 }
 
+/// Ensure a requested station range contains at least one surveyed interval
+/// eligible for publication. Two matching endpoints alone are insufficient when
+/// confirmed-only export is enabled and either end remains pending.
+pub fn validate_range_export_readiness(sections: &[RoadCrossSection], range: Option<(f64,f64)>, confirmed_only: bool) -> Result<(),String> {
+    let Some((start,end))=range else {return Ok(());};
+    validate_range_station_coverage(sections,range)?;
+    let mut sorted=sections.iter().filter(|section|section.chainage_m>=start-1.0e-6 && section.chainage_m<=end+1.0e-6).collect::<Vec<_>>();
+    sorted.sort_by(|a,b|a.chainage_m.total_cmp(&b.chainage_m));
+    if sorted.len()<2 {return Err("Khoảng lý trình đã chọn không có đủ hai trắc ngang để đo bóc.".into());}
+    if confirmed_only && !sorted.windows(2).any(|pair|pair[0].confirmed && pair[1].confirmed) {
+        return Err("Khoảng cọc đã chọn chưa có đoạn gồm hai trắc ngang liên tiếp cùng được xác nhận. Không thể phát hành khối lượng giao thông.".into());
+    }
+    Ok(())
+}
+
 /// A surveyed marker on the plan drawing. The handle is retained as evidence,
 /// not used to infer stationing from arbitrary drawing coordinates.
 #[derive(Clone, Debug)]
@@ -440,6 +455,17 @@ mod tests {
         assert!(validate_range_station_coverage(&sections,Some((1005.0,1040.0))).is_err());
         assert!(validate_range_station_coverage(&sections,Some((1000.0,1035.0))).is_err());
         assert!(validate_range_station_coverage(&sections,None).is_ok());
+    }
+    #[test]
+    fn selected_range_requires_confirmed_pair_for_final_export() {
+        let first=section(1000.0,Some(source("AA",10.0)),None);
+        let mut last=section(1020.0,Some(source("BB",20.0)),None);
+        last.confirmed=false;
+        assert!(validate_range_export_readiness(&[first.clone(),last.clone()],Some((1000.0,1020.0)),true).is_err());
+        assert!(validate_range_export_readiness(&[first.clone(),last.clone()],Some((1000.0,1020.0)),false).is_ok());
+        assert!(validate_range_export_readiness(&[first.clone(),last.clone()],None,true).is_ok());
+        last.confirmed=true;
+        assert!(validate_range_export_readiness(&[first,last],Some((1000.0,1020.0)),true).is_ok());
     }
     #[test]
     fn rejects_duplicate_cad_plan_markers_before_export() {
