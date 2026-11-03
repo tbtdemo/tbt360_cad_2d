@@ -194,11 +194,19 @@ impl eframe::App for App {
     /// crash leaves them for recovery).
     fn on_exit(&mut self) {
         self.persist_workspace(None);
-        if let Err(error) = self.paired_recovery.save_now(&self.cad, &self.bim_collab_state) {
+        let final_snapshot = self.paired_recovery.save_now(&self.cad, &self.bim_collab_state);
+        let dirty_drawings = self.cad.session.docs.iter().any(|doc| doc.is_dirty());
+        if let Err(error) = &final_snapshot {
             log::warn!("Could not save final CAD+BIM recovery pair on exit: {error}");
         }
         self.cad.cancel_screenshots();
-        self.cad.shutdown_autosave();
+        if dirty_drawings && final_snapshot.is_err() {
+            // Do not delete the only remaining recoverable geometry if paired
+            // snapshot serialization/disk IO failed on exit.
+            self.cad.shutdown_autosave_preserving_recovery();
+        } else {
+            self.cad.shutdown_autosave();
+        }
     }
     /// Preferences (the interface theme) survive restarts; window and egui state are not kept.
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
