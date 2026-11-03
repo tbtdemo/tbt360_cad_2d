@@ -127,6 +127,7 @@ pub struct State {
     export_config: ExportConfig,
     source_mode: QtoSourceMode,
     captured_handles: BTreeSet<String>,
+    export_omitted_ids: BTreeSet<u64>,
     selected_measure_types: [bool; 4],
     methods_initialized: bool,
     preview_key: Option<u64>,
@@ -496,6 +497,7 @@ impl State {
             "qto_selection": {
                 "source_mode": format!("{:?}", self.source_mode),
                 "captured_handles": self.captured_handles,
+                "excluded_export_record_ids": self.export_omitted_ids,
                 "measure_types": self.selected_measure_types
             },
             "export_config": {
@@ -643,8 +645,12 @@ impl State {
                 }
             }
         }
+        let export_omitted_ids = value.get("qto_selection").and_then(|s| s.get("excluded_export_record_ids"))
+            .and_then(serde_json::Value::as_array).map(|items| items.iter().filter_map(serde_json::Value::as_u64)
+                .filter(|id| records.iter().any(|record| record.id == *id)).collect()).unwrap_or_default();
         self.source_mode = source_mode;
         self.captured_handles = captured_handles;
+        self.export_omitted_ids = export_omitted_ids;
         self.selected_measure_types = methods;
         self.methods_initialized = true;
         self.preview_key = None;
@@ -1253,7 +1259,9 @@ fn qto_report_lines(state: &State, source_validation: &SourceValidation, config:
         return Err("Nhập đầy đủ tên dự án và Chủ đầu tư trước khi xuất báo cáo.".into());
     }
     let length_scale = config.unit_scale();
-    let needs_calibration = state.records.iter().any(|r| r.kind != MeasureKind::Count && (!config.confirmed_only || r.status == MeasureStatus::Confirmed));
+    let needs_calibration = state.records.iter().any(|r| qto_record_in_scope(r, allowed)
+        && !state.export_omitted_ids.contains(&r.id) && r.status != MeasureStatus::Excluded
+        && r.kind != MeasureKind::Count && (!config.confirmed_only || r.status == MeasureStatus::Confirmed));
     let base = state.scale_to_m();
     if needs_calibration && base.is_none() { return Err("Phải hiệu chuẩn tỷ lệ bản vẽ sang mét trước khi xuất khối lượng chiều dài/diện tích.".into()); }
     let lf = base.unwrap_or(1.0) * length_scale;
@@ -1261,7 +1269,7 @@ fn qto_report_lines(state: &State, source_validation: &SourceValidation, config:
     if !lf.is_finite() || !af.is_finite() { return Err("Đơn vị quy đổi không hợp lệ.".into()); }
     let mut result = Vec::new();
     for record in &state.records {
-        if !qto_record_in_scope(record, allowed) { continue; }
+        if !qto_record_in_scope(record, allowed) || state.export_omitted_ids.contains(&record.id) { continue; }
         // Never export excluded or invalid-source measurements, even in draft mode.
         if record.status == MeasureStatus::Excluded || source_validation.invalid_record_ids.contains(&record.id) { continue; }
         if !qto_record_exportable(record, source_validation, lf, af, config.confirmed_only) { continue; }
@@ -1535,7 +1543,7 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
         }
         // Avoid constructing, sorting and grouping the complete report each GUI frame.
         let allowed_handles = qto_allowed_handles(app, state);
-        let count = state.records.iter().filter(|r| qto_record_in_scope(r, allowed_handles.as_ref()) && r.status != MeasureStatus::Excluded && !source_validation.invalid_record_ids.contains(&r.id) && qto_record_exportable(r, &source_validation, lf, af, state.export_config.confirmed_only)).count();
+        let count = state.records.iter().filter(|r| qto_record_in_scope(r, allowed_handles.as_ref()) && !state.export_omitted_ids.contains(&r.id) && r.status != MeasureStatus::Excluded && !source_validation.invalid_record_ids.contains(&r.id) && qto_record_exportable(r, &source_validation, lf, af, state.export_config.confirmed_only)).count();
         ui.label(format!("Sẵn sàng xem xét: {count} phép đo, {} cột. File XLSX được tạo khi bấm Xuất.", state.export_config.selected().len()));
         if !state.export_config.confirmed_only {
             ui.colored_label(egui::Color32::YELLOW, "Chế độ DỰ THẢO: có thể bao gồm phép đo chưa xác nhận. Không gửi Chủ đầu tư trước khi kiểm tra.");
@@ -1603,9 +1611,26 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
             ui.selectable_value(&mut state.status_filter, 3, "Đã loại");
         });
         let mut action: Option<(u64, u8)> = None;
+        ui.horizontal_wrapped(|ui| {
+            if ui.button("Chọn tất cả phép đo đang lọc để xuất").clicked() {
+                for record in &state.records {
+                    if measurement_matches_filter(record, &state.search_text, state.status_filter) {
+                        state.export_omitted_ids.remove(&record.id);
+                    }
+                }
+            }
+            if ui.button("Bỏ chọn phép đo đang lọc").clicked() {
+                for record in &state.records {
+                    if measurement_matches_filter(record, &state.search_text, state.status_filter) {
+                        state.export_omitted_ids.insert(record.id);
+                    }
+                }
+            }
+            ui.label(format!("Đã bỏ chọn {} phép đo khỏi Excel.", state.export_omitted_ids.len()));
+        });
         egui::ScrollArea::horizontal().show(ui, |ui| {
             egui::Grid::new("native_qto_measurements").striped(true).show(ui, |ui| {
-                for h in ["ID","Handle nguồn","Nguồn","Tầng","Bộ môn","Owner","Loại","Layer","Nhóm","Mã CT","Diễn giải","Giá trị","Trạng thái","Thao tác"] { ui.strong(h); }
+                for h in ["Xuất", "ID","Handle nguồn","Nguồn","Tầng","Bộ môn","Owner","Loại","Layer","Nhóm","Mã CT","Diễn giải","Giá trị","Trạng thái","Thao tác"] { ui.strong(h); }
                 ui.end_row();
                 for record in &state.records {
                     if !measurement_matches_filter(record, &state.search_text, state.status_filter) { continue; }
@@ -1615,6 +1640,11 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
                         MeasureKind::Count => record.raw_value,
                     };
                     let unit = match record.kind { MeasureKind::Area => area_unit, MeasureKind::Length | MeasureKind::Perimeter => length_unit, MeasureKind::Count => "lần" };
+                    let mut include = !state.export_omitted_ids.contains(&record.id);
+                    if ui.checkbox(&mut include, "").on_hover_text("Chọn phép đo này để đưa vào Excel").changed() {
+                        if include { state.export_omitted_ids.remove(&record.id); }
+                        else { state.export_omitted_ids.insert(record.id); }
+                    }
                     ui.label(record.id.to_string());
                     ui.label(record.source_handle.as_deref().unwrap_or("-"));
                     match record_source_state(record,&source_validation) {
@@ -1810,6 +1840,27 @@ mod tests {
         selected.clear();
         assert!(qto_report_lines(&state, &SourceValidation::default(), &cfg, Some(&selected)).is_err());
         assert_eq!(qto_report_lines(&state, &SourceValidation::default(), &cfg, None).unwrap().len(), 2);
+    }
+
+    #[test]
+    fn qto_excel_respects_manual_row_checkboxes_independently_from_cad_scope() {
+        let mut state = State::default();
+        let first = state.add_measurement(MeasureKind::Count, vec![], 1.0, "A".into()).unwrap();
+        let second = state.add_measurement(MeasureKind::Count, vec![], 3.0, "B".into()).unwrap();
+        for record in &mut state.records {
+            record.status = MeasureStatus::Confirmed;
+            record.description = "Đếm cấu kiện đã kiểm tra".into();
+            record.source_handle = Some(if record.id == first { "2A" } else { "2B" }.into());
+        }
+        let cfg = ExportConfig { project: "Dự án".into(), investor: "CĐT".into(), ..Default::default() };
+        state.export_omitted_ids.insert(second);
+        let rows = qto_report_lines(&state, &SourceValidation::default(), &cfg, None).unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].quantity, 1.0);
+        let saved = state.to_json();
+        let mut restored = State::default();
+        restored.load_json(&saved).unwrap();
+        assert!(restored.export_omitted_ids.contains(&second));
     }
 
     #[test]
