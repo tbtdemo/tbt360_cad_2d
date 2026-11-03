@@ -137,6 +137,73 @@ pub fn parse_range(start: &str, end: &str) -> Result<Option<(f64, f64)>, String>
     Ok(Some((from,to)))
 }
 
+
+/// A surveyed marker on the plan drawing. The handle is retained as evidence,
+/// not used to infer stationing from arbitrary drawing coordinates.
+#[derive(Clone, Debug)]
+pub struct RoadPlanMarker {
+    pub chainage_m: f64,
+    pub handle: String,
+}
+
+/// Explicit one-to-one association of a plan marker and a measured cross-section.
+#[derive(Clone, Debug, PartialEq)]
+pub struct RoadStationLink {
+    pub chainage_m: f64,
+    pub marker_handle: String,
+    pub section_name: String,
+}
+
+/// Link plan markers to surveyed sections only when both declare the same chainage.
+/// Missing, duplicate, or ambiguous markers are errors, never silently ignored.
+/// This is the geometry-independent validation core; UI selection must still
+/// supply real marker handles from the active CAD drawing.
+pub fn link_plan_markers(markers: &[RoadPlanMarker], sections: &[RoadCrossSection], tolerance_m: f64) -> Result<Vec<RoadStationLink>, String> {
+    if !tolerance_m.is_finite() || !(0.0..=0.01).contains(&tolerance_m) {
+        return Err("Sai số ghép lý trình phải thuộc khoảng 0..0,01 m.".into());
+    }
+    let mut used = std::collections::BTreeSet::new();
+    let mut links = Vec::with_capacity(sections.len());
+    for marker in markers {
+        if !marker.chainage_m.is_finite() || marker.chainage_m < 0.0 || marker.chainage_m > 1.0e9
+            || cadcraft_doc::Handle::parse_hex(&marker.handle).is_none() {
+            return Err("Cọc trên bình đồ có lý trình hoặc CAD handle không hợp lệ.".into());
+        }
+        if !used.insert(marker.handle.to_ascii_uppercase()) {
+            return Err("Một đối tượng cọc trên bình đồ bị khai báo nhiều lần.".into());
+        }
+    }
+    let mut used_markers = std::collections::BTreeSet::new();
+    for section in sections {
+        validate_section(section)?;
+        let matches: Vec<usize> = markers.iter().enumerate()
+            .filter(|(_, marker)| (marker.chainage_m - section.chainage_m).abs() <= tolerance_m)
+            .map(|(index, _)| index).collect();
+        if matches.len() != 1 {
+            return Err(format!("Lý trình {} có {} cọc bình đồ phù hợp; cần đúng một cọc.", station_label(section.chainage_m), matches.len()));
+        }
+        let index = matches[0];
+        if !used_markers.insert(index) {
+            return Err(format!("Cọc bình đồ {} bị gắn cho nhiều trắc ngang.", markers[index].handle));
+        }
+        links.push(RoadStationLink {
+            chainage_m: section.chainage_m,
+            marker_handle: markers[index].handle.clone(),
+            section_name: section.name.clone(),
+        });
+    }
+    if used_markers.len() != markers.len() {
+        return Err("Bình đồ còn cọc chưa liên kết với trắc ngang trong phạm vi đã chọn.".into());
+    }
+    links.sort_by(|a, b| a.chainage_m.total_cmp(&b.chainage_m));
+    for pair in links.windows(2) {
+        if pair[1].chainage_m - pair[0].chainage_m <= tolerance_m {
+            return Err("Hai trắc ngang trùng hoặc quá gần lý trình trong phạm vi sai số.".into());
+        }
+    }
+    Ok(links)
+}
+
 impl RoadCrossSection {
     pub fn json(&self) -> serde_json::Value {
         serde_json::json!({"chainage_m":self.chainage_m,"name":self.name,
@@ -217,6 +284,26 @@ mod tests {
         assert_eq!(selected[0].start_m,1020.0);
         assert!(parse_range("Km1+020","").is_err());
         assert!(parse_range("Km1+040","Km1+020").is_err());
+    }
+
+    #[test]
+    fn plan_markers_link_to_sections_one_to_one_and_sort_by_chainage() {
+        let sections = [
+            section(1020.0,Some(source("2A",30.0)),None),
+            section(1000.0,Some(source("1A",20.0)),None),
+        ];
+        let markers = [
+            RoadPlanMarker{chainage_m:1000.0,handle:"AA".into()},
+            RoadPlanMarker{chainage_m:1020.0,handle:"BB".into()},
+        ];
+        let links=link_plan_markers(&markers,&sections,0.001).unwrap();
+        assert_eq!(links.len(),2);
+        assert_eq!(links[0].marker_handle,"AA");
+        assert_eq!(links[1].section_name,station_label(1020.0));
+        assert!(link_plan_markers(&markers[..1],&sections,0.001).is_err());
+        assert!(link_plan_markers(&[markers[0].clone(),markers[0].clone()],&sections[..1],0.001).is_err());
+        assert!(link_plan_markers(&[RoadPlanMarker{chainage_m:1000.0,handle:"XX".into()}],&sections[1..],0.001).is_err());
+        assert!(link_plan_markers(&markers,&sections,0.1).is_err());
     }
     #[test]
     fn section_roundtrip_retains_evidence_but_not_implicit_approval() {
