@@ -2010,18 +2010,13 @@ fn collaboration_dashboard_card(ui: &mut egui::Ui, title: &str, contents: impl F
 /// stretch the root into a several-screen-long left-aligned form.
 pub fn panel(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut State) {
     let width = ui.available_width();
-    egui::ScrollArea::vertical().id_salt("cadtbt360_bim_main_scroll").auto_shrink([false, false]).show(ui, |ui| {
-        ui.set_min_width(width);
-        collaboration_panel_content(ui, app, state);
-    });
-}
-
-fn collaboration_panel_content(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut State) {
     let tab_id = egui::Id::new("tbt360_bim_collaboration_active_tab");
     let mut tab = ui.ctx().data_mut(|data| data.get_temp::<u8>(tab_id).unwrap_or(0));
     let mut selected_issue = ui.ctx().data_mut(|data| data.get_temp::<u64>(egui::Id::new("tbt360_bim_selected_issue")));
     let advanced_id = egui::Id::new("cadtbt360_bim_advanced_window_open");
     let mut advanced_open = ui.ctx().data_mut(|data| data.get_temp::<bool>(advanced_id).unwrap_or(false));
+    // Keep the header and all five business tabs fixed and usable while the
+    // content below scrolls. This also gives each tab its own scroll offset.
     ui.horizontal(|ui| {
         ui.vertical(|ui| {
             ui.heading(egui::RichText::new("PHỐI HỢP THIẾT KẾ").color(egui::Color32::from_rgb(230, 239, 252)));
@@ -2035,6 +2030,32 @@ fn collaboration_panel_content(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::Ca
     collaboration_navigation(ui, &mut tab);
     ui.add_space(8.0);
     ui.separator();
+    let body = egui::ScrollArea::vertical()
+        .id_salt(("cadtbt360_bim_tab_scroll", tab))
+        .auto_shrink([false, false])
+        .show(ui, |ui| {
+            ui.set_min_width(width);
+            collaboration_panel_content(ui, app, state, tab, selected_issue)
+        });
+    selected_issue = body.inner;
+    if advanced_open {
+        egui::Window::new("CÔNG CỤ BIM NÂNG CAO")
+            .id(egui::Id::new("cadtbt360_bim_advanced_window"))
+            .default_size([1120.0, 700.0])
+            .min_width(620.0)
+            .resizable(true)
+            .vscroll(true)
+            .open(&mut advanced_open)
+            .show(ui.ctx(), |ui| { legacy_panel(ui, app, state); });
+    }
+    ui.ctx().data_mut(|data| {
+        data.insert_temp(tab_id, tab);
+        data.insert_temp(advanced_id, advanced_open);
+        data.insert_temp(egui::Id::new("tbt360_bim_selected_issue"), selected_issue);
+    });
+}
+
+fn collaboration_panel_content(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut State, tab: u8, mut selected_issue: Option<u64>) -> Option<u64> {
     match CollaborationTab::ALL.get(tab as usize).copied().unwrap_or(CollaborationTab::Issues) {
         CollaborationTab::Overview => {
             let health = state.model_health(app);
@@ -2400,24 +2421,7 @@ fn collaboration_panel_content(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::Ca
             });
         }
     }
-    // Complex legacy settings have their own resizable, scrollable workspace.
-    // They are never appended below the dashboard, which previously created
-    // a very tall page and left most of the monitor unused.
-    if advanced_open {
-        egui::Window::new("CÔNG CỤ BIM NÂNG CAO")
-            .id(egui::Id::new("cadtbt360_bim_advanced_window"))
-            .default_size([1120.0, 700.0])
-            .min_width(620.0)
-            .resizable(true)
-            .vscroll(true)
-            .open(&mut advanced_open)
-            .show(ui.ctx(), |ui| { legacy_panel(ui, app, state); });
-    }
-    ui.ctx().data_mut(|data| {
-        data.insert_temp(tab_id, tab);
-        data.insert_temp(advanced_id, advanced_open);
-        data.insert_temp(egui::Id::new("tbt360_bim_selected_issue"), selected_issue);
-    });
+    selected_issue
 }
 
 fn legacy_panel(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut State) {
