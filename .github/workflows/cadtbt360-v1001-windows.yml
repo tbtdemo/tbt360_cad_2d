@@ -1,0 +1,91 @@
+name: CADTBT360 V1.001 Windows EXE
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - release/CADTBT360_V1.001
+    paths:
+      - 'CADTBT360_V1.000/**'
+      - '.github/workflows/cadtbt360-v1001-windows.yml'
+jobs:
+  windows-x64:
+    runs-on: windows-latest
+    permissions:
+      contents: read
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Checkout release sources
+        uses: actions/checkout@v4
+      - name: Install Rust 1.95 stable toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.95.0'
+      - name: Cache Cargo downloads and compilation
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: CADTBT360_V1.000
+          key: cadtbt360-v1001-win-x64
+      - name: Check road takeoff logic tests
+        working-directory: CADTBT360_V1.000
+        run: cargo test --locked -p cadcraft --bin cadcraft takeoff_road::tests -- --nocapture
+      - name: Compile Windows desktop application
+        working-directory: CADTBT360_V1.000
+        run: cargo build --locked --release -p cadcraft --bin cadcraft
+      - name: Prepare portable EXE
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          $source = 'CADTBT360_V1.000/target/release/cadcraft.exe'
+          if (!(Test-Path $source)) { throw "No compiled cadcraft.exe found at $source" }
+          Copy-Item $source 'dist/CADTBT360_V1.001.exe'
+          Compress-Archive -Path 'dist/CADTBT360_V1.001.exe' -DestinationPath 'dist/CADTBT360_V1.001_Portable.zip' -Force
+      - name: Create Windows setup EXE with Inno Setup
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (!(Test-Path $iscc)) {
+            choco install innosetup -y --no-progress
+            if ($LASTEXITCODE -ne 0) { throw 'Inno Setup installation failed' }
+          }
+          if (!(Test-Path $iscc)) { throw 'Inno Setup compiler not found' }
+          $script = @'
+          [Setup]
+          AppId={{6BCA4011-C394-4C3D-AB6D-3D8D5A0B1001}
+          AppName=CAD TBT 360
+          AppVersion=1.0.1
+          AppVerName=CAD TBT 360 V1.001
+          DefaultDirName={autopf}\CAD TBT 360
+          DefaultGroupName=CAD TBT 360
+          OutputDir=dist
+          OutputBaseFilename=CADTBT360_V1.001_Setup
+          Compression=lzma
+          SolidCompression=yes
+          ArchitecturesAllowed=x64compatible
+          ArchitecturesInstallIn64BitMode=x64compatible
+          UninstallDisplayName=CAD TBT 360 V1.001
+          [Files]
+          Source: "dist\CADTBT360_V1.001.exe"; DestDir: "{app}"; Flags: ignoreversion
+          [Icons]
+          Name: "{autoprograms}\CAD TBT 360"; Filename: "{app}\CADTBT360_V1.001.exe"
+          Name: "{autodesktop}\CAD TBT 360"; Filename: "{app}\CADTBT360_V1.001.exe"; Tasks: desktopicon
+          [Tasks]
+          Name: "desktopicon"; Description: "Tạo biểu tượng màn hình"; GroupDescription: "Biểu tượng:"
+          [Run]
+          Filename: "{app}\CADTBT360_V1.001.exe"; Description: "Mở CAD TBT 360"; Flags: nowait postinstall skipifsilent
+          '@
+          Set-Content -Path 'CADTBT360_V1.001.iss' -Value $script -Encoding UTF8
+          & $iscc 'CADTBT360_V1.001.iss'
+          if ($LASTEXITCODE -ne 0) { throw 'Inno Setup failed' }
+          if (!(Test-Path 'dist/CADTBT360_V1.001_Setup.exe')) { throw 'Setup EXE missing' }
+      - name: Upload Windows portable and setup
+        uses: actions/upload-artifact@v4
+        with:
+          name: CADTBT360_V1.001_Windows_x64
+          path: |
+            dist/CADTBT360_V1.001.exe
+            dist/CADTBT360_V1.001_Portable.zip
+            dist/CADTBT360_V1.001_Setup.exe
+          if-no-files-found: error
+          retention-days: 30
