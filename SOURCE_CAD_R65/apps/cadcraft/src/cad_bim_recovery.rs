@@ -176,6 +176,28 @@ mod tests {
         std::fs::remove_dir_all(&dir).unwrap();
     }
     #[test]
+    fn complete_pair_can_be_validated_and_corruption_is_detected() {
+        let root = std::env::temp_dir().join(format!("tbt-pair-integrity-{}-{}", std::process::id(), SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()));
+        let pair = root.join("pair-01");
+        std::fs::create_dir_all(&pair).unwrap();
+        let geometry = b"0\nSECTION\n2\nENTITIES\n0\nENDSEC\n0\nEOF\n";
+        let metadata = br#"{"version":2,"project_id":"unit-test"}"#;
+        std::fs::write(pair.join("drawing.dxf"), geometry).unwrap();
+        std::fs::write(pair.join("workspace.json"), metadata).unwrap();
+        let manifest = serde_json::json!({
+            "format":1,"drawing_bytes":geometry.len(),"workspace_bytes":metadata.len(),
+            "drawing_checksum":content_checksum(geometry),"workspace_checksum":content_checksum(metadata),
+            "project_id":"unit-test"
+        });
+        std::fs::write(pair.join("commit.json"),serde_json::to_vec(&manifest).unwrap()).unwrap();
+        assert!(check_pair(&pair).is_ok());
+        assert_eq!(latest_pair(&root).as_deref(), Some(pair.as_path()));
+        std::fs::write(pair.join("drawing.dxf"), b"changed contents that should not be trusted").unwrap();
+        assert!(check_pair(&pair).is_err());
+        assert!(latest_pair(&root).is_none());
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+    #[test]
     fn metadata_pair_rejects_missing_geometry() {
         let dir = std::env::temp_dir().join(format!("tbt-paired-recovery-missing-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
