@@ -77,3 +77,9 @@ Ngày 03/11/2026; nhánh: `tbt/cad360-active-release`.
 
 ## Mốc đóng gói B15
 B15 gồm 15 bộ chức năng đã ghi ở trên. Build Windows là ứng viên kiểm thử, độc lập với các commit tối ưu tiếp theo, không công bố thành bản phát hành cho tới khi có artifact thật, SHA256 và kiểm chứng GUI Windows.
+
+## Chu kỳ sau B15 — tiếp tục nâng cấp trong khi GitHub đóng gói
+- **01/15 bộ của chu kỳ mới**: `5bcfb1f9810248717bbeb33acc916a78d3bfbd22` hoãn dựng lại `VpContent` đồng bộ khi zoom/pan MSPACE đang diễn ra; sử dụng tạm Display List đã có với phép biến đổi viewport và chỉ dựng lại sau 150 ms ổn định. Bản vẽ mới/chưa có cache vẫn dựng lần đầu như cũ. Điều này giảm nguy cơ nghẽn GUI khi xuyên qua zoom-band 2x hoặc khi kéo ra khỏi vùng cache.
+- `b34f5a10f307465c1e2e9c66d027911a5ac74e59`: unit test kiểm zoom x4, pan ra khỏi vùng cache, zoom x1.3 và chính xác ngưỡng ổn định 150 ms, thêm CI discovery/target.
+- **Mốc ứng viên B15 cố định ở commit `51d41f51f3dd0a23fc2b0ee0ece24b9ecf11c7ae`**; mã của chu kỳ mới nằm trên các commit sau, KHÔNG sửa nội dung B15 đang build.
+- Chu kỳ mới **1/15** chỉ phản ánh thay đổi chức năng đã commit. Vẫn còn 14 bộ tới mốc đóng gói ứng viên kế tiếp. Mức 39,4% của 8 nhóm là baseline ước lượng chưa nghiệm thu Windows/GUI/benchmark.
