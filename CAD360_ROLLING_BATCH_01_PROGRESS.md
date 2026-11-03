@@ -95,3 +95,10 @@ B15 gồm 15 bộ chức năng đã ghi ở trên. Build Windows là ứng viên
 - `aa84e26a81230f5d871e98ea5d42e99487b84eab`: sửa bằng `doc.recovery_drawing()` và `drawing.as_ref()`. Điều này giữ hình học BEDIT chưa ghi, không bỏ các chỉnh sửa chưa lưu, đồng thời đúng chữ ký hàm.
 - Kích hoạt lại candidate B15 bằng commit riêng có tiền tố `build(cad360): B15`, một bản Setup + Portable + Source + SHA256; **không phát hành production**. Các run cũ dùng SHA trước fix sẽ không tự lấy sửa đổi.
 - Chưa có xác nhận Windows PASS/EXE thật. Không tăng % nghiệm thu từ việc sửa mã.
+
+## Tiếp tục tối ưu sau khi kích hoạt B15 — chu kỳ mới 5/15
+- **Bộ 04/15 — CAD+BIM recovery checksum:** `badd29493778d2ad003721054969541f036348f6`: `content_checksum_file` kiểm loại file, số byte, kích thước và thời gian sửa đổi trước/sau khi đọc 64 KiB từng khối; thử lại khi `Interrupted`. Giữ khả năng phát hiện dữ liệu sai checksum, giảm khả năng chấp nhận file bị viết lại trong lúc xác minh. Bổ sung regression bắt lỗi E0308: `DocState::recovery_drawing()` → `&Drawing` → DXF export.
+- **Bộ 05/15 — bound recovery metadata:** `07c9444ad48dd5e8f4e62c922c3ff2c4feccd450`: giới hạn `commit.json` 1 MiB, `workspace.json` 64 MiB trước khi đọc, dùng cho cả format 1/2, tránh tốn RAM do metadata phục hồi hỏng; regression với metadata vượt ngưỡng.
+- `039ac147f4b953af1ed2022beb3344d59e4cb2f1` và `8a6415d7f75720d67c92ab8da9e382e359b7d0b9`: Windows CI thêm test recovery export, checksum, bounded manifest. `9967f7e9b69aa335897e6f20e7423838ce02effb`: source CI mới được phép hủy source CI cũ đã bị thay thế để tránh tranh chấp runner; Direct EXE B15 vẫn giữ per-SHA `cancel-in-progress: false`.
+- **5/15 bộ chức năng cho chu kỳ tiếp theo**, còn 10 bộ đến mốc đóng gói kế. B15 sửa E0308 đã kích hoạt run 41604832969, source preflight SUCCESS, Windows Setup queued ở lần kiểm tra hiện tại; bản B15 cũ 41601992146 vẫn queued. Cả hai CHƯA có EXE; source inventory 248 byte không phải bộ cài.
+- Chưa có Windows compile PASS cho các commit sau B15, chưa đo RAM/FPS/P95 bản vẽ thực. Không tăng % nghiệm thu kỹ thuật.
