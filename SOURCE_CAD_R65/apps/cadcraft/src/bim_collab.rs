@@ -51,6 +51,7 @@ fn load_workspace_with_recovery(state: &mut State, path: &std::path::Path) -> Re
             match load(&backup, state) {
                 Ok(()) => {
                     log::warn!("Recovered BIM workspace from {} because original failed: {}", backup.display(), primary_error);
+                    state.audit("WORKSPACE_RECOVERED_BACKUP", Some(state.active_floor_id), Some(state.active_discipline), None, format!("Phục hồi workspace từ {}", backup.display()));
                     Ok(true)
                 }
                 Err(backup_error) => Err(format!("Workspace chính lỗi: {primary_error}; bản dự phòng lỗi: {backup_error}")),
