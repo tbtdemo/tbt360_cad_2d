@@ -22,10 +22,11 @@
 | 11/15 | Giữ đúng tọa độ cho các click nhanh trong một UI frame; dừng nhập điểm khi lệnh đã hoàn tất; chặn click dư thành chọn đối tượng | `4f4ff825fa64b0e7894ee94b48e020a72b5b89cf` | 2 regression tests (tọa độ đa click và chặn click dư) | Chưa có Windows CI PASS |
 | 12/15 | Dừng replay điểm khi lệnh chuyển sang prompt không nhận tọa độ; khi tắt PICKDRAG giữa chừng dọn pending window; thêm tests LINE/CIRCLE | `b0c704f75088f8b22d1638054f7a9c4a2ff452a7` | 2 Rust integration-style tests ở tầng engine | Chưa xác minh Windows cargo/GUI PASS |
 | 13/15 | Báo giai đoạn decode sau khi đọc file thực sự hoàn thành; cấp phát read-ahead tối đa 8 MiB theo metadata; test trạng thái 100% bytes và file rỗng | `e4447bdb11a87069fc3fcdd23aeb11f7c5108188` | 2 regression tests bổ sung | Chưa chạy Cargo/Windows vì môi trường hiện tại không có Cargo và Git DNS lỗi |
+| 14/15 | Kiểm tra quyền xem scope và chia sẻ trên lớp render chính; kiểm tra quyền sửa trước phiên thiết kế/chọn/lease; từ chối lease revision cũ | `9d94bbfe9c44edf502f86a06c16896b2209c7856` | 3 regression tests quyền xem/sửa và lease | Chưa xác minh Windows CI/2-user server PASS |
 
 ### Trạng thái
-- Hoàn thành bằng chứng mã nguồn: **13/15** lượt tối thiểu.
-- Còn ít nhất **2** lượt trước khi đóng gói định kỳ.
+- Hoàn thành bằng chứng mã nguồn: **14/15** lượt tối thiểu.
+- Còn ít nhất **1** lượt trước khi đóng gói định kỳ.
 - Source inventory (run 41561782723) và IFC metadata test/source snapshot (run 41561782535) PASS. Windows Setup/Portable được skip đúng lịch 15–30. Rust tests CAD+BIM của lượt 02 đã PASS (run 41563233121). Hai regression tests lượt 03 đang chờ xác nhận. Chưa có EXE phát hành của đợt này.
 
 ### Rà soát khả năng phục hồi
@@ -112,3 +113,12 @@
 - Commits: `5670d1c36a88f31607ae0ecb1d9aaee5ab6d2813`, `7abb7f30516ab600142fbb116d8146f0315052d6`, `e4447bdb11a87069fc3fcdd23aeb11f7c5108188`.
 - Giới hạn: môi trường shell hiện tại thiếu Cargo, git remote không thể resolve DNS GitHub, không có benchmark thực và không thể xác nhận Windows CI PASS.
 - Nhịp phát hành: 13/15=86,7%, chỉ nói số lượt; còn 2 lượt đến mốc tối thiểu. Phát hành EXE chỉ khi có gate Windows thực tế.
+
+### Lượt 14 — quyền BIM theo tài khoản, tầng/bộ môn và khóa đối tượng
+- `can_edit_active_view`: điều kiện đúng cả phiên đăng nhập, `UserAccess.can_edit` và `AccessRule` theo scope (không chỉ rule). `enforce_selection_scope`: không cho chọn khi hết quyền đăng nhập hoặc bị tắt edit.
+- `can_view` của chính chủ: không bỏ qua quyền `AccessRule.can_view`; `sync_render_filters` kiểm tra quyền ngay cả ở `primary_handles` và không đưa đối tượng người khác vào tab nếu `show_other_users=false`.
+- `acquire_lease`: không cấp khóa cho người read-only; khóa có sẵn của cùng tài khoản phải khớp revision, tránh chấp nhận revision cũ.
+- 3 bài test bổ sung (thu hồi quyền xem, tắt quyền sửa, read-only/stale lease). Đã commit, chưa có chứng cứ Cargo/Windows PASS.
+- Chỉ bảo vệ desktop/local BIM, KHÔNG phải enforcement ở server cho mọi mutation; UI đồng bộ còn mô phỏng.
+- Commits `9ba1c2f46dfeb7f8815dfb7e80d09374adabf28b`, `7ad3221ddd197949850aae90f4058f6da7762ceb`, `9d94bbfe9c44edf502f86a06c16896b2209c7856`.
+- Lượt **14/15 = 93,3% nhịp phát triển tối thiểu**; còn 1 lượt đến ngưỡng cân nhắc đóng gói. Không coi là phần mềm hoàn thiện 93,3%.
