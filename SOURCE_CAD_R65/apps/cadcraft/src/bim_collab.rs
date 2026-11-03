@@ -1807,7 +1807,9 @@ pub fn sync_render_filters(app: &mut cadcraft_ui_egui::CadApp, state: &State) {
                 // A matching tile is not permission to see or edit an entity.
                 // Respect account access rules and owner share grants even in its primary layer.
                 let user = state.users.iter().find(|u| u.account_id == meta.owner_account_id);
-                if user.is_some_and(|target| state.can_view(target, meta.floor_id, state.active_floor_id)) {
+                if (slot.show_other_users || meta.owner_account_id == state.current_account_id)
+                    && user.is_some_and(|target| state.can_view(target, meta.floor_id, state.active_floor_id))
+                {
                     primary_handles.push(entity.handle);
                 }
                 continue;
@@ -3877,6 +3879,24 @@ mod tests {
         state.current_account_id.clear();
         assert!(!state.has_scope_access("", 1, Discipline::Architecture, true));
         assert!(!state.has_scope_access("", 1, Discipline::Architecture, false));
+    }
+
+    #[test]
+    fn owner_read_scope_revocation_hides_own_floor_and_discipline() {
+        let mut state = State::default();
+        let owner = state.users.iter().find(|user| user.account_id == "local-owner").unwrap().clone();
+        assert!(state.can_view(&owner, 1, 1));
+        state.access_rules.retain(|rule| rule.account_id != "local-owner");
+        assert!(!state.can_view(&owner, 1, 1), "own model should not bypass a revoked scope rule");
+    }
+
+    #[test]
+    fn user_edit_toggle_revokes_active_view_even_with_broad_edit_rule() {
+        let mut state = State::default();
+        let app = cadcraft_ui_egui::CadApp::new(cadcraft_engine::Session::new(), cadcraft_ui_egui::Services::default());
+        assert!(state.can_edit_active_view(&app));
+        state.users.iter_mut().find(|user| user.account_id == "local-owner").unwrap().can_edit = false;
+        assert!(!state.can_edit_active_view(&app), "user edit toggle must be enforced beyond the UI checkbox");
     }
 
     #[test]
