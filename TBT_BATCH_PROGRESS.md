@@ -17,10 +17,11 @@
 | 06/15 | CAD+BIM: fingerprint gồm revision của mọi CAD tab + checksum workspace BIM; bỏ qua ghi tự lưu khi không thay đổi | `70a259938af27788f355b2ba43684d2efcae7feb` | Chưa bổ sung kiểm thử hành vi timer | Chưa xác nhận Windows CI |
 | 07/15 | Canvas first click/drag; mở CAD theo khối có % đọc; bỏ ngưỡng mở file 512 MiB; hàng đợi mở tuần tự giảm áp lực RAM | `6cc13a944a756bd03b0016c3f75130a630404ed9` | 1 Rust test progressive bytes; GUI tests cần bổ sung | Chưa xác nhận Windows CI |
 | 08/15 | Chặn selection drag tồn đọng khi chuột thả ngoài canvas / ESC / focus loss; ETA byte đọc; chuyển khởi động file tiếp sau khi finish_open | `f0cfc0fbf7d50f29f0840df0f89cfd3be457e249` | 2 unit tests bổ sung; test serial queue điều chỉnh | Windows CI/GUI chưa xác nhận PASS |
+| 09/15 | Nhận sự kiện release thực tế trên canvas cho lệnh chọn điểm, không lấy nhấp từ toolbar/menu; tránh báo parse ảo khi file 0 byte | `0e97ab7c77072110037a658853deeaa2f8635383` | 2 unit tests bổ sung | Chưa có bằng chứng CI Windows PASS |
 
 ### Trạng thái
-- Hoàn thành bằng chứng mã nguồn: **8/15** lượt tối thiểu.
-- Còn ít nhất **7** lượt trước khi đóng gói định kỳ.
+- Hoàn thành bằng chứng mã nguồn: **9/15** lượt tối thiểu.
+- Còn ít nhất **6** lượt trước khi đóng gói định kỳ.
 - Source inventory (run 41561782723) và IFC metadata test/source snapshot (run 41561782535) PASS. Windows Setup/Portable được skip đúng lịch 15–30. Rust tests CAD+BIM của lượt 02 đã PASS (run 41563233121). Hai regression tests lượt 03 đang chờ xác nhận. Chưa có EXE phát hành của đợt này.
 
 ### Rà soát khả năng phục hồi
@@ -72,3 +73,10 @@
 - Thay đổi `opening.poll()`: không khởi động decoder của file tiếp ngay trong lúc kết quả `ReadFile` của file trước còn đang được xử lý.
 - `CadApp.finish_opening()` hoàn thành tích hợp kết quả file trước vào `Session` rồi mới gọi `opening.start_next_after_install()` để giảm đỉnh RAM khi mở hàng loạt.
 - Commit bổ sung: `af9d308c9e527ec384ac9dbeece3132489e5a7d5`, `f0cfc0fbf7d50f29f0840df0f89cfd3be457e249`.
+
+### Lượt 09 — click đầu tiên và trạng thái đọc file
+- Với lệnh đang chờ tọa độ điểm, canvas bổ sung nhận sự kiện release chuột từ input thực ngay cả khi egui không phân loại thành click (di chuyển vài pixel, chuyển focus từ toolbar). Chỉ nhận nếu press bắt đầu trong canvas, tránh nuốt thao tác menu/toolbar. Bổ sung test kiểm tra điều kiện.
+- File đang tải kích thước 0 byte không bị chuyển giai đoạn sang parse chỉ vì `bytes>=total`. Bổ sung regression test.
+- Chưa kiểm thử GUI Windows trên LINE/PLINE/CIRCLE/MOVE, không được tuyên bố lỗi click đã xử lý triệt để.
+- Repo commit: `2ec2ec4e1fc439c1e5231ce029ee2ad0e85a15ba`, `5c1ac6a235a958ffc522fccaf31c17d0b7f459ce`, `0e97ab7c77072110037a658853deeaa2f8635383`.
+- Nhịp phát hành 9/15=60%; tỷ lệ này không đại diện nghiệm thu sản phẩm.
