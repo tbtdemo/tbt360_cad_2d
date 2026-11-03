@@ -1,3 +1,19 @@
+## B18 — CAD QSELECT: bảo toàn tên Layer dạng số (03/11/2026)
+
+**Kết quả B17 đã xác minh qua GitHub:** run [41636304823](https://github.com/tbtdemo/tbt360_cad_2d/actions/runs/41636304823) **success**, artifact [13231701354](https://github.com/tbtdemo/tbt360_cad_2d/actions/runs/41636304823/artifacts/13231701354) `CAD360-TBT-REAL-Windows-x64-Setup-Portable-Source-B15-UI` (63,957,278 bytes) cho commit `39a375bc`. Mặc dù tên artifact giữ B15-UI theo workflow, mã bên trong là commit B17; vẫn cần GUI Windows smoke test.
+
+**Nâng cấp tiếp B18:**
+- `quick.rs`: hàm `qselect_value_for_property` giữ tên `layer`, `linetype`, `type`, `handle`, `color`, `visible` ở dạng text; `0` không bị chuyển thành số JSON.
+- Các giá trị thuộc tính hình học số vẫn chuyển thành JSON number khi là số hữu hạn (ví dụ radius 2.5, centerX 1e3); NaN giữ nguyên chuỗi để engine xử lý.
+- Bổ sung 2 unit test `qselect_keeps_numeric_layer_zero_as_text` và `qselect_numeric_geometry_properties_are_finite_json_numbers`.
+- Commit sửa tính năng [34ab8ad8](https://github.com/tbtdemo/tbt360_cad_2d/commit/34ab8ad8ebc8d991259f9ff07264b9dd81297482).
+- Commit đóng gói [a5f3c105](https://github.com/tbtdemo/tbt360_cad_2d/commit/a5f3c1050d7107a8410f563a2df92ecf17ad2282).
+- [Ubuntu Windows cross B18 run 41639678494](https://github.com/tbtdemo/tbt360_cad_2d/actions/runs/41639678494), **đang chạy** ở lượt kiểm tra.
+- [Windows Native B18 run 41639678451](https://github.com/tbtdemo/tbt360_cad_2d/actions/runs/41639678451), **đang chạy** ở lượt kiểm tra.
+
+**Tổng tỷ lệ theo 4 cổng:** B17: 3/4=75% (source, EXE compile, artifact; GUI chưa kiểm tra). B18: 1/4=25% (source; còn build/installer/GUI). Các test bổ sung chưa được đánh dấu PASS trước khi CI xác nhận.
+
+
 ## B17 — QSELECT an toàn hơn và đồng bộ theo tập chọn (03/11/2026)
 
 **Mã thực tế đã commit** tại `SOURCE_CAD_R65/crates/ui-egui/src/quick.rs`:
