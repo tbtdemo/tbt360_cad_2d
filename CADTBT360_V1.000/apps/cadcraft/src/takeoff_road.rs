@@ -363,8 +363,8 @@ mod tests {
 
     #[test]
     fn reject_same_area_geometry_handle_regardless_of_hex_padding() {
-        let section=section(1000.0,Some(source("AA",10.0)),Some(source("0aa",12.0)));
-        assert!(validate_section(&section).is_err());
+        let station=section(1000.0,Some(source("AA",10.0)),Some(source("0aa",12.0)));
+        assert!(validate_section(&station).is_err());
         let first=section(1000.0,Some(source("AA",20.0)),None);
         let second=section(1020.0,Some(source("0AA",30.0)),None);
         assert!(intervals(&[first,second],1.0,true).is_err());
