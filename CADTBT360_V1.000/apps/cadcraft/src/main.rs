@@ -25,6 +25,7 @@ mod spacemouse;
 mod system_animations;
 mod workspace;
 mod takeoff;
+mod takeoff_report;
 mod bim_collab;
 mod cad_bim_recovery;
 mod model3d;
