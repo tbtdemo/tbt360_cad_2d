@@ -138,6 +138,19 @@ fn prim_index_matches_a_scan_and_follows_list_rebuilds() {
     let b = list(&[3, 9]);
     assert_eq!(ix.prims(2, &b, &hs(&[9, 3])), vec![0, 1]);
 }
+#[test]
+fn prim_index_releases_large_old_drawing_after_switch_with_empty_selection() {
+    let mut ix = PrimIndex::default();
+    let many = list(&(1..=25_000).collect::<Vec<_>>());
+    assert_eq!(ix.prims(20, &many, &hs(&[100])).len(), 1);
+    assert_eq!(ix.by_handle.len(), 25_000);
+    let small = list(&[5, 6]);
+    assert!(ix.prims(21, &small, &[]).is_empty());
+    assert!(ix.by_handle.is_empty(), "old drawing index should be dropped without waiting for hover");
+    assert_eq!(ix.by_handle.capacity(), 0, "large allocation must be released for the new tab");
+    assert_eq!(ix.prims(21, &small, &hs(&[6])), vec![1]);
+}
+
 
 fn wheel(unit: egui::MouseWheelUnit, dy: f32, modifiers: egui::Modifiers) -> egui::Event {
     egui::Event::MouseWheel { unit, delta: vec2(0.0, dy), phase: egui::TouchPhase::Move, source: egui::MouseWheelSource::Unknown, modifiers }
