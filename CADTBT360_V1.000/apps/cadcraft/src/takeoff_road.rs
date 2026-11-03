@@ -190,6 +190,22 @@ pub struct RoadStationLink {
     pub section_name: String,
 }
 
+/// Guard against two surveyed stations referring to the same CAD plan marker.
+/// Missing links are accepted for legacy drafts; contradictory links are not.
+pub fn validate_unique_plan_handles(sections: &[RoadCrossSection]) -> Result<(), String> {
+    let mut seen = std::collections::BTreeMap::<String, f64>::new();
+    for section in sections {
+        if let Some(handle)=section.plan_marker_handle.as_deref() {
+            if cadcraft_doc::Handle::parse_hex(handle).is_none() {return Err(format!("Cọc {} có handle CAD không hợp lệ.",station_label(section.chainage_m)));}
+            let key=handle.to_ascii_uppercase();
+            if let Some(previous)=seen.insert(key.clone(),section.chainage_m) {
+                return Err(format!("Handle cọc {} bị dùng chung bởi {} và {}.",key,station_label(previous),station_label(section.chainage_m)));
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Link plan markers to surveyed sections only when both declare the same chainage.
 /// Missing, duplicate, or ambiguous markers are errors, never silently ignored.
 /// This is the geometry-independent validation core; UI selection must still
@@ -336,6 +352,16 @@ mod tests {
         assert!(parse_range("Km1+040","Km1+020").is_err());
     }
 
+    #[test]
+    fn rejects_duplicate_cad_plan_markers_before_export() {
+        let mut a=section(1000.0,Some(source("1A",10.0)),None);
+        let mut b=section(1020.0,Some(source("2A",12.0)),None);
+        a.plan_marker_handle=Some("AA".into());
+        b.plan_marker_handle=Some("aa".into());
+        assert!(validate_unique_plan_handles(&[a.clone(),b.clone()]).is_err());
+        b.plan_marker_handle=Some("BB".into());
+        assert!(validate_unique_plan_handles(&[a,b]).is_ok());
+    }
     #[test]
     fn plan_markers_link_to_sections_one_to_one_and_sort_by_chainage() {
         let sections = [
