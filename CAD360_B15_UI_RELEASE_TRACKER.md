@@ -40,6 +40,15 @@ Cập nhật: 2026-11-03 (Asia/Bangkok). Nhánh phát triển: `tbt/cad360-activ
 
 Chỉ ghi **ĐÃ CÓ B15-UI EXE** sau khi có run và artifact cụ thể đúng SHA, kiểm tra tệp setup/portable/source và SHA256. Chỉ ghi **ĐÃ NGHIỆM THU GIAO DIỆN** sau khi chạy ứng dụng trên Windows thực, chụp màn hình chương trình đang chạy (không phải ảnh dựng) và kiểm tra các tab.
 
+## B15-UI Responsive — artifact Windows đã xác nhận (03/11/2026)
+
+- Run [41627300710](https://github.com/tbtdemo/tbt360_cad_2d/actions/runs/41627300710), commit `e34815ef4eb098c7d25786e645cbf0fca0cb8d35`.
+- **Đã PASS**: cài môi trường cargo-xwin, cross-compile `cadcraft.exe` và `cadcraft-cli.exe`, tạo NSIS Setup, Portable ZIP, Source ZIP, SHA256 và upload.
+- **Đã có artifact**: `13225968966`, `CAD360-TBT-REAL-Windows-x64-Setup-Portable-Source-B15-UI`, 63,922,254 bytes. [Tải tại đây](https://github.com/tbtdemo/tbt360_cad_2d/actions/runs/41627300710/artifacts/13225968966).
+- **Đang chạy khi kiểm tra**: `Regression-test BIM collaboration after uploading the installer`. Không được coi là test PASS trước khi GitHub báo success.
+- **Chưa nghiệm thu**: giao diện 5 tab thực tế trên Windows, chụp ảnh chính ứng dụng, kiểm thử thao tác và nội dung nghiệp vụ.
+- **Tỷ lệ cổng bàn giao (4 cổng, trọng số đều)**: 3/4 = **75%** (mã / binary / artifact PASS, chạy thử GUI còn 0%). Tỷ lệ này là mức chứng thực giao hàng, không phải chất lượng toàn phần.
+
 ## Xác minh run và artifact bổ sung (03/11/2026)
 
 | Phiên bản | Run | Commit | Build / artifact | Test GUI |
