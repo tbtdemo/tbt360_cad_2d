@@ -70,6 +70,31 @@ fn vp_motion(vp: &cadcraft_doc::Viewport, built: (Vec2, f64)) -> Option<(f64, Ve
     (k.is_finite() && k > 0.0 && b.is_finite()).then_some((k, b))
 }
 
+/// Keep drawing the existing viewport display list while the user is
+/// actively panning/zooming; building a very large drawing synchronously on
+/// every crossed 2x zoom band can block the UI thread.
+fn viewport_rebuild_due(zoom_factor: f64, outside_built_area: bool, settled_ms: f64) -> bool {
+    let zoomed = (zoom_factor - 1.0).abs() > 1e-9;
+    let needs_refresh = !(0.5..2.0).contains(&zoom_factor) || outside_built_area || zoomed;
+    needs_refresh && settled_ms >= VP_SETTLE_MS
+}
+
+#[cfg(test)]
+mod viewport_settle_tests {
+    use super::*;
+
+    #[test]
+    fn rapid_zoom_and_pan_do_not_rebuild_each_frame() {
+        assert!(!viewport_rebuild_due(4.0, false, 25.0));
+        assert!(!viewport_rebuild_due(1.0, true, 35.0));
+        assert!(viewport_rebuild_due(4.0, false, VP_SETTLE_MS));
+        assert!(viewport_rebuild_due(1.0, true, VP_SETTLE_MS));
+        assert!(!viewport_rebuild_due(1.0, false, 5000.0));
+        assert!(!viewport_rebuild_due(1.3, false, 20.0));
+        assert!(viewport_rebuild_due(1.3, false, VP_SETTLE_MS));
+    }
+}
+
 /// How to draw the active viewport's [`VpContent`] this frame.
 pub(super) struct VpFrame {
     /// Draws the list at the viewport's current view.
@@ -110,12 +135,13 @@ pub(super) fn ensure_vp_content(app: &mut CadApp, xf_paper: &Xf, ctx: &egui::Con
         Some((k, b)) => {
             // The viewport in the list's own coordinates.
             let visible = Bounds2::new((rect.min - b) / k, (rect.max - b) / k);
-            let zoomed = (k - 1.0).abs() > 1e-9;
             let still = now - c.moved_at;
-            if zoomed && still < VP_SETTLE_MS {
+            let outside = !c.area.contains_box(&visible);
+            let needs_refresh = !(0.5..2.0).contains(&k) || outside || (k - 1.0).abs() > 1e-9;
+            if needs_refresh && still < VP_SETTLE_MS {
                 ctx.request_repaint_after(std::time::Duration::from_millis((VP_SETTLE_MS - still).max(1.0) as u64));
             }
-            !(0.5..2.0).contains(&k) || !c.area.contains_box(&visible) || (zoomed && still >= VP_SETTLE_MS)
+            viewport_rebuild_due(k, outside, still)
         }
         None => true,
     };
