@@ -1,3 +1,22 @@
+## Lượt sửa CI chung sau khi kiểm tra Windows — 03/11/2026
+
+**Nguyên nhân lỗi kiểm thử UI:** Windows CI run [41634216686](https://github.com/tbtdemo/tbt360_cad_2d/actions/runs/41634216686) cho thấy 6 lỗi biên dịch Rust `E0616` do `crates/ui-egui/src/canvas/tests.rs` truy cập trường private `PrimIndex.by_handle`. Điều này làm hỏng các job kiểm thử UI và các bước phụ thuộc `ui-egui`, dù bản release bin có thể build được.
+
+**Đã sửa mã nguồn, không mở quyền cho trường private:**
+1. `crates/ui-egui/src/canvas/list.rs`: thêm `#[cfg(test)] cached_primitive_count` và `cached_primitive_capacity`, commit `984c0927bccd02fc6259fedab5db87da910bb6fa`.
+2. `crates/ui-egui/src/canvas/tests.rs`: thay 6 chỗ truy cập nội bộ bằng 2 API thống kê test-only, commit `a018d2dee33f114cad9bd0d9ab30e2123719db47`.
+3. Workflow cross-build kiểm kê sự hiện diện của cả sửa backup Windows và UI test API: commit `00e366339eb3835db0561ef67e44578cb8458e6c` (`build(cad360): B15 ...`).
+
+**Build phát sinh:**
+- Ubuntu→Windows EXE: [run 41635166787](https://github.com/tbtdemo/tbt360_cad_2d/actions/runs/41635166787), **queued** lúc kiểm tra.
+- Windows native EXE: [run 41635167307](https://github.com/tbtdemo/tbt360_cad_2d/actions/runs/41635167307), **queued** lúc kiểm tra.
+- CI Rust UI mới: [run 41635133901](https://github.com/tbtdemo/tbt360_cad_2d/actions/runs/41635133901), **pending**.
+
+**Cổng bàn giao bản gồm cả hai bản sửa (BIM backup + UI test):** mã nguồn có commit 1/4 = **25%**; Rust compile và artifact EXE đúng commit `00e36633` chưa có xác nhận, kiểm thử hồi quy Windows chưa xác nhận PASS, GUI Windows chưa nghiệm thu. Không gộp với bộ cài `e8f7af28` trước khi sửa.
+
+**Đếm kiểm thử cần xác nhận:** trước sửa, 83 BIM PASS / 5 BIM FAIL, ngoài ra 6 lỗi biên dịch E0616 trong `ui-egui`. Số lỗi đã được sửa ở mã nguồn không phải số lỗi đã nghiệm thu (chưa chạy PASS).
+
+
 ## Kiểm tra lại tiến độ B15 Fix — 03/11/2026
 
 - **Commit mã sửa lỗi đang build:** `06f04db90d47bc1d150dc1653745fda3b7f243ef`.
