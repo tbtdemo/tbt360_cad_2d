@@ -152,6 +152,7 @@ jobs:
             @{ Label = "UI"; Found = $uiTests; Name = "canvas::eligible_point_release_tests::preserves_the_order_of_valid_clicks_while_excluding_menu_release" },
             @{ Label = "UI"; Found = $uiTests; Name = "canvas::rebuild::stale_background_view_tests::completed_job_cannot_replace_mesh_for_changed_zoom_or_outside_window" },
             @{ Label = "UI"; Found = $uiTests; Name = "opening::tests::ten_queued_files_preserve_fifo_order_with_one_decoder_at_a_time" },
+            @{ Label = "UI"; Found = $uiTests; Name = "opening::tests::repeated_open_clicks_do_not_queue_duplicate_cad_decoders" },
             @{ Label = "UI"; Found = $uiTests; Name = "canvas::tests::prim_index_releases_large_old_drawing_after_switch_with_empty_selection" },
             @{ Label = "UI"; Found = $uiTests; Name = "canvas::draw::highlight_view_culling_tests::offscreen_selected_geometry_does_not_need_cpu_highlight_shapes" },
             @{ Label = "UI"; Found = $uiTests; Name = "gpu::gpu_memory_budget_tests::gpu_highlight_preserves_selected_segments_after_bounded_reservation" },
