@@ -164,7 +164,9 @@ impl Default for UiState {
         UiState {
             docking: docking::default_workspace(),
 
-            interface_language: i18n::Preference::default(),
+            // TBT Windows CAD360 starts in Vietnamese on a fresh install.
+            // A saved language preference always takes precedence.
+            interface_language: if cfg!(target_os = "windows") { i18n::Preference::Vietnamese } else { i18n::Preference::default() },
             show_toolsets: true,
             show_palettes: true,
             show_toolbar: true,
