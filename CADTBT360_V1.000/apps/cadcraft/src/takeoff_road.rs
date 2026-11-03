@@ -59,8 +59,8 @@ pub fn station_to_metres(value: &str) -> Result<f64, String> {
 /// Extract an unambiguous explicit Km station label from a selected
 /// TEXT/MTEXT/block attribute string. Never infer stationing from position.
 pub fn station_from_marker_text(text: &str) -> Result<f64,String> {
-    let normalized=text.replace(',',".").replace('＋',"+");
-    let tokens=normalized.split(|c:char| c.is_whitespace() || matches!(c,';'|'('|')'|'['|']'|':'|'='|'\\n'))
+    let normalized=text.replace(',',".").replace('＋',"+").replace("\\P"," ").replace("\\p"," ").replace('{'," ").replace('}'," ");
+    let tokens=normalized.split(|c:char| c.is_whitespace() || matches!(c,';'|'('|')'|'['|']'|':'|'=))
         .filter(|t|!t.is_empty()).collect::<Vec<_>>();
     let mut found:Vec<f64>=Vec::new();
     for (i,token) in tokens.iter().enumerate() {
@@ -279,6 +279,7 @@ mod tests {
         assert!(station_from_marker_text("Cọc H1 12+345").is_err());
         assert!(station_from_marker_text("Km1+010 Km1+020").is_err());
         assert!(station_from_marker_text("Km-1+020").is_err());
+        assert_eq!(station_from_marker_text("Km1+020\\PTrắc ngang").unwrap(),1020.0);
     }
     #[test]
     fn km_notation_is_metres_and_rejects_bad_stationing() {
