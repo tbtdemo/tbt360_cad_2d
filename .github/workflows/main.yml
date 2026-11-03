@@ -15,11 +15,12 @@ on:
       - 'installer/**'
       - '.github/workflows/main.yml'
 
-# Preserve a full test and packaging result for each commit, including the active branch.
-# Do not cancel a build just because a newer change is pushed while Rust compiles.
+# Keep the latest source CI authoritative and release scarce Windows runners
+# from superseded Rust commits. The independent Direct EXE packaging workflow
+# uses per-SHA concurrency and MUST NOT be cancelled by these CI changes.
 concurrency:
-  group: cad360-${{ github.workflow }}-${{ github.ref }}-${{ github.sha }}
-  cancel-in-progress: false
+  group: cad360-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build-core:
