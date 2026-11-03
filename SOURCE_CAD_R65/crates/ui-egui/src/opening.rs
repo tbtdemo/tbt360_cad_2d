@@ -70,7 +70,7 @@ impl Opening {
             self.jobs.push(Job { path: path.to_string(), started: Instant::now(), rx: rx2, progress });
             return;
         }
-        self.jobs.push(Job { path: path.to_string(), started: Instant::now(), rx, progress });
+        self.jobs.push(Job { path: path.to_string(), started, rx, progress });
     }
 
     /// Whether any file is still being read.
