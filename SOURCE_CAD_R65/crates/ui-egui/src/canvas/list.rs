@@ -57,6 +57,32 @@ pub(super) fn rebuilt_preview<'a>(doc: &cadcraft_doc::Drawing, ents: impl IntoIt
     cadcraft_render::build_entities(doc, ents, &preview_options(scale))
 }
 
+/// Pause only an identical failed view-only rebuild. A new zoom/pan key
+/// or any drawing-content change must be allowed to rebuild again.
+fn hold_failed_view_rebuild(view_only: bool, failed_key: Option<super::ListKey>, wanted: super::ListKey) -> bool {
+    view_only && failed_key == Some(wanted)
+}
+
+#[cfg(test)]
+mod background_failure_tests {
+    use super::hold_failed_view_rebuild;
+
+    #[test]
+    fn failed_view_build_is_not_restarted_every_frame() {
+        let key = (1, 7, 3, 2, false, false, 12, 0);
+        assert!(hold_failed_view_rebuild(true, Some(key), key));
+        assert!(!hold_failed_view_rebuild(false, Some(key), key));
+    }
+
+    #[test]
+    fn panning_or_zooming_to_a_new_key_allows_a_new_worker() {
+        let failed = (1, 7, 3, 2, false, false, 12, 0);
+        let changed = (1, 7, 4, 2, false, false, 12, 0);
+        assert!(!hold_failed_view_rebuild(true, Some(failed), changed));
+        assert!(!hold_failed_view_rebuild(true, None, failed));
+    }
+}
+
 /// Rebuild the display list when needed. `xf`: the current view; `views`: every area on screen
 /// that shows the list (the current view, other model tiles) with its drawing units per pixel.
 ///
@@ -127,7 +153,7 @@ pub(super) fn ensure_list(app: &mut CadApp, xf: &Xf, views: &[(Bounds2, f64)], c
     // Do not repeatedly spawn a worker that just failed for this exact view.
     // The old display list remains drawable while panning/zooming; new view
     // requests can try again, and changed drawing content rebuilds normally.
-    if view_only && app.canvas.failed_rebuild_key == Some(key) {
+    if hold_failed_view_rebuild(view_only, app.canvas.failed_rebuild_key, key) {
         return;
     }
     // A build for another view, or for a drawing that has since changed, is no longer wanted:
