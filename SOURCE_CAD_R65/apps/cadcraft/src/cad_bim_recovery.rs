@@ -125,15 +125,27 @@ fn content_checksum(bytes: &[u8]) -> String {
 fn content_checksum_file(path: &Path) -> Result<String, String> {
     use std::io::Read;
     let mut file = std::fs::File::open(path).map_err(|e| e.to_string())?;
+    let original_meta = file.metadata().map_err(|e| e.to_string())?;
+    if !original_meta.is_file() { return Err("Tệp phục hồi CAD không phải file thông thường".into()); }
     let mut hash = 0xcbf29ce484222325u64;
     let mut block = [0u8; 64 * 1024];
+    let mut bytes_read = 0u64;
     loop {
-        let count = file.read(&mut block).map_err(|e| e.to_string())?;
+        let count = match file.read(&mut block) {
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+            result => result.map_err(|e| e.to_string())?,
+        };
         if count == 0 { break; }
+        bytes_read = bytes_read.checked_add(count as u64).ok_or("Tổng byte bản phục hồi vượt giới hạn")?;
         for byte in &block[..count] {
             hash ^= u64::from(*byte);
             hash = hash.wrapping_mul(0x100000001b3);
         }
+    }
+    let final_meta = file.metadata().map_err(|e| e.to_string())?;
+    if original_meta.len() != bytes_read || final_meta.len() != original_meta.len() ||
+        original_meta.modified().ok().zip(final_meta.modified().ok()).is_some_and(|(a, b)| a != b) {
+        return Err("Tệp phục hồi CAD thay đổi trong quá trình xác minh checksum".into());
     }
     Ok(format!("{hash:016x}"))
 }
@@ -305,6 +317,16 @@ fn prune_generations(root: &Path) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn recovery_drawing_exports_actual_drawing_not_editor_tab_state() {
+        let session = cadcraft_engine::Session::new();
+        let doc = session.docs.first().expect("CAD session must create an initial drawing");
+        let drawing = doc.recovery_drawing().expect("snapshot geometry");
+        let encoded = cadcraft_io::write(drawing.as_ref(), "cad360_recovery.dxf").expect("encode actual Drawing");
+        assert!(!encoded.is_empty());
+        assert!(validate_recovery_dxf(&encoded).is_ok());
+    }
+
     #[test]
     fn streamed_file_checksum_matches_in_memory_and_detects_modified_tail() {
         let root = std::env::temp_dir().join(format!("tbt-stream-checksum-{}-{}", std::process::id(), SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()));
