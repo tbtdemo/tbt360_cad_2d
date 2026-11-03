@@ -674,8 +674,11 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui) {
         app.canvas.drag_window = false;
         app.session.pending_window = None;
     }
-    if !app.session.settings.pickdrag {
+    if !app.session.settings.pickdrag && app.canvas.drag_window {
+        // PICKDRAG was disabled mid-gesture: discard only the drag-owned pending
+        // window, not a click-click window initiated by another interaction mode.
         app.canvas.drag_window = false;
+        app.session.pending_window = None;
     }
     if app.session.settings.pickdrag
         && !point_prompt
