@@ -15,10 +15,11 @@
 | 04/15 | CAD+BIM: định dạng snapshot v2 lưu mọi tab CAD, chỉ số tab đang hoạt động và workspace; đọc v1; kiểm tra từng DXF trước khi phục hồi | `900a7cde8cdc097268c190af079f482ae14f78c4` | 1 regression test 3 tab và corruption | Chưa xác nhận cargo check/test Windows |
 | 05/15 | CAD+BIM: nếu phục hồi nhiều tab lỗi giữa chừng thì đóng tab mới, khôi phục chỉ số tab gốc; giới hạn 256 bản vẽ và 64 MiB workspace ngay trước ghi; kiểm tra active index sai | `df80c04c43043e4a979a5fe8f3739e1f0385f6db` | 1 regression test | Chưa xác nhận Windows CI |
 | 06/15 | CAD+BIM: fingerprint gồm revision của mọi CAD tab + checksum workspace BIM; bỏ qua ghi tự lưu khi không thay đổi | `70a259938af27788f355b2ba43684d2efcae7feb` | Chưa bổ sung kiểm thử hành vi timer | Chưa xác nhận Windows CI |
+| 07/15 | Canvas first click/drag; mở CAD theo khối có % đọc; bỏ ngưỡng mở file 512 MiB; hàng đợi mở tuần tự giảm áp lực RAM | `6cc13a944a756bd03b0016c3f75130a630404ed9` | 1 Rust test progressive bytes; GUI tests cần bổ sung | Chưa xác nhận Windows CI |
 
 ### Trạng thái
-- Hoàn thành bằng chứng mã nguồn: **6/15** lượt tối thiểu.
-- Còn ít nhất **9** lượt trước khi đóng gói định kỳ.
+- Hoàn thành bằng chứng mã nguồn: **7/15** lượt tối thiểu.
+- Còn ít nhất **8** lượt trước khi đóng gói định kỳ.
 - Source inventory (run 41561782723) và IFC metadata test/source snapshot (run 41561782535) PASS. Windows Setup/Portable được skip đúng lịch 15–30. Rust tests CAD+BIM của lượt 02 đã PASS (run 41563233121). Hai regression tests lượt 03 đang chờ xác nhận. Chưa có EXE phát hành của đợt này.
 
 ### Rà soát khả năng phục hồi
@@ -50,3 +51,11 @@
 - Sau khi phục hồi, fingerprint đặt lại để lần lưu tiếp theo bắt trạng thái mới. Sau lưu thủ công, fingerprint cập nhật.
 - Bổ sung mã nguồn: `70a259938af27788f355b2ba43684d2efcae7feb`. Chưa xác nhận build/test trên Windows; không tính là hoàn thành nghiệm thu.
 - Theo quy ước lượt, **6/15 = 40% quãng đường đến mốc đóng gói tối thiểu**. Không suy ra 40% hoàn thiện sản phẩm.
+
+### Lượt 07 — input CAD & mở dữ liệu lớn
+- Canvas: bỏ điều kiện `Response::hovered()` dễ bỏ sót click đầu tiên khi chuyển focus; vẫn kiểm tra lớp UI trên cùng. Không mở kéo cửa sổ chọn trong lúc lệnh đang nhận tọa độ điểm.
+- Desktop OPEN: đường đọc file chuyển sang đọc theo khối 1 MiB, cấp phát `try_reserve`, kiểm tra regular file và phát tiến độ byte đã đọc. Bỏ hard cap 512 MiB ở đường OPEN này, nhưng máy vẫn cần RAM/VRAM; chưa có streaming geometry parser/render.
+- UI: tiến độ **% đọc byte thực tế**, thời gian và giai đoạn giải mã riêng (không nói % giả cho giải mã).
+- Đọc nhiều file: xếp hàng và chỉ giải mã một file đồng thời; tránh tăng áp lực RAM do nhiều decoder song song.
+- Chưa xác minh cargo check, test UI đầu-cuối hay benchmark CAD 300–500 MiB; chưa coi là đạt nghiệm thu.
+- **7/15 = 46,7% nhịp phát hành**, không đại diện độ hoàn thiện toàn bộ CAD360.
