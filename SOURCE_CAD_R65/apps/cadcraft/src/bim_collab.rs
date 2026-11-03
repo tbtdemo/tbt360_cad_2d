@@ -1767,6 +1767,24 @@ impl State {
     }
 }
 
+/// Editing an object requires more than permission to view it in a tile.
+/// A foreign owner's entity needs an explicit edit share for this exact scope.
+fn can_edit_scoped_entity(state: &State, slot: &ViewSlot, meta: &BimEntityMeta) -> bool {
+    if slot.mode != ViewMode::Edit || meta.floor_id != slot.floor_id || meta.discipline != slot.discipline {
+        return false;
+    }
+    if slot.owner_account_id.as_ref().is_some_and(|owner| owner != &meta.owner_account_id) {
+        return false;
+    }
+    if state.auth.status == AuthStatus::SignedOut
+        || state.auth.account_id != state.current_account_id
+        || !state.active_user().is_some_and(|user| user.can_edit)
+        || !state.has_scope_access(&state.current_account_id, meta.floor_id, meta.discipline, true) {
+        return false;
+    }
+    state.has_share_access(&state.current_account_id, &meta.owner_account_id, meta.floor_id, meta.discipline, true)
+}
+
 pub fn enforce_selection_scope(app: &mut cadcraft_ui_egui::CadApp, state: &State) {
     let index = state.active_native_view_index(app);
     let Some(slot) = state.views.get(index) else { return };
@@ -1781,9 +1799,15 @@ pub fn enforce_selection_scope(app: &mut cadcraft_ui_egui::CadApp, state: &State
         return;
     }
     let Some(filter) = app.tile_render_filters.get(index).filter(|f| f.enabled) else { return };
-    let current = app.session.selection();
-    let allowed = current.into_iter().filter(|h| filter.primary_handles.binary_search(h).is_ok()).collect::<Vec<_>>();
-    if allowed != app.session.selection() {
+    let selected = app.session.selection();
+    let allowed_handles: std::collections::HashSet<_> = app.session.doc().map(|doc| {
+        doc.model.iter().filter_map(|entity| {
+            let meta = bim_meta(&entity.common)?;
+            (filter.primary_handles.binary_search(&entity.handle).is_ok() && can_edit_scoped_entity(state, slot, &meta)).then_some(entity.handle)
+        }).collect()
+    }).unwrap_or_default();
+    let allowed = selected.iter().copied().filter(|handle| allowed_handles.contains(handle)).collect::<Vec<_>>();
+    if allowed != selected {
         app.session.set_selection(allowed);
     }
 }
