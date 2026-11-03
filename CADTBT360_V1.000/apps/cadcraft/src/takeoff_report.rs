@@ -86,6 +86,20 @@ fn number_cell(reference: &str, number: f64, style: usize) -> String {
 fn row_start(index: usize, height: u32) -> String {
     format!("<row r=\"{index}\" ht=\"{height}\" customHeight=\"1\">")
 }
+/// Estimate Excel row height for wrapped Vietnamese work descriptions.
+/// Excel does not auto-fit row height in printed OOXML files reliably, so
+/// allocate enough height for the longest selected text field.
+fn detail_row_height(selected: &[usize], fields: &[String; 12]) -> u32 {
+    let wrapped_lines = selected.iter().filter(|&&index| index != 0 && index != 8).map(|&index| {
+        let estimated_characters_per_line = (FIELDS[index].1 * 0.85).round().max(8.0) as usize;
+        fields[index].split('\\n').map(|line| {
+            let width = line.chars().map(|c| if c.is_ascii() { 1 } else { 1 }).sum::<usize>();
+            width.max(1).div_ceil(estimated_characters_per_line)
+        }).sum::<usize>().max(1)
+    }).max().unwrap_or(1);
+    (wrapped_lines.min(16) as u32 * 18 + 8).clamp(26, 296)
+}
+
 fn title_row(index: usize, label: &str, style: usize, height: u32) -> String {
     format!("{}{}{}</row>", row_start(index, height), text_cell(&format!("A{index}"), label, style), "")
 }
@@ -125,7 +139,7 @@ fn sheet(config: &ExportConfig, rows: &[ReportLine]) -> (String, usize) {
             current_group = Some(line.group.clone());
         }
         serial += 1;
-        body.push_str(&row_start(excel_row, 26));
+        body.push_str(&row_start(excel_row, detail_row_height(&selected, &line.fields)));
         for (i, index) in selected.iter().enumerate() {
             let address = format!("{}{excel_row}", column(i));
             if *index == 8 { body.push_str(&number_cell(&address, line.quantity, 5)); }
@@ -355,6 +369,17 @@ mod tests {
         ];
         write_xlsx(Path::new(&output), &config, &rows).unwrap();
         assert!(std::fs::metadata(output).unwrap().len() > 3_000);
+    }
+
+    #[test]
+    fn long_vietnamese_work_description_gets_printable_excel_row_height() {
+        let config = ExportConfig::default();
+        let mut fields = std::array::from_fn(|_| String::new());
+        fields[2] = "Đo bóc toàn bộ hệ thống kết cấu cột dầm sàn tầng hầm có nhiều hạng mục thi công, cần đủ chiều cao dòng khi in báo cáo khối lượng".into();
+        let tall = detail_row_height(&config.selected(), &fields);
+        assert!(tall > 26, "Long investor work descriptions must not be clipped");
+        fields[2] = "Cột C1".into();
+        assert_eq!(detail_row_height(&config.selected(), &fields), 26);
     }
 
     #[test]
