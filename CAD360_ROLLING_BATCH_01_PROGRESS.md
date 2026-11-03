@@ -27,8 +27,10 @@ Ngày 03/11/2026; nhánh: `tbt/cad360-active-release`.
 | 11 | CAD lớn / an toàn hình học | Nếu nguồn file bị thu ngắn trong quá trình OPEN thì dừng với UnexpectedEof trước khi decode, không nhận hình học thiếu | `capped_read::tests::progressive_read_rejects_truncated_geometry_before_decode` |
 | 12 | CPU renderer / frame-time | Culling hình học nằm ngoài viewport trước khi chuyển ACI/transparency và cấp phát CPU Shape theo mỗi frame | `canvas::draw::highlight_view_culling_tests` và tests CPU culling hiện có |
 | 13 | FIFO / mở file lặp | Gộp các lượt OPEN trùng đường dẫn trong lúc file đang đọc hoặc đang đợi, tránh giải mã thêm một bản không cần thiết | `opening::tests::repeated_open_clicks_do_not_queue_duplicate_cad_decoders` |
+| 14 | Nhất quán file CAD đang thay đổi | Đối chiếu file size và modified-time trước/sau đọc nhiều khối; không giải mã hỗn hợp khi nguồn bị ghi tiếp | `capped_read::tests::opening_a_growing_cad_file_must_not_return_mixed_geometry` |
+| 15 | Windows OPEN khử trùng đường dẫn | Trong hàng đợi OPEN trên Windows, coi slash/backslash và khác chữ hoa/thường là cùng yêu cầu khi đang chờ | `opening::tests::pending_path_comparison_respects_platform_file_system_conventions` |
 
-**Đếm: 13/15 bộ chức năng cho mốc đóng gói tiếp theo.** Một bộ có thể gồm nhiều commit; các commit CI, docs và test không được tính thêm thành bộ độc lập. Hiện còn 2 bộ chức năng cần phát triển trước mốc `build(cad360): B15`.
+**Đếm: 15/15 bộ chức năng, đã đạt mốc kích hoạt đóng gói B15.** Các commit kiểm thử, CI và tài liệu không tính thành bộ riêng. Các bộ thay đổi tiếp theo được tích lũy cho chu kỳ kế tiếp, không dừng phát triển để đợi EXE.
 
 ## Cam kết nghiệp vụ và hạn chế nghiệm thu
 - Các thay đổi ở trên **đã được ghi trên nhánh GitHub**, chưa xác minh Rust Windows test PASS; không tự tăng phần trăm hoàn thành.
@@ -65,3 +67,10 @@ Ngày 03/11/2026; nhánh: `tbt/cad360-active-release`.
 - `9f8569d65c896cb7075081f0f1c68dfd984868c2`: `Opening::start` chống lặp đường dẫn khi đã có worker hoặc queued. Không ảnh hưởng mở lại sau khi hoàn tất toàn bộ yêu cầu; cùng một path lặp trong lúc chờ chỉ xử lý một lần. Có test FIFO chống duplicate.
 - `73590eb2fb33dce851c8a5e743630044670691f5` và `c4b1bd1cc2fe40c9534c6c8c558d33f42696495e`: cập nhật CI phát hiện và chạy regression tương ứng.
 - **13/15 bộ thay đổi chức năng đã được commit, không tính test/docs/CI là bộ thêm.** Windows CI/GUI và FPS/P95/RAM trên file 300–500 MiB vẫn chưa xác minh; giữ 8 nhóm baseline 39,4% chưa nghiệm thu. Sau 2 bộ tiếp theo, kích hoạt B15 một lần, không chờ B30 cũ.
+
+## Chốt B15 — thay đổi 14–15 và điều kiện build ứng viên
+- `500c1686a69d0b4bc4cea716eefebcde531afb76` (bộ 14): `read_progressive` xác minh kích thước và thời gian sửa file trên chính file handle trước/sau đọc, từ chối file đang bị thay đổi với `InvalidData`. Test thực hiện thêm dữ liệu giữa lúc tiến trình đọc file 2 MiB; vẫn còn giới hạn không phát hiện được bản sửa bảo toàn cùng kích thước và timestamp.
+- `03eaebf5e4aeae0f09721608b775edee0cb51278` (bộ 15): Windows OPEN so sánh các path đang đọc/queued không phân biệt slash/backslash và chữ hoa/thường; Unix giữ so sánh chính xác để không gộp nhầm file khác. Test riêng hai nền tảng.
+- `d6c47e72c2f125a883ad5c04bff1e7175a030a1f`: Windows CI bắt buộc phát hiện và chạy hai regression mới.
+- **Mốc 15/15 đạt bằng thay đổi mã nguồn có chức năng**, không tính số commit thành phần trăm. Kích hoạt riêng commit `build(cad360): B15` để chạy một lần Setup EXE, Portable ZIP, Source ZIP cùng SHA256, không xuất bản production khi chưa nghiệm thu.
+- Bản ứng viên B15 và các commit tiếp sau có thể chạy song song; Windows build thật và artifacts được báo PASS chỉ sau khi GitHub hoàn thành, không dựa trên queued/preflight.
