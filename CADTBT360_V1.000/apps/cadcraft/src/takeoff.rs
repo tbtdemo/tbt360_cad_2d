@@ -1178,6 +1178,44 @@ fn selected_measurements(app:&CadApp)->Vec<PendingMeasurement> {
     out
 }
 
+/// Recognize an explicit Km station from CAD TEXT, MTEXT or INSERT attributes.
+/// Do not infer labels from XY coordinates or hide ambiguous annotations.
+fn qto_road_station_from_entity(entity: &cadcraft_doc::Entity) -> Result<f64,String> {
+    let mut stations=Vec::<f64>::new();
+    let values:Vec<&str>=match &entity.kind {
+        EntityKind::Text(text)=>vec![text.value.as_str()],
+        EntityKind::MText(text)=>vec![text.contents.as_str()],
+        EntityKind::Insert(block)=>block.attribs.iter().map(|attrib|attrib.text.value.as_str()).collect(),
+        _=>return Err("Đối tượng không phải TEXT, MTEXT hoặc Block có thuộc tính lý trình.".into()),
+    };
+    for value in values {
+        if let Ok(station)=takeoff_road::station_from_marker_text(value) {
+            if !stations.iter().any(|old|(*old-station).abs()<=1.0e-6) {stations.push(station);}
+        }
+    }
+    match stations.as_slice() {
+        [station]=>Ok(*station),
+        []=>Err("Không đọc được lý trình Km hợp lệ từ nhãn cọc.".into()),
+        _=>Err("Đối tượng chứa nhiều lý trình khác nhau; cần kiểm tra thủ công.".into()),
+    }
+}
+
+/// Scan only objects the operator selected in the CAD canvas. The resulting
+/// marker handles are drawing references; ambiguous stations are not accepted.
+fn qto_road_scan_selected_markers(app: &CadApp) -> (Vec<takeoff_road::RoadPlanMarker>,usize) {
+    let handles=app.session.selection();
+    let Ok(doc)=app.session.doc() else {return (Vec::new(),handles.len());};
+    let mut markers=Vec::new();
+    let mut skipped=0usize;
+    for handle in handles {
+        match doc.model.get(handle).and_then(|entity|qto_road_station_from_entity(&entity).ok()) {
+            Some(chainage_m)=>markers.push(takeoff_road::RoadPlanMarker{chainage_m,handle:handle.hex()}),
+            None=>skipped+=1,
+        }
+    }
+    (markers,skipped)
+}
+
 fn qto_live_handles(app: &CadApp) -> BTreeSet<String> {
     app.session.selection().into_iter().map(|handle| handle.hex()).collect()
 }
@@ -1734,6 +1772,25 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
                         state.import_feedback=format!("Đã gắn đối tượng CAD {} làm cọc bình đồ. Kiểm tra lý trình trước khi lưu.",value);
                     }
                 }
+            }
+            if ui.button("QUÉT NHÃN CỌC TỪ VÙNG CHỌN").clicked() {
+                let (markers,skipped)=qto_road_scan_selected_markers(app);
+                let mut linked=0usize;
+                let mut ambiguous=0usize;
+                let mut not_found=0usize;
+                for section in &mut state.road_sections {
+                    let matched=markers.iter().filter(|marker|(marker.chainage_m-section.chainage_m).abs()<=0.001)
+                        .collect::<Vec<_>>();
+                    match matched.as_slice() {
+                        [marker] if section.plan_marker_handle.as_deref().is_none_or(|old|old.eq_ignore_ascii_case(&marker.handle))=>{
+                            section.plan_marker_handle=Some(marker.handle.clone());
+                            linked+=1;
+                        },
+                        []=>not_found+=1,
+                        _=>ambiguous+=1,
+                    }
+                }
+                state.import_feedback=format!("Quét {} nhãn cọc hợp lệ; ghép {} trắc ngang; chưa tìm thấy {}; xung đột {}; bỏ qua {} đối tượng. Kiểm tra từng dòng trước khi xác nhận.",markers.len(),linked,not_found,ambiguous,skipped);
             }
             if ui.small_button("Bỏ gắn cọc").clicked(){state.road_plan_marker_handle=None;}
             ui.label(format!("Cọc bình đồ: {}",state.road_plan_marker_handle.as_deref().unwrap_or("Chưa gắn")));
