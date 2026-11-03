@@ -208,3 +208,109 @@
 	Clear Command History	Xóa lịch sử lệnh
 	Hide Palettes	Ẩn bảng công cụ
 	Reset Palettes	Đặt lại bảng công cụ
+
+# TBT CAD 2D: drawing, selection, drafting, display, and QSELECT labels.
+	  Cancel  	  Hủy  
+	  OK  	  Đồng ý  
+	* Wildcard Match	* Khớp ký tự đại diện
+	*VARIES*	*KHÁC NHAU*
+	< Less than	< Nhỏ hơn
+	<> Not Equal	<> Khác
+	= Equals	= Bằng
+	> Greater than	> Lớn hơn
+	Add Vertex	Thêm đỉnh
+	Add Leader	Thêm đường dẫn chú thích
+	Add/Delete Scales...	Thêm/xóa tỷ lệ...
+	Align	Căn chỉnh
+	Align Text	Căn chỉnh chữ
+	Aligned	Căn chỉnh
+	All Used Layers	Tất cả lớp đang dùng
+	Annotation scale	Tỷ lệ chú thích
+	Annotation Visibility	Hiển thị chú thích
+	Append to current selection set	Thêm vào tập chọn hiện tại
+	Apply to:	Áp dụng cho:
+	Arc Length	Chiều dài cung
+	Arrange Panel	Sắp xếp bảng
+	Arrow size	Kích thước mũi tên
+	Attribute	Thuộc tính
+	Attribute Definition	Định nghĩa thuộc tính
+	Attribute Display	Hiển thị thuộc tính
+	Automatic save every	Tự động lưu mỗi
+	Automatic save file location	Vị trí tệp tự động lưu
+	Baseline	Đường kích thước gốc
+	Batch Publish	Xuất bản hàng loạt
+	Batch Publish...	Xuất bản hàng loạt...
+	Bind	Liên kết cố định
+	Bind...	Liên kết cố định...
+	Block Attribute Manager...	Quản lý thuộc tính khối...
+	ByBlock	Theo khối
+	ByLayer	Theo lớp
+	Chamfer	Vát góc
+	Change Properties	Thay đổi thuộc tính
+	Circle (Center, Radius)	Đường tròn (tâm, bán kính)
+	Close drawing	Đóng bản vẽ
+	Command:	Lệnh:
+	Continue?	Tiếp tục?
+	Crossing	Chọn cắt qua
+	Crossing Window	Khung chọn cắt qua
+	Current drawing	Bản vẽ hiện tại
+	Current Selection	Tập chọn hiện tại
+	Cursor	Con trỏ
+	Cursor size	Kích thước con trỏ
+	Delete Vertex	Xóa đỉnh
+	Dimension Text	Chữ kích thước
+	Display	Hiển thị
+	Display Order	Thứ tự hiển thị
+	Drawing Units	Đơn vị bản vẽ
+	Dynamic Input	Nhập động
+	Enable	Bật
+	Enabled	Đã bật
+	Entire drawing	Toàn bộ bản vẽ
+	Error	Lỗi
+	Exit	Thoát
+	Explode	Phá khối
+	Extend	Kéo dài
+	Extents	Toàn bộ phạm vi
+	Find	Tìm
+	Find and Replace	Tìm và thay thế
+	Fit	Vừa khung
+	From point:	Từ điểm:
+	Grip	Điểm nắm
+	Grips	Điểm nắm
+	Hide	Ẩn
+	How to apply:	Cách áp dụng:
+	Include in new selection set	Đưa vào tập chọn mới
+	Exclude from new selection set	Loại khỏi tập chọn mới
+	Insert Point	Điểm chèn
+	Invalid value	Giá trị không hợp lệ
+	Layer Properties Manager...	Quản lý thuộc tính lớp...
+	Linetype	Kiểu nét
+	Linetype Scale	Tỷ lệ kiểu nét
+	Lineweight Display	Hiển thị độ dày nét
+	Match Properties	Sao chép thuộc tính
+	Model Space	Không gian mô hình
+	Multiple	Nhiều loại
+	New drawing	Bản vẽ mới
+	No objects selected	Chưa chọn đối tượng
+	Object Snap	Bắt điểm đối tượng
+	Object type:	Loại đối tượng:
+	Operator:	Toán tử:
+	Ortho Mode	Chế độ vuông góc
+	Paper Space	Không gian giấy
+	Pickbox Size	Kích thước ô chọn
+	Preview	Xem trước
+	Properties:	Thuộc tính:
+	Quick Properties	Thuộc tính nhanh
+	Quick Select	Chọn nhanh
+	Regenerate	Tái tạo hiển thị
+	Select objects:	Chọn đối tượng:
+	Selection	Tập chọn
+	Selection Cycling	Chọn đối tượng chồng lấp
+	Selection Preview	Xem trước đối tượng được chọn
+	Settings	Thiết lập
+	Snap to Grid	Bắt điểm lưới
+	Thickness	Chiều dày
+	Value:	Giá trị:
+	Zoom In	Phóng to
+	Zoom Out	Thu nhỏ
+	Zoom Previous	Khung nhìn trước
