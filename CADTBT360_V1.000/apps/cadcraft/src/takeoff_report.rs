@@ -139,7 +139,8 @@ fn sheet(config: &ExportConfig, rows: &[ReportLine]) -> (String, usize) {
         add_totals(&mut body, &mut excel_row, &group_totals, quantity_column, &selected, "CỘNG NHÓM");
     }
     add_totals(&mut body, &mut excel_row, &grand_totals, quantity_column, &selected, "TỔNG THEO ĐƠN VỊ");
-    let last = excel_row.saturating_sub(1).max(6);
+    // Include signature and sign-off row in the printed range.
+    let last = excel_row + 2;
     body.push_str(&row_start(excel_row + 2, 28));
     body.push_str(&text_cell(&format!("A{}", excel_row + 2), "NGƯỜI LẬP BIỂU", 2));
     if selected.len() >= 4 { body.push_str(&text_cell(&format!("D{}", excel_row + 2), "NGƯỜI KIỂM TRA", 2)); }
@@ -265,6 +266,9 @@ pub fn write_xlsx(path: &Path, config: &ExportConfig, rows: &[ReportLine]) -> Re
     if rows.iter().any(|r| !r.quantity.is_finite() || r.quantity < 0.0) { return Err("Phép đo chứa giá trị không hợp lệ.".into()); }
     if rows.len() > 1_000_000 { return Err("Quá giới hạn dòng Excel.".into()); }
     let (worksheet, print_last) = sheet(config, rows);
+    let number_picture = if config.decimals == 0 { "#,##0".to_string() } else { format!("#,##0.{}", "0".repeat(config.decimals)) };
+    let number_format = format!("{number_picture};[Red]({number_picture});-");
+    let styles = STYLES.replace("#,##0.000;[Red](#,##0.000);-", &number_format);
     let col = column(config.selected().len() - 1);
     let workbook = format!(r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
@@ -276,7 +280,7 @@ pub fn write_xlsx(path: &Path, config: &ExportConfig, rows: &[ReportLine]) -> Re
         ("_rels/.rels".into(), br#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>"#.to_vec()),
         ("xl/workbook.xml".into(), workbook.into_bytes()),
         ("xl/_rels/workbook.xml.rels".into(), br#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>"#.to_vec()),
-        ("xl/styles.xml".into(), STYLES.as_bytes().to_vec()),
+        ("xl/styles.xml".into(), styles.into_bytes()),
         ("xl/worksheets/sheet1.xml".into(), worksheet.into_bytes()),
     ];
     let zip = zip_store(&entries)?;
@@ -298,6 +302,7 @@ mod tests {
         assert!(sheet_xml.contains("fitToWidth=\"1\""));
         assert!(sheet_xml.contains("pane ySplit=\"6\""));
         assert!(sheet_xml.contains("Dự án A"));
+        assert!(sheet_xml.contains("<mergeCells count=\""));
         let zip = zip_store(&[("xl/worksheets/sheet1.xml".into(), sheet_xml.into_bytes())]).unwrap();
         assert_eq!(&zip[0..4], b"PK\x03\x04");
         assert!(zip.windows(4).any(|x| x == b"PK\x05\x06"));
