@@ -154,6 +154,11 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "Canvas renderer failure fallback tests failed" }
           cargo test --locked -p cadcraft-ui-egui canvas::rebuild::tests -- --nocapture
           if ($LASTEXITCODE -ne 0) { throw "Canvas background regen tests failed" }
+      - name: Test CPU drawing memory and offscreen culling
+        shell: pwsh
+        run: |
+          cargo test --locked -p cadcraft-ui-egui canvas::draw::cpu_culling_tests -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw "Large CAD CPU display-list culling regressions failed" }
       - name: Test complete workspace
         run: cargo test --workspace --locked --no-fail-fast
 
