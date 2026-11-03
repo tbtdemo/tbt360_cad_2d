@@ -1248,6 +1248,10 @@ fn qto_road_scan_markers(app: &CadApp, all_model: bool) -> (Vec<takeoff_road::Ro
     (markers,skipped)
 }
 
+fn qto_station_handle_key(value: &str) -> String {
+    cadcraft_doc::Handle::parse_hex(value).map(|handle|handle.hex().to_ascii_uppercase()).unwrap_or_else(||value.to_ascii_uppercase())
+}
+
 /// Attach only unambiguous station labels, preserving manual assignments.
 /// A marker may never be assigned to two survey sections.
 fn qto_road_attach_markers(sections: &mut [RoadCrossSection], markers: &[takeoff_road::RoadPlanMarker]) -> (usize,usize,usize) {
@@ -1256,15 +1260,15 @@ fn qto_road_attach_markers(sections: &mut [RoadCrossSection], markers: &[takeoff
     let mut conflicts=0usize;
     let mut used=BTreeSet::<String>::new();
     for section in sections.iter() {
-        if let Some(handle)=&section.plan_marker_handle { used.insert(handle.to_ascii_uppercase()); }
+        if let Some(handle)=&section.plan_marker_handle { used.insert(qto_station_handle_key(handle)); }
     }
     for section in sections.iter_mut() {
         let candidates=markers.iter().filter(|m|(m.chainage_m-section.chainage_m).abs()<=0.001).collect::<Vec<_>>();
         match candidates.as_slice() {
             []=>missing+=1,
             [marker]=>{
-                let is_existing=section.plan_marker_handle.as_deref().is_some_and(|old|old.eq_ignore_ascii_case(&marker.handle));
-                if (section.plan_marker_handle.is_none() && used.insert(marker.handle.to_ascii_uppercase())) || is_existing {
+                let is_existing=section.plan_marker_handle.as_deref().is_some_and(|old|qto_station_handle_key(old)==qto_station_handle_key(&marker.handle));
+                if (section.plan_marker_handle.is_none() && used.insert(qto_station_handle_key(&marker.handle))) || is_existing {
                     section.plan_marker_handle=Some(marker.handle.clone());
                     linked+=1;
                 } else { conflicts+=1; }
@@ -1307,6 +1311,13 @@ mod road_station_matching_tests {
         ];
         assert_eq!(qto_road_attach_markers(&mut sections,&markers),(0,0,1));
         assert!(sections[0].plan_marker_handle.is_none());
+    }
+    #[test]
+    fn zero_padded_hex_marker_is_considered_the_same_entity() {
+        let mut sections=vec![section(100.0,Some("AA")),section(120.0,None)];
+        let markers=vec![takeoff_road::RoadPlanMarker{chainage_m:120.0,handle:"0AA".into()}];
+        assert_eq!(qto_road_attach_markers(&mut sections,&markers),(0,1,1));
+        assert!(sections[1].plan_marker_handle.is_none());
     }
 }
 
@@ -1972,7 +1983,7 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
             let mut used=BTreeSet::<String>::new();
             for section in &state.road_sections {
                 let Some(marker)=section.plan_marker_handle.as_deref() else {missing+=1;continue;};
-                if !used.insert(marker.to_ascii_uppercase()) {duplicates+=1;}
+                if !used.insert(qto_station_handle_key(marker)) {duplicates+=1;}
                 let current=cadcraft_doc::Handle::parse_hex(marker)
                     .and_then(|handle|app.session.doc().ok().and_then(|doc|doc.model.get(handle).map(|entity|(doc,entity))));
                 match current {
