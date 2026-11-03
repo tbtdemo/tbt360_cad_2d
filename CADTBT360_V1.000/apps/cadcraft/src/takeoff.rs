@@ -1253,15 +1253,6 @@ fn qto_road_report_lines(app: &CadApp, state: &State, config: &ExportConfig,
     allowed: Option<&BTreeSet<String>>) -> Result<Vec<ReportLine>,String> {
     if state.road_sections.len() < 2 { return Ok(Vec::new()); }
     let scale=state.scale_to_m().ok_or_else(||"Cần hiệu chuẩn tỷ lệ bản vẽ CAD trước khi tính đào/đắp theo lý trình.".to_string())?;
-    // Full geometry revalidation before any contractor-ready quantities leave CAD.
-    for section in &state.road_sections {
-        for source in [&section.cut,&section.fill].into_iter().flatten() {
-            if !qto_volume_source_current(app,source,MeasureKind::Area) {
-                return Err(format!("Nguồn trắc ngang {} tại {} đã đổi hoặc mất. Vui lòng quét lại.",
-                    source.handle,takeoff_road::station_label(section.chainage_m)));
-            }
-        }
-    }
     let range=takeoff_road::parse_range(&state.road_range_start,&state.road_range_end)?;
     let intervals=takeoff_road::intervals(&state.road_sections,scale,config.confirmed_only)?;
     let multiplier=config.unit_scale().powi(3);
@@ -1275,6 +1266,18 @@ fn qto_road_report_lines(app: &CadApp, state: &State, config: &ExportConfig,
         let start=state.road_sections.iter().find(|section|(section.chainage_m-interval.start_m).abs()<1.0e-6).unwrap();
         let end=state.road_sections.iter().find(|section|(section.chainage_m-interval.end_m).abs()<1.0e-6).unwrap();
         if !qto_road_interval_in_scope(start,end,interval.kind,allowed) { continue; }
+        // Validate only the two CAD shapes actually contributing to this
+        // exported station interval. Unrelated stations must not block export.
+        let sources=match interval.kind {
+            EarthworkKind::Cut => (&start.cut,&end.cut),
+            EarthworkKind::Fill => (&start.fill,&end.fill),
+        };
+        for source in [sources.0.as_ref(),sources.1.as_ref()].into_iter().flatten() {
+            if !qto_volume_source_current(app,source,MeasureKind::Area) {
+                return Err(format!("Nguồn diện tích {} tại đoạn {} → {} đã thay đổi. Hãy quét lại trắc ngang.",
+                    source.handle,takeoff_road::station_label(interval.start_m),takeoff_road::station_label(interval.end_m)));
+            }
+        }
         if config.confirmed_only && code.trim().is_empty() {
             return Err(format!("Chưa khai báo mã công tác {} để phát hành Excel.",kind));
         }
