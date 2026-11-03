@@ -121,6 +121,22 @@ pub fn intervals(sections: &[RoadCrossSection], drawing_unit_to_m: f64,
     }
     Ok(out)
 }
+/// Select only complete intervals with both surveyed endpoints in the
+/// explicitly declared station range; no partial-interval interpolation.
+pub fn within_range(interval: &RoadInterval, range: Option<(f64, f64)>) -> bool {
+    range.is_none_or(|(start,end)|interval.start_m >= start - 1.0e-6 && interval.end_m <= end + 1.0e-6)
+}
+pub fn parse_range(start: &str, end: &str) -> Result<Option<(f64, f64)>, String> {
+    if start.trim().is_empty() && end.trim().is_empty() { return Ok(None); }
+    if start.trim().is_empty() || end.trim().is_empty() {
+        return Err("Phải khai báo đủ cọc đầu và cọc cuối hoặc để trống cả hai.".into());
+    }
+    let from=station_to_metres(start)?;
+    let to=station_to_metres(end)?;
+    if to <= from + 1.0e-6 { return Err("Cọc cuối phải lớn hơn cọc đầu.".into()); }
+    Ok(Some((from,to)))
+}
+
 impl RoadCrossSection {
     pub fn json(&self) -> serde_json::Value {
         serde_json::json!({"chainage_m":self.chainage_m,"name":self.name,
@@ -187,6 +203,20 @@ mod tests {
         second.confirmed=false;
         assert_eq!(intervals(&[first.clone(),second.clone()],1.0,true).unwrap().len(),0);
         assert_eq!(intervals(&[first,second],1.0,false).unwrap().len(),1);
+    }
+    #[test]
+    fn station_range_keeps_only_complete_intervals_not_partial_guesses() {
+        let intervals=intervals(&[
+            section(1000.0,Some(source("1A",10.0)),None),
+            section(1020.0,Some(source("2A",20.0)),None),
+            section(1040.0,Some(source("3A",30.0)),None)
+        ],1.0,true).unwrap();
+        let range=parse_range("Km1+020","Km1+040").unwrap();
+        let selected=intervals.iter().filter(|i|within_range(i,range)).collect::<Vec<_>>();
+        assert_eq!(selected.len(),1);
+        assert_eq!(selected[0].start_m,1020.0);
+        assert!(parse_range("Km1+020","").is_err());
+        assert!(parse_range("Km1+040","Km1+020").is_err());
     }
     #[test]
     fn section_roundtrip_retains_evidence_but_not_implicit_approval() {
