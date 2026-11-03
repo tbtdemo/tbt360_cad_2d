@@ -303,6 +303,29 @@ fn prune_generations(root: &Path) {
 mod tests {
     use super::*;
     #[test]
+    fn streamed_file_checksum_matches_in_memory_and_detects_modified_tail() {
+        let root = std::env::temp_dir().join(format!("tbt-stream-checksum-{}-{}", std::process::id(), SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()));
+        std::fs::create_dir_all(&root).unwrap();
+        let path = root.join("drawing-large-test.dxf");
+        let mut data = vec![0xA5u8; 3 * 64 * 1024 + 19];
+        data[0] = 1;
+        *data.last_mut().unwrap() = 0xFE;
+        std::fs::write(&path, &data).unwrap();
+        assert_eq!(content_checksum_file(&path).unwrap(), content_checksum(&data));
+        let before = content_checksum_file(&path).unwrap();
+        *data.last_mut().unwrap() = 0xFF;
+        std::fs::write(&path, &data).unwrap();
+        assert_ne!(content_checksum_file(&path).unwrap(), before);
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn recovery_generation_limit_is_not_the_old_512_mib_open_cap() {
+        assert!(MAX_RECOVERY_BYTES > 512 * 1024 * 1024);
+        assert!(MAX_RECOVERY_BYTES >= 1024 * 1024 * 1024);
+    }
+
+    #[test]
     fn incomplete_generation_is_never_offered_for_recovery() {
         let dir = std::env::temp_dir().join(format!("tbt-paired-recovery-test-{}", std::process::id()));
         let pending = dir.join("pair-1.pending");
