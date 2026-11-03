@@ -100,6 +100,24 @@ mod tests {
             assert!(read_capped(p, 8 << 20).is_err());
         }
     }
+
+    #[test]
+    fn progressive_read_reports_real_byte_progress_and_accepts_regular_file() {
+        let dir = std::env::temp_dir().join(format!("cadcraft-progress-{}-{}", std::process::id(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("drawing.dxf");
+        let data = vec![42u8; 3 * 1024 * 1024 + 3];
+        std::fs::write(&path, &data).unwrap();
+        let mut updates = Vec::new();
+        let result = read_progressive(&path, |done, total| updates.push((done, total))).unwrap();
+        assert_eq!(result, data);
+        assert!(updates.len() >= 4);
+        assert_eq!(updates.first().copied(), Some((0, data.len() as u64)));
+        assert_eq!(updates.last().copied(), Some((data.len() as u64, data.len() as u64)));
+        assert!(updates.windows(2).all(|pair| pair[0].0 <= pair[1].0));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
     /// Opening a FIFO without a writer returns an error without waiting for a peer.
     #[cfg(unix)]
     #[test]
