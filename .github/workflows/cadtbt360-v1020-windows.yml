@@ -186,7 +186,7 @@ jobs:
           $lines = @(
             '## CADTBT360_V1.020 Windows build',
             '',
-            "Commit: `$env:GITHUB_SHA`",
+            "Commit SHA: $env:GITHUB_SHA",
             "Result at summary step: ${{ job.status }}",
             '',
             '### Artifacts present on runner'
