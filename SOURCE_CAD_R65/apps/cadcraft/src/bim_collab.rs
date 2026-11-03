@@ -3202,6 +3202,44 @@ mod tests {
     }
 
     #[test]
+    fn corrupted_workspace_recovers_previous_valid_backup() {
+        let folder = std::env::temp_dir().join(format!("tbt-bim-recovery-{}-{}", std::process::id(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        std::fs::create_dir(&folder).unwrap();
+        let path = folder.join("workspace.json");
+        let mut first = State::default();
+        first.project_name = "Bản trước".into();
+        save_workspace_safely(&path, &first.snapshot_json()).unwrap();
+        first.project_name = "Bản mới".into();
+        save_workspace_safely(&path, &first.snapshot_json()).unwrap();
+        std::fs::write(&path, b"{truncated").unwrap();
+
+        let mut restored = State::default();
+        let from_backup = load_workspace_with_recovery(&mut restored, &path).unwrap();
+
+        assert!(from_backup);
+        assert_eq!(restored.project_name, "Bản trước");
+        std::fs::remove_dir_all(&folder).unwrap();
+    }
+
+    #[test]
+    fn workspace_recovery_does_not_discard_unsynced_in_memory_changes() {
+        let folder = std::env::temp_dir().join(format!("tbt-bim-recovery-guard-{}-{}", std::process::id(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        std::fs::create_dir(&folder).unwrap();
+        let path = folder.join("workspace.json");
+        let original = State::default();
+        save_workspace_safely(&path, &original.snapshot_json()).unwrap();
+        save_workspace_safely(&path, &original.snapshot_json()).unwrap();
+        std::fs::write(&path, b"invalid").unwrap();
+
+        let mut active = State::default();
+        active.queue_update(cadcraft_doc::Handle(73001), 0, 1);
+        assert!(load_workspace_with_recovery(&mut active, &path).is_err());
+        assert_eq!(active.pending_changes.len(), 1);
+        assert_eq!(active.dirty_local_changes, 1);
+        std::fs::remove_dir_all(&folder).unwrap();
+    }
+
+    #[test]
     fn safe_workspace_save_preserves_previous_file_as_backup() {
         let folder = std::env::temp_dir().join(format!("tbt-bim-save-{}-{}", std::process::id(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
         std::fs::create_dir(&folder).unwrap();
