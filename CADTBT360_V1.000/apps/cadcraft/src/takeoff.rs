@@ -2072,7 +2072,7 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
         } else {
             ui.colored_label(egui::Color32::YELLOW,"Cần hiệu chuẩn tỷ lệ CAD sang mét trước khi tính khối lượng giao thông.");
         }
-        ui.small("Tại cọc chuyển đào–đắp có thể xác nhận bằng 0 cho từng loại. V1.010 không tự nội suy điểm chuyển giữa hai lý trình; nếu chưa có mặt cắt xác nhận thì báo thiếu dữ liệu.");
+        ui.small("Tại cọc chuyển đào–đắp có thể xác nhận bằng 0 cho từng loại. V1.011 không tự nội suy điểm chuyển giữa hai lý trình; nếu chưa có mặt cắt xác nhận thì báo thiếu dữ liệu.");
     });
 
     ui.collapsing("CÔNG CỤ CŨ — nhập nhanh từ đối tượng đang chọn", |ui| {
@@ -2168,7 +2168,7 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
     // not buried beneath large measurement and summary tables.
     ui.separator();
     egui::CollapsingHeader::new("XUẤT EXCEL CHỦ ĐẦU TƯ • Cấu hình cột / nhóm / đơn vị / trang in").id_salt("cadtbt360_qto_excel_settings").default_open(false).show(ui, |ui| {
-        ui.strong("BÁO CÁO ĐO BÓC KHỐI LƯỢNG — CADTBT360_V1.010");
+        ui.strong("BÁO CÁO ĐO BÓC KHỐI LƯỢNG — CADTBT360_V1.011");
         ui.small("Tạo XLSX có tiêu đề, nhóm công việc, tổng theo đơn vị, bảng kẻ chuẩn, A4 ngang, tiêu đề lặp mỗi trang và ô ký duyệt.");
         ui.horizontal_wrapped(|ui| {
             ui.label("Tên dự án");
@@ -2224,7 +2224,7 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
         if ui.add_enabled(state.export_config.valid() && count + volume_count + road_count > 0, egui::Button::new("XUẤT EXCEL XLSX — ĐỊNH DẠNG IN A4")).clicked() {
             match qto_combined_report_lines(app, state, &source_validation, &state.export_config, allowed_handles.as_ref()) {
                 Ok(rows) => {
-                    if let Some(path) = rfd::FileDialog::new().add_filter("Excel Workbook", &["xlsx"]).set_file_name("CADTBT360_V1.010_BANG_DO_BOC_KHOI_LUONG.xlsx").save_file() {
+                    if let Some(path) = rfd::FileDialog::new().add_filter("Excel Workbook", &["xlsx"]).set_file_name("CADTBT360_V1.011_BANG_DO_BOC_KHOI_LUONG.xlsx").save_file() {
                         match takeoff_report::write_xlsx(&path, &state.export_config, &rows) {
                             Ok(()) => state.file_feedback = format!("Đã tạo Excel XLSX có bố cục in A4: {}", path.display()),
                             Err(error) => state.file_feedback = format!("Không thể xuất báo cáo Excel: {error}"),
