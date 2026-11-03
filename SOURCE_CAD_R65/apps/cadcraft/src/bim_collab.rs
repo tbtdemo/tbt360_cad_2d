@@ -3271,6 +3271,28 @@ mod tests {
     }
 
     #[test]
+    fn save_after_corrupted_main_does_not_destroy_last_valid_backup() {
+        let folder = std::env::temp_dir().join(format!("tbt-bim-keep-backup-{}-{}", std::process::id(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        std::fs::create_dir(&folder).unwrap();
+        let path = folder.join("workspace.json");
+        let backup = path.with_extension("json.bak");
+        let first = serde_json::json!({"version": 2, "iteration": 1});
+        let second = serde_json::json!({"version": 2, "iteration": 2});
+        save_workspace_safely(&path, &first).unwrap();
+        save_workspace_safely(&path, &second).unwrap();
+        std::fs::write(&path, b"{damaged").unwrap();
+        let third = serde_json::json!({"version": 2, "iteration": 3});
+
+        save_workspace_safely(&path, &third).unwrap();
+
+        let saved: serde_json::Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        let previous: serde_json::Value = serde_json::from_slice(&std::fs::read(&backup).unwrap()).unwrap();
+        assert_eq!(saved, third);
+        assert_eq!(previous, first);
+        std::fs::remove_dir_all(&folder).unwrap();
+    }
+
+    #[test]
     fn repeated_workspace_saves_replace_existing_main_and_backup() {
         let folder = std::env::temp_dir().join(format!("tbt-bim-repeat-{}-{}", std::process::id(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
         std::fs::create_dir(&folder).unwrap();
