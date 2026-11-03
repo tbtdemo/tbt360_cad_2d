@@ -1918,6 +1918,16 @@ fn issue_audit_entries<'a>(entries: &'a [AuditEntry], issue_id: u64) -> Vec<&'a 
     entries.iter().filter(|entry| match entry.issue_id { Some(id) => id == issue_id, None => (entry.action == "ISSUE_UPDATED" && entry.detail.starts_with(&prefix)) || (entry.action == "ISSUE_CONFIRMED_CLOSED" && entry.detail.starts_with(&closed)) }).collect()
 }
 
+/// Online is a user-selected workspace mode, not proof that an authenticated remote session exists.
+fn can_sync_from_dashboard(state: &State) -> bool {
+    state.connection == ConnectionMode::Online
+        && state.auth.status == AuthStatus::OnlineAuthenticated
+        && state.auth.account_id == state.current_account_id
+        && !state.current_account_id.trim().is_empty()
+        && state.conflicts.is_empty()
+        && state.pending_changes.iter().any(|change| !change.synced && change.account_id == state.current_account_id)
+}
+
 /// Dashboard cells intentionally use real BIM session values, never mock sample counts.
 fn collaboration_metric(ui: &mut egui::Ui, title: &str, value: usize, description: &str) {
     egui::Frame::group(ui.style()).show(ui, |ui| {
@@ -2163,8 +2173,11 @@ pub fn panel(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut 
                     ui.strong("CHẾ ĐỘ LÀM VIỆC");
                     for mode in [ConnectionMode::Offline, ConnectionMode::Online] { ui.selectable_value(&mut state.connection, mode, mode.label()); }
                     // This action only updates the local prototype, not a remote BIM server.
-                    if ui.add_enabled(state.connection == ConnectionMode::Online && pending > 0 && state.conflicts.is_empty(),
+                    if ui.add_enabled(can_sync_from_dashboard(state),
                         egui::Button::new("Đồng bộ thay đổi (cục bộ / mô phỏng)")).clicked() { state.sync_pending_changes(); }
+                    if state.connection == ConnectionMode::Online && state.auth.status != AuthStatus::OnlineAuthenticated {
+                        ui.colored_label(egui::Color32::YELLOW, "Cần xác thực tài khoản trước khi mô phỏng đồng bộ.");
+                    }
                 });
             });
             ui.add_space(8.0);
@@ -3064,6 +3077,16 @@ mod tests {
         assert_eq!(state.audit_log.len(), audit_count);
         let issue = state.issues.last().unwrap();
         assert_eq!((issue.assigned_to.as_str(), issue.issue_type.as_str(), issue.due_at.as_str()), ("designer", "RFI", "2028-02-29"));
+    }
+
+    #[test]
+    fn collaboration_dashboard_sync_requires_authenticated_owner_and_no_conflict() {
+        let mut state = State::default();
+        assert!(!can_sync_from_dashboard(&state));
+        state.connection = ConnectionMode::Online;
+        assert!(!can_sync_from_dashboard(&state), "switching UI mode must not authenticate a user");
+        state.auth.status = AuthStatus::OnlineAuthenticated;
+        assert!(!can_sync_from_dashboard(&state), "empty queue must not enable syncing");
     }
 
     #[test]
