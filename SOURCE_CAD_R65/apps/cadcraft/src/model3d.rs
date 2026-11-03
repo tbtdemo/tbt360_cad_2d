@@ -303,7 +303,7 @@ pub fn panel(ui: &mut egui::Ui, state: &mut State) {
         state.pitch = (state.pitch + delta.y * 0.008).clamp(-1.4, 1.4);
     }
     if response.hovered() {
-        let scroll = ui.ctx().input(|input| input.raw_scroll_delta.y);
+        let scroll = ui.ctx().input(|input| input.smooth_scroll_delta.y);
         state.zoom = (state.zoom * (1.0 + scroll * 0.001)).clamp(0.05, 30.0);
     }
     let painter = ui.painter_at(rect).with_clip_rect(rect);
