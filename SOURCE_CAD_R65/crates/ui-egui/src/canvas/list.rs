@@ -23,6 +23,13 @@ impl PrimIndex {
         if handles.is_empty() {
             return Vec::new();
         }
+        // For a first hover/selection of only 1-2 handles in a giant CAD
+        // drawing, scanning one time is cheaper and avoids sorting/storing a
+        // 100k+ entry lookup. Multi-object operations still build the cached
+        // index for repeated fast queries.
+        if self.list_gen.is_none() && list.prims.len() > 50_000 && handles.len() <= 2 {
+            return list.prims.iter().enumerate().filter(|(_, p)| handles.contains(&p.handle)).map(|(i, _)| i).collect();
+        }
         if self.list_gen.is_none() {
             self.by_handle = list.prims.iter().enumerate().map(|(i, p)| (p.handle, i)).collect();
             self.by_handle.sort_unstable();
