@@ -45,6 +45,12 @@ impl Opening {
             self.queued.push_back(path.to_string());
             return;
         }
+        self.spawn_reader(path);
+    }
+
+    /// The oldest queued request is dispatched without draining/rebuilding the
+    /// rest of the FIFO queue. Only one decoded drawing is held for UI install.
+    fn spawn_reader(&mut self, path: &str) {
         let (tx, rx) = channel();
         let p = path.to_string();
         let progress = Arc::new(LoadProgress::default());
@@ -98,14 +104,9 @@ impl Opening {
     /// Start the next decoder only after the previous decoded drawing has been
     /// installed (or dropped) on the UI thread, minimizing simultaneous RAM peaks.
     pub fn start_next_after_install(&mut self) {
-        if self.jobs.is_empty() {
-            if let Some(path) = self.queued.pop_front() {
-                // start() honours queue order, so temporarily drain the rest before
-                // starting the oldest request and then restore the pending FIFO.
-                let remaining = std::mem::take(&mut self.queued);
-                self.start(&path);
-                self.queued = remaining;
-            }
+        if !self.jobs.is_empty() { return; }
+        if let Some(path) = self.queued.pop_front() {
+            self.spawn_reader(&path);
         }
     }
 
