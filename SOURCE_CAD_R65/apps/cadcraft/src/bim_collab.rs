@@ -1819,58 +1819,56 @@ pub fn sync_render_filters(app: &mut cadcraft_ui_egui::CadApp, state: &State) {
         app.tile_render_filters.clear();
         return;
     };
-    let has_bim_meta = doc.model.iter().any(|entity| bim_meta(&entity.common).is_some());
+    // Parse each entity's BIM metadata only once for all 1-4 visible tiles.
+    // Previously each tile scanned the entire drawing independently, including
+    // repeated XDATA parsing and account lookups for every entity.
+    let mut filters = state.views.iter().map(|slot| cadcraft_ui_egui::TileRenderFilter {
+        enabled: true,
+        primary_handles: Vec::new(),
+        reference_handles: Vec::new(),
+        reference_opacity: slot.overlay_opacity,
+    }).collect::<Vec<_>>();
+    let mut has_bim_meta = false;
+    for entity in doc.model.iter() {
+        let Some(meta) = bim_meta(&entity.common) else {
+            for filter in &mut filters {
+                filter.reference_handles.push(entity.handle);
+            }
+            continue;
+        };
+        has_bim_meta = true;
+        let target = state.users.iter().find(|user| user.account_id == meta.owner_account_id);
+        for (slot, filter) in state.views.iter().zip(filters.iter_mut()) {
+            let owner_matches = slot.owner_account_id.as_ref().is_none_or(|owner| owner == &meta.owner_account_id);
+            if meta.floor_id == slot.floor_id && meta.discipline == slot.discipline && owner_matches {
+                if (slot.show_other_users || meta.owner_account_id == state.current_account_id)
+                    && target.is_some_and(|user| state.can_view(user, meta.floor_id, state.active_floor_id))
+                {
+                    filter.primary_handles.push(entity.handle);
+                }
+                continue;
+            }
+            if meta.floor_id != slot.floor_id { continue; }
+            if (!slot.show_other_users && meta.owner_account_id != state.current_account_id)
+                || !target.is_some_and(|user| state.can_view(user, meta.floor_id, state.active_floor_id))
+            {
+                continue;
+            }
+            filter.reference_handles.push(entity.handle);
+        }
+    }
     if !has_bim_meta {
         app.tile_render_filters.clear();
         return;
     }
-
-    let mut filters = Vec::with_capacity(state.views.len());
-    for slot in &state.views {
-        let mut primary_handles = Vec::new();
-        let mut reference_handles = Vec::new();
-        for entity in doc.model.iter() {
-            let Some(meta) = bim_meta(&entity.common) else {
-                reference_handles.push(entity.handle);
-                continue;
-            };
-            let owner_matches = slot.owner_account_id.as_ref().is_none_or(|owner| owner == &meta.owner_account_id);
-            if meta.floor_id == slot.floor_id && meta.discipline == slot.discipline && owner_matches {
-                // A matching tile is not permission to see or edit an entity.
-                // Respect account access rules and owner share grants even in its primary layer.
-                let user = state.users.iter().find(|u| u.account_id == meta.owner_account_id);
-                if (slot.show_other_users || meta.owner_account_id == state.current_account_id)
-                    && user.is_some_and(|target| state.can_view(target, meta.floor_id, state.active_floor_id))
-                {
-                    primary_handles.push(entity.handle);
-                }
-                continue;
-            }
-            if meta.floor_id != slot.floor_id {
-                continue;
-            }
-            let Some(target) = state.users.iter().find(|u| u.account_id == meta.owner_account_id) else { continue };
-            if (!slot.show_other_users && meta.owner_account_id != state.current_account_id)
-                || !state.can_view(target, meta.floor_id, state.active_floor_id)
-            {
-                continue;
-            }
-            reference_handles.push(entity.handle);
-        }
-        primary_handles.sort_unstable();
-        primary_handles.dedup();
-        reference_handles.sort_unstable();
-        reference_handles.dedup();
-        filters.push(cadcraft_ui_egui::TileRenderFilter {
-            enabled: true,
-            primary_handles,
-            reference_handles,
-            reference_opacity: slot.overlay_opacity,
-        });
+    for filter in &mut filters {
+        filter.primary_handles.sort_unstable();
+        filter.primary_handles.dedup();
+        filter.reference_handles.sort_unstable();
+        filter.reference_handles.dedup();
     }
     app.tile_render_filters = filters;
 }
-
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum CollaborationTab { Overview, Workspace, Issues, Sync, Permissions }
