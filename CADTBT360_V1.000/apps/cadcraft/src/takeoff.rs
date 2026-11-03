@@ -1362,6 +1362,9 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
                 columns[idx % 3].add_enabled(!mandatory, egui::Checkbox::new(&mut state.export_config.columns[idx], *label));
             }
         });
+        if state.export_config.selected().len() > 9 {
+            ui.colored_label(egui::Color32::YELLOW, "Đang bật hơn 9 cột: Excel sẽ thu nhỏ khi in A4 ngang. Nên ẩn bớt cột kỹ thuật nếu gửi Chủ đầu tư.");
+        }
         // Avoid constructing, sorting and grouping the complete report each GUI frame.
         let count = state.records.iter().filter(|r| r.status != MeasureStatus::Excluded && !source_validation.invalid_record_ids.contains(&r.id) && qto_record_exportable(r, &source_validation, lf, af, state.export_config.confirmed_only)).count();
         ui.label(format!("Sẵn sàng xem xét: {count} phép đo, {} cột. File XLSX được tạo khi bấm Xuất.", state.export_config.selected().len()));
