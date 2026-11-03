@@ -8,6 +8,7 @@ on:
       - 'CADTBT360_V1.000/**'
       - '.github/workflows/cadtbt360-v1022-windows.yml'
       - 'RELEASES/CADTBT360_V1.022.md'
+      - 'CADTBT360_V1.022.iss'
 jobs:
   windows-x64:
     runs-on: windows-latest
@@ -154,32 +155,8 @@ jobs:
             if ($LASTEXITCODE -ne 0) { throw 'Inno Setup installation failed' }
           }
           if (!(Test-Path $iscc)) { throw 'Inno Setup compiler not found' }
-          $script = @'
-          [Setup]
-          AppId={{6BCA4011-C394-4C3D-AB6D-3D8D5A0B1000}
-          AppName=CAD TBT 360
-          AppVersion=1.0.22
-          AppVerName=CAD TBT 360 V1.022
-          DefaultDirName={autopf}\CAD TBT 360
-          DefaultGroupName=CAD TBT 360
-          OutputDir=dist
-          OutputBaseFilename=CADTBT360_V1.022_Setup
-          Compression=lzma
-          SolidCompression=yes
-          ArchitecturesAllowed=x64compatible
-          ArchitecturesInstallIn64BitMode=x64compatible
-          UninstallDisplayName=CAD TBT 360 V1.022
-          [Files]
-          Source: "dist\CADTBT360_V1.022.exe"; DestDir: "{app}"; Flags: ignoreversion
-          [Icons]
-          Name: "{autoprograms}\CAD TBT 360"; Filename: "{app}\CADTBT360_V1.022.exe"
-          Name: "{autodesktop}\CAD TBT 360"; Filename: "{app}\CADTBT360_V1.022.exe"; Tasks: desktopicon
-          [Tasks]
-          Name: "desktopicon"; Description: "Tạo biểu tượng màn hình"; GroupDescription: "Biểu tượng:"
-          [Run]
-          Filename: "{app}\CADTBT360_V1.022.exe"; Description: "Mở CAD TBT 360"; Flags: nowait postinstall skipifsilent
-          '@
-          Set-Content -Path 'CADTBT360_V1.022.iss' -Value $script -Encoding utf8BOM
+          if (!(Test-Path 'CADTBT360_V1.022.iss')) { throw 'Versioned Inno Setup script not found in checkout' }
+          if (!(Test-Path 'dist/CADTBT360_V1.022.exe')) { throw 'Portable EXE required by installer is missing' }
           & $iscc 'CADTBT360_V1.022.iss'
           if ($LASTEXITCODE -ne 0) { throw 'Inno Setup failed' }
           if (!(Test-Path 'dist/CADTBT360_V1.022_Setup.exe')) { throw 'Setup EXE missing' }
