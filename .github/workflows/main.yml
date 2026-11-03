@@ -153,6 +153,8 @@ jobs:
             @{ Label = "UI"; Found = $uiTests; Name = "canvas::rebuild::stale_background_view_tests::completed_job_cannot_replace_mesh_for_changed_zoom_or_outside_window" },
             @{ Label = "UI"; Found = $uiTests; Name = "opening::tests::ten_queued_files_preserve_fifo_order_with_one_decoder_at_a_time" },
             @{ Label = "UI"; Found = $uiTests; Name = "canvas::tests::prim_index_releases_large_old_drawing_after_switch_with_empty_selection" },
+            @{ Label = "UI"; Found = $uiTests; Name = "canvas::draw::highlight_view_culling_tests::offscreen_selected_geometry_does_not_need_cpu_highlight_shapes" },
+            @{ Label = "UI"; Found = $uiTests; Name = "gpu::gpu_memory_budget_tests::gpu_highlight_preserves_selected_segments_after_bounded_reservation" },
             @{ Label = "UI"; Found = $uiTests; Name = "opening::tests::card_text_names_the_file_and_counts_queued_ones" },
             @{ Label = "Engine"; Found = $engineTests; Name = "capped_read::tests::transient_interrupted_read_retries_without_losing_geometry_bytes" },
             @{ Label = "UI"; Found = $uiTests; Name = "canvas::draw::cpu_culling_tests::large_offscreen_drawing_does_not_reserve_one_shape_per_entity" },
@@ -209,6 +211,8 @@ jobs:
         run: |
           cargo test --locked -p cadcraft-ui-egui canvas::draw::cpu_culling_tests -- --nocapture
           if ($LASTEXITCODE -ne 0) { throw "Large CAD CPU display-list culling regressions failed" }
+          cargo test --locked -p cadcraft-ui-egui canvas::draw::highlight_view_culling_tests -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw "Large CAD CPU selection-highlight view culling failed" }
       - name: Test GPU mesh memory budget and vertex integrity
         shell: pwsh
         run: |
