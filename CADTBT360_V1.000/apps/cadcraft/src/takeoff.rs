@@ -1366,6 +1366,25 @@ fn qto_report_lines(state: &State, source_validation: &SourceValidation, config:
     Ok(result)
 }
 
+/// Export both ordinary 2D measurements and verified plan×section 3D
+/// quantities without silently swallowing a failed measurement validation.
+fn qto_combined_report_lines(app: &CadApp, state: &State, source_validation: &SourceValidation,
+    config: &ExportConfig, allowed: Option<&BTreeSet<String>>) -> Result<Vec<ReportLine>, String> {
+    if !config.valid() || config.project.trim().is_empty() || config.investor.trim().is_empty() {
+        return Err("Cần khai báo dự án, Chủ đầu tư và chọn các cột bắt buộc.".into());
+    }
+    let has_ordinary = state.records.iter().any(|record| qto_record_in_scope(record, allowed)
+        && !state.export_omitted_ids.contains(&record.id)
+        && qto_measure_type_allowed(record.kind, state.selected_measure_types)
+        && record.status != MeasureStatus::Excluded
+        && (!config.confirmed_only || record.status == MeasureStatus::Confirmed));
+    let mut rows = if has_ordinary { qto_report_lines(state, source_validation, config, allowed)? } else { Vec::new() };
+    rows.extend(qto_volume_report_lines(app, state, config, allowed)?);
+    if rows.is_empty() { return Err("Không có phép đo đủ điều kiện theo phạm vi và phương pháp đã chọn.".into()); }
+    rows.sort_by(|a,b| a.group.cmp(&b.group).then(a.fields[1].cmp(&b.fields[1])).then(a.fields[7].cmp(&b.fields[7])));
+    Ok(rows)
+}
+
 fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Scope) {
     if !state.methods_initialized {
         state.selected_measure_types = [true, true, true, false];
@@ -1696,12 +1715,14 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
         // Avoid constructing, sorting and grouping the complete report each GUI frame.
         let allowed_handles = qto_allowed_handles(app, state);
         let count = state.records.iter().filter(|r| qto_record_in_scope(r, allowed_handles.as_ref()) && !state.export_omitted_ids.contains(&r.id) && qto_measure_type_allowed(r.kind, state.selected_measure_types) && r.status != MeasureStatus::Excluded && !source_validation.invalid_record_ids.contains(&r.id) && qto_record_exportable(r, &source_validation, lf, af, state.export_config.confirmed_only)).count();
-        ui.label(format!("Sẵn sàng xem xét: {count} phép đo, {} cột. File XLSX được tạo khi bấm Xuất.", state.export_config.selected().len()));
+        let volume_count = state.volume_records.iter().filter(|volume| (!state.export_config.confirmed_only || volume.confirmed)
+            && allowed_handles.as_ref().is_none_or(|handles| handles.contains(&volume.plan.handle) && handles.contains(&volume.section.handle))).count();
+        ui.label(format!("Sẵn sàng xem xét: {count} phép đo 2D + {volume_count} phép đo thể tích hai nguồn, {} cột.", state.export_config.selected().len()));
         if !state.export_config.confirmed_only {
             ui.colored_label(egui::Color32::YELLOW, "Chế độ DỰ THẢO: có thể bao gồm phép đo chưa xác nhận. Không gửi Chủ đầu tư trước khi kiểm tra.");
         }
-        if ui.add_enabled(state.export_config.valid() && count > 0, egui::Button::new("XUẤT EXCEL XLSX — ĐỊNH DẠNG IN A4")).clicked() {
-            match qto_report_lines(state, &source_validation, &state.export_config, allowed_handles.as_ref()) {
+        if ui.add_enabled(state.export_config.valid() && count + volume_count > 0, egui::Button::new("XUẤT EXCEL XLSX — ĐỊNH DẠNG IN A4")).clicked() {
+            match qto_combined_report_lines(app, state, &source_validation, &state.export_config, allowed_handles.as_ref()) {
                 Ok(rows) => {
                     if let Some(path) = rfd::FileDialog::new().add_filter("Excel Workbook", &["xlsx"]).set_file_name("CADTBT360_V1.000_BANG_DO_BOC_KHOI_LUONG.xlsx").save_file() {
                         match takeoff_report::write_xlsx(&path, &state.export_config, &rows) {
