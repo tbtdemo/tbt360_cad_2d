@@ -161,8 +161,17 @@ fn latest_pair(root: &Path) -> Option<PathBuf> {
 }
 
 fn prune_generations(root: &Path) {
-    for stale in generations(root).into_iter().skip(MAX_GENERATIONS) {
-        let _ = std::fs::remove_dir_all(stale);
+    // Only count verified pairs toward the retention limit. Corrupted/new incomplete
+    // folders must never displace the last recoverable CAD geometry and BIM state.
+    let mut verified = 0usize;
+    for candidate in generations(root) {
+        if check_pair(&candidate).is_err() { continue; }
+        verified += 1;
+        if verified > MAX_GENERATIONS {
+            if let Err(error) = std::fs::remove_dir_all(&candidate) {
+                log::warn!("Cannot prune old CAD+BIM recovery {}: {error}", candidate.display());
+            }
+        }
     }
 }
 
@@ -200,6 +209,33 @@ mod tests {
         assert!(latest_pair(&root).is_none());
         std::fs::remove_dir_all(&root).unwrap();
     }
+    #[test]
+    fn corrupted_newer_generations_do_not_prune_last_good_backup() {
+        let root = std::env::temp_dir().join(format!("tbt-pair-prune-{}-{}", std::process::id(), SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()));
+        std::fs::create_dir_all(&root).unwrap();
+        let good = root.join("pair-good");
+        std::fs::create_dir(&good).unwrap();
+        let geometry = b"0\nSECTION\n2\nENTITIES\n0\nENDSEC\n0\nEOF\n";
+        let metadata = br#"{"version":2,"project_id":"keep-good"}"#;
+        std::fs::write(good.join("drawing.dxf"), geometry).unwrap();
+        std::fs::write(good.join("workspace.json"), metadata).unwrap();
+        let manifest = serde_json::json!({
+            "format": 1, "drawing_bytes": geometry.len(), "workspace_bytes": metadata.len(),
+            "drawing_checksum": content_checksum(geometry), "workspace_checksum": content_checksum(metadata),
+            "project_id": "keep-good"
+        });
+        std::fs::write(good.join("commit.json"), serde_json::to_vec(&manifest).unwrap()).unwrap();
+        for n in 0..6 {
+            let broken = root.join(format!("pair-broken-{n}"));
+            std::fs::create_dir(&broken).unwrap();
+            std::fs::write(broken.join("commit.json"), b"invalid").unwrap();
+        }
+        prune_generations(&root);
+        assert!(good.exists(), "a valid recovery must not be pruned by malformed generations");
+        assert_eq!(latest_pair(&root).as_deref(), Some(good.as_path()));
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
     #[test]
     fn metadata_pair_rejects_missing_geometry() {
         let dir = std::env::temp_dir().join(format!("tbt-paired-recovery-missing-{}", std::process::id()));
