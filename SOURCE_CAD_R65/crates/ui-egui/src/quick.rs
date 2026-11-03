@@ -22,6 +22,8 @@ struct QsState {
     /// (drawing identity, revision, selected handles, applyTo, type) → info reply.
     info_key: Option<(usize, u64, u64, bool, String)>,
     info: Value,
+    /// Exact request and document/selection context used for the last preview.
+    preview_result: Option<(String, u64)>,
 }
 
 impl Default for QsState {
@@ -36,8 +38,25 @@ impl Default for QsState {
             append: false,
             info_key: None,
             info: Value::Null,
+            preview_result: None,
         }
     }
+}
+
+/// Build one shared request for both Preview and Apply so the count shown
+/// cannot accidentally use different filters from the actual selection.
+fn qselect_request(st: &QsState) -> Value {
+    let mode = if st.exclude { "exclude" } else if st.append { "append" } else { "new" };
+    let mut p = json!({ "applyTo": if st.apply_selection { "selection" } else { "drawing" }, "mode": mode });
+    if let Some(o) = p.as_object_mut() {
+        if st.ty != "Multiple" { o.insert("type".into(), json!(st.ty)); }
+        if !st.property.is_empty() && !st.value.trim().is_empty() {
+            o.insert("property".into(), json!(st.property));
+            o.insert("operator".into(), json!(st.operator));
+            o.insert("value".into(), qselect_value_for_property(&st.property, &st.value));
+        }
+    }
+    p
 }
 
 /// Case-insensitive search for a Layer/Linetype name without allocating a
@@ -118,6 +137,7 @@ pub fn qselect_dialog(app: &mut CadApp, ctx: &egui::Context, open: &mut bool) {
     }
     let has_sel = !app.session.selection().is_empty();
     let mut run: Option<Value> = None;
+    let mut preview: Option<Value> = None;
     let mut close = false;
     egui::Window::new(crate::tl!("Quick Select"))
         .id(egui::Id::unique("Quick Select"))
@@ -231,6 +251,10 @@ pub fn qselect_dialog(app: &mut CadApp, ctx: &egui::Context, open: &mut bool) {
             ui.separator();
             let valid_filter = qselect_has_criteria(&st.ty, &st.property, &st.value);
             if !valid_filter { ui.colored_label(egui::Color32::YELLOW, "Chọn loại đối tượng hoặc nhập giá trị thuộc tính trước khi lọc."); }
+            let signature = format!("{:?}|{}", st.info_key, qselect_request(&st));
+            if let Some((previous, count)) = &st.preview_result {
+                if *previous == signature { ui.strong(format!("Xem trước: {count} đối tượng phù hợp")); }
+            }
             ui.horizontal(|ui| {
                 if ui.button("Xóa điều kiện").clicked() {
                     st.ty = "Multiple".into();
@@ -242,38 +266,25 @@ pub fn qselect_dialog(app: &mut CadApp, ctx: &egui::Context, open: &mut bool) {
                     st.info_key = None;
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui.button(crate::tl!("Cancel")).clicked() { close = true; }
                     if ui.add_enabled(valid_filter, egui::Button::new(crate::tl!("  OK  "))).clicked() {
-                        let mode = if st.exclude {
-                            "exclude"
-                        } else if st.append {
-                            "append"
-                        } else {
-                            "new"
-                        };
-                        let mut p = json!({
-                            "applyTo": if st.apply_selection { "selection" } else { "drawing" },
-                            "mode": mode,
-                        });
-                        if let Some(o) = p.as_object_mut() {
-                            if st.ty != "Multiple" {
-                                o.insert("type".into(), json!(st.ty));
-                            }
-                            if !st.property.is_empty() && !st.value.trim().is_empty() {
-                                o.insert("property".into(), json!(st.property));
-                                o.insert("operator".into(), json!(st.operator));
-                                let v = st.value.trim();
-                                o.insert("value".into(), qselect_value_for_property(&st.property, v));
-                            }
-                        }
-                        run = Some(p);
+                        run = Some(qselect_request(&st));
                         close = true;
                     }
-                    if ui.button(crate::tl!("Cancel")).clicked() {
-                        close = true;
+                    if ui.add_enabled(valid_filter, egui::Button::new("Xem trước")).on_hover_text("Đếm đối tượng phù hợp mà không thay đổi tập chọn hiện tại").clicked() {
+                        preview = Some(qselect_request(&st));
                     }
                 });
             });
         });
+    if let Some(mut p) = preview {
+        let signature = format!("{:?}|{}", st.info_key, p);
+        p["preview"] = json!(true);
+        match app.session.execute("qselect", &p) {
+            Ok(result) => st.preview_result = result.get("selected").and_then(Value::as_u64).map(|count| (signature, count)),
+            Err(error) => { st.preview_result = None; log::warn!("QSELECT preview failed: {error}"); }
+        }
+    }
     ctx.data_mut(|d| d.insert_temp(sid, st));
     if let Some(p) = run {
         let _ = app.run("qselect", p);
@@ -538,6 +549,20 @@ mod qselect_filter_tests {
         assert!(!super::qselect_has_criteria("Multiple", "layer", "  "));
         assert!(super::qselect_has_criteria("LINE", "layer", ""));
         assert!(super::qselect_has_criteria("Multiple", "layer", "WALL"));
+    }
+
+    #[test]
+    fn preview_and_apply_share_exactly_the_same_filter_parameters() {
+        let mut st = super::QsState::default();
+        st.ty = "Circle".into();
+        st.property = "radius".into();
+        st.value = "2.5".into();
+        let p = super::qselect_request(&st);
+        assert_eq!(p["type"], "Circle");
+        assert_eq!(p["value"], serde_json::json!(2.5));
+        assert_eq!(p["mode"], "new");
+        st.append = true;
+        assert_eq!(super::qselect_request(&st)["mode"], "append");
     }
 
     #[test]
