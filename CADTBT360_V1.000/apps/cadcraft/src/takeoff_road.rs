@@ -231,8 +231,13 @@ pub fn validate_range_export_readiness(sections: &[RoadCrossSection], range: Opt
     let mut sorted=sections.iter().filter(|section|section.chainage_m>=start-1.0e-6 && section.chainage_m<=end+1.0e-6).collect::<Vec<_>>();
     sorted.sort_by(|a,b|a.chainage_m.total_cmp(&b.chainage_m));
     if sorted.len()<2 {return Err("Khoảng lý trình đã chọn không có đủ hai trắc ngang để đo bóc.".into());}
-    if confirmed_only && !sorted.windows(2).any(|pair|pair[0].confirmed && pair[1].confirmed) {
-        return Err("Khoảng cọc đã chọn chưa có đoạn gồm hai trắc ngang liên tiếp cùng được xác nhận. Không thể phát hành khối lượng giao thông.".into());
+    if confirmed_only {
+        for pair in sorted.windows(2) {
+            if !pair[0].confirmed || !pair[1].confirmed {
+                return Err(format!("Đoạn {} → {} chưa được xác nhận đủ hai trắc ngang; không được phát hành thiếu khối lượng trong khoảng cọc đã chọn.",
+                    station_label(pair[0].chainage_m),station_label(pair[1].chainage_m)));
+            }
+        }
     }
     Ok(())
 }
@@ -466,6 +471,16 @@ mod tests {
         assert!(validate_range_export_readiness(&[first.clone(),last.clone()],None,true).is_ok());
         last.confirmed=true;
         assert!(validate_range_export_readiness(&[first,last],Some((1000.0,1020.0)),true).is_ok());
+    }
+    #[test]
+    fn selected_road_range_rejects_unapproved_gap_after_first_valid_pair() {
+        let a=section(1000.0,Some(source("AA",10.0)),None);
+        let b=section(1020.0,Some(source("BB",12.0)),None);
+        let mut c=section(1040.0,Some(source("CC",14.0)),None);
+        c.confirmed=false;
+        assert!(validate_range_export_readiness(&[a.clone(),b.clone(),c.clone()],Some((1000.0,1040.0)),true).is_err());
+        assert!(validate_range_export_readiness(&[a.clone(),b.clone(),c.clone()],Some((1000.0,1040.0)),false).is_ok());
+        assert!(validate_range_export_readiness(&[a,b],Some((1000.0,1020.0)),true).is_ok());
     }
     #[test]
     fn rejects_duplicate_cad_plan_markers_before_export() {
