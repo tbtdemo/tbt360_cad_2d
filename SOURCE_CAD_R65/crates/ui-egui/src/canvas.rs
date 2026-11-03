@@ -269,7 +269,8 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui) {
     // or a floating palette lives on a layer above the canvas, where `hovered()` alone still
     // counts the canvas. Over those the OS cursor stays visible and the crosshair stays put, as
     // over the menu bar (#1701).
-    let inside = hover_pos.is_some_and(|p| rect.contains(p) && ui.ctx().layer_id_at(p) == Some(ui.layer_id()) && resp.hovered());
+    // Use actual pointer position and topmost layer: hovered() may be false on the first press while egui transfers focus.
+    let inside = hover_pos.is_some_and(|p| rect.contains(p) && ui.ctx().layer_id_at(p) == Some(ui.layer_id()));
     // The menus the canvas paints itself (selection cycling's rows, Dynamic Input's options) are
     // menus too, but they share the canvas's layer: `layer_id_at` reports the drawing under them,
     // so only their rectangles tell them apart from it ([`over_canvas_menu`]). They are excluded
@@ -578,6 +579,7 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui) {
         app.canvas.drag_window = false;
     }
     if app.session.settings.pickdrag
+        && !point_prompt
         && resp.drag_started_by(egui::PointerButton::Primary)
         && !middle_down
         && app.canvas.cycle.is_none()
