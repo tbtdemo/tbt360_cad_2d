@@ -84,6 +84,15 @@ pub fn station_label(metres: f64) -> String {
     let km = (metres / 1000.0).floor() as u64;
     format!("Km{}+{:06.2}", km, metres - km as f64 * 1000.0)
 }
+/// Normalize a CAD handle through its numeric value rather than its spelling.
+/// For example AA, aa and 0AA all refer to the same drawing entity.
+fn same_cad_handle(left: &str, right: &str) -> bool {
+    match (cadcraft_doc::Handle::parse_hex(left),cadcraft_doc::Handle::parse_hex(right)) {
+        (Some(a),Some(b))=>a==b,
+        _=>false,
+    }
+}
+
 pub fn validate_section(section: &RoadCrossSection) -> Result<(), String> {
     if !section.chainage_m.is_finite() || section.chainage_m < 0.0 || section.chainage_m > 1.0e9 {
         return Err("Lý trình mặt cắt không hợp lệ.".into());
@@ -92,7 +101,7 @@ pub fn validate_section(section: &RoadCrossSection) -> Result<(), String> {
     if section.cut.is_none() && section.fill.is_none() && !section.cut_zero_confirmed && !section.fill_zero_confirmed { return Err("Mỗi trắc ngang cần diện tích hoặc xác nhận diện tích bằng 0.".into()); }
     if (section.cut.is_some() && section.cut_zero_confirmed) || (section.fill.is_some() && section.fill_zero_confirmed) { return Err("Không thể vừa đo diện tích dương vừa xác nhận bằng 0 cho cùng loại đào/đắp.".into()); }
     if let (Some(cut), Some(fill)) = (&section.cut, &section.fill) {
-        if cut.handle == fill.handle { return Err("Không thể sử dụng cùng một vùng CAD cho cả đào và đắp.".into()); }
+        if same_cad_handle(&cut.handle,&fill.handle) { return Err("Không thể sử dụng cùng một vùng CAD cho cả đào và đắp.".into()); }
     }
     for source in [&section.cut, &section.fill].into_iter().flatten() {
         if source.raw_value <= 0.0 || !source.raw_value.is_finite() || source.signature.trim().is_empty() ||
@@ -138,7 +147,7 @@ pub fn intervals(sections: &[RoadCrossSection], drawing_unit_to_m: f64,
             match (a,b) {
                 (None,None) => {},
                 (Some((area_start_m2,source_start)),Some((area_end_m2,source_end))) => {
-                    if !source_start.is_empty() && source_start == source_end {
+                    if !source_start.is_empty() && !source_end.is_empty() && same_cad_handle(&source_start,&source_end) {
                         return Err("Hai cọc liên tiếp không được dùng chung một đối tượng diện tích CAD.".into());
                     }
                     let volume_m3 = (area_start_m2 + area_end_m2) * length_m / 2.0;
@@ -352,6 +361,14 @@ mod tests {
         assert!(parse_range("Km1+040","Km1+020").is_err());
     }
 
+    #[test]
+    fn reject_same_area_geometry_handle_regardless_of_hex_padding() {
+        let section=section(1000.0,Some(source("AA",10.0)),Some(source("0aa",12.0)));
+        assert!(validate_section(&section).is_err());
+        let first=section(1000.0,Some(source("AA",20.0)),None);
+        let second=section(1020.0,Some(source("0AA",30.0)),None);
+        assert!(intervals(&[first,second],1.0,true).is_err());
+    }
     #[test]
     fn rejects_duplicate_cad_plan_markers_before_export() {
         let mut a=section(1000.0,Some(source("1A",10.0)),None);
