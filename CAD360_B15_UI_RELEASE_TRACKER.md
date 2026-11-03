@@ -1,3 +1,17 @@
+## B23 — QSELECT Preview bám đúng tập chọn CAD (03/11/2026)
+
+**Phát hiện lỗi hành vi:** Trong QSELECT `applyTo=drawing, mode=append`, khi tập chọn thay đổi nhưng drawing revision không đổi, `qselect.info` cache giữ nguyên là hợp lý, nhưng chữ ký kết quả `Xem trước` cũng giữ nguyên nên có thể hiển thị số đếm cũ. Ví dụ: chọn thêm 10 đối tượng sau khi preview và chưa sửa bản vẽ.
+
+**Thay đổi đã commit:** `SOURCE_CAD_R65/crates/ui-egui/src/quick.rs` dùng `selection_hash` từ danh sách handle hiện tại cho cả chữ ký `qselect_preview_signature` (dù `apply_selection=false`), trong khi `qselect.info` chỉ tái truy vấn theo selection khi `apply_selection=true`. Nút Preview và chữ ký trước khi hiển thị dùng chung một hàm. Thêm test `append_preview_signature_changes_when_current_selection_changes`. [Commit nguồn `deb9b570`](https://github.com/tbtdemo/tbt360_cad_2d/commit/deb9b570b08859df373611938b63eef3f681de8d).
+
+**Đóng gói B23:** commit [`f04c7756`](https://github.com/tbtdemo/tbt360_cad_2d/commit/f04c77560dd43e42d5ed8dc4ae9ac7e9f6b70596) đổi nhãn artifact sang `CAD360-TBT-Windows-x64-Setup-Portable-Source-B23-QSELECT`, và kiểm tra test mới trong Source ZIP; unit test QSELECT engine/UI và BIM vẫn có trong pipeline.
+- [Ubuntu→Windows B23 run 41643792393](https://github.com/tbtdemo/tbt360_cad_2d/actions/runs/41643792393): queued tại lần kiểm tra.
+- [Windows Native B23 run 41643792266](https://github.com/tbtdemo/tbt360_cad_2d/actions/runs/41643792266): queued tại lần kiểm tra.
+- B22 cross [41643336730](https://github.com/tbtdemo/tbt360_cad_2d/actions/runs/41643336730) vẫn biên dịch và native [41643336472](https://github.com/tbtdemo/tbt360_cad_2d/actions/runs/41643336472) vẫn biên dịch; chưa có artifact EXE B22/B23 lúc kiểm tra.
+
+**Cổng bàn giao B23:** source đã commit 1/4 = **25%**; build EXE, artifact đúng commit, GUI Windows chưa xác minh. Test mã đã viết chưa được tính PASS. Không nhầm source ZIP với installer.
+
+
 ## B22 — Sửa QSELECT Exclude theo object type, kiểm thử CAD và đóng gói (03/11/2026)
 
 **Bộ cài gần nhất đã xác nhận:** B20 commit `b1a2861d`, run [41641837917](https://github.com/tbtdemo/tbt360_cad_2d/actions/runs/41641837917), artifact [13232439435](https://github.com/tbtdemo/tbt360_cad_2d/actions/runs/41641837917/artifacts/13232439435) `CAD360-TBT-REAL-Windows-x64-Setup-Portable-Source-B15-UI`, 63,913,419 bytes. Build và upload đã hoàn tất; kiểm thử BIM tiếp tục, không gọi là release nghiệm thu.
