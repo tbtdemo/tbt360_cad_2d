@@ -1283,7 +1283,7 @@ fn qto_road_report_lines(app: &CadApp, state: &State, config: &ExportConfig,
             String::new(),code.clone(),format!("{} {} → {}",kind,
                 takeoff_road::station_label(interval.start_m),takeoff_road::station_label(interval.end_m)),
             state.road_work_group.clone(),format!("{} + {}",interval.source_start,interval.source_end),
-            String::new(),"Giao thông".into(),"Thể tích".into(),String::new(),unit.clone(),
+            String::new(),"Giao thông".into(),kind.into(),String::new(),unit.clone(),
             format!("AEA: L={:.3}m; Ađầu={:.3}m²; Acuối={:.3}m². Tách riêng đào/đắp.",interval.length_m,interval.area_start_m2,interval.area_end_m2),
             format!("{} + {}",interval.source_start,interval.source_end)
         ];
