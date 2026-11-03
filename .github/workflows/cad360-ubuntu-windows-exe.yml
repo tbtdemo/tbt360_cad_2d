@@ -95,6 +95,8 @@ jobs:
           unzip -p dist/CAD360_TBT_Source_R15_UI.zip SOURCE_CAD_R65/crates/ui-egui/src/quick.rs | grep -F 'selection_hash'
           unzip -p dist/CAD360_TBT_Source_R15_UI.zip SOURCE_CAD_R65/crates/ui-egui/src/quick.rs | grep -F 'qselect_value_for_property'
           unzip -p dist/CAD360_TBT_Source_R15_UI.zip SOURCE_CAD_R65/crates/ui-egui/src/quick.rs | grep -F 'qselect_keeps_numeric_layer_zero_as_text'
+          unzip -p dist/CAD360_TBT_Source_R15_UI.zip SOURCE_CAD_R65/crates/engine/src/cmd/qselect.rs | grep -F 'fn append_unique_handles'
+          unzip -p dist/CAD360_TBT_Source_R15_UI.zip SOURCE_CAD_R65/crates/engine/src/cmd/qselect.rs | grep -F 'qselect_append_handles_large_selection_without_duplication'
           for filename in CAD360_VietNam_TBT_Setup.exe CAD360_VietNam_TBT_Portable.zip CAD360_TBT_Source_R15_UI.zip; do
             test -s "dist/$filename"
           done
