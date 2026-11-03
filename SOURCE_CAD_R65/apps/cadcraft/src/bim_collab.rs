@@ -2188,7 +2188,16 @@ pub fn panel(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut 
                 });
                 cols[1].group(|ui| {
                     ui.heading("NHẬT KÝ & XUNG ĐỘT");
-                    if !state.conflicts.is_empty() { ui.colored_label(egui::Color32::LIGHT_RED, format!("{} xung đột chưa xử lý", state.conflicts.len())); }
+                    if !state.conflicts.is_empty() {
+                        ui.colored_label(egui::Color32::LIGHT_RED, format!("{} xung đột chưa xử lý", state.conflicts.len()));
+                        for conflict in state.conflicts.iter().take(10) {
+                            ui.horizontal(|ui| {
+                                ui.strong(format!("CAD {}", conflict.handle.hex()));
+                                ui.label(format!("Gốc r{} • Cục bộ r{} • Khác r{}", conflict.base_revision, conflict.local_revision, conflict.remote_revision));
+                            });
+                        }
+                        ui.separator();
+                    }
                     if state.audit_log.is_empty() { ui.label("Chưa có lịch sử đồng bộ."); }
                     egui::ScrollArea::vertical().max_height(290.0).show(ui, |ui| {
                         for entry in state.audit_log.iter().rev().take(30) {
