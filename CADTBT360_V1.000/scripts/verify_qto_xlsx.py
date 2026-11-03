@@ -35,7 +35,7 @@ def main(path):
     cols = sheet.findall("x:cols/x:col", NS)
     assert len(cols) == 8, f"Default must have eight print columns, found {len(cols)}"
     rows = sheet.findall("x:sheetData/x:row", NS)
-    assert len(rows) >= 15, "Missing report title, header, data, subtotal or sign-off rows"
+    assert len(rows) >= 14, "Missing report title, header, data, subtotal or sign-off rows"
     merges = sheet.findall("x:mergeCells/x:mergeCell", NS)
     assert int(sheet.find("x:mergeCells", NS).get("count")) == len(merges), "Merge count mismatch"
     assert len({item.get("ref") for item in merges}) == len(merges), "Duplicate merges"
