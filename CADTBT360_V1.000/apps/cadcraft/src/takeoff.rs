@@ -90,7 +90,7 @@ struct AuditEntry {
     after: Option<String>,
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 enum QtoSourceMode {
     #[default]
     CurrentSelection,
@@ -128,6 +128,9 @@ pub struct State {
     source_mode: QtoSourceMode,
     captured_handles: BTreeSet<String>,
     selected_measure_types: [bool; 4],
+    methods_initialized: bool,
+    preview_key: Option<u64>,
+    preview_measurements: Vec<PendingMeasurement>,
     edit_work_group: String,
     edit_work_code: String,
     edit_description: String,
@@ -1085,6 +1088,19 @@ fn qto_allowed_handles(app: &CadApp, state: &State) -> Option<BTreeSet<String>> 
         QtoSourceMode::EntireProject => None,
     }
 }
+fn qto_preview_key(app: &CadApp, mode: QtoSourceMode, handles: &BTreeSet<String>) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    mode.hash(&mut hasher);
+    handles.hash(&mut hasher);
+    if let Ok(st) = app.session.state() {
+        st.revision.hash(&mut hasher);
+        // Two drawings may both have revision=0; do not reuse geometry from a
+        // different document after switching tabs/files.
+        (std::sync::Arc::as_ptr(&st.doc) as usize).hash(&mut hasher);
+    }
+    hasher.finish()
+}
 fn qto_measure_type_allowed(kind: MeasureKind, chosen: [bool; 4]) -> bool {
     match kind {
         MeasureKind::Length => chosen[0],
@@ -1251,6 +1267,10 @@ fn qto_report_lines(state: &State, source_validation: &SourceValidation, config:
 }
 
 fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Scope) {
+    if !state.methods_initialized {
+        state.selected_measure_types = [true, true, true, false];
+        state.methods_initialized = true;
+    }
     let groups = if state.source_mode == QtoSourceMode::EntireProject { quantities(app) } else { BTreeMap::new() };
     ui.heading("Đo bóc khối lượng — CAD native");
     ui.label("Số liệu trực tiếp từ bản vẽ CAD đang mở; thay đổi ngay sau khi vẽ, sửa, Undo hoặc Redo.");
@@ -1324,11 +1344,13 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
         }
         let handles = qto_allowed_handles(app, state);
         if let Some(handles) = &handles {
-            let selections = if state.source_mode == QtoSourceMode::CurrentSelection { selected_measurements(app) } else {
-                handles.iter().filter_map(|handle| cadcraft_doc::Handle::parse_hex(handle))
-                    .flat_map(|handle| measurements_for_handle(app, handle)).collect::<Vec<_>>()
-            };
-            let matches = selections.iter().filter(|m| qto_measure_type_allowed(m.kind, state.selected_measure_types)).collect::<Vec<_>>();
+            let key = qto_preview_key(app, state.source_mode, handles);
+            if state.preview_key != Some(key) {
+                state.preview_measurements = handles.iter().filter_map(|handle| cadcraft_doc::Handle::parse_hex(handle))
+                    .flat_map(|handle| measurements_for_handle(app, handle)).collect();
+                state.preview_key = Some(key);
+            }
+            let matches = state.preview_measurements.iter().filter(|m| qto_measure_type_allowed(m.kind, state.selected_measure_types)).cloned().collect::<Vec<_>>();
             ui.label(format!("Xem trước phạm vi: {} đối tượng nguồn; {} phép đo hình học phù hợp.", handles.len(), matches.len()));
             egui::ScrollArea::vertical().id_salt("cadtbt360_qto_live_preview").max_height(165.0).show(ui, |ui| {
                 egui::Grid::new("cadtbt360_qto_preview_grid").striped(true).show(ui, |ui| {
@@ -1345,7 +1367,7 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
                 let mut added = 0usize; let mut skipped = 0usize;
                 for measurement in matches {
                     let (entity_scope, revision) = scope_from_entity_or_active(app, measurement.source_handle, scope);
-                    if state.add_measurement_from_entity(measurement.clone(), &entity_scope, revision).is_ok() { added += 1; } else { skipped += 1; }
+                    if state.add_measurement_from_entity(measurement, &entity_scope, revision).is_ok() { added += 1; } else { skipped += 1; }
                 }
                 state.import_feedback = format!("Đã tạo {added} phép đo có nguồn CAD, bỏ qua {skipped} mục trùng hoặc không hợp lệ. Hãy rà soát và xác nhận trước khi xuất.");
             }
