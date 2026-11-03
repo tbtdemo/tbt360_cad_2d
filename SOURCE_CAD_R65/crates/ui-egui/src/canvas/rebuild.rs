@@ -98,6 +98,25 @@ impl Job {
     }
 }
 
+#[cfg(test)]
+mod stale_background_view_tests {
+    use super::*;
+
+    #[test]
+    fn completed_job_cannot_replace_mesh_for_changed_zoom_or_outside_window() {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let key = (1, 7, 3, 2, false, false, 12, 0);
+        let window = Bounds2::from_points([Vec2::new(-100.0, -100.0), Vec2::new(100.0, 100.0)]);
+        let inside = Bounds2::from_points([Vec2::new(-10.0, -10.0), Vec2::new(10.0, 10.0)]);
+        let outside = Bounds2::from_points([Vec2::new(300.0, 300.0), Vec2::new(400.0, 400.0)]);
+        let job = Job { key, window: Some(window), rx, cancel: Arc::new(AtomicBool::new(false)) };
+        assert!(job.serves(&key, &inside));
+        assert!(!job.serves(&(1, 7, 4, 2, false, false, 12, 0), &inside));
+        assert!(!job.serves(&key, &outside));
+        drop(tx);
+    }
+}
+
 /// Build `req` on the calling thread; `None` once it has been cancelled (the partial list is
 /// thrown away, and no vertex data is made for it).
 fn run(req: Request) -> Option<Built> {
