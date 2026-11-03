@@ -262,6 +262,10 @@ fn run_qselect(s: &mut Session, p: &Value) -> Result<Value> {
     for h in &cands {
         let Some(e) = d.entity(*h) else { continue };
         if !type_matches(e, ty) {
+            // Exclude means the complement of the entire QSELECT predicate,
+            // including object type. Previously unmatched types disappeared
+            // from both matched and excluded sets.
+            if mode == "exclude" { excluded.push(*h); }
             continue;
         }
         let mut ok = true;
@@ -397,6 +401,26 @@ mod tests {
             let _ = s.execute("qselect", &json!({ "property": "radius", "operator": "*", "value": v }));
             let _ = s.execute("qselect", &json!({ "property": v, "operator": ">", "value": v, "type": v }));
         }
+    }
+
+    #[test]
+    fn qselect_exclude_type_uses_complement_of_all_candidate_objects() {
+        let mut s = session();
+        assert_eq!(n(&s.execute("qselect", &json!({ "type": "Circle", "mode": "exclude" })).unwrap()), 2);
+        // Two Lines are the complement of the two Circles.
+        let selected = s.selection();
+        assert!(selected.iter().all(|h| s.doc().unwrap().entity(*h).unwrap().kind.type_name() == "Line"));
+        assert_eq!(n(&s.execute("qselect", &json!({ "type": "Circle", "property": "radius", "operator": ">", "value": 3, "mode": "exclude" })).unwrap()), 3);
+    }
+
+    #[test]
+    fn qselect_exclude_type_preview_counts_without_modifying_selection() {
+        let mut s = session();
+        s.execute("qselect", &json!({ "type": "Circle" })).unwrap();
+        let before = s.selection();
+        let preview = s.execute("qselect", &json!({ "type": "Circle", "mode": "exclude", "preview": true })).unwrap();
+        assert_eq!(preview["selected"], 2);
+        assert_eq!(s.selection(), before);
     }
 
     #[test]
