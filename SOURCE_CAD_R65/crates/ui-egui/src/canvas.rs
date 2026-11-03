@@ -556,7 +556,14 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui) {
         primary_canvas_releases(&i.events, rect, earlier_press_on_canvas)
     });
     let raw_canvas_release = raw_release_for_point_prompt(true, !releases.is_empty());
-    let pressed_primary = pressed_primary || (point_prompt && raw_canvas_release);
+    // During a point prompt, a global egui click can belong to a toolbar or
+    // palette. Only matched canvas gestures or the canvas response may place
+    // geometry. Keep normal click handling for Dynamic Input option menus.
+    let pressed_primary = if point_prompt && app.cmd.options.is_none() {
+        raw_canvas_release || resp.clicked_by(egui::PointerButton::Primary)
+    } else {
+        pressed_primary || (point_prompt && raw_canvas_release)
+    };
     let mut command_finished_in_batch = false;
     if point_prompt && inside && !on_menu && pressed_primary && !middle_down && app.cmd.options.is_none() && app.cmd.buffer.is_empty() {
         // The last release is dispatched by the regular cursor path below. Earlier
