@@ -195,6 +195,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "Canvas renderer failure fallback tests failed" }
           cargo test --locked -p cadcraft-ui-egui canvas::rebuild::tests -- --nocapture
           if ($LASTEXITCODE -ne 0) { throw "Canvas background regen tests failed" }
+          cargo test --locked -p cadcraft-ui-egui canvas::rebuild::stale_background_view_tests -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw "Stale GPU mesh replacement regression failed" }
       - name: Test CPU drawing memory and offscreen culling
         shell: pwsh
         run: |
