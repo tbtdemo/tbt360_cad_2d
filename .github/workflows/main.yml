@@ -314,6 +314,30 @@ jobs:
           Expand-Archive -Path $archive -DestinationPath $smoke -Force
           & "$smoke/cadcraft-cli.exe" --version
           if ($LASTEXITCODE -ne 0) { throw "Portable CLI smoke test failed" }
+      - name: Verify Windows Portable package contains native executables
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $archive = "../dist/CAD360_VietNam_TBT_Portable.zip"
+          Add-Type -AssemblyName System.IO.Compression
+          $zip = [System.IO.Compression.ZipFile]::OpenRead((Resolve-Path $archive).Path)
+          try {
+            $names = @($zip.Entries | ForEach-Object { $_.FullName })
+            foreach ($name in @("cadcraft.exe", "cadcraft-cli.exe", "README.txt")) {
+              if (@($names | Where-Object { $_ -eq $name }).Count -ne 1) { throw "Portable ZIP missing or duplicated: $name" }
+            }
+          } finally {
+            $zip.Dispose()
+          }
+          foreach ($file in @("../dist/portable-smoke/cadcraft.exe", "../dist/portable-smoke/cadcraft-cli.exe")) {
+            if (!(Test-Path $file)) { throw "Missing extracted native binary: $file" }
+            $stream = [System.IO.File]::OpenRead((Resolve-Path $file).Path)
+            try {
+              if ($stream.ReadByte() -ne 0x4d -or $stream.ReadByte() -ne 0x5a) { throw "Native Windows PE MZ signature missing: $file" }
+            } finally {
+              $stream.Dispose()
+            }
+          }
       - name: Archive exact CAD360 source commit
         shell: pwsh
         working-directory: .
