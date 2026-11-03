@@ -1,0 +1,98 @@
+name: CADTBT360_V1.000 Windows Setup
+on:
+  workflow_dispatch:
+  push:
+    branches: [tbt/cad360-active-release, release/CADTBT360_V1.000]
+    paths: ['CADTBT360_V1.000/**', 'installer/**', '.github/workflows/CADTBT360_V1.000.yml']
+permissions:
+  contents: read
+jobs:
+  native:
+    name: Windows x64 native setup
+    runs-on: windows-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build Windows Rust binaries
+        working-directory: CADTBT360_V1.000
+        shell: pwsh
+        run: |
+          cargo build --release --locked -p cadcraft -p cadcraft-cli
+          if ($LASTEXITCODE -ne 0) { throw "Rust build failed" }
+          if (!(Test-Path target/release/cadcraft.exe)) { throw "Desktop EXE not built" }
+      - name: Install Inno Setup
+        shell: pwsh
+        run: |
+          $iscc = 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe'
+          if (!(Test-Path $iscc)) { choco install innosetup -y --no-progress }
+          if (!(Test-Path $iscc)) { throw "ISCC not found" }
+      - name: Package versioned installer and portable bundle
+        shell: pwsh
+        run: |
+          & 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe' /Qp installer/CADTBT360_V1.000_Windows.iss
+          if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed" }
+          New-Item -ItemType Directory -Force dist/portable | Out-Null
+          Copy-Item CADTBT360_V1.000/target/release/cadcraft.exe dist/portable/CADTBT360.exe
+          Copy-Item CADTBT360_V1.000/target/release/cadcraft-cli.exe dist/portable/CADTBT360_CLI.exe
+          'CADTBT360_V1.000: run CADTBT360.exe' | Set-Content dist/portable/README.txt
+          Compress-Archive -Path dist/portable/* -DestinationPath dist/CADTBT360_V1.000_Portable.zip -Force
+          git archive --format=zip --output=dist/CADTBT360_V1.000_Source.zip HEAD CADTBT360_V1.000 installer README.md
+          Get-FileHash dist/CADTBT360_V1.000_Setup.exe,dist/CADTBT360_V1.000_Portable.zip,dist/CADTBT360_V1.000_Source.zip -Algorithm SHA256 | ForEach-Object { "$($_.Hash)  $(Split-Path $_.Path -Leaf)" } | Set-Content dist/SHA256SUMS.txt
+          @('Version=CADTBT360_V1.000',"Commit=$env:GITHUB_SHA",'GUI_VERIFIED=false') | Set-Content dist/BUILD_INFO.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CADTBT360_V1.000_Windows_x64_Setup_Portable_Source
+          path: |
+            dist/CADTBT360_V1.000_Setup.exe
+            dist/CADTBT360_V1.000_Portable.zip
+            dist/CADTBT360_V1.000_Source.zip
+            dist/SHA256SUMS.txt
+            dist/BUILD_INFO.txt
+          if-no-files-found: error
+          retention-days: 30
+      - name: Compile engine tests
+        working-directory: CADTBT360_V1.000
+        shell: pwsh
+        run: cargo test --locked -p cadcraft-engine --lib --no-run
+  cross:
+    name: Ubuntu cross Windows x64 fallback setup
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup cross compiler
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y nsis clang lld llvm
+          rustup target add x86_64-pc-windows-msvc
+          cargo install cargo-xwin --locked --version 0.22.0
+      - name: Build real Windows desktop and CLI
+        working-directory: CADTBT360_V1.000
+        run: |
+          cargo xwin build --release --locked --target x86_64-pc-windows-msvc -p cadcraft -p cadcraft-cli
+          file target/x86_64-pc-windows-msvc/release/cadcraft.exe | grep -F 'PE32+'
+      - name: Package NSIS Windows installer, portable and source
+        run: |
+          set -euo pipefail
+          mkdir -p dist/portable
+          bin="$(pwd)/CADTBT360_V1.000/target/x86_64-pc-windows-msvc/release"
+          cp "$bin/cadcraft.exe" dist/portable/CADTBT360.exe
+          cp "$bin/cadcraft-cli.exe" dist/portable/CADTBT360_CLI.exe
+          printf 'CADTBT360_V1.000: run CADTBT360.exe.\n' > dist/portable/README.txt
+          (cd dist/portable && zip -q -r ../CADTBT360_V1.000_Portable.zip .)
+          makensis -V2 -DAPP_BUILD_DIR="$bin" -DOUT_DIR="$(pwd)/dist" installer/CADTBT360_V1.000_Cross.nsi
+          git archive --format=zip --output=dist/CADTBT360_V1.000_Source.zip HEAD CADTBT360_V1.000 installer README.md
+          (cd dist && sha256sum CADTBT360_V1.000_Setup.exe CADTBT360_V1.000_Portable.zip CADTBT360_V1.000_Source.zip > SHA256SUMS.txt)
+          printf 'Version=CADTBT360_V1.000\nCommit=%s\nGUI_VERIFIED=false\n' "$GITHUB_SHA" > dist/BUILD_INFO.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CADTBT360_V1.000_Windows_x64_Cross_Setup_Portable_Source
+          path: |
+            dist/CADTBT360_V1.000_Setup.exe
+            dist/CADTBT360_V1.000_Portable.zip
+            dist/CADTBT360_V1.000_Source.zip
+            dist/SHA256SUMS.txt
+            dist/BUILD_INFO.txt
+          if-no-files-found: error
+          retention-days: 30
