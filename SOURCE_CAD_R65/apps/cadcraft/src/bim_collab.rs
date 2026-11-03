@@ -45,7 +45,10 @@ fn save_workspace_safely(path: &std::path::Path, snapshot: &serde_json::Value) -
             if previous_valid {
                 let backup_temp = path.with_extension(format!("{suffix}.bak.tmp"));
                 std::fs::copy(path, &backup_temp)?;
-                let backup_file = std::fs::OpenOptions::new().read(true).open(&backup_temp)?;
+                // Windows FlushFileBuffers requires a handle with write permission.
+                // Opening this copied backup read-only made all recovery/save tests fail
+                // with Access is denied (os error 5) on the Windows runner.
+                let backup_file = std::fs::OpenOptions::new().read(true).write(true).open(&backup_temp)?;
                 backup_file.sync_all()?;
                 drop(backup_file);
                 if let Err(error) = replace_workspace_file(&backup_temp, &backup) {
