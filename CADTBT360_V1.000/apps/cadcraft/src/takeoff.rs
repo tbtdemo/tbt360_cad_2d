@@ -6,6 +6,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use cadcraft_doc::EntityKind;
 use cadcraft_ui_egui::CadApp;
 use crate::takeoff_report::{self, ExportConfig, GroupBy, ReportLine, FIELDS};
+use crate::takeoff_composite::{self, GeometricSource, PlanSectionVolume};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum MeasureKind { Length, Area, Perimeter, Count }
@@ -132,6 +133,12 @@ pub struct State {
     methods_initialized: bool,
     preview_key: Option<u64>,
     preview_measurements: Vec<PendingMeasurement>,
+    volume_plan: Option<GeometricSource>,
+    volume_section: Option<GeometricSource>,
+    volume_records: Vec<PlanSectionVolume>,
+    volume_work_group: String,
+    volume_work_code: String,
+    volume_description: String,
     edit_work_group: String,
     edit_work_code: String,
     edit_description: String,
@@ -494,6 +501,11 @@ impl State {
             "version": 4,
             "drawing_distance": self.drawing_distance,
             "real_distance_m": self.real_distance_m,
+            "composite_volumes": self.volume_records.iter().map(PlanSectionVolume::json).collect::<Vec<_>>(),
+            "composite_draft": {
+                "plan": self.volume_plan.as_ref().map(GeometricSource::json),
+                "section": self.volume_section.as_ref().map(GeometricSource::json)
+            },
             "qto_selection": {
                 "source_mode": format!("{:?}", self.source_mode),
                 "captured_handles": self.captured_handles,
@@ -655,6 +667,13 @@ impl State {
         self.methods_initialized = true;
         self.preview_key = None;
         self.preview_measurements.clear();
+        self.volume_records = value.get("composite_volumes").and_then(serde_json::Value::as_array)
+            .map(|items| items.iter().take(20_000).filter_map(PlanSectionVolume::read).collect()).unwrap_or_default();
+        self.volume_plan = value.get("composite_draft").and_then(|draft| draft.get("plan")).and_then(GeometricSource::read);
+        self.volume_section = value.get("composite_draft").and_then(|draft| draft.get("section")).and_then(GeometricSource::read);
+        self.volume_work_group.clear();
+        self.volume_work_code.clear();
+        self.volume_description.clear();
         self.export_config = config;
         self.drawing_distance = drawing_distance;
         self.real_distance_m = real_distance_m;
@@ -1149,6 +1168,44 @@ fn qto_measure_type_allowed(kind: MeasureKind, chosen: [bool; 4]) -> bool {
         MeasureKind::Count => chosen[3],
     }
 }
+fn qto_volume_source_current(app: &CadApp, source: &GeometricSource, kind: MeasureKind) -> bool {
+    let Some(handle) = cadcraft_doc::Handle::parse_hex(&source.handle) else { return false; };
+    measurements_for_handle(app, handle).into_iter().any(|measurement| {
+        if measurement.kind != kind || geometry_signature(&measurement) != source.signature { return false; }
+        let raw = if kind == MeasureKind::Length {
+            takeoff_composite::section_height(&measurement.points).ok()
+        } else { Some(measurement.raw_value) };
+        raw.is_some_and(|value| (value - source.raw_value).abs() < 1.0e-8 * value.abs().max(1.0))
+    })
+}
+fn qto_volume_report_lines(app: &CadApp, state: &State, config: &ExportConfig, allowed: Option<&BTreeSet<String>>) -> Result<Vec<ReportLine>, String> {
+    let mut out = Vec::new();
+    for (index, item) in state.volume_records.iter().enumerate() {
+        if config.confirmed_only && !item.confirmed { continue; }
+        if !allowed.is_none_or(|handles| handles.contains(&item.plan.handle) && handles.contains(&item.section.handle)) { continue; }
+        if !qto_volume_source_current(app, &item.plan, MeasureKind::Area)
+            || !qto_volume_source_current(app, &item.section, MeasureKind::Length) {
+            return Err(format!("Thể tích ghép #{} có nguồn CAD đã thay đổi hoặc không còn tồn tại. Phải quét lại mặt bằng/mặt cắt.", index + 1));
+        }
+        if config.confirmed_only && (item.description.trim().is_empty() || item.work_code.trim().is_empty()) {
+            return Err(format!("Thể tích #{} thiếu mã công tác hoặc diễn giải để xuất hồ sơ Chủ đầu tư.", index + 1));
+        }
+        let base=state.scale_to_m().ok_or_else(|| "Chưa hiệu chuẩn bản vẽ; không thể quy đổi thể tích mặt bằng × mặt cắt.".to_string())?;
+        let value=takeoff_composite::volume(item.plan.raw_value, item.section.raw_value, base * config.unit_scale())?;
+        let unit=format!("{}³", config.length_unit);
+        let fields=[
+            String::new(),item.work_code.clone(),item.description.clone(),item.work_group.clone(),
+            format!("{} + {}",item.plan.handle,item.section.handle),String::new(),String::new(),
+            "Thể tích".into(),String::new(),unit.clone(),
+            "Diện tích mặt bằng × chiều cao mặt cắt; 2 nguồn CAD độc lập".into(),
+            format!("{} + {}",item.plan.handle,item.section.handle),
+        ];
+        let group=if item.work_group.trim().is_empty() {"Chưa phân nhóm".into()} else {item.work_group.clone()};
+        out.push(ReportLine{group,fields,quantity:value,unit});
+    }
+    Ok(out)
+}
+
 fn qto_record_in_scope(record: &MeasurementRecord, allowed: Option<&BTreeSet<String>>) -> bool {
     match allowed {
         None => true,
