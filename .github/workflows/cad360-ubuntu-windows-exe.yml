@@ -101,3 +101,9 @@ jobs:
             dist/BUILD_INFO.txt
           if-no-files-found: error
           retention-days: 30
+      - name: Regression-test BIM collaboration after uploading the installer
+        working-directory: SOURCE_CAD_R65
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test --locked -p cadcraft --bin cadcraft bim_collab::tests -- --test-threads=2
