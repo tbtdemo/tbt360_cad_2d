@@ -1423,6 +1423,7 @@ fn qto_road_report_lines(app: &CadApp, state: &State, config: &ExportConfig,
     if state.road_sections.len() < 2 { return Ok(Vec::new()); }
     let scale=state.scale_to_m().ok_or_else(||"Cần hiệu chuẩn tỷ lệ bản vẽ CAD trước khi tính đào/đắp theo lý trình.".to_string())?;
     let range=takeoff_road::parse_range(&state.road_range_start,&state.road_range_end)?;
+    takeoff_road::validate_range_station_coverage(&state.road_sections,range)?;
     let scoped_sections=state.road_sections.iter().filter(|section|range.is_none_or(|(from,to)|
         section.chainage_m>=from-1.0e-6 && section.chainage_m<=to+1.0e-6)).cloned().collect::<Vec<_>>();
     takeoff_road::validate_unique_plan_handles(&scoped_sections)?;
@@ -2037,6 +2038,7 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
         });
         if let Some(scale)=state.scale_to_m() {
             match takeoff_road::parse_range(&state.road_range_start,&state.road_range_end)
+                .and_then(|range|takeoff_road::validate_range_station_coverage(&state.road_sections,range).map(|_|range))
                 .and_then(|range|takeoff_road::intervals(&state.road_sections.iter().filter(|section|range.is_none_or(|(from,to)|
                     section.chainage_m>=from-1.0e-6 && section.chainage_m<=to+1.0e-6)).cloned().collect::<Vec<_>>(),scale,false)
                     .map(|parts|parts.into_iter().filter(|part|takeoff_road::within_range(part,range)).collect::<Vec<_>>())) {
