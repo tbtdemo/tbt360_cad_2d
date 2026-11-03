@@ -363,4 +363,14 @@ mod tests {
         std::fs::remove_dir_all(&root).unwrap();
     }
 
+    #[test]
+    fn multi_drawing_bundle_rejects_invalid_active_index_before_restore() {
+        let root = std::env::temp_dir().join(format!("tbt-bad-active-{}-{}", std::process::id(), SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()));
+        std::fs::create_dir_all(&root).unwrap();
+        let manifest = serde_json::json!({"format":2,"documents":[{"file":"drawing-0000.dxf","bytes":1,"checksum":"x"}],"active":5});
+        std::fs::write(root.join("commit.json"), serde_json::to_vec(&manifest).unwrap()).unwrap();
+        assert!(check_bundle(&root).is_err());
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
 }
