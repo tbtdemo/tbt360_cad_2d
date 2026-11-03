@@ -39,6 +39,10 @@ pub struct Opening {
 impl Opening {
     /// Start reading `path` on a worker thread.
     pub fn start(&mut self, path: &str) {
+        // Repeated OPEN clicks must not queue the same drawing multiple times
+        // while the first request is reading or waiting. A new OPEN after the
+        // earlier request has been installed remains permitted.
+        if self.jobs.iter().any(|job| job.path == path) || self.queued.iter().any(|queued| queued == path) { return; }
         // Large CAD files expand substantially during parsing and rendering. Never launch
         // multiple large decoders concurrently: queue later files rather than exhausting RAM.
         if !self.jobs.is_empty() || !self.queued.is_empty() {
@@ -227,6 +231,26 @@ mod tests {
         opening.start_next_after_install();
         assert_eq!(opening.jobs.first().map(|job| job.path.as_str()), Some("/nonexistent/dir/two.dxf"));
         assert_eq!(opening.queued.front().map(String::as_str), Some("/nonexistent/dir/three.dxf"));
+    }
+
+    #[test]
+    fn repeated_open_clicks_do_not_queue_duplicate_cad_decoders() {
+        let mut opening = super::Opening::default();
+        opening.start("/nonexistent/dir/cad-first.dxf");
+        opening.start("/nonexistent/dir/cad-first.dxf");
+        opening.start("/nonexistent/dir/cad-second.dxf");
+        opening.start("/nonexistent/dir/cad-second.dxf");
+        assert_eq!(opening.jobs.len(), 1);
+        assert_eq!(opening.queued.len(), 1);
+        assert_eq!(opening.queued.front().map(String::as_str), Some("/nonexistent/dir/cad-second.dxf"));
+        let started = Instant::now();
+        while !opening.jobs.is_empty() && started.elapsed() < Duration::from_secs(10) {
+            opening.poll();
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        assert!(opening.jobs.is_empty());
+        opening.start_next_after_install();
+        assert_eq!(opening.jobs[0].path, "/nonexistent/dir/cad-second.dxf");
     }
 
     #[test]
