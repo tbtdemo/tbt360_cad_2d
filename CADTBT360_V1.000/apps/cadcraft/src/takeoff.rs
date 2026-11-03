@@ -1448,13 +1448,14 @@ fn qto_road_report_lines(app: &CadApp, state: &State, config: &ExportConfig,
                 let Some(entity)=doc.model.get(handle) else {
                     return Err(format!("Cọc bình đồ tại {} đã bị xóa. Hãy quét lại.",takeoff_road::station_label(section.chainage_m)));
                 };
-                if matches!(&entity.kind,EntityKind::Text(_) | EntityKind::MText(_) | EntityKind::Insert(_)) {
-                    let actual=qto_road_station_from_entity(doc,entity).map_err(|error|
-                        format!("Nhãn cọc bình đồ tại {} không hợp lệ: {error}",takeoff_road::station_label(section.chainage_m)))?;
-                    if (actual-section.chainage_m).abs()>0.001 {
-                        return Err(format!("Lý trình cọc nguồn {} đã thay đổi thành {}; không xuất Excel sai lý trình.",
-                            takeoff_road::station_label(section.chainage_m),takeoff_road::station_label(actual)));
-                    }
+                if !matches!(&entity.kind,EntityKind::Text(_) | EntityKind::MText(_) | EntityKind::Insert(_)) {
+                    return Err(format!("Cọc bình đồ tại {} không còn là TEXT, MTEXT hoặc Block chứa lý trình. Hãy quét lại cọc.",takeoff_road::station_label(section.chainage_m)));
+                }
+                let actual=qto_road_station_from_entity(doc,entity).map_err(|error|
+                    format!("Nhãn cọc bình đồ tại {} không hợp lệ: {error}",takeoff_road::station_label(section.chainage_m)))?;
+                if (actual-section.chainage_m).abs()>0.001 {
+                    return Err(format!("Lý trình cọc nguồn {} đã thay đổi thành {}; không xuất Excel sai lý trình.",
+                        takeoff_road::station_label(section.chainage_m),takeoff_road::station_label(actual)));
                 }
             }
         }
@@ -1996,9 +1997,8 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
                     .and_then(|handle|app.session.doc().ok().and_then(|doc|doc.model.get(handle).map(|entity|(doc,entity))));
                 match current {
                     Some((doc,entity))=>{
-                        if matches!(&entity.kind,EntityKind::Text(_) | EntityKind::MText(_) | EntityKind::Insert(_)) {
-                            if qto_road_station_from_entity(doc,entity).map_or(true,|m|(m-section.chainage_m).abs()>0.001) {altered+=1;}
-                        }
+                        if !matches!(&entity.kind,EntityKind::Text(_) | EntityKind::MText(_) | EntityKind::Insert(_))
+                            || qto_road_station_from_entity(doc,entity).map_or(true,|m|(m-section.chainage_m).abs()>0.001) {altered+=1;}
                     },
                     None=>altered+=1,
                 }
