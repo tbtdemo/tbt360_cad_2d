@@ -89,3 +89,9 @@ B15 gồm 15 bộ chức năng đã ghi ở trên. Build Windows là ứng viên
 - **Bộ 03/15 — CPU frame time polyline:** `84bc15d439213c804a3d74e947d6754a23149f44`: đường `draw_list_filtered` chỉ tính Bounds2 AABB một lần/primitive, tránh duyệt mọi đỉnh polyline hai lượt mỗi frame trong CPU renderer. Vẫn clip Infinite/Ray riêng, giữ culling sớm trước ACI/transparency.
 - **3/15 bộ mã nguồn sau B15.** Chưa báo vượt baseline 39,4% kỹ thuật vì chưa benchmark RAM/FPS/P95 và chưa chạy Windows GUI. Các commit tiếp theo không làm thay đổi SHA của B15 đang queued.
 - Windows build B30 run 41593081243: preflight PASS, job `Validate BIM conflict and revision regression tests` còn in_progress tại lần đọc; chưa đến cargo release build, EXE chưa có. B15 run 41601992146: queued, chưa có artifact. Không nhận định PASS trước khi có kết quả thực tế.
+
+## B15 — Build sửa lỗi Rust E0308
+- Log B30 Windows cho thấy `apps/cadcraft/src/cad_bim_recovery.rs:164` gọi `cadcraft_io::write(doc, ...)` với `doc: &DocState`, còn API yêu cầu `&Drawing` nên build thất bại E0308.
+- `aa84e26a81230f5d871e98ea5d42e99487b84eab`: sửa bằng `doc.recovery_drawing()` và `drawing.as_ref()`. Điều này giữ hình học BEDIT chưa ghi, không bỏ các chỉnh sửa chưa lưu, đồng thời đúng chữ ký hàm.
+- Kích hoạt lại candidate B15 bằng commit riêng có tiền tố `build(cad360): B15`, một bản Setup + Portable + Source + SHA256; **không phát hành production**. Các run cũ dùng SHA trước fix sẽ không tự lấy sửa đổi.
+- Chưa có xác nhận Windows PASS/EXE thật. Không tăng % nghiệm thu từ việc sửa mã.
