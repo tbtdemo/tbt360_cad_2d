@@ -1,3 +1,25 @@
+## B16 — Nâng cấp chức năng CAD 2D: QSELECT (03/11/2026)
+
+**Phạm vi đã triển khai vào mã thực tế:** `SOURCE_CAD_R65/crates/ui-egui/src/quick.rs`.
+1. Lọc nhanh Layer/Linetype/Color/Type trong menu giá trị, không phân biệt chữ hoa/chữ thường.
+2. Menu chỉ tạo tối đa 100 nút lựa chọn mỗi lần vẽ; vẫn hiển thị tổng số kết quả tìm thấy, giảm tải cho bản vẽ có hàng nghìn layer.
+3. `QSELECT.info` cache theo `drawing identity + revision + applyTo + object type`, cập nhật lại khi bản vẽ sửa.
+4. Khi đổi loại đối tượng hoặc thuộc tính, xóa giá trị lọc cũ và loại bỏ trạng thái tìm kiếm cũ để tránh lọc sai.
+5. Thêm 3 test: tìm không phân biệt hoa/thường, cap 100/tổng 500, không tìm thấy kết quả.
+
+**Bằng chứng commit:**
+- Mã QSELECT [e44c5dae](https://github.com/tbtdemo/tbt360_cad_2d/commit/e44c5dae1e89334545803713a341ed1d1d2fd126).
+- Mốc đóng gói B16 [c2a372cf](https://github.com/tbtdemo/tbt360_cad_2d/commit/c2a372cf66dfd00a0bf8e2bd86274768b35c437c).
+- [Ubuntu Windows cross EXE run 41635813565](https://github.com/tbtdemo/tbt360_cad_2d/actions/runs/41635813565).
+- [Windows Native installer run 41635813553](https://github.com/tbtdemo/tbt360_cad_2d/actions/runs/41635813553).
+
+**Thống kê B16 tại thời điểm kiểm tra:**
+- 5 nhóm thay đổi QSELECT ở cấp mã nguồn: **5/5 đã commit**, chưa xác nhận test PASS.
+- 3 bài test mới: **0/3 xác minh PASS** (đã viết, chưa có kết quả runner).
+- 4 cổng bàn giao B16: 1/4 = **25% xác minh** (mã nguồn đã có; EXE build, artifact và GUI Windows chưa xác nhận).
+- Không tái sử dụng artifact B15 làm bằng chứng EXE B16.
+
+
 ## Lượt sửa CI chung sau khi kiểm tra Windows — 03/11/2026
 
 **Nguyên nhân lỗi kiểm thử UI:** Windows CI run [41634216686](https://github.com/tbtdemo/tbt360_cad_2d/actions/runs/41634216686) cho thấy 6 lỗi biên dịch Rust `E0616` do `crates/ui-egui/src/canvas/tests.rs` truy cập trường private `PrimIndex.by_handle`. Điều này làm hỏng các job kiểm thử UI và các bước phụ thuộc `ui-egui`, dù bản release bin có thể build được.
