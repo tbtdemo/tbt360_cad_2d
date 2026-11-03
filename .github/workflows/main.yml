@@ -147,6 +147,13 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "Large CAD opening regression failed" }
           cargo test --locked -p cadcraft-engine capped_read::tests -- --nocapture
           if ($LASTEXITCODE -ne 0) { throw "Progressive file read regression failed" }
+      - name: Test large-drawing renderer fallback
+        shell: pwsh
+        run: |
+          cargo test --locked -p cadcraft-ui-egui canvas::list::background_failure_tests -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw "Canvas renderer failure fallback tests failed" }
+          cargo test --locked -p cadcraft-ui-egui canvas::rebuild::tests -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw "Canvas background regen tests failed" }
       - name: Test complete workspace
         run: cargo test --workspace --locked --no-fail-fast
 
