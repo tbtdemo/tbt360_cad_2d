@@ -451,7 +451,16 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui) {
     let point_prompt = app.session.current_prompt().is_some_and(|p| cadcraft_engine::pointmod::accepts(&p))
         && app.session.pending_window.is_none()
         && !app.session.realtime_zoom_active();
-    let pressed_primary = pressed_primary || (point_prompt && resp.drag_stopped_by(egui::PointerButton::Primary));
+    // A point prompt accepts a physical release even when egui did not classify
+    // the gesture as a click (small movement or focus transfer from the toolbar).
+    // Require the press to originate on this canvas to avoid stealing a menu click.
+    let raw_canvas_release = ui.input(|i| {
+        i.pointer.press_origin().is_some_and(|origin| rect.contains(origin))
+            && i.events.iter().any(|event| matches!(event, egui::Event::PointerButton {
+                pos, button: egui::PointerButton::Primary, pressed: false, ..
+            } if rect.contains(*pos)))
+    });
+    let pressed_primary = pressed_primary || (point_prompt && (resp.drag_stopped_by(egui::PointerButton::Primary) || raw_canvas_release));
     if point_prompt && inside && pressed_primary && !middle_down && app.cmd.options.is_none() && app.cmd.buffer.is_empty() {
         let releases: Vec<egui::Pos2> = ui.input(|i| {
             i.events
@@ -535,7 +544,8 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui) {
         app.session.pending_window = None;
         app.canvas.drag_window = false;
     }
-    let pressed_primary = pressed_primary && !picked && !hatch_dialog && !idle_dbl;
+    // Never consume a click on an egui menu or an overlay owned by the canvas.
+    let pressed_primary = pressed_primary && !picked && !hatch_dialog && !idle_dbl && !on_menu;
     let key: CycleKey = (
         app.session.running.as_ref().map(|r| r.id.clone()),
         app.session.current_prompt().map(|p| p.message),
