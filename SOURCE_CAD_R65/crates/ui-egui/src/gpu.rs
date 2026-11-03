@@ -187,6 +187,34 @@ fn mesh_initial_capacity(estimated_bytes: usize) -> usize {
     estimated_bytes.min(1024 * 1024)
 }
 
+#[cfg(test)]
+mod gpu_memory_budget_tests {
+    use super::*;
+
+    #[test]
+    fn huge_mesh_estimate_does_not_preallocate_hundreds_of_megabytes() {
+        assert_eq!(mesh_initial_capacity(0), 0);
+        assert_eq!(mesh_initial_capacity(2048), 2048);
+        assert_eq!(mesh_initial_capacity(500 * 1024 * 1024), 1024 * 1024);
+    }
+
+    #[test]
+    fn mesh_build_still_preserves_every_small_line_after_bounded_reservation() {
+        let mut list = DisplayList::default();
+        let h = cadcraft_doc::Handle(42);
+        let count = 1024usize;
+        for i in 0..count {
+            let x = i as f64;
+            let start = list.verts.len();
+            list.verts.push(Vec2::new(x, 0.0));
+            list.verts.push(Vec2::new(x, 10.0));
+            list.prims.push(cadcraft_render::DPrim { handle: h, color: Rgb(255, 255, 255), aci7: true, lw: 0.0, transparency: 0, kind: Kind::Polyline, start: start as u32, len: 2 });
+        }
+        let mesh = build_mesh(&list, Vec2::ZERO, Rgb(0, 0, 0), false);
+        assert_eq!(mesh.line_vertices(), count * 2);
+    }
+}
+
 /// Convert a display list into vertex data relative to `origin`, colours resolved against `bg`.
 pub fn build_mesh(list: &DisplayList, origin: Vec2, bg: Rgb, lwdisplay: bool) -> MeshData {
     // A lineweight-enabled drawing turns many polylines into quad instances,
