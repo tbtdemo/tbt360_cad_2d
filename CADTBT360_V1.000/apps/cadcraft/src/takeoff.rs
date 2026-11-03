@@ -1178,31 +1178,38 @@ fn selected_measurements(app:&CadApp)->Vec<PendingMeasurement> {
     out
 }
 
-/// Decode an explicit Km station from CAD annotations. The station is read
-/// from written survey text, never from XY position. Empty/ambiguous means
-/// operator review is required.
-fn qto_road_station_from_entity(doc: &cadcraft_doc::Drawing, entity: &cadcraft_doc::Entity) -> Result<f64,String> {
-    let mut stations=Vec::<f64>::new();
-    let mut values=Vec::<String>::new();
+/// Read labels inside nested block references with a finite depth and cycle guard.
+/// A nested station is still associated with the selected top-level INSERT handle.
+fn qto_road_collect_labels(doc: &cadcraft_doc::Drawing, entity: &cadcraft_doc::Entity, depth: usize, visited: &mut BTreeSet<String>, values: &mut Vec<String>) -> Result<(),String> {
+    if depth > 12 { return Err("Block lồng nhau vượt 12 cấp; cần kiểm tra thủ công.".into()); }
     match &entity.kind {
-        EntityKind::Text(text)=>values.push(text.value.clone()),
-        EntityKind::MText(text)=>values.push(text.contents.clone()),
+        EntityKind::Text(t)=>values.push(t.value.clone()),
+        EntityKind::MText(t)=>values.push(t.contents.clone()),
         EntityKind::Insert(block)=>{
             values.extend(block.attribs.iter().filter(|a|!a.invisible).map(|a|a.text.value.clone()));
-            // Non-attributed station labels embedded directly in the block
-            // definition. No nested-block transform/auto-approval is attempted.
+            let key=block.block.to_ascii_lowercase();
+            if !visited.insert(key.clone()) {return Err("Block chứa vòng tham chiếu lồng nhau; không tự ghép cọc.".into());}
             if let Some(def)=doc.blocks.get(&block.block) {
                 for child in &def.entities {
-                    match &child.kind {
-                        EntityKind::Text(t)=>values.push(t.value.clone()),
-                        EntityKind::MText(t)=>values.push(t.contents.clone()),
-                        _=>{},
-                    }
+                    qto_road_collect_labels(doc,child,depth+1,visited,values)?;
                 }
             }
+            visited.remove(&key);
         },
-        _=>return Err("Đối tượng không phải TEXT, MTEXT hoặc Block có nhãn cọc.".into()),
+        _=>{},
     }
+    Ok(())
+}
+
+/// Decode one explicit Km station from TEXT/MTEXT or a nested INSERT tree.
+/// Reject ambiguity instead of silently picking the first label.
+fn qto_road_station_from_entity(doc: &cadcraft_doc::Drawing, entity: &cadcraft_doc::Entity) -> Result<f64,String> {
+    if !matches!(&entity.kind,EntityKind::Text(_) | EntityKind::MText(_) | EntityKind::Insert(_)) {
+        return Err("Đối tượng không phải TEXT, MTEXT hoặc Block có nhãn cọc.".into());
+    }
+    let mut values=Vec::<String>::new();
+    qto_road_collect_labels(doc,entity,0,&mut BTreeSet::new(),&mut values)?;
+    let mut stations=Vec::<f64>::new();
     for value in values {
         match takeoff_road::station_from_marker_text(&value) {
             Ok(station)=>{if !stations.iter().any(|old|(*old-station).abs()<=1.0e-6) {stations.push(station);}},
