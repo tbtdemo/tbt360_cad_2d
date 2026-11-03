@@ -31,7 +31,6 @@ impl Recovery {
         let Some(root) = self.root.as_deref() else { return };
         let Some(doc) = app.session.docs.get(app.session.active) else { return };
         let signature = (doc.uid, doc.revision, bim.dirty_local_changes);
-        if self.last_signature == Some(signature) { return; }
         match save_pair(root, app, bim) {
             Ok(()) => { self.last_signature = Some(signature); self.error = None; }
             Err(error) => { log::error!("CAD+BIM recovery autosave: {error}"); self.error = Some(error); }
@@ -70,6 +69,15 @@ impl Recovery {
     }
 }
 
+fn content_checksum(bytes: &[u8]) -> String {
+    let mut hash = 0xcbf29ce484222325u64;
+    for byte in bytes {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    format!("{hash:016x}")
+}
+
 fn new_generation_name() -> Result<String, String> {
     let ns = SystemTime::now().duration_since(UNIX_EPOCH).map_err(|e| e.to_string())?.as_nanos();
     Ok(format!("pair-{}-{ns}", std::process::id()))
@@ -90,6 +98,7 @@ fn save_pair(root: &Path, app: &CadApp, bim: &bim_collab::State) -> Result<(), S
         write_synced(&pending.join("workspace.json"), &workspace)?;
         let manifest = serde_json::json!({
             "format": 1, "drawing_bytes": dxf.len(), "workspace_bytes": workspace.len(),
+            "drawing_checksum": content_checksum(&dxf), "workspace_checksum": content_checksum(&workspace),
             "project_id": bim.project_id,
             "created_at_unix_ms": SystemTime::now().duration_since(UNIX_EPOCH).map_err(|e| e.to_string())?.as_millis()
         });
@@ -121,7 +130,13 @@ fn check_pair(dir: &Path) -> Result<(PathBuf, serde_json::Value), String> {
     let actual_json = std::fs::metadata(&metadata_path).map_err(|e| e.to_string())?.len();
     let expected_json = manifest.get("workspace_bytes").and_then(serde_json::Value::as_u64).unwrap_or(0);
     if actual_json == 0 || actual_json > 64 * 1024 * 1024 || actual_json != expected_json { return Err("Metadata BIM không đầy đủ".into()); }
-    let workspace: serde_json::Value = serde_json::from_slice(&std::fs::read(metadata_path).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
+    let drawing_bytes = std::fs::read(&drawing_path).map_err(|e| e.to_string())?;
+    let workspace_bytes = std::fs::read(metadata_path).map_err(|e| e.to_string())?;
+    if manifest.get("drawing_checksum").and_then(serde_json::Value::as_str) != Some(content_checksum(&drawing_bytes).as_str())
+        || manifest.get("workspace_checksum").and_then(serde_json::Value::as_str) != Some(content_checksum(&workspace_bytes).as_str()) {
+        return Err("Checksum bản phục hồi CAD+BIM không khớp".into());
+    }
+    let workspace: serde_json::Value = serde_json::from_slice(&workspace_bytes).map_err(|e| e.to_string())?;
     if workspace.get("project_id") != manifest.get("project_id") || workspace.get("version").and_then(serde_json::Value::as_u64) != Some(2) { return Err("Dữ liệu BIM và bản CAD không cùng snapshot".into()); }
     Ok((drawing_path, workspace))
 }
@@ -131,7 +146,10 @@ fn generations(root: &Path) -> Vec<PathBuf> {
     let mut dirs: Vec<PathBuf> = entries.flatten().filter(|entry| entry.file_type().is_ok_and(|t| t.is_dir()))
         .filter(|entry| entry.file_name().to_string_lossy().starts_with("pair-") && !entry.file_name().to_string_lossy().ends_with(".pending"))
         .map(|entry| entry.path()).collect();
-    dirs.sort_by(|a, b| b.file_name().cmp(&a.file_name()));
+    dirs.sort_by(|a, b| {
+        let time = |path: &PathBuf| std::fs::metadata(path).and_then(|meta| meta.modified()).unwrap_or(UNIX_EPOCH);
+        time(b).cmp(&time(a)).then_with(|| b.file_name().cmp(&a.file_name()))
+    });
     dirs
 }
 
