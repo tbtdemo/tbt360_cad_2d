@@ -157,6 +157,7 @@ jobs:
             @{ Label = "UI"; Found = $uiTests; Name = "gpu::gpu_memory_budget_tests::gpu_highlight_preserves_selected_segments_after_bounded_reservation" },
             @{ Label = "UI"; Found = $uiTests; Name = "opening::tests::card_text_names_the_file_and_counts_queued_ones" },
             @{ Label = "Engine"; Found = $engineTests; Name = "capped_read::tests::transient_interrupted_read_retries_without_losing_geometry_bytes" },
+            @{ Label = "Engine"; Found = $engineTests; Name = "capped_read::tests::progressive_read_rejects_truncated_geometry_before_decode" },
             @{ Label = "UI"; Found = $uiTests; Name = "canvas::draw::cpu_culling_tests::large_offscreen_drawing_does_not_reserve_one_shape_per_entity" },
             @{ Label = "UI"; Found = $uiTests; Name = "gpu::gpu_memory_budget_tests::huge_mesh_estimate_does_not_preallocate_hundreds_of_megabytes" },
             @{ Label = "App"; Found = $appTests; Name = "cad_bim_recovery::tests::streamed_file_checksum_matches_in_memory_and_detects_modified_tail" },
@@ -240,6 +241,11 @@ jobs:
         run: |
           cargo test --locked -p cadcraft --bin cadcraft bim_collab::tests::render_bucket_keeps_primary_and_reference_scope_separate_for_four_views -- --exact --nocapture
           if ($LASTEXITCODE -ne 0) { throw "BIM viewport scope optimization regression failed" }
+      - name: Reject shortened CAD files before DXF decode
+        shell: pwsh
+        run: |
+          cargo test --locked -p cadcraft-engine --lib capped_read::tests::progressive_read_rejects_truncated_geometry_before_decode -- --exact --nocapture
+          if ($LASTEXITCODE -ne 0) { throw "Truncated CAD file read regression failed" }
       - name: Test complete workspace
         run: cargo test --workspace --locked --no-fail-fast
 
