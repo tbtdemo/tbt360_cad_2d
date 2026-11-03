@@ -78,14 +78,14 @@ pub(crate) fn draw_list_filtered(
         {
             continue;
         }
-        let col = if opacity >= 0.999 { prim_color32(prim, bg) } else { prim_color32_opacity(prim, bg, opacity) };
         let pts = list.points(prim);
+        // Cull before resolving ACI/transparency or allocating screen
+        // geometry. This loop runs over every primitive in each CPU frame.
+        if !highlight_geometry_intersects(prim.kind, pts, &vis) { continue; }
+        let col = if opacity >= 0.999 { prim_color32(prim, bg) } else { prim_color32_opacity(prim, bg, opacity) };
         match prim.kind {
             Kind::Polyline => {
                 let bb = Bounds2::from_points(pts.iter().copied());
-                if !bb.intersects(&vis) {
-                    continue;
-                }
                 let w = if lwdisplay && prim.lw > 0.0 { (prim.lw * 3.78).clamp(1.0, 12.0) } else { 1.0 };
                 // Skip sub-pixel objects except as a dot.
                 if bb.width() < px && bb.height() < px {
@@ -102,12 +102,8 @@ pub(crate) fn draw_list_filtered(
                 }
             }
             Kind::Tris | Kind::Mask => {
-                // Do not allocate large triangle meshes for geometry entirely
-                // outside the visible view. Keep the wipeout draw order intact
-                // for masks that do intersect the viewport.
-                if !Bounds2::from_points(pts.iter().copied()).intersects(&vis) {
-                    continue;
-                }
+                // Keep wipeout order intact; offscreen bounds were filtered
+                // before any color conversion or GPU/CPU mesh allocation.
                 let col = if prim.kind == Kind::Mask { color32(bg) } else { col };
                 let mut mesh = egui::Mesh::default();
                 for tri in pts.chunks(3) {
