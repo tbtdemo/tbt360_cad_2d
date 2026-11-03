@@ -1629,8 +1629,14 @@ impl State {
 
     fn load_snapshot_json(&mut self,value:&serde_json::Value)->Result<(),String> {
         let target_project_id = value.get("project_id").and_then(serde_json::Value::as_str).unwrap_or("").trim();
-        if !self.pending_changes.iter().all(|change| change.synced) && target_project_id != self.project_id {
-            return Err("Không thể chuyển sang dự án BIM khác khi vẫn còn ChangeSet chưa đồng bộ".into());
+        if !self.pending_changes.iter().all(|change| change.synced) {
+            if target_project_id != self.project_id {
+                return Err("Không thể chuyển sang dự án BIM khác khi vẫn còn ChangeSet chưa đồng bộ".into());
+            }
+            let current_queue = self.snapshot_json()["pending_changes"].clone();
+            if value.get("pending_changes") != Some(&current_queue) {
+                return Err("Workspace chứa ChangeSet khác với hàng đợi hiện tại; không thể ghi đè thay đổi chưa đồng bộ".into());
+            }
         }
         let backup=self.snapshot_json();
         match self.load_snapshot_json_in_place(value) {
@@ -3159,6 +3165,18 @@ mod tests {
         assert_eq!(restored.pending_changes[0].items[0].local_revision, 4);
         assert!(!restored.pending_changes[0].synced);
         assert_eq!(restored.dirty_local_changes, 1);
+    }
+
+    #[test]
+    fn opening_older_workspace_does_not_overwrite_newer_local_queue() {
+        let mut state = State::default();
+        let older = state.snapshot_json();
+        state.queue_update(cadcraft_doc::Handle(62003), 0, 1);
+
+        assert!(state.load_snapshot_json(&older).is_err());
+        assert_eq!(state.pending_changes.len(), 1);
+        assert!(!state.pending_changes[0].synced);
+        assert_eq!(state.dirty_local_changes, 1);
     }
 
     #[test]
