@@ -46,7 +46,7 @@ impl Default for ExportConfig {
 }
 impl ExportConfig {
     pub fn selected(&self) -> Vec<usize> { (0..FIELDS.len()).filter(|i| self.columns[*i]).collect() }
-    pub fn valid(&self) -> bool { self.selected().len() >= 2 && self.columns[8] && self.columns[9] && self.decimals <= 6 }
+    pub fn valid(&self) -> bool { self.selected().len() >= 3 && self.columns[8] && self.columns[9] && self.columns[..8].iter().any(|x| *x) && self.decimals <= 6 }
     pub fn unit_scale(&self) -> f64 { match self.length_unit.as_str() { "mm" => 1000.0, "cm" => 100.0, _ => 1.0 } }
 }
 
@@ -105,14 +105,14 @@ fn sheet(config: &ExportConfig, rows: &[ReportLine]) -> (String, usize) {
 
     let quantity_column = selected.iter().position(|index| *index == 8).unwrap_or(0);
     let mut current_group = None::<String>;
-    let mut group_totals = BTreeMap::<String, f64>::new();
-    let mut grand_totals = BTreeMap::<String, f64>::new();
+    let mut group_totals = BTreeMap::<(String, String), f64>::new();
+    let mut grand_totals = BTreeMap::<(String, String), f64>::new();
     let mut excel_row = 7usize;
     let mut serial = 0usize;
     for line in rows {
         if config.group_by != GroupBy::None && current_group.as_deref() != Some(&line.group) {
             if current_group.is_some() {
-                add_totals(&mut body, &mut excel_row, &group_totals, quantity_column, &selected, "CỘNG NHÓM");
+                add_totals(&mut body, &mut excel_row, &mut merges, &group_totals, quantity_column, &selected, "CỘNG NHÓM");
                 group_totals.clear();
             }
             body.push_str(&row_start(excel_row, 27));
@@ -132,13 +132,13 @@ fn sheet(config: &ExportConfig, rows: &[ReportLine]) -> (String, usize) {
         }
         body.push_str("</row>");
         excel_row += 1;
-        *group_totals.entry(line.unit.clone()).or_default() += line.quantity;
-        *grand_totals.entry(line.unit.clone()).or_default() += line.quantity;
+        *group_totals.entry((line.fields[7].clone(), line.unit.clone())).or_default() += line.quantity;
+        *grand_totals.entry((line.fields[7].clone(), line.unit.clone())).or_default() += line.quantity;
     }
     if config.group_by != GroupBy::None && current_group.is_some() {
-        add_totals(&mut body, &mut excel_row, &group_totals, quantity_column, &selected, "CỘNG NHÓM");
+        add_totals(&mut body, &mut excel_row, &mut merges, &group_totals, quantity_column, &selected, "CỘNG NHÓM");
     }
-    add_totals(&mut body, &mut excel_row, &grand_totals, quantity_column, &selected, "TỔNG THEO ĐƠN VỊ");
+    add_totals(&mut body, &mut excel_row, &mut merges, &grand_totals, quantity_column, &selected, "TỔNG THEO LOẠI & ĐƠN VỊ");
     // Include signature and sign-off row in the printed range.
     let last = excel_row + 2;
     body.push_str(&row_start(excel_row + 2, 28));
@@ -168,14 +168,17 @@ fn sheet(config: &ExportConfig, rows: &[ReportLine]) -> (String, usize) {
     // Merged ranges, styles and pagination are all emitted in OOXML, not CSV.
     (xml, last)
 }
-fn add_totals(body: &mut String, row: &mut usize, totals: &BTreeMap<String, f64>, qty_idx: usize, selected: &[usize], prefix: &str) {
-    for (unit, value) in totals {
-        body.push_str(&row_start(*row, 25));
+fn add_totals(body: &mut String, row: &mut usize, merges: &mut Vec<String>, totals: &BTreeMap<(String, String), f64>, qty_idx: usize, selected: &[usize], prefix: &str) {
+    for ((kind, unit), value) in totals {
+        body.push_str(&row_start(*row, 27));
+        // Total labels span all columns before "Khối lượng", leaving the numeric
+        // total and unit columns visible and print-friendly.
+        body.push_str(&text_cell(&format!("A{}", *row), &format!("{prefix} — {kind} ({unit})"), 6));
+        if qty_idx > 1 { merges.push(format!("<mergeCell ref=\"A{}:{}{}\"/>", *row, column(qty_idx - 1), *row)); }
         for (i, field) in selected.iter().enumerate() {
             let pos = format!("{}{}", column(i), *row);
             if i == qty_idx { body.push_str(&number_cell(&pos, *value, 10)); }
-            else if i == 0 { body.push_str(&text_cell(&pos, &format!("{prefix} ({unit})"), 6)); }
-            else if *field == 9 { body.push_str(&text_cell(&pos, unit, 10)); }
+            else if *field == 9 { body.push_str(&text_cell(&pos, unit, 6)); }
         }
         body.push_str("</row>");
         *row += 1;
@@ -264,7 +267,7 @@ pub fn write_xlsx(path: &Path, config: &ExportConfig, rows: &[ReportLine]) -> Re
     if !config.valid() { return Err("Phải chọn cả cột khối lượng/đơn vị và ít nhất một cột mô tả.".into()); }
     if rows.is_empty() { return Err("Không có phép đo hợp lệ để xuất XLSX.".into()); }
     if rows.iter().any(|r| !r.quantity.is_finite() || r.quantity < 0.0) { return Err("Phép đo chứa giá trị không hợp lệ.".into()); }
-    if rows.len() > 1_000_000 { return Err("Quá giới hạn dòng Excel.".into()); }
+    if rows.len() > 150_000 { return Err("Báo cáo vượt giới hạn an toàn 150.000 phép đo; hãy chia phạm vi xuất.".into()); }
     let (worksheet, print_last) = sheet(config, rows);
     let number_picture = if config.decimals == 0 { "#,##0".to_string() } else { format!("#,##0.{}", "0".repeat(config.decimals)) };
     let number_format = format!("{number_picture};[Red]({number_picture});-");
