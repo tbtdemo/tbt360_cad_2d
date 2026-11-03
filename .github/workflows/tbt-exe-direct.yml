@@ -9,12 +9,8 @@ on:
       batch_count:
         description: "Số lượt thay đổi kể từ lần đóng gói trước (15-30)"
         required: true
-        type: choice
-        options:
-          - '15'
-          - '20'
-          - '25'
-          - '30'
+        type: number
+        default: 15
 
 permissions:
   contents: write
