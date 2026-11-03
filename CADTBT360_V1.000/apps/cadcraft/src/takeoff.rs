@@ -1189,8 +1189,10 @@ fn qto_road_station_from_entity(entity: &cadcraft_doc::Entity) -> Result<f64,Str
         _=>return Err("Đối tượng không phải TEXT, MTEXT hoặc Block có thuộc tính lý trình.".into()),
     };
     for value in values {
-        if let Ok(station)=takeoff_road::station_from_marker_text(value) {
-            if !stations.iter().any(|old|(*old-station).abs()<=1.0e-6) {stations.push(station);}
+        match takeoff_road::station_from_marker_text(value) {
+            Ok(station)=>{if !stations.iter().any(|old|(*old-station).abs()<=1.0e-6) {stations.push(station);}},
+            Err(error) if error.contains("nhiều lý trình")=>return Err(error),
+            Err(_)=>{},
         }
     }
     match stations.as_slice() {
@@ -1790,7 +1792,7 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
                         _=>ambiguous+=1,
                     }
                 }
-                state.import_feedback=format!("Quét {} nhãn cọc hợp lệ; ghép {} trắc ngang; chưa tìm thấy {}; xung đột {}; bỏ qua {} đối tượng. Kiểm tra từng dòng trước khi xác nhận.",markers.len(),linked,not_found,ambiguous,skipped);
+                state.import_feedback=format!("Quét {} nhãn cọc hợp lệ; ghép {} trắc ngang; chưa tìm thấy {}; xung đột {}; bỏ qua {} đối tượng. Chưa tự phê duyệt; kiểm tra từng dòng trước khi xác nhận.",markers.len(),linked,not_found,ambiguous,skipped);
             }
             if ui.small_button("Bỏ gắn cọc").clicked(){state.road_plan_marker_handle=None;}
             ui.label(format!("Cọc bình đồ: {}",state.road_plan_marker_handle.as_deref().unwrap_or("Chưa gắn")));
