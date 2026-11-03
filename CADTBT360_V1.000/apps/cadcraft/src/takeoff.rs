@@ -1407,6 +1407,7 @@ fn qto_road_report_lines(app: &CadApp, state: &State, config: &ExportConfig,
     let range=takeoff_road::parse_range(&state.road_range_start,&state.road_range_end)?;
     let scoped_sections=state.road_sections.iter().filter(|section|range.is_none_or(|(from,to)|
         section.chainage_m>=from-1.0e-6 && section.chainage_m<=to+1.0e-6)).cloned().collect::<Vec<_>>();
+    takeoff_road::validate_unique_plan_handles(&scoped_sections)?;
     let intervals=takeoff_road::intervals(&scoped_sections,scale,config.confirmed_only)?;
     let multiplier=config.unit_scale().powi(3);
     let mut out=Vec::new();
