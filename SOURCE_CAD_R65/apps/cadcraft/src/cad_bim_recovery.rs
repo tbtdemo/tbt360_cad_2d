@@ -212,8 +212,21 @@ fn write_synced(path: &Path, bytes: &[u8]) -> Result<(), String> {
     file.sync_all().map_err(|e| e.to_string())
 }
 
+/// Read only bounded recovery metadata. A corrupted commit/workspace file
+/// must not allocate gigabytes just because the startup scanner found it.
+fn read_recovery_metadata(path: &Path, limit: u64) -> Result<Vec<u8>, String> {
+    use std::io::Read;
+    let mut file = std::fs::File::open(path).map_err(|e| e.to_string())?;
+    let size = file.metadata().map_err(|e| e.to_string())?.len();
+    if size == 0 || size > limit { return Err(format!("Metadata phục hồi vượt giới hạn {limit} byte")); }
+    let mut data = Vec::new();
+    file.take(limit + 1).read_to_end(&mut data).map_err(|e| e.to_string())?;
+    if data.is_empty() || data.len() as u64 > limit { return Err("Metadata phục hồi đã bị thay đổi hoặc vượt giới hạn".into()); }
+    Ok(data)
+}
+
 fn check_bundle(dir: &Path) -> Result<(Vec<PathBuf>, serde_json::Value, usize), String> {
-    let manifest: serde_json::Value = serde_json::from_slice(&std::fs::read(dir.join("commit.json")).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
+    let manifest: serde_json::Value = serde_json::from_slice(&read_recovery_metadata(&dir.join("commit.json"), 1024 * 1024)?).map_err(|e| e.to_string())?;
     let format = manifest.get("format").and_then(serde_json::Value::as_u64).unwrap_or(0);
     if format == 1 {
         let (path, workspace) = check_pair_v1(dir)?;
@@ -243,7 +256,7 @@ fn check_bundle(dir: &Path) -> Result<(Vec<PathBuf>, serde_json::Value, usize), 
         }
         paths.push(path);
     }
-    let workspace_bytes = std::fs::read(dir.join("workspace.json")).map_err(|e| e.to_string())?;
+    let workspace_bytes = read_recovery_metadata(&dir.join("workspace.json"), 64 * 1024 * 1024)?;
     if workspace_bytes.is_empty() || workspace_bytes.len() > 64 * 1024 * 1024 ||
         manifest.get("workspace_bytes").and_then(serde_json::Value::as_u64) != Some(workspace_bytes.len() as u64) ||
         manifest.get("workspace_checksum").and_then(serde_json::Value::as_str) != Some(content_checksum(&workspace_bytes).as_str()) {
@@ -262,7 +275,7 @@ fn check_pair(dir: &Path) -> Result<(PathBuf, serde_json::Value), String> {
 }
 
 fn check_pair_v1(dir: &Path) -> Result<(PathBuf, serde_json::Value), String> {
-    let manifest: serde_json::Value = serde_json::from_slice(&std::fs::read(dir.join("commit.json")).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
+    let manifest: serde_json::Value = serde_json::from_slice(&read_recovery_metadata(&dir.join("commit.json"), 1024 * 1024)?).map_err(|e| e.to_string())?;
     if manifest.get("format").and_then(serde_json::Value::as_u64) != Some(1) { return Err("Định dạng phục hồi không hợp lệ".into()); }
     let drawing_path = dir.join("drawing.dxf");
     let actual_dxf = std::fs::metadata(&drawing_path).map_err(|e| e.to_string())?.len();
@@ -273,7 +286,7 @@ fn check_pair_v1(dir: &Path) -> Result<(PathBuf, serde_json::Value), String> {
     let expected_json = manifest.get("workspace_bytes").and_then(serde_json::Value::as_u64).unwrap_or(0);
     if actual_json == 0 || actual_json > 64 * 1024 * 1024 || actual_json != expected_json { return Err("Metadata BIM không đầy đủ".into()); }
     let drawing_digest = content_checksum_file(&drawing_path)?;
-    let workspace_bytes = std::fs::read(metadata_path).map_err(|e| e.to_string())?;
+    let workspace_bytes = read_recovery_metadata(&metadata_path, 64 * 1024 * 1024)?;
     if manifest.get("drawing_checksum").and_then(serde_json::Value::as_str) != Some(drawing_digest.as_str())
         || manifest.get("workspace_checksum").and_then(serde_json::Value::as_str) != Some(content_checksum(&workspace_bytes).as_str()) {
         return Err("Checksum bản phục hồi CAD+BIM không khớp".into());
@@ -317,6 +330,18 @@ fn prune_generations(root: &Path) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn corrupt_recovery_metadata_is_rejected_before_large_allocation() {
+        let root = std::env::temp_dir().join(format!("cad360-recovery-metadata-limit-{}-{}", std::process::id(), SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()));
+        std::fs::create_dir_all(&root).unwrap();
+        let path = root.join("commit.json");
+        std::fs::write(&path, vec![b' '; 1025]).unwrap();
+        assert!(read_recovery_metadata(&path, 1024).is_err());
+        std::fs::write(&path, br#"{"format":2}"#).unwrap();
+        assert_eq!(read_recovery_metadata(&path, 1024).unwrap(), br#"{"format":2}"#);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
     #[test]
     fn recovery_drawing_exports_actual_drawing_not_editor_tab_state() {
         let session = cadcraft_engine::Session::new();
