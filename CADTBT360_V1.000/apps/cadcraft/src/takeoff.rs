@@ -1190,7 +1190,7 @@ fn qto_road_collect_labels(doc: &cadcraft_doc::Drawing, entity: &cadcraft_doc::E
             let key=block.block.to_ascii_lowercase();
             if !visited.insert(key.clone()) {return Err("Block chứa vòng tham chiếu lồng nhau; không tự ghép cọc.".into());}
             if let Some(def)=doc.blocks.get(&block.block) {
-                for child in &def.entities {
+                for child in def.entities.iter() {
                     qto_road_collect_labels(doc,child,depth+1,visited,values)?;
                 }
             }
