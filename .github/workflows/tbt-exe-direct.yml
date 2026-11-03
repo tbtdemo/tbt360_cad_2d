@@ -160,12 +160,15 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $match = [regex]::Match($env:GITHUB_HEAD_REF + $env:RELEASE_MESSAGE, 'release\\(cad360\\): R([0-9]{2,3})')
+          $match = [regex]::Match($env:RELEASE_MESSAGE, '^release\\(cad360\\): R([0-9]{2,3})')
           if (!$match.Success) { throw 'Milestone marker was not found' }
           $label = "R$($match.Groups[1].Value)"
           $sourceArchive = "../dist/CAD360_TBT_Source_$label.zip"
-          git archive --format=zip --output="$sourceArchive" HEAD SOURCE_CAD_R65 installer .github README.md
-          if ($LASTEXITCODE -ne 0) { throw 'Cannot archive milestone sources' }
+          Push-Location $env:GITHUB_WORKSPACE
+          git archive --format=zip --output="dist/CAD360_TBT_Source_$label.zip" HEAD SOURCE_CAD_R65 installer .github README.md
+          $archiveExitCode = $LASTEXITCODE
+          Pop-Location
+          if ($archiveExitCode -ne 0) { throw 'Cannot archive milestone sources' }
           if (!(Test-Path $sourceArchive)) { throw 'Source ZIP missing' }
           "CAD360_RELEASE_LABEL=$label" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
         env:
