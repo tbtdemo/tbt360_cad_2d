@@ -125,7 +125,315 @@ jobs:
       - name: Test Undo Redo control
         run: cargo test --locked -p cadcraft-engine --test undo_control -- --nocapture
       - name: Test XREF and XCLIP integration
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $available = @(cargo test --locked -p cadcraft-engine --test xref -- --list)
+          if ($LASTEXITCODE -ne 0) { throw "Cannot enumerate XREF integration tests" }
+          if (@($available | Where-Object { $_ -match '^.+: test
+      - name: Verify critical regression tests were discovered
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $uiTests = @(cargo test --locked -p cadcraft-ui-egui --lib -- --list)
+          if ($LASTEXITCODE -ne 0) { throw "Cannot enumerate CAD UI regression tests" }
+          $appTests = @(cargo test --locked -p cadcraft --bin cadcraft -- --list)
+          if ($LASTEXITCODE -ne 0) { throw "Cannot enumerate CAD app regression tests" }
+          $engineTests = @(cargo test --locked -p cadcraft-engine --lib -- --list)
+          if ($LASTEXITCODE -ne 0) { throw "Cannot enumerate CAD engine regression tests" }
+          $required = @(
+            @{ Label = "UI"; Found = $uiTests; Name = "canvas::tests::line_command_accepts_first_point_and_keeps_second_point_prompt" },
+            @{ Label = "UI"; Found = $uiTests; Name = "canvas::tests::circle_command_accepts_the_first_point_without_second_click" },
+            @{ Label = "UI"; Found = $uiTests; Name = "canvas::primary_gesture_tests::switching_tiles_requires_press_and_release_in_same_destination_tile" },
+            @{ Label = "UI"; Found = $uiTests; Name = "canvas::draw::cpu_culling_tests::large_offscreen_drawing_does_not_reserve_one_shape_per_entity" },
+            @{ Label = "UI"; Found = $uiTests; Name = "gpu::gpu_memory_budget_tests::huge_mesh_estimate_does_not_preallocate_hundreds_of_megabytes" },
+            @{ Label = "App"; Found = $appTests; Name = "cad_bim_recovery::tests::streamed_file_checksum_matches_in_memory_and_detects_modified_tail" },
+            @{ Label = "App"; Found = $appTests; Name = "bim_collab::tests::selection_requires_foreign_owner_edit_grant_not_just_view_grant" },
+            @{ Label = "App"; Found = $appTests; Name = "bim_collab::tests::selection_rejects_wrong_floor_discipline_or_reference_view" },
+            @{ Label = "Engine"; Found = $engineTests; Name = "autosave::native::exit_recovery_tests::failed_final_snapshot_keeps_recovery_file_but_regular_exit_deletes_it" }
+          )
+          foreach ($test in $required) {
+            $match = @($test.Found | Where-Object { $_ -eq "$($test.Name): test" })
+            if ($match.Count -ne 1) { throw "$($test.Label): critical test missing or duplicated: $($test.Name)" }
+            Write-Host "DISCOVERED $($test.Label): $($test.Name)"
+          }
+      - name: Test CAD canvas input and file-opening regressions
+        shell: pwsh
+        run: |
+          cargo test --locked -p cadcraft-ui-egui canvas::primary_gesture_tests -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw "Canvas primary press/release pairing failed" }
+          cargo test --locked -p cadcraft-ui-egui canvas::click_drag_arbitration_tests -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw "Canvas drag-end/click arbitration failed" }
+          cargo test --locked -p cadcraft-ui-egui canvas::point_batch_tests -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw "Canvas batched-click regression failed" }
+          cargo test --locked -p cadcraft-ui-egui canvas::point_release_tests -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw "Canvas first-release regression failed" }
+          cargo test --locked -p cadcraft-ui-egui canvas::stuck_drag_tests -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw "Canvas sticky-selection regression failed" }
+          cargo test --locked -p cadcraft-ui-egui canvas::tests::line_command_accepts_first_point_and_keeps_second_point_prompt -- --exact --nocapture
+          if ($LASTEXITCODE -ne 0) { throw "LINE first-click regression failed" }
+          cargo test --locked -p cadcraft-ui-egui canvas::tests::circle_command_accepts_the_first_point_without_second_click -- --exact --nocapture
+          if ($LASTEXITCODE -ne 0) { throw "CIRCLE first-click regression failed" }
+          cargo test --locked -p cadcraft-ui-egui opening::tests -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw "Large CAD opening regression failed" }
+          cargo test --locked -p cadcraft-engine capped_read::tests -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw "Progressive file read regression failed" }
+      - name: Test large-drawing renderer fallback
+        shell: pwsh
+        run: |
+          cargo test --locked -p cadcraft-ui-egui canvas::list::background_failure_tests -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw "Canvas renderer failure fallback tests failed" }
+          cargo test --locked -p cadcraft-ui-egui canvas::rebuild::tests -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw "Canvas background regen tests failed" }
+      - name: Test CPU drawing memory and offscreen culling
+        shell: pwsh
+        run: |
+          cargo test --locked -p cadcraft-ui-egui canvas::draw::cpu_culling_tests -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw "Large CAD CPU display-list culling regressions failed" }
+      - name: Test GPU mesh memory budget and vertex integrity
+        shell: pwsh
+        run: |
+          cargo test --locked -p cadcraft-ui-egui gpu::gpu_memory_budget_tests -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw "GPU mesh allocation and vertex regression failed" }
+      - name: Test CAD BIM multi-tab recovery integrity
+        shell: pwsh
+        run: |
+          cargo test --locked -p cadcraft --bin cadcraft cad_bim_recovery::tests -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw "CAD/BIM autosave, multi-tab and corruption recovery regressions failed" }
+      - name: Test fail-safe CAD autosave on exit
+        shell: pwsh
+        run: |
+          cargo test --locked -p cadcraft-engine autosave::native::exit_recovery_tests -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw "Failed-final-snapshot autosave preservation regression failed" }
+      - name: Test CAD BIM account editing scope
+        shell: pwsh
+        run: |
+          cargo test --locked -p cadcraft --bin cadcraft bim_collab::tests::selection_requires_foreign_owner_edit_grant_not_just_view_grant -- --exact --nocapture
+          if ($LASTEXITCODE -ne 0) { throw "Foreign owner edit grant regression failed" }
+          cargo test --locked -p cadcraft --bin cadcraft bim_collab::tests::selection_rejects_wrong_floor_discipline_or_reference_view -- --exact --nocapture
+          if ($LASTEXITCODE -ne 0) { throw "CAD BIM edit-scope regression failed" }
+      - name: Test complete workspace
+        run: cargo test --workspace --locked --no-fail-fast
+
+  qto-xref-smoke:
+    if: github.event_name != 'pull_request' || !startsWith(github.head_ref, 'feature/bim-')
+    name: "6 - QTO and XREF Fast Smoke"
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: SOURCE_CAD_R65
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: SOURCE_CAD_R65
+      - name: Compile native QTO tests
+        run: cargo test --locked --no-run -p cadcraft --bin cadcraft
+      - name: Compile XREF integration tests
+        run: cargo test --locked --no-run -p cadcraft-engine --test xref
+      - name: Run direct measurement regressions
+        run: cargo test --locked -p cadcraft takeoff::tests -- --nocapture
+      - name: Run external reference regressions
         run: cargo test --locked -p cadcraft-engine --test xref -- --nocapture
+
+  bim-module-regressions:
+    name: "5 - BIM ${{ matrix.module }} Regression"
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        module: ${{ fromJSON(github.event_name == 'pull_request' && startsWith(github.head_ref, 'feature/bim-') && '["bim_collab"]' || '["bim_coordinates","bim_sync","bim_access","bim_collab","bim_offline","bim_workset","bim_api","bim_federation","bim_clash","bim_coordination"]') }}
+    defaults:
+      run:
+        working-directory: SOURCE_CAD_R65
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: SOURCE_CAD_R65
+      - name: Run targeted BIM module tests
+        run: cargo test --locked -p cadcraft ${{ matrix.module }}::tests -- --nocapture
+
+  release-windows:
+    name: "Windows Setup / Portable Candidate"
+    # Branch artifacts are release candidates; only main is a production release.
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/tbt/cad360-active-release')
+    needs: [build-core, unified-ui, vi-tbt-branding, regression-tests, bim-module-regressions, qto-xref-smoke]
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: SOURCE_CAD_R65
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: SOURCE_CAD_R65
+      - name: Build release binaries
+        run: cargo build --release --locked -p cadcraft -p cadcraft-cli
+      - name: Verify native Windows binaries
+        shell: pwsh
+        run: |
+          foreach ($name in @("cadcraft.exe", "cadcraft-cli.exe")) {
+            $path = "target/release/$name"
+            if (!(Test-Path $path)) { throw "Missing compiled binary: $path" }
+            if ((Get-Item $path).Length -lt 100000) { throw "Unexpectedly small binary: $path" }
+          }
+          & "./target/release/cadcraft-cli.exe" --version
+          if ($LASTEXITCODE -ne 0) { throw "CLI smoke test failed" }
+      - name: Install Inno Setup compiler
+        shell: pwsh
+        run: |
+          $iscc = Join-Path ${env:ProgramFiles(x86)} "Inno Setup 6/ISCC.exe"
+          if (!(Test-Path $iscc)) {
+            choco install innosetup --yes --no-progress
+            if ($LASTEXITCODE -ne 0) { throw "Inno Setup installation failed" }
+          }
+          if (!(Test-Path $iscc)) { throw "ISCC.exe not found" }
+      - name: Build single Windows Setup
+        shell: pwsh
+        run: |
+          $iscc = Join-Path ${env:ProgramFiles(x86)} "Inno Setup 6/ISCC.exe"
+          & $iscc "/Qp" "../installer/CAD360_TBT_Windows.iss"
+          if ($LASTEXITCODE -ne 0) { throw "Inno Setup compile failed" }
+          if (!(Test-Path "../dist/CAD360_VietNam_TBT_Setup.exe")) { throw "Setup EXE not created" }
+      - name: Package portable Windows binaries
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $portable = "../dist/CAD360_VietNam_TBT_Portable"
+          New-Item -ItemType Directory -Force -Path $portable | Out-Null
+          Copy-Item "target/release/cadcraft.exe" "$portable/cadcraft.exe"
+          Copy-Item "target/release/cadcraft-cli.exe" "$portable/cadcraft-cli.exe"
+          Set-Content -Path "$portable/README.txt" -Encoding utf8 -Value "CAD 360 Viet Nam - TBT Portable. Extract all files before running cadcraft.exe. Windows x64 required. No installer required."
+          $archive = "../dist/CAD360_VietNam_TBT_Portable.zip"
+          if (Test-Path $archive) { Remove-Item $archive -Force }
+          Compress-Archive -Path "$portable/*" -DestinationPath $archive
+          if (!(Test-Path $archive)) { throw "Portable ZIP not created" }
+          if ((Get-Item $archive).Length -lt 100000) { throw "Portable ZIP unexpectedly small" }
+          $smoke = "../dist/portable-smoke"
+          Expand-Archive -Path $archive -DestinationPath $smoke -Force
+          & "$smoke/cadcraft-cli.exe" --version
+          if ($LASTEXITCODE -ne 0) { throw "Portable CLI smoke test failed" }
+      - name: Verify Windows Portable package contains native executables
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $archive = "../dist/CAD360_VietNam_TBT_Portable.zip"
+          Add-Type -AssemblyName System.IO.Compression
+          $zip = [System.IO.Compression.ZipFile]::OpenRead((Resolve-Path $archive).Path)
+          try {
+            $names = @($zip.Entries | ForEach-Object { $_.FullName })
+            foreach ($name in @("cadcraft.exe", "cadcraft-cli.exe", "README.txt")) {
+              if (@($names | Where-Object { $_ -eq $name }).Count -ne 1) { throw "Portable ZIP missing or duplicated: $name" }
+            }
+          } finally {
+            $zip.Dispose()
+          }
+          foreach ($file in @("../dist/portable-smoke/cadcraft.exe", "../dist/portable-smoke/cadcraft-cli.exe")) {
+            if (!(Test-Path $file)) { throw "Missing extracted native binary: $file" }
+            $stream = [System.IO.File]::OpenRead((Resolve-Path $file).Path)
+            try {
+              if ($stream.ReadByte() -ne 0x4d -or $stream.ReadByte() -ne 0x5a) { throw "Native Windows PE MZ signature missing: $file" }
+            } finally {
+              $stream.Dispose()
+            }
+          }
+      - name: Archive exact CAD360 source commit
+        shell: pwsh
+        working-directory: .
+        run: |
+          $ErrorActionPreference = "Stop"
+          New-Item -ItemType Directory -Force -Path "dist" | Out-Null
+          $archive = "dist/CAD360_VietNam_TBT_Source.zip"
+          if (Test-Path $archive) { Remove-Item $archive -Force }
+          git archive --format=zip --output=$archive HEAD
+          if ($LASTEXITCODE -ne 0) { throw "Could not archive the checked-out CAD360 commit" }
+          if (!(Test-Path $archive) -or (Get-Item $archive).Length -lt 10000) { throw "Source archive missing or suspiciously small" }
+          $archived = git rev-parse HEAD
+          if ($LASTEXITCODE -ne 0 -or $archived -ne $env:GITHUB_SHA) { throw "Source archive does not match the Windows build commit" }
+          Add-Type -AssemblyName System.IO.Compression
+          $zip = [System.IO.Compression.ZipFile]::OpenRead((Resolve-Path $archive).Path)
+          try {
+            $entries = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+            foreach ($entry in $zip.Entries) { [void]$entries.Add($entry.FullName) }
+            foreach ($required in @("SOURCE_CAD_R65/Cargo.toml", "SOURCE_CAD_R65/Cargo.lock", "installer/CAD360_TBT_Windows.iss", ".github/workflows/main.yml")) {
+              if (!$entries.Contains($required)) { throw "Source archive missing required tracked file: $required" }
+            }
+          } finally {
+            $zip.Dispose()
+          }
+      - name: Generate release SHA256 checksums
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $setup = "../dist/CAD360_VietNam_TBT_Setup.exe"
+          $portable = "../dist/CAD360_VietNam_TBT_Portable.zip"
+          $source = "../dist/CAD360_VietNam_TBT_Source.zip"
+          $manifest = "../dist/SHA256SUMS.txt"
+          @($setup, $portable, $source) | ForEach-Object {
+            if (!(Test-Path $_)) { throw "Release file missing: $_" }
+            $hash = (Get-FileHash -Algorithm SHA256 -Path $_).Hash.ToLowerInvariant()
+            "$hash  $(Split-Path $_ -Leaf)"
+          } | Set-Content -Encoding ascii $manifest
+          if ((Get-Content $manifest).Count -ne 3) { throw "Checksum manifest must contain three files" }
+      - name: Record exact candidate commit and verify both hashes
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $root = "../dist"
+          $metadata = Join-Path $root "BUILD_INFO.txt"
+          @(
+            "Repository=$env:GITHUB_REPOSITORY"
+            "Commit=$env:GITHUB_SHA"
+            "Ref=$env:GITHUB_REF"
+            "RunId=$env:GITHUB_RUN_ID"
+            "RunAttempt=$env:GITHUB_RUN_ATTEMPT"
+            "Status=UNVERIFIED_GUI_CANDIDATE"
+          ) | Set-Content -Encoding utf8 $metadata
+          foreach ($name in @("CAD360_VietNam_TBT_Setup.exe", "CAD360_VietNam_TBT_Portable.zip", "CAD360_VietNam_TBT_Source.zip")) {
+            $file = Join-Path $root $name
+            if (!(Test-Path $file)) { throw "Missing release candidate: $name" }
+            $record = (Get-Content (Join-Path $root "SHA256SUMS.txt") | Where-Object { $_ -match ("  " + [regex]::Escape($name) + "$") })
+            if (@($record).Count -ne 1) { throw "SHA256 entry not unique for $name" }
+            $actual = (Get-FileHash -Algorithm SHA256 -Path $file).Hash.ToLowerInvariant()
+            if ($record -ne "$actual  $name") { throw "SHA256 mismatch for $name" }
+          }
+          @(
+            "### CAD360 Windows candidate"
+            "- Commit: $env:GITHUB_SHA"
+            "- Ref: $env:GITHUB_REF"
+            "- Setup, portable and source ZIP produced from this exact commit; all SHA256 values rechecked."
+            "- **GUI acceptance and 300–500 MiB benchmark are not certified by this job.**"
+          ) | Add-Content -Encoding utf8 $env:GITHUB_STEP_SUMMARY
+      - name: Upload Windows Portable and checksums
+        uses: actions/upload-artifact@v4
+        with:
+          name: CAD360_VietNam_TBT_Windows_Portable_And_SHA256_${{ github.ref == 'refs/heads/main' && 'Release' || 'Candidate' }}
+          path: |
+            dist/CAD360_VietNam_TBT_Portable.zip
+            dist/SHA256SUMS.txt
+            dist/BUILD_INFO.txt
+          if-no-files-found: error
+      - name: Upload exact source archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: CAD360_VietNam_TBT_Source_${{ github.ref == 'refs/heads/main' && 'Release' || 'Candidate' }}
+          path: dist/CAD360_VietNam_TBT_Source.zip
+          if-no-files-found: error
+      - name: Upload single Windows Setup
+        uses: actions/upload-artifact@v4
+        with:
+          name: CAD360_VietNam_TBT_Windows_Setup_${{ github.ref == 'refs/heads/main' && 'Release' || 'Candidate' }}
+          path: dist/CAD360_VietNam_TBT_Setup.exe
+          if-no-files-found: error
+ }).Count -lt 1) { throw "XREF integration test suite contains no discovered tests" }
+          cargo test --locked -p cadcraft-engine --test xref -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw "XREF and XCLIP integration failed" }
       - name: Verify critical regression tests were discovered
         shell: pwsh
         run: |
