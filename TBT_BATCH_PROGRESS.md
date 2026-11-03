@@ -44,6 +44,7 @@
 | 23/30 | Đọc file CAD trực tiếp vào Vec theo khối không sao chép qua scratch 1 MiB; kích thước block cuối theo metadata; kiểm thử đuôi file | `e1fad57607404d3a271f9ff9f9fa9946d2722c56` | 1 test phần đuôi và toàn vẹn dữ liệu; CI capped_read::tests đã cấu hình | Chưa có Cargo/Windows benchmark PASS được xác minh |
 | 24/30 | Giữ nguyên display list khi worker dựng hình thất bại, ngăn spawn lặp cùng view; đo riêng install_ms của bản vẽ/XREF; tăng Windows CI test | `b74a92cd2d9749652ea976a98ca2ed4a9a51876a` | 2 unit tests retry key + renderer worker tests (đã cấu hình) | Chưa có Cargo/Windows benchmark PASS được xác minh |
 | 25/30 | Giới hạn cấp phát trước Shapes CPU mỗi frame; bỏ qua mesh Tris/Mask nằm ngoài viewport; tests culling, bổ sung Windows CI | `22db948430e9a258cf79b9ecc76add365f698c40` | 2 tests reserve/visibility, targeted Windows CI | Chưa đo RAM/FPS, Windows PASS chưa xác minh |
+| 26/30 | Giới hạn dự trữ trước GPU Mesh CPU 1 MiB mỗi vertex buffer, bỏ Vec cho transform mỗi frame, bảo vệ upload lặp | `dc8c785167c5909caf9bd1db3ccf5899e0bf6ed7` | 2 regression tests dự trữ hình học, targeted Windows CI | Chưa xác minh Cargo/Windows PASS, RAM/VRAM/EXE |
 
 ### Trạng thái
 - Hoàn thành bằng chứng mã nguồn: **16 lượt mã nguồn (15 tối thiểu + 1 dự phòng)**.
@@ -229,3 +230,11 @@
 - 2 regression tests về capacity khi 1 triệu primitive và khả năng kiểm tra bounds trong/ngoài viewport. `.github/workflows/main.yml` có targeted gate cho `canvas::draw::cpu_culling_tests`.
 - Commits `e78ed785fe240441aa6c92288e1ce53fd6d034df`, `a3e7c8ddec0b9c67608dd4430574552d19d4ff06`, `22db948430e9a258cf79b9ecc76add365f698c40`.
 - Chưa có Windows CI PASS/GUI FPS/RAM benchmark hay EXE artifact mới xác minh. 25/30 lượt (còn 5 dự kiến), tiến độ 8 hạng mục vẫn 39,4% ước lượng chưa nghiệm thu. Phân quyền tài khoản giữ ACTIVE, đồng bộ/conflict/clash PAUSED.
+
+### Lượt 26 — giảm tạm cấp phát GPU mesh và mỗi frame
+- `gpu.rs`: `build_mesh` dự trữ trước tối đa 1 MiB riêng cho buffer lines và tris; không đặt trần số đỉnh. Vec tự tăng dung lượng theo hình học thực, đặc biệt tránh dự trữ hàng trăm MiB đường nét khi lineweight biến chúng thành quad instances.
+- Trong `CanvasCallback::prepare`, thay `Vec<u8>` từ 20 f32 mỗi frame bằng `[u8; 80]` trên stack trước khi `queue.write_buffer`, tránh allocation nhỏ lặp khi mỗi viewport redraw.
+- `MeshData::upload_now` bỏ qua khi đã có GPU buffers, tránh lần gọi lặp ghi đè bằng mesh rỗng sau khi CPU arrays được giải phóng.
+- 2 tests: dự trữ với estimated 500MiB chỉ reserve 1MiB ban đầu; mesh build vẫn giữ nguyên 1024 segments/2048 line vertices. Windows CI thêm `gpu::gpu_memory_budget_tests`.
+- Commits: `4f029daf104c1d70aff601eeb06e033abc5da935`, `04a42d2eea75557ecc2fb36f229d0ed0a8d769ee`, `6639f2e1fd88460a5a28dd340a7cd8fba8e4f860`, `afb0661d84b163449072d6aaaa28747c44d25131`, `dc8c785167c5909caf9bd1db3ccf5899e0bf6ed7`.
+- Windows CI, Cargo test, EXE Setup/Portable/Source và benchmark file CAD lớn chưa được xác minh, không báo PASS. 26/30 lượt, còn 4 lượt kế hoạch; tiến độ 8 nhóm hoạt động vẫn 39,4% ước lượng. Sync/conflict/clash PAUSED, account permissions ACTIVE.
