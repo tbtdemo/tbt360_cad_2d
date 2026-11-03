@@ -515,11 +515,19 @@ impl CadApp {
     /// Add the files whose background read has finished; report the ones that failed as a failed
     /// OPEN is reported. Called every frame.
     pub fn finish_opening(&mut self) {
-        for (_, outcome) in self.opening.poll() {
+        for (path, outcome) in self.opening.poll() {
+            // Installing a decoded drawing (XREF resolution and session state)
+            // runs on the UI thread. Measure it separately from worker decode:
+            // the same operation can be the source of large CAD OPEN freezes.
+            let install_start = std::time::Instant::now();
+            let decoded = outcome.is_ok();
             let r = match outcome {
                 Ok(f) => self.session.finish_open(f).map_err(|e| e.to_string()),
                 Err(e) => Err(e),
             };
+            if decoded {
+                log::info!("CAD OPEN INSTALL: path={path:?} install_ms={} status={}", install_start.elapsed().as_millis(), if r.is_ok() { "OK" } else { "ERROR" });
+            }
             if let Err(e) = &r {
                 self.session.echo(e.clone());
             }
