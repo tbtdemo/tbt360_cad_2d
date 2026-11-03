@@ -40,6 +40,7 @@
 | 19/30 | Git archive nguồn đúng commit Windows; Setup/Portable/Source cùng SHA256; kiểm tra có Cargo.toml, Cargo.lock, installer và workflow | `dacacfd0b15a19110d821c7b55b399abea09fcf1` | Kiểm tra sự tồn tại file trong archive và 3 SHA256 trong CI; chưa chạy Windows | Windows run PASS, EXE và artifact vẫn chưa xác minh |
 | 20/30 | Ghép cặp từng sự kiện nhấn/thả chuột trái; chặn toolbar click thành điểm CAD; dọn drag qua menu/palette; bổ sung Windows test | `1ce77e689fb866cca3958c11375d70f208e18245` | 3 tests press-release gesture; thêm CI targeted test | Chưa xác minh Windows CI hoặc GUI PASS |
 | 21/30 | Không xử lý cú thả kéo chọn thành idle click; dùng press-origin một lần; ESC/focus ưu tiên hủy; Windows tests phân xử click/drag | `501ee9f06799035a2bab5ea93cafa989d37342bc` | 5 regression tests mới về release/drag/cancel | Chưa có Windows CI/GUI PASS được xác minh |
+| 22/30 | Chuyển viewport chỉ với cặp nhấn/thả trong đúng vùng đích và không thuộc menu nổi; test chặn drag từ viewport/toolbar khác | `8c6028f5e2792f86e9a99a14237a7bb42ee01357` | 2 test bổ sung trong primary_gesture_tests (Windows CI đã gọi) | Chưa có Windows CI/GUI PASS được xác minh |
 
 ### Trạng thái
 - Hoàn thành bằng chứng mã nguồn: **16 lượt mã nguồn (15 tối thiểu + 1 dự phòng)**.
@@ -196,3 +197,10 @@
 - Hàm `may_dispatch_canvas_click` cho 3 test phân biệt click-click hợp lệ, kết thúc kéo và ESC/focus. Các tests thêm vào Windows CI targeted gate.
 - Commits `194e912a099d5c58e4d81b2fc2be60f226acf897`, `c7f83d794d86e83362c07231615b127f1fd6a497`, `e5ca33d26475bf5f9cd44774d2139f50e59a0811`, `84d48eec47ff4791d9f2c391c98e752fb3cb18b0`, `501ee9f06799035a2bab5ea93cafa989d37342bc`.
 - Sync/conflict và clash vẫn PAUSED, tài khoản/phân quyền ACTIVE. Mốc 21/30 lượt, còn 9 lượt trong kế hoạch. Tiến độ kỹ thuật 8 nhóm vẫn 39,4% do chưa có Windows GUI, benchmark và EXE PASS thực.
+
+### Lượt 22 — ngăn cú click ngoài viewport kích hoạt sai cửa sổ CAD
+- `canvas.rs` chuyển từ điều kiện `pressed_primary` toàn cục + `hover_pos` sang xác minh một cặp sự kiện nhấn/thả của **đúng viewport đích** bằng `primary_canvas_releases(&input.events, target_rect, earlier_press)`.
+- Điều kiện lớp vẽ trên cùng `layer_id_at` và `over_canvas_menu` ngăn click trên menu/palette bị tính là chuyển viewport. Không gửi click xuyên qua từ viewport 1 sang viewport 2.
+- Thêm 2 unit tests: nhấn tile trái rồi thả tile phải không chuyển, nhấn toolbar rồi thả tile đích không chuyển. Vì dùng cùng module `primary_gesture_tests` nên Windows CI R20 đã gọi tự động.
+- Commits `bde137eac01c4d3e91fa0cd7c24e8eecdaaebfa6`, `8c6028f5e2792f86e9a99a14237a7bb42ee01357`.
+- Không làm thêm đồng bộ/xung đột; chỉ giữ quyền tài khoản/scope. Mốc 22/30 lượt phát triển (còn 8); 8 hạng mục hoạt động vẫn 39,4% **ước lượng chưa nghiệm thu**. Không xác nhận chạy Windows hay tạo EXE thành công.
