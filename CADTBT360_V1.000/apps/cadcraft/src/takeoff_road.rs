@@ -18,6 +18,9 @@ pub struct RoadCrossSection {
     pub plan_marker_handle: Option<String>,
     pub cut: Option<GeometricSource>,
     pub fill: Option<GeometricSource>,
+    /// Explicitly surveyed zero area, not a missing or rejected CAD measurement.
+    pub cut_zero_confirmed: bool,
+    pub fill_zero_confirmed: bool,
     pub confirmed: bool,
 }
 #[derive(Clone, Debug)]
@@ -62,7 +65,8 @@ pub fn validate_section(section: &RoadCrossSection) -> Result<(), String> {
         return Err("Lý trình mặt cắt không hợp lệ.".into());
     }
     if section.plan_marker_handle.as_deref().is_some_and(|handle| cadcraft_doc::Handle::parse_hex(handle).is_none()) { return Err("Mã đối tượng cọc bình đồ không hợp lệ.".into()); }
-    if section.cut.is_none() && section.fill.is_none() { return Err("Mỗi trắc ngang cần nguồn hình học diện tích đào hoặc đắp.".into()); }
+    if section.cut.is_none() && section.fill.is_none() && !section.cut_zero_confirmed && !section.fill_zero_confirmed { return Err("Mỗi trắc ngang cần diện tích hoặc xác nhận diện tích bằng 0.".into()); }
+    if (section.cut.is_some() && section.cut_zero_confirmed) || (section.fill.is_some() && section.fill_zero_confirmed) { return Err("Không thể vừa đo diện tích dương vừa xác nhận bằng 0 cho cùng loại đào/đắp.".into()); }
     if let (Some(cut), Some(fill)) = (&section.cut, &section.fill) {
         if cut.handle == fill.handle { return Err("Không thể sử dụng cùng một vùng CAD cho cả đào và đắp.".into()); }
     }
@@ -74,10 +78,9 @@ pub fn validate_section(section: &RoadCrossSection) -> Result<(), String> {
     }
     Ok(())
 }
-/// Only an explicitly recorded zero-area state can be a station endpoint with
-/// no cut (or no fill); it cannot be inferred from a missing/invalid CAD shape.
-/// This first version requires corresponding measured area at both stations
-/// and raises an error instead of silently assuming a zero area.
+/// Missing area and verified zero area are distinct. The operator must
+/// explicitly verify zero for a transition cross section; no interpolation of
+/// unknown station geometry or partial intervals is performed here.
 pub fn intervals(sections: &[RoadCrossSection], drawing_unit_to_m: f64,
     confirmed_only: bool) -> Result<Vec<RoadInterval>, String> {
     if !drawing_unit_to_m.is_finite() || drawing_unit_to_m <= 0.0 {
@@ -97,24 +100,32 @@ pub fn intervals(sections: &[RoadCrossSection], drawing_unit_to_m: f64,
         if confirmed_only && (!left.confirmed || !right.confirmed) { continue; }
         let length_m = right.chainage_m - left.chainage_m;
         for kind in [EarthworkKind::Cut, EarthworkKind::Fill] {
-            let (a,b) = match kind { EarthworkKind::Cut => (&left.cut, &right.cut), EarthworkKind::Fill => (&left.fill, &right.fill) };
-            match (a, b) {
-                (None, None) => {},
-                (Some(a), Some(b)) => {
-                    if a.handle == b.handle {
+            let (a,b,zero_a,zero_b) = match kind {
+                EarthworkKind::Cut => (&left.cut, &right.cut, left.cut_zero_confirmed, right.cut_zero_confirmed),
+                EarthworkKind::Fill => (&left.fill, &right.fill, left.fill_zero_confirmed, right.fill_zero_confirmed)
+            };
+            let area = |value: &Option<GeometricSource>, zero: bool, station: f64| -> Result<Option<(f64,String)>, String> {
+                if let Some(value) = value { return Ok(Some((value.raw_value * drawing_unit_to_m.powi(2),value.handle.clone()))); }
+                if zero { return Ok(Some((0.0,String::new()))); }
+                let _ = station;
+                Ok(None)
+            };
+            let a=area(a,zero_a,left.chainage_m)?;
+            let b=area(b,zero_b,right.chainage_m)?;
+            match (a,b) {
+                (None,None) => {},
+                (Some((area_start_m2,source_start)),Some((area_end_m2,source_end))) => {
+                    if !source_start.is_empty() && source_start == source_end {
                         return Err("Hai cọc liên tiếp không được dùng chung một đối tượng diện tích CAD.".into());
                     }
-                    let area_start_m2 = a.raw_value * drawing_unit_to_m.powi(2);
-                    let area_end_m2 = b.raw_value * drawing_unit_to_m.powi(2);
                     let volume_m3 = (area_start_m2 + area_end_m2) * length_m / 2.0;
-                    if !volume_m3.is_finite() || volume_m3 <= 0.0 {
+                    if !volume_m3.is_finite() || volume_m3 < 0.0 {
                         return Err("Khối lượng trắc ngang không hợp lệ hoặc tràn số.".into());
                     }
-                    out.push(RoadInterval{
-                        start_m:left.chainage_m,end_m:right.chainage_m,length_m,kind,
-                        area_start_m2,area_end_m2,volume_m3,
-                        source_start:a.handle.clone(),source_end:b.handle.clone()
-                    });
+                    // Both endpoints confirmed zero: no positive earthwork to report.
+                    if volume_m3 == 0.0 { continue; }
+                    out.push(RoadInterval{start_m:left.chainage_m,end_m:right.chainage_m,length_m,kind,
+                        area_start_m2,area_end_m2,volume_m3,source_start,source_end});
                 },
                 _ => return Err(format!("Thiếu diện tích {} tại một đầu đoạn {} → {}. Không tự gán bằng 0.",
                     kind.label(),station_label(left.chainage_m),station_label(right.chainage_m))),
@@ -210,7 +221,9 @@ impl RoadCrossSection {
     pub fn json(&self) -> serde_json::Value {
         serde_json::json!({"chainage_m":self.chainage_m,"name":self.name,"plan_marker_handle":self.plan_marker_handle,
             "cut":self.cut.as_ref().map(GeometricSource::json),
-            "fill":self.fill.as_ref().map(GeometricSource::json),"confirmed":self.confirmed})
+            "fill":self.fill.as_ref().map(GeometricSource::json),
+            "cut_zero_confirmed":self.cut_zero_confirmed,"fill_zero_confirmed":self.fill_zero_confirmed,
+            "confirmed":self.confirmed})
     }
     pub fn read(v: &serde_json::Value) -> Option<Self> {
         let section=Self {
@@ -219,6 +232,8 @@ impl RoadCrossSection {
             plan_marker_handle:v.get("plan_marker_handle").and_then(serde_json::Value::as_str).map(str::to_string),
             cut:v.get("cut").and_then(GeometricSource::read),
             fill:v.get("fill").and_then(GeometricSource::read),
+            cut_zero_confirmed:v.get("cut_zero_confirmed").and_then(serde_json::Value::as_bool).unwrap_or(false),
+            fill_zero_confirmed:v.get("fill_zero_confirmed").and_then(serde_json::Value::as_bool).unwrap_or(false),
             confirmed:v.get("confirmed").and_then(serde_json::Value::as_bool).unwrap_or(false),
         };
         validate_section(&section).ok()?;
@@ -232,7 +247,7 @@ mod tests {
         GeometricSource{handle:handle.into(),signature:format!("Area:{area}"),raw_value:area}
     }
     fn section(m:f64,cut:Option<GeometricSource>,fill:Option<GeometricSource>)->RoadCrossSection {
-        RoadCrossSection{chainage_m:m,name:station_label(m),plan_marker_handle:None,cut,fill,confirmed:true}
+        RoadCrossSection{chainage_m:m,name:station_label(m),plan_marker_handle:None,cut,fill,cut_zero_confirmed:false,fill_zero_confirmed:false,confirmed:true}
     }
     #[test]
     fn km_notation_is_metres_and_rejects_bad_stationing() {
@@ -309,6 +324,32 @@ mod tests {
         assert!(link_plan_markers(&markers,&sections,0.1).is_err());
         let mut linked=sections[0].clone(); linked.plan_marker_handle=Some("AA".into());
         assert!(link_plan_markers(&markers,&[linked],0.001).is_err());
+    }
+    #[test]
+    fn explicit_zero_at_cut_fill_transition_is_counted_without_guessing_missing_areas() {
+        let mut left=section(0.0,Some(source("1A",20.0)),None);
+        let mut right=section(20.0,None,Some(source("2B",12.0)));
+        left.fill_zero_confirmed=true;
+        right.cut_zero_confirmed=true;
+        let intervals=intervals(&[left.clone(),right.clone()],1.0,true).unwrap();
+        assert_eq!(intervals.len(),2);
+        assert!((intervals[0].volume_m3-200.0).abs()<1e-8);
+        assert_eq!(intervals[0].source_end,"");
+        assert!((intervals[1].volume_m3-120.0).abs()<1e-8);
+        assert_eq!(intervals[1].source_start,"");
+        right.cut_zero_confirmed=false;
+        assert!(intervals(&[left.clone(),right],1.0,true).is_err());
+        left.cut_zero_confirmed=true;
+        assert!(validate_section(&left).is_err());
+    }
+    #[test]
+    fn zero_area_states_roundtrip_and_both_zeros_do_not_create_volume() {
+        let mut a=section(0.0,None,None);a.cut_zero_confirmed=true;
+        let mut b=section(10.0,None,None);b.cut_zero_confirmed=true;
+        assert!(RoadCrossSection::read(&a.json()).unwrap().cut_zero_confirmed);
+        assert!(intervals(&[a,b],1.0,true).unwrap().is_empty());
+        let legacy=section(0.0,Some(source("A1",2.0)),None).json();
+        assert!(!RoadCrossSection::read(&legacy).unwrap().cut_zero_confirmed);
     }
     #[test]
     fn section_roundtrip_retains_evidence_but_not_implicit_approval() {
