@@ -223,6 +223,24 @@ pub struct SnapCycle {
     index: usize,
 }
 
+/// A lost pointer release must never leave a selection window active for the next click.
+fn should_cancel_drag_window(active: bool, escape: bool, focused: bool, released: bool, release_inside: bool) -> bool {
+    active && (escape || !focused || (released && !release_inside))
+}
+
+#[cfg(test)]
+mod stuck_drag_tests {
+    use super::should_cancel_drag_window;
+    #[test]
+    fn escape_focus_loss_and_outside_release_cancel_drag() {
+        assert!(should_cancel_drag_window(true, true, true, false, true));
+        assert!(should_cancel_drag_window(true, false, false, false, true));
+        assert!(should_cancel_drag_window(true, false, true, true, false));
+        assert!(!should_cancel_drag_window(true, false, true, true, true));
+        assert!(!should_cancel_drag_window(false, true, false, true, false));
+    }
+}
+
 /// Draw the drawing area and handle its input (zoom and pan, picking, the crosshair) for this
 /// frame.
 ///
@@ -585,7 +603,7 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui) {
         i.focused,
         i.pointer.interact_pos(),
     ));
-    if app.canvas.drag_window && (escape || !window_focused || (primary_released && !release_pos.is_some_and(|p| rect.contains(p)))) {
+    if should_cancel_drag_window(app.canvas.drag_window, escape, window_focused, primary_released, release_pos.is_some_and(|p| rect.contains(p))) {
         app.canvas.drag_window = false;
         app.session.pending_window = None;
     }
