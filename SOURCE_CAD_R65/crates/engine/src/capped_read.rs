@@ -92,21 +92,23 @@ pub fn read_progressive(path: &Path, mut report: impl FnMut(u64, u64)) -> io::Re
     // repeated tiny reallocations for ordinary drawings without committing hundreds
     // of MiB before the file is actually read.
     let reserve_hint = total.min(8 * 1024 * 1024) as usize;
-    output.try_reserve(reserve_hint).map_err(|e| io::Error::other(format!("not enough memory to initialize drawing read: {e}")))?;
-    // Read directly into the destination Vec rather than allocating a separate
-    // 1 MiB scratch buffer and copying every byte a second time. Keep growth
-    // fallible and bounded per iteration; there is still no fixed file-size cap.
+    output.try_reserve_exact(reserve_hint).map_err(|e| io::Error::other(format!("not enough memory to initialize drawing read: {e}")))?;
+    // Read directly into the destination Vec, with fallible, exact-growth
+    // requests. Vec::try_reserve can geometrically grow a 300-500 MiB drawing
+    // to nearly twice its size and cause transient OOM; incremental reserve
+    // should avoid intentionally doubling peak buffered CAD bytes.
     const READ_BLOCK: usize = 1024 * 1024;
     let mut read_total = 0u64;
     report(0, total);
     loop {
         let old_len = output.len();
-        // Most regular CAD files have reliable metadata. Avoid zero-initializing
-        // a full MiB for a tiny trailing chunk; still permit growth beyond the
-        // observed metadata length by probing another block at the boundary.
+        // The initial file size is a snapshot. Stop at its byte boundary,
+        // then verify metadata again; growing/truncated files are rejected,
+        // not accidentally decoded from mixed versions.
         let remaining = total.saturating_sub(read_total);
-        let read_size = if remaining == 0 { READ_BLOCK } else { remaining.min(READ_BLOCK as u64) as usize };
-        output.try_reserve(read_size).map_err(|e| io::Error::other(format!("not enough memory to read drawing: {e}")))?;
+        if remaining == 0 { break; }
+        let read_size = remaining.min(READ_BLOCK as u64) as usize;
+        output.try_reserve_exact(read_size).map_err(|e| io::Error::other(format!("not enough memory to read drawing: {e}")))?;
         output.resize(old_len + read_size, 0);
         let n = match read_retry_interrupted(&mut file, &mut output[old_len..]) {
             Ok(n) => n,
@@ -208,6 +210,19 @@ mod tests {
         if p.exists() {
             assert!(read_capped(p, 8 << 20).is_err());
         }
+    }
+
+    #[test]
+    fn progressive_read_keeps_large_drawing_capacity_near_actual_size() {
+        let dir = std::env::temp_dir().join(format!("cadcraft-exact-reserve-{}-{}", std::process::id(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("capacity.dxf");
+        let original = vec![0x7au8; 11 * 1024 * 1024 + 59];
+        std::fs::write(&path, &original).unwrap();
+        let read = read_progressive(&path, |_, _| {}).unwrap();
+        assert_eq!(read, original);
+        assert!(read.capacity() < original.len() + 2 * 1024 * 1024, "excessive capacity after multi-chunk OPEN");
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]
