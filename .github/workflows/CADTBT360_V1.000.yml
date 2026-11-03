@@ -55,6 +55,14 @@ jobs:
         working-directory: CADTBT360_V1.000
         shell: pwsh
         run: cargo test --locked -p cadcraft-engine --lib --no-run
+      - name: Verify investor-ready QTO XLSX formatting, ZIP and export rules
+        working-directory: CADTBT360_V1.000
+        shell: pwsh
+        run: |
+          cargo test --locked -p cadcraft --bin cadcraft takeoff_report::tests -- --test-threads=2
+          if ($LASTEXITCODE -ne 0) { throw "QTO XLSX workbook tests failed" }
+          cargo test --locked -p cadcraft --bin cadcraft takeoff::tests::qto_investor_excel -- --test-threads=2
+          if ($LASTEXITCODE -ne 0) { throw "QTO investor export tests failed" }
       - name: Verify CAD Text Style Manager and font properties
         working-directory: CADTBT360_V1.000
         shell: pwsh
