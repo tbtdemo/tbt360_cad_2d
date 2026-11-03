@@ -1,3 +1,21 @@
+## B22 — Sửa QSELECT Exclude theo object type, kiểm thử CAD và đóng gói (03/11/2026)
+
+**Bộ cài gần nhất đã xác nhận:** B20 commit `b1a2861d`, run [41641837917](https://github.com/tbtdemo/tbt360_cad_2d/actions/runs/41641837917), artifact [13232439435](https://github.com/tbtdemo/tbt360_cad_2d/actions/runs/41641837917/artifacts/13232439435) `CAD360-TBT-REAL-Windows-x64-Setup-Portable-Source-B15-UI`, 63,913,419 bytes. Build và upload đã hoàn tất; kiểm thử BIM tiếp tục, không gọi là release nghiệm thu.
+
+**Thay đổi tính năng B22 tại lõi CAD:** `crates/engine/src/cmd/qselect.rs`: QSELECT `mode:exclude` trả phần bù của toàn bộ điều kiện lọc **bao gồm type**. Trước đây các entity khác loại `type` bị `continue` và không xuất hiện trong tập excluded. Cập nhật `excluded.push(handle)` khi `type_matches` sai, chỉ ở mode exclude; chế độ new/append giữ nguyên. Preview đếm theo cùng ngữ nghĩa.
+
+**Hai unit test mới:** `qselect_exclude_type_uses_complement_of_all_candidate_objects` và `qselect_exclude_type_preview_counts_without_modifying_selection`. Đã commit [70082daf](https://github.com/tbtdemo/tbt360_cad_2d/commit/70082daf985742638c433b0d60db7a576281c2c9), chưa xác minh PASS trên CI.
+
+**Workflow đóng gói đã nâng cấp:**
+- Đặt artifact thành `CAD360-TBT-Windows-x64-Setup-Portable-Source-B22-QSELECT` và `ReleaseBatch=B22-QSELECT`, tránh nhãn cũ B15 cho bản B22.
+- Bổ sung bước `cargo test --locked -p cadcraft-engine cmd::qselect::tests` và `cargo test --locked -p cadcraft-ui-egui qselect_filter_tests` sau upload installer, trước BIM regression.
+- Commit [e6ab7583](https://github.com/tbtdemo/tbt360_cad_2d/commit/e6ab75831e7273e1fb9c777c3e79a3984a39f103).
+- [Run Ubuntu cross B22 41643336730](https://github.com/tbtdemo/tbt360_cad_2d/actions/runs/41643336730) đang chạy toolchain khi kiểm tra; chưa có EXE.
+- [Run Windows Native B22 41643336472](https://github.com/tbtdemo/tbt360_cad_2d/actions/runs/41643336472) inventory PASS, build còn queued; chưa có EXE.
+
+**Tiến độ 4 cổng B22:** source 1/4 = **25%**. Chỉ chuyển sang 3/4 khi xác minh artifact EXE đúng SHA; GUI Windows + test hồi quy xác nhận riêng.
+
+
 ## B21 — QSELECT xem trước không thay đổi tập chọn (03/11/2026)
 
 **Nâng cấp chức năng CAD 2D thực tế:**
