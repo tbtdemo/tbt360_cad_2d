@@ -1280,6 +1280,13 @@ fn qto_road_report_lines(app: &CadApp, state: &State, config: &ExportConfig,
         let start=state.road_sections.iter().find(|section|(section.chainage_m-interval.start_m).abs()<1.0e-6).unwrap();
         let end=state.road_sections.iter().find(|section|(section.chainage_m-interval.end_m).abs()<1.0e-6).unwrap();
         if !qto_road_interval_in_scope(start,end,interval.kind,allowed) { continue; }
+        for section in [start,end] {
+            if let Some(marker)=section.plan_marker_handle.as_deref() {
+                let current=cadcraft_doc::Handle::parse_hex(marker).is_some_and(|handle|
+                    app.session.doc().ok().is_some_and(|doc|doc.model.get(handle).is_some()));
+                if !current {return Err(format!("Cọc bình đồ tại {} không còn tồn tại trong bản vẽ. Hãy kiểm tra lại liên kết.",takeoff_road::station_label(section.chainage_m)));}
+            }
+        }
         // Validate only the two CAD shapes actually contributing to this
         // exported station interval. Unrelated stations must not block export.
         let sources=match interval.kind {
