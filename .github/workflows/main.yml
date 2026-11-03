@@ -263,6 +263,17 @@ jobs:
           if (!(Test-Path $archive) -or (Get-Item $archive).Length -lt 10000) { throw "Source archive missing or suspiciously small" }
           $archived = git rev-parse HEAD
           if ($LASTEXITCODE -ne 0 -or $archived -ne $env:GITHUB_SHA) { throw "Source archive does not match the Windows build commit" }
+          Add-Type -AssemblyName System.IO.Compression
+          $zip = [System.IO.Compression.ZipFile]::OpenRead((Resolve-Path $archive).Path)
+          try {
+            $entries = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+            foreach ($entry in $zip.Entries) { [void]$entries.Add($entry.FullName) }
+            foreach ($required in @("SOURCE_CAD_R65/Cargo.toml", "SOURCE_CAD_R65/Cargo.lock", "installer/CAD360_TBT_Windows.iss", ".github/workflows/main.yml")) {
+              if (!$entries.Contains($required)) { throw "Source archive missing required tracked file: $required" }
+            }
+          } finally {
+            $zip.Dispose()
+          }
       - name: Generate release SHA256 checksums
         shell: pwsh
         run: |
