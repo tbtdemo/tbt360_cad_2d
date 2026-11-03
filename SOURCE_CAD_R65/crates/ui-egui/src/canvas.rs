@@ -344,6 +344,30 @@ mod primary_gesture_tests {
     }
 }
 
+/// After a fast click burst, pointer.hover_pos may already describe the
+/// next frame or another UI surface. The last physical release is the actual
+/// CAD point, not that later cursor position.
+fn point_input_position(prompting_for_point: bool, last_canvas_release: Option<Pos2>, hover: Option<Pos2>) -> Option<Pos2> {
+    if prompting_for_point { last_canvas_release.or(hover) } else { hover }
+}
+
+#[cfg(test)]
+mod point_event_position_tests {
+    use super::point_input_position;
+    use egui::pos2;
+
+    #[test]
+    fn uses_last_physical_release_not_later_pointer_hover() {
+        assert_eq!(point_input_position(true, Some(pos2(20.0, 30.0)), Some(pos2(160.0, 180.0))), Some(pos2(20.0, 30.0)));
+    }
+
+    #[test]
+    fn idle_selection_and_keyboard_prompts_keep_the_live_pointer() {
+        assert_eq!(point_input_position(false, Some(pos2(20.0, 30.0)), Some(pos2(160.0, 180.0))), Some(pos2(160.0, 180.0)));
+        assert_eq!(point_input_position(true, None, Some(pos2(30.0, 40.0))), Some(pos2(30.0, 40.0)));
+    }
+}
+
 /// A physical release must not be dispatched as a second selection click when
 /// it finishes an owned drag, or when ESC/focus loss invalidates the gesture.
 fn may_dispatch_canvas_click(drag_active: bool, drag_stopped: bool, cancelled: bool) -> bool {
@@ -633,7 +657,13 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui) {
         let earlier_press_on_canvas = i.pointer.press_origin().is_some_and(|origin| rect.contains(origin));
         primary_canvas_releases(&i.events, rect, earlier_press_on_canvas)
     });
-    let raw_canvas_release = raw_release_for_point_prompt(true, !releases.is_empty());
+    let valid_last_release = releases.iter().rev().copied().find(|pos| {
+        ui.ctx().layer_id_at(*pos) == Some(ui.layer_id()) && !over_canvas_menu(app, *pos)
+    });
+    let point_hover_pos = point_input_position(point_prompt, valid_last_release, hover_pos);
+    let point_inside = if point_prompt && valid_last_release.is_some() { true } else { inside };
+    let point_on_menu = if point_prompt && valid_last_release.is_some() { false } else { on_menu };
+    let raw_canvas_release = raw_release_for_point_prompt(true, valid_last_release.is_some());
     // During a point prompt, a global egui click can belong to a toolbar or
     // palette. Only matched canvas gestures or the canvas response may place
     // geometry. Keep normal click handling for Dynamic Input option menus.
@@ -643,7 +673,7 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui) {
         pressed_primary || (point_prompt && raw_canvas_release)
     };
     let mut command_finished_in_batch = false;
-    if point_prompt && inside && !on_menu && pressed_primary && !middle_down && app.cmd.options.is_none() && app.cmd.buffer.is_empty() {
+    if point_prompt && point_inside && !point_on_menu && pressed_primary && !middle_down && app.cmd.options.is_none() && app.cmd.buffer.is_empty() {
         // The last release is dispatched by the regular cursor path below. Earlier
         // releases must use their own geometry rather than the final cursor's snap:
         // reusing the last snap would place multiple points at the same coordinate.
@@ -670,7 +700,7 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui) {
         }
     }
 
-    let raw_world = hover_pos.filter(|_| inside).map(|p| xf.to_world(p));
+    let raw_world = point_hover_pos.filter(|_| point_inside).map(|p| xf.to_world(p));
     let dyn_frame = crate::cmdline::dyn_frame(app);
     if let Some(w) = raw_world {
         let mut eff = effective_point(app, w, &xf, ui.ctx());
@@ -729,7 +759,7 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui) {
         app.canvas.drag_window = false;
     }
     // Never consume a click on an egui menu or an overlay owned by the canvas.
-    let pressed_primary = may_dispatch_last_click(pressed_primary, command_finished_in_batch, picked || hatch_dialog || idle_dbl || on_menu);
+    let pressed_primary = may_dispatch_last_click(pressed_primary, command_finished_in_batch, picked || hatch_dialog || idle_dbl || point_on_menu);
     let key: CycleKey = (
         app.session.running.as_ref().map(|r| r.id.clone()),
         app.session.current_prompt().map(|p| p.message),
@@ -751,8 +781,9 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui) {
     let point_drag_stopped = !point_prompt && resp.drag_stopped_by(egui::PointerButton::Primary);
     let click_is_not_selection_drag = may_dispatch_canvas_click(drag_window_at_frame_start, point_drag_stopped, cancel_canvas_interaction);
     let cycled = pressed_primary && click_is_not_selection_drag && !middle_down && cycle_click(app, &xf, hover_pos, raw_world.filter(|_| inside), mods.shift);
-    // Clicks.
-    if inside
+    // Clicks. A paired point release remains valid even if the pointer has
+    // moved off-canvas before egui paints this (slow) frame.
+    if point_inside
         && pressed_primary
         && click_is_not_selection_drag
         && !middle_down
