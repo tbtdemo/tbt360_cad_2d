@@ -181,11 +181,21 @@ fn premultiplied(c: Rgb, a: u8) -> [u8; 4] {
     [k(c.0), k(c.1), k(c.2), a]
 }
 
+/// Bounded initial CPU buffer reservation for GPU geometry. Rust Vec can still
+/// grow to fit all required geometry, so no CAD primitives are dropped.
+fn mesh_initial_capacity(estimated_bytes: usize) -> usize {
+    estimated_bytes.min(1024 * 1024)
+}
+
 /// Convert a display list into vertex data relative to `origin`, colours resolved against `bg`.
 pub fn build_mesh(list: &DisplayList, origin: Vec2, bg: Rgb, lwdisplay: bool) -> MeshData {
+    // A lineweight-enabled drawing turns many polylines into quad instances,
+    // rather than hairline vertices. Do not preallocate the entire estimated
+    // GPU vertex count before we know how much each actual buffer will need.
+    // These are initial reservations only, not limits on drawable geometry.
     let mut m = MeshData {
-        lines: Vec::with_capacity(list.segment_count().saturating_mul(2 * VERTEX_SIZE)),
-        tris: Vec::with_capacity(list.tris.len().saturating_mul(VERTEX_SIZE)),
+        lines: Vec::with_capacity(mesh_initial_capacity(list.segment_count().saturating_mul(2 * VERTEX_SIZE))),
+        tris: Vec::with_capacity(mesh_initial_capacity(list.tris.len().saturating_mul(VERTEX_SIZE))),
         quads: Vec::new(),
         breaks: Vec::new(),
         uploaded: None,
@@ -723,7 +733,12 @@ impl egui_wgpu::CallbackTrait for CanvasCallback {
         let [ma, mb, mc, md, tx, ty] = self.xform;
         let d = [ma, mb, mc, md];
         let e = [tx, ty, 0.0, 0.0];
-        let bytes: Vec<u8> = a.iter().chain(&b).chain(&c).chain(&d).chain(&e).flat_map(|v| v.to_le_bytes()).collect();
+        // The transform is always 20 f32s. A stack buffer avoids a heap
+        // allocation on every frame and viewport repaint.
+        let mut bytes = [0u8; 20 * 4];
+        for (i, v) in a.iter().chain(&b).chain(&c).chain(&d).chain(&e).enumerate() {
+            bytes[i * 4..(i + 1) * 4].copy_from_slice(&v.to_le_bytes());
+        }
         queue.write_buffer(&res.uniform, 0, &bytes);
         Vec::new()
     }
