@@ -109,3 +109,9 @@ B15 gồm 15 bộ chức năng đã ghi ở trên. Build Windows là ứng viên
 - **7/15 bộ chức năng trong chu kỳ sau B15**, còn 8 bộ đến đóng gói tiếp. Không tính commit kiểm thử, workflow hay tài liệu là bộ chức năng.
 - Các lượt Direct EXE B15 vẫn cố định tại SHA chốt cũ: `41604832969` (đã sửa E0308), `41601992146` (chưa sửa). Kiểm tra gần nhất source inventory PASS, Windows Setup queued, chỉ có artifact kiểm kê 248 byte; không có EXE, Portable hoặc Source ZIP thật.
 - Các tối ưu mới chỉ được commit vào nhánh phát triển sau B15, chưa biên dịch trên Windows runner/benchmark file CAD thực. Tỷ lệ nghiệm thu vẫn 39,4% ước lượng.
+
+## B15 candidate handover — immediately deliver source and Windows EXE bundle
+- Workflow `.github/workflows/tbt-exe-direct.yml` đã sửa để tạo **Source ZIP R15 trên ubuntu-latest** độc lập với việc Windows runner chưa nhận job; SHA256 và thông tin commit được upload cùng.
+- Windows `build-exe` ưu tiên `cargo build --release`, xuất `Setup EXE + Portable ZIP + Source ZIP + SHA256SUMS` và upload artifact trước khi kiểm thử BIM; test không PASS vẫn đánh dấu run thất bại sau artifact, không tuyên bố sản phẩm đã nghiệm thu.
+- Lượt này là ứng viên B15 *để tải và thử thực tế*, bao gồm sửa Rust E0308, phục hồi CAD+BIM, RAM lớn, lựa chọn đối tượng. Tất cả file tạo từ SHA chốt của commit B15 này; tiếp tục commit nâng cấp sau đó không thay đổi bản ứng viên.
+- **Không tự báo đã đóng gói Windows** nếu job queued; Source chỉ báo có khi artifact Source ZIP thực sự xuất hiện.
