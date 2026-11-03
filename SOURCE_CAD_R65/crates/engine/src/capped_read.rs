@@ -41,6 +41,18 @@ pub fn read_capped(path: &Path, max: usize) -> io::Result<Vec<u8>> {
 }
 
 
+/// Retry transient interrupted system reads rather than turning an OS signal
+/// into a failed CAD open. This mirrors Read::read_to_end semantics without
+/// allocating a second large buffer.
+fn read_retry_interrupted(reader: &mut impl Read, buf: &mut [u8]) -> io::Result<usize> {
+    loop {
+        match reader.read(buf) {
+            Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
+            result => return result,
+        }
+    }
+}
+
 /// Progressive read for large regular drawing files. Unlike read_capped, this API does not
 /// impose a fixed on-disk file-size ceiling. Each allocation is fallible and chunked.
 /// A file may still fail to decode if actual memory is insufficient; callers must report that.
@@ -77,7 +89,7 @@ pub fn read_progressive(path: &Path, mut report: impl FnMut(u64, u64)) -> io::Re
         let read_size = if remaining == 0 { READ_BLOCK } else { remaining.min(READ_BLOCK as u64) as usize };
         output.try_reserve(read_size).map_err(|e| io::Error::other(format!("not enough memory to read drawing: {e}")))?;
         output.resize(old_len + read_size, 0);
-        let n = match file.read(&mut output[old_len..]) {
+        let n = match read_retry_interrupted(&mut file, &mut output[old_len..]) {
             Ok(n) => n,
             Err(e) => {
                 output.truncate(old_len);
@@ -96,6 +108,28 @@ pub fn read_progressive(path: &Path, mut report: impl FnMut(u64, u64)) -> io::Re
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn transient_interrupted_read_retries_without_losing_geometry_bytes() {
+        struct OneInterruptedRead { data: Vec<u8>, interrupted: bool, cursor: usize }
+        impl Read for OneInterruptedRead {
+            fn read(&mut self, out: &mut [u8]) -> io::Result<usize> {
+                if !self.interrupted {
+                    self.interrupted = true;
+                    return Err(io::Error::new(io::ErrorKind::Interrupted, "transient signal"));
+                }
+                let remaining = &self.data[self.cursor..];
+                let count = remaining.len().min(out.len());
+                out[..count].copy_from_slice(&remaining[..count]);
+                self.cursor += count;
+                Ok(count)
+            }
+        }
+        let mut reader = OneInterruptedRead { data: vec![1, 2, 3, 4], interrupted: false, cursor: 0 };
+        let mut bytes = [0; 4];
+        assert_eq!(read_retry_interrupted(&mut reader, &mut bytes).unwrap(), 4);
+        assert_eq!(bytes, [1, 2, 3, 4]);
+    }
 
     /// Regular-file reads accept the byte boundary and reject any larger payload.
     #[test]
