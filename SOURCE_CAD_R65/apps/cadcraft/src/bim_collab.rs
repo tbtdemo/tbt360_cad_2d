@@ -1930,7 +1930,7 @@ fn collaboration_metric(ui: &mut egui::Ui, title: &str, value: usize, descriptio
 
 pub fn panel(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut State) {
     let tab_id = egui::Id::new("tbt360_bim_collaboration_active_tab");
-    let mut tab = ui.ctx().data_mut(|data| data.get_temp::<u8>(tab_id).unwrap_or(2));
+    let mut tab = ui.ctx().data_mut(|data| data.get_temp::<u8>(tab_id).unwrap_or(0));
     let mut selected_issue = ui.ctx().data_mut(|data| data.get_temp::<u64>(egui::Id::new("tbt360_bim_selected_issue")));
     ui.heading("PHỐI HỢP THIẾT KẾ");
     ui.label("BIM CỘNG TÁC  •  RFI / BCF  •  Issue / Clash  •  Đồng bộ");
@@ -1938,8 +1938,8 @@ pub fn panel(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut 
     // Fixed five-column navigation: each tab occupies an equal horizontal cell.
     ui.columns(5, |columns| {
         for (index, section) in CollaborationTab::ALL.iter().enumerate() {
-            columns[index].add_sized([columns[index].available_width(), 34.0],
-                egui::Button::new(section.title()).selected(tab == index as u8)).clicked().then(|| tab = index as u8);
+            if columns[index].add_sized([columns[index].available_width(), 34.0],
+                egui::Button::new(section.title()).selected(tab == index as u8)).clicked() { tab = index as u8; }
         }
     });
     ui.add_space(8.0);
