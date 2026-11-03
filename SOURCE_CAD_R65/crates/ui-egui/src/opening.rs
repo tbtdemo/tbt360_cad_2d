@@ -85,10 +85,15 @@ impl Opening {
                 false
             }
         });
+        done
+    }
+
+    /// Start the next decoder only after the previous decoded drawing has been
+    /// installed (or dropped) on the UI thread, minimizing simultaneous RAM peaks.
+    pub fn start_next_after_install(&mut self) {
         if self.jobs.is_empty() {
             if let Some(path) = self.queued.pop_front() { self.start(&path); }
         }
-        done
     }
 
     /// The text of the card: the file and how long it has taken, or how many files are queued.
@@ -193,6 +198,7 @@ mod tests {
         let started = Instant::now();
         while opening.busy() && started.elapsed() < Duration::from_secs(10) {
             opening.poll();
+            opening.start_next_after_install();
             std::thread::sleep(Duration::from_millis(5));
         }
         assert!(!opening.busy(), "all queued open attempts must finish");
