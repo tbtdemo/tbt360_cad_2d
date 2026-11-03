@@ -525,12 +525,17 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui) {
         // The main path will handle only the last release if the prompt is still active.
         if let Some((_, earlier)) = releases.split_last() {
             for pos in earlier.iter().filter(|p| rect.contains(**p) && ui.ctx().layer_id_at(**p) == Some(ui.layer_id())) {
-                if !app.session.prompting() { break; }
+                if !app.session.current_prompt().is_some_and(|prompt| cadcraft_engine::pointmod::accepts(&prompt)) {
+                    command_finished_in_batch = true;
+                    break;
+                }
                 let w = xf.to_world(*pos);
                 if let Err(e) = app.session.input(Input::Point(w)) {
                     app.session.echo(e.to_string());
                 }
-                if !app.session.prompting() {
+                // Moving from a point prompt to another input type is also an end to
+                // the point batch: do not feed a coordinate into a Yes/No or selection prompt.
+                if !app.session.current_prompt().is_some_and(|prompt| cadcraft_engine::pointmod::accepts(&prompt)) {
                     command_finished_in_batch = true;
                     break;
                 }
