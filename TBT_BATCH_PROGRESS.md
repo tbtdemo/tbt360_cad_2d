@@ -39,6 +39,7 @@
 | 18/30 | Tách thời gian đọc/giải mã CAD, log mỗi file theo ms và hiển thị thời gian giải mã; đồng nhất mốc Instant của worker/UI | `75952a357f31a6dbd553d6e02872cfcdad262cf1` | 1 regression test đồng hồ khi decode bắt đầu; đã bổ sung CI opening::tests ở R15 | Chưa xác minh Cargo/Windows GUI/EXE PASS |
 | 19/30 | Git archive nguồn đúng commit Windows; Setup/Portable/Source cùng SHA256; kiểm tra có Cargo.toml, Cargo.lock, installer và workflow | `dacacfd0b15a19110d821c7b55b399abea09fcf1` | Kiểm tra sự tồn tại file trong archive và 3 SHA256 trong CI; chưa chạy Windows | Windows run PASS, EXE và artifact vẫn chưa xác minh |
 | 20/30 | Ghép cặp từng sự kiện nhấn/thả chuột trái; chặn toolbar click thành điểm CAD; dọn drag qua menu/palette; bổ sung Windows test | `1ce77e689fb866cca3958c11375d70f208e18245` | 3 tests press-release gesture; thêm CI targeted test | Chưa xác minh Windows CI hoặc GUI PASS |
+| 21/30 | Không xử lý cú thả kéo chọn thành idle click; dùng press-origin một lần; ESC/focus ưu tiên hủy; Windows tests phân xử click/drag | `501ee9f06799035a2bab5ea93cafa989d37342bc` | 5 regression tests mới về release/drag/cancel | Chưa có Windows CI/GUI PASS được xác minh |
 
 ### Trạng thái
 - Hoàn thành bằng chứng mã nguồn: **16 lượt mã nguồn (15 tối thiểu + 1 dự phòng)**.
@@ -187,3 +188,11 @@
 - Commits `c699be8066b6597d47bc6633a4443be15fc0b23d`, `232b0e366fb77e287087485c533dcc6be82252e4`, `7c8d811e7a0330c0985bd1e35db6e302b4c832df`, `1ce77e689fb866cca3958c11375d70f208e18245`.
 - **Đây là sửa mã nguồn và viết test; chưa xác minh Rust tests chạy PASS hoặc GUI trên Windows.** Giữ 39,4% ước lượng trên 8 nhóm active, không tự tăng vì chưa có QA.
 - Lượt **20/30**, còn 10 lượt trong kế hoạch. Đồng bộ/xung đột bộ môn và giữa tài khoản đang tạm dừng; phân quyền tài khoản vẫn active.
+
+### Lượt 21 — click-click, drag-stop và ESC/focus
+- Sửa `canvas.rs`: khi `drag_window` còn hoạt động hoặc UI báo `drag_stopped`, không đưa sự kiện cuối vào `cycle_click` hay `idle_click` trước khi kết thúc vùng chọn. Nếu kết thúc kéo nhưng không có vị trí thả hợp lệ, xóa `pending_window` thay vì để điểm góc đầu tiên tồn tại sang thao tác kế.
+- `primary_canvas_releases` dùng `press_origin` từ frame trước **tối đa một lần**; sự kiện press mới phủ nhận fallback cũ. 2 tests bổ sung.
+- ESC hoặc mất focus hủy đường xử lý click và cycle trước khi tương tác trên canvas; vẫn để đường dọn kéo chọn xử lý trạng thái tồn đọng.
+- Hàm `may_dispatch_canvas_click` cho 3 test phân biệt click-click hợp lệ, kết thúc kéo và ESC/focus. Các tests thêm vào Windows CI targeted gate.
+- Commits `194e912a099d5c58e4d81b2fc2be60f226acf897`, `c7f83d794d86e83362c07231615b127f1fd6a497`, `e5ca33d26475bf5f9cd44774d2139f50e59a0811`, `84d48eec47ff4791d9f2c391c98e752fb3cb18b0`, `501ee9f06799035a2bab5ea93cafa989d37342bc`.
+- Sync/conflict và clash vẫn PAUSED, tài khoản/phân quyền ACTIVE. Mốc 21/30 lượt, còn 9 lượt trong kế hoạch. Tiến độ kỹ thuật 8 nhóm vẫn 39,4% do chưa có Windows GUI, benchmark và EXE PASS thực.
