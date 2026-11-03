@@ -2216,12 +2216,14 @@ pub fn panel(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut 
                         egui::Grid::new("bim_new_permissions_table").striped(true).min_col_width(70.0).show(ui, |ui| {
                             for heading in ["Tài khoản", "Bộ môn", "Chỉnh sửa", "Xem bộ môn khác", "Xem tầng khác"] { ui.strong(heading); }
                             ui.end_row();
-                            for user in &mut state.users {
+                            // Dashboard is read-only. Editing a checkbox here would bypass the
+                            // scoped access policies and leave no authorization/audit trail.
+                            for user in &state.users {
                                 ui.label(&user.display_name);
                                 ui.label(user.discipline.label());
-                                ui.checkbox(&mut user.can_edit, "");
-                                ui.checkbox(&mut user.can_view_other_disciplines, "");
-                                ui.checkbox(&mut user.can_view_other_floors, "");
+                                ui.label(if user.can_edit { "Có" } else { "Không" });
+                                ui.label(if user.can_view_other_disciplines { "Có" } else { "Không" });
+                                ui.label(if user.can_view_other_floors { "Có" } else { "Không" });
                                 ui.end_row();
                             }
                         });
