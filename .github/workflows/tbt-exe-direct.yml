@@ -177,6 +177,8 @@ jobs:
           if-no-files-found: warn
           retention-days: 30
       - name: Build CAD360 native release
+        env:
+          CAD360_BUILD_SHA: ${{ github.sha }}
         run: cargo build --release --locked -p cadcraft -p cadcraft-cli
       - name: Verify native binaries
         shell: pwsh
