@@ -224,7 +224,7 @@ fn zip_store(entries: &[(String, Vec<u8>)]) -> Result<Vec<u8>, String> {
     out.extend(le32(directory_offset)); out.extend(le16(0));
     Ok(out)
 }
-const STYLES: &str = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+const STYLES: &str = r##"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
 <numFmts count="1"><numFmt numFmtId="164" formatCode="#,##0.000;[Red](#,##0.000);-"/></numFmts>
 <fonts count="4">
@@ -259,7 +259,7 @@ const STYLES: &str = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <xf numFmtId="164" fontId="2" fillId="4" borderId="1" xfId="0" applyNumberFormat="1" applyAlignment="1"><alignment horizontal="right" vertical="center"/></xf>
 </cellXfs>
 <cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>
-</styleSheet>"#;
+</styleSheet>"##;
 
 /// Emit a real Office Open XML workbook with column widths, grouping, numeric
 /// values, A4 landscape fit-to-page setup, repeated headers and signature area.
