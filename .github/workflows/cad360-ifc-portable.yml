@@ -82,6 +82,26 @@ jobs:
         working-directory: SOURCE_CAD_R65
         run: python3 -m unittest discover -s apps/cadcraft/tools -p "test_export_ifc_obj_mapping.py" -v
 
+  recovery-rust-tests:
+    name: Test CAD+BIM paired recovery on Windows
+    runs-on: windows-latest
+    timeout-minutes: 90
+    defaults:
+      run:
+        working-directory: SOURCE_CAD_R65
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.95.0'
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: SOURCE_CAD_R65
+      - name: Compile recovery integration
+        run: cargo check --locked -p cadcraft --bin cadcraft
+      - name: Execute paired CAD BIM recovery tests
+        run: cargo test --locked -p cadcraft --bin cadcraft cad_bim_recovery::tests -- --test-threads=2
+
   portable-windows:
     if: "${{ github.event_name == 'workflow_dispatch' && inputs.batch_count >= 15 && inputs.batch_count <= 30 }}"
     runs-on: windows-latest
