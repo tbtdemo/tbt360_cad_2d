@@ -159,6 +159,11 @@ jobs:
         run: |
           cargo test --locked -p cadcraft-ui-egui canvas::draw::cpu_culling_tests -- --nocapture
           if ($LASTEXITCODE -ne 0) { throw "Large CAD CPU display-list culling regressions failed" }
+      - name: Test GPU mesh memory budget and vertex integrity
+        shell: pwsh
+        run: |
+          cargo test --locked -p cadcraft-ui-egui gpu::gpu_memory_budget_tests -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw "GPU mesh allocation and vertex regression failed" }
       - name: Test complete workspace
         run: cargo test --workspace --locked --no-fail-fast
 
