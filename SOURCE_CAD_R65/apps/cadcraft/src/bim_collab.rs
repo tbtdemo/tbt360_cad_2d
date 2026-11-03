@@ -2231,6 +2231,7 @@ pub fn panel(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut 
                 });
                 cols[1].group(|ui| {
                     ui.heading("PHẠM VI QUYỀN & CHIA SẺ");
+                    ui.small("Quyền hiệu lực do quy tắc theo tài khoản, tầng và bộ môn quyết định. Bảng bên trái chỉ hiển thị.");
                     egui::ScrollArea::vertical().max_height(290.0).show(ui, |ui| {
                         if state.access_rules.is_empty() { ui.label("Chưa thiết lập quy tắc truy cập."); }
                         for rule in &state.access_rules {
@@ -2243,7 +2244,7 @@ pub fn panel(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut 
                         }
                         ui.strong(format!("Chia sẻ giữa tài khoản: {}", state.share_grants.len()));
                         for grant in &state.share_grants {
-                            ui.label(format!("{} → {} • {} • {}", grant.owner_account_id, grant.viewer_account_id, grant.discipline.map(|d| d.label()).unwrap_or("Tất cả bộ môn"), if grant.can_edit { "Được sửa" } else { "Chỉ xem" }));
+                            ui.label(format!("{} → {} • {} • {}", grant.owner_account_id, grant.viewer_account_id, grant.discipline.map(|d| d.label()).unwrap_or("Tất cả bộ môn"), if grant.can_edit { "Được sửa" } else if grant.can_view { "Chỉ xem" } else { "Không cho phép" }));
                         }
                     });
                 });
