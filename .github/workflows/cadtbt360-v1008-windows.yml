@@ -41,6 +41,7 @@ jobs:
         env:
           CAD360_BUILD_SHA: ${{ github.sha }}
           CADCRAFT_BUILD_SHA: ${{ github.sha }}
+          CADTBT360_RELEASE_VERSION: CADTBT360_V1.008
         run: cargo build --locked --release -p cadcraft --bin cadcraft
       - name: Prepare portable EXE
         run: |
