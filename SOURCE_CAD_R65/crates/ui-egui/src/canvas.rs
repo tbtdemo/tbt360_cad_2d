@@ -575,6 +575,20 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui) {
     // Press-and-drag selection window (PICKDRAG = 2; click-click still works): a drag
     // that starts while objects are being selected opens a window where the button went down,
     // and letting go closes it. Drags on grips and drags while drawing are left alone.
+    // Always disarm a stale drag when the pointer is released outside the canvas,
+    // the window loses focus, or Escape cancels an interaction. Otherwise a later
+    // click may accidentally complete an old crossing/window selection.
+    let (primary_down, primary_released, escape, window_focused, release_pos) = ui.input(|i| (
+        i.pointer.button_down(egui::PointerButton::Primary),
+        i.pointer.button_released(egui::PointerButton::Primary),
+        i.key_pressed(egui::Key::Escape),
+        i.focused,
+        i.pointer.interact_pos(),
+    ));
+    if app.canvas.drag_window && (escape || !window_focused || (primary_released && !release_pos.is_some_and(|p| rect.contains(p)))) {
+        app.canvas.drag_window = false;
+        app.session.pending_window = None;
+    }
     if !app.session.settings.pickdrag {
         app.canvas.drag_window = false;
     }
@@ -592,7 +606,7 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui) {
     {
         app.canvas.drag_window = app.session.begin_window(xf.to_world(origin));
     }
-    if app.canvas.drag_window && resp.drag_stopped_by(egui::PointerButton::Primary) {
+    if app.canvas.drag_window && (resp.drag_stopped_by(egui::PointerButton::Primary) || (primary_released && !primary_down)) {
         app.canvas.drag_window = false;
         if app.session.pending_window.is_some()
             && let Some(end) = ui.input(|i| i.pointer.interact_pos())
