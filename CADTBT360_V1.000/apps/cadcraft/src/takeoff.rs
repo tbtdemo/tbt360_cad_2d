@@ -1617,17 +1617,20 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
             ui.selectable_value(&mut state.status_filter, 3, "Đã loại");
         });
         let mut action: Option<(u64, u8)> = None;
+        // Reuse the same scoped handle set across all rows. Rebuilding the
+        // selection per record made large QTO registers disproportionately slow.
+        let register_scope = qto_allowed_handles(app, state);
         ui.horizontal_wrapped(|ui| {
             if ui.button("Chọn tất cả phép đo đang lọc để xuất").clicked() {
                 for record in &state.records {
-                    if measurement_matches_filter(record, &state.search_text, state.status_filter) && qto_record_in_scope(record, qto_allowed_handles(app, state).as_ref()) {
+                    if measurement_matches_filter(record, &state.search_text, state.status_filter) && qto_record_in_scope(record, register_scope.as_ref()) {
                         state.export_omitted_ids.remove(&record.id);
                     }
                 }
             }
             if ui.button("Bỏ chọn phép đo đang lọc").clicked() {
                 for record in &state.records {
-                    if measurement_matches_filter(record, &state.search_text, state.status_filter) && qto_record_in_scope(record, qto_allowed_handles(app, state).as_ref()) {
+                    if measurement_matches_filter(record, &state.search_text, state.status_filter) && qto_record_in_scope(record, register_scope.as_ref()) {
                         state.export_omitted_ids.insert(record.id);
                     }
                 }
@@ -1639,7 +1642,7 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
                 for h in ["Xuất", "ID","Handle nguồn","Nguồn","Tầng","Bộ môn","Owner","Loại","Layer","Nhóm","Mã CT","Diễn giải","Giá trị","Trạng thái","Thao tác"] { ui.strong(h); }
                 ui.end_row();
                 for record in &state.records {
-                    if !measurement_matches_filter(record, &state.search_text, state.status_filter) || !qto_record_in_scope(record, qto_allowed_handles(app, state).as_ref()) || !qto_measure_type_allowed(record.kind, state.selected_measure_types) { continue; }
+                    if !measurement_matches_filter(record, &state.search_text, state.status_filter) || !qto_record_in_scope(record, register_scope.as_ref()) || !qto_measure_type_allowed(record.kind, state.selected_measure_types) { continue; }
                     let value = match record.kind {
                         MeasureKind::Area => record.raw_value * af,
                         MeasureKind::Length | MeasureKind::Perimeter => record.raw_value * lf,
