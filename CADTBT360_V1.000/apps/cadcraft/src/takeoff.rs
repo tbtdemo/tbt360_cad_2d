@@ -1275,6 +1275,41 @@ fn qto_road_attach_markers(sections: &mut [RoadCrossSection], markers: &[takeoff
     (linked,missing,conflicts)
 }
 
+#[cfg(test)]
+mod road_station_matching_tests {
+    use super::*;
+    fn section(m: f64, marker: Option<&str>) -> RoadCrossSection {
+        RoadCrossSection {
+            chainage_m:m,name:format!("Cọc {m}"),plan_marker_handle:marker.map(str::to_string),
+            cut:None,fill:None,cut_zero_confirmed:true,fill_zero_confirmed:true,confirmed:false,
+        }
+    }
+    #[test]
+    fn matches_unique_stations_and_never_reuses_a_plan_marker() {
+        let mut sections=vec![section(1000.0,None),section(1020.0,None)];
+        let markers=vec![
+            takeoff_road::RoadPlanMarker{chainage_m:1000.0,handle:"AA".into()},
+            takeoff_road::RoadPlanMarker{chainage_m:1020.0,handle:"BB".into()},
+        ];
+        assert_eq!(qto_road_attach_markers(&mut sections,&markers),(2,0,0));
+        assert_eq!(sections[0].plan_marker_handle.as_deref(),Some("AA"));
+        assert_eq!(qto_road_attach_markers(&mut sections,&markers),(2,0,0));
+        sections[1].plan_marker_handle=Some("AA".into());
+        assert_eq!(qto_road_attach_markers(&mut sections,&markers),(1,0,1));
+        assert_eq!(sections[1].plan_marker_handle.as_deref(),Some("AA"));
+    }
+    #[test]
+    fn duplicate_chainage_requires_manual_review() {
+        let mut sections=vec![section(500.0,None)];
+        let markers=vec![
+            takeoff_road::RoadPlanMarker{chainage_m:500.0,handle:"10".into()},
+            takeoff_road::RoadPlanMarker{chainage_m:500.0,handle:"11".into()},
+        ];
+        assert_eq!(qto_road_attach_markers(&mut sections,&markers),(0,0,1));
+        assert!(sections[0].plan_marker_handle.is_none());
+    }
+}
+
 fn qto_live_handles(app: &CadApp) -> BTreeSet<String> {
     app.session.selection().into_iter().map(|handle| handle.hex()).collect()
 }
@@ -1838,10 +1873,14 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
                 state.import_feedback=format!("Quét {} nhãn cọc hợp lệ; ghép {} trắc ngang; chưa tìm thấy {}; xung đột {}; bỏ qua {} đối tượng. Chưa tự phê duyệt; kiểm tra từng dòng trước khi xác nhận.",markers.len(),linked,not_found,ambiguous,skipped);
             }
             if ui.button("QUÉT CỌC TOÀN BỘ MODEL").clicked() {
-                let (markers,skipped)=qto_road_scan_markers(app,true);
-                let (matched,missing,ambiguous)=qto_road_attach_markers(&mut state.road_sections,&markers);
                 let incomplete=app.session.doc().ok().is_some_and(|doc|doc.model.len()>100_000);
-                state.import_feedback=format!("Quét MODEL: {} nhãn; ghép {}; thiếu {}; xung đột {}; bỏ qua {}. {} Chưa phê duyệt số liệu.",markers.len(),matched,missing,ambiguous,skipped,if incomplete {"Bản vẽ vượt 100.000 đối tượng, kết quả quét chỉ là một phần."}else{""});
+                if incomplete {
+                    state.import_feedback="MODEL vượt 100.000 đối tượng. Chưa ghép tự động từ dữ liệu quét thiếu; hãy chọn phạm vi nhỏ hơn.".into();
+                } else {
+                    let (markers,skipped)=qto_road_scan_markers(app,true);
+                    let (matched,missing,ambiguous)=qto_road_attach_markers(&mut state.road_sections,&markers);
+                    state.import_feedback=format!("Quét MODEL: {} nhãn; ghép {}; thiếu {}; xung đột {}; bỏ qua {}. Chưa phê duyệt số liệu.",markers.len(),matched,missing,ambiguous,skipped);
+                }
             }
             if ui.small_button("Bỏ gắn cọc").clicked(){state.road_plan_marker_handle=None;}
             ui.label(format!("Cọc bình đồ: {}",state.road_plan_marker_handle.as_deref().unwrap_or("Chưa gắn")));
