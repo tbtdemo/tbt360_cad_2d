@@ -8,7 +8,7 @@ use std::sync::mpsc::{Receiver, TryRecvError, channel};
 use std::sync::{Arc, atomic::{AtomicBool, AtomicU64, Ordering}};
 use std::time::{Duration, Instant};
 
-use cadcraft_engine::cmd::file::{ReadFile, read_file_with_progress};
+use cadcraft_engine::cmd::file::{ReadFile, read_file_with_progress_stage};
 
 use crate::theme::Tokens;
 
@@ -49,12 +49,12 @@ impl Opening {
         let progress = Arc::new(LoadProgress::default());
         let worker_progress = Arc::clone(&progress);
         let spawned = std::thread::Builder::new().name("cadcraft-open".into()).spawn(move || {
-            let result = read_file_with_progress(&p, |bytes, total| {
+            let phase_progress = Arc::clone(&worker_progress);
+            let result = read_file_with_progress_stage(&p, |bytes, total| {
                 worker_progress.total.store(total, Ordering::Relaxed);
                 worker_progress.bytes.store(bytes, Ordering::Relaxed);
-                // A zero-length or growing file is not parsed just because bytes >= its
-                // initial metadata length. Parsing starts after the reader has returned.
-                if total > 0 && bytes >= total { worker_progress.parsing.store(true, Ordering::Release); }
+            }, || {
+                phase_progress.parsing.store(true, Ordering::Release);
             });
             let _ = tx.send(result);
         });
@@ -228,6 +228,16 @@ mod tests {
             std::thread::sleep(Duration::from_millis(5));
         }
         assert!(!opening.busy(), "all queued open attempts must finish");
+    }
+
+    #[test]
+    fn progress_stays_in_read_phase_at_metadata_boundary_until_decoder_signals() {
+        let progress = super::LoadProgress::default();
+        progress.total.store(1_048_576, std::sync::atomic::Ordering::Relaxed);
+        progress.bytes.store(1_048_576, std::sync::atomic::Ordering::Relaxed);
+        assert!(!progress.parsing.load(std::sync::atomic::Ordering::Acquire), "100% bytes read must not imply geometry decode has begun");
+        progress.parsing.store(true, std::sync::atomic::Ordering::Release);
+        assert!(progress.parsing.load(std::sync::atomic::Ordering::Acquire));
     }
 
     #[test]
