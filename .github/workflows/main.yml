@@ -151,6 +151,7 @@ jobs:
             @{ Label = "UI"; Found = $uiTests; Name = "canvas::point_event_position_tests::uses_last_physical_release_not_later_pointer_hover" },
             @{ Label = "UI"; Found = $uiTests; Name = "canvas::eligible_point_release_tests::preserves_the_order_of_valid_clicks_while_excluding_menu_release" },
             @{ Label = "UI"; Found = $uiTests; Name = "canvas::rebuild::stale_background_view_tests::completed_job_cannot_replace_mesh_for_changed_zoom_or_outside_window" },
+            @{ Label = "UI"; Found = $uiTests; Name = "canvas::viewport::viewport_settle_tests::rapid_zoom_and_pan_do_not_rebuild_each_frame" },
             @{ Label = "UI"; Found = $uiTests; Name = "opening::tests::ten_queued_files_preserve_fifo_order_with_one_decoder_at_a_time" },
             @{ Label = "UI"; Found = $uiTests; Name = "opening::tests::repeated_open_clicks_do_not_queue_duplicate_cad_decoders" },
             @{ Label = "UI"; Found = $uiTests; Name = "canvas::tests::prim_index_releases_large_old_drawing_after_switch_with_empty_selection" },
@@ -210,6 +211,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "Canvas background regen tests failed" }
           cargo test --locked -p cadcraft-ui-egui canvas::rebuild::stale_background_view_tests -- --nocapture
           if ($LASTEXITCODE -ne 0) { throw "Stale GPU mesh replacement regression failed" }
+          cargo test --locked -p cadcraft-ui-egui canvas::viewport::viewport_settle_tests -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw "Synchronous viewport rebuild must be deferred during zoom/pan" }
       - name: Test CPU drawing memory and offscreen culling
         shell: pwsh
         run: |
