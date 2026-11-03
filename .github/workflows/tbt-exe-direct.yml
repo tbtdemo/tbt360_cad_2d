@@ -15,9 +15,11 @@ on:
 permissions:
   contents: write
 
+# Preserve each requested 15-30 batch milestone build while development continues.
+# A new source commit must not cancel an already-started Windows installer.
 concurrency:
-  group: cad360-direct-exe-${{ github.ref }}
-  cancel-in-progress: true
+  group: cad360-direct-exe-${{ github.ref }}-${{ github.sha }}
+  cancel-in-progress: false
 
 jobs:
   source-preflight:
