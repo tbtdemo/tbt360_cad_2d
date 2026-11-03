@@ -17,7 +17,7 @@ pub fn specs() -> Vec<CommandSpec> {
             .menu(&["Edit", "Quick Select..."])
             .alias(&["qs", "qse"])
             .params(
-                "{type?: \"Line\"|\"Circle\"|..., property?, operator?: \"=\"|\"!=\"|\">\"|\"<\"|\"*\" (wildcard), value?, mode?: new|append|exclude, \
+                "{type?: \"Line\"|\"Circle\"|..., property?, operator?: \"=\"|\"!=\"|\">\"|\"<\"|\"*\" (wildcard), value?, mode?: new|append|exclude|remove, \
                  applyTo?: drawing|selection, layer?, color?} → selected handles",
             )
             .noundo(),
@@ -247,15 +247,17 @@ fn run_qselect(s: &mut Session, p: &Value) -> Result<Value> {
         return Err(bad(cmd, "`value` is required with `property`"));
     }
     let mode = str_param(p, "mode").unwrap_or("new").to_ascii_lowercase();
-    if !["new", "append", "exclude", "include"].contains(&mode.as_str()) {
-        return Err(bad(cmd, format!("unknown mode `{mode}` (use new, append or exclude)")));
+    if !["new", "append", "exclude", "include", "remove"].contains(&mode.as_str()) {
+        return Err(bad(cmd, format!("unknown mode `{mode}` (use new, append, exclude or remove)")));
     }
     let layer = str_param(p, "layer");
     let color = p.get("color").filter(|c| !c.is_null());
     // Reuse one filter value across all entities instead of allocating it
     // for every scanned object in very large CAD drawings.
     let filter_value = value.unwrap_or(Value::String("*".into()));
-    let cands = candidates(s, p)?;
+    // Remove only scans the current selection: never sweep the whole drawing
+    // when subtracting a small subset of selected objects.
+    let cands = if mode == "remove" { s.selection() } else { candidates(s, p)? };
     let d = s.doc()?;
     let mut matched = Vec::new();
     let mut excluded = Vec::new();
@@ -265,7 +267,7 @@ fn run_qselect(s: &mut Session, p: &Value) -> Result<Value> {
             // Exclude means the complement of the entire QSELECT predicate,
             // including object type. Previously unmatched types disappeared
             // from both matched and excluded sets.
-            if mode == "exclude" { excluded.push(*h); }
+            if mode == "exclude" || mode == "remove" { excluded.push(*h); }
             continue;
         }
         let mut ok = true;
@@ -289,7 +291,7 @@ fn run_qselect(s: &mut Session, p: &Value) -> Result<Value> {
         }
     }
     let sel = match mode.as_str() {
-        "exclude" => excluded,
+        "exclude" | "remove" => excluded,
         "append" => append_unique_handles(s.selection(), matched),
         _ => matched,
     };
@@ -446,6 +448,27 @@ mod tests {
         assert_eq!(preview["selected"], 3);
         assert!(s.selection().is_empty());
         assert_eq!(s.selection(), before);
+    }
+
+    #[test]
+    fn qselect_remove_subtracts_matching_entities_from_current_selection() {
+        let mut s = session();
+        assert_eq!(n(&s.execute("qselect", &json!({ "type": "Line", "mode": "append" })).unwrap()), 2);
+        assert_eq!(n(&s.execute("qselect", &json!({ "type": "Circle", "mode": "append" })).unwrap()), 4);
+        let before = s.selection();
+        let preview = s.execute("qselect", &json!({ "type": "Circle", "mode": "remove", "preview": true })).unwrap();
+        assert_eq!(preview["selected"], 2);
+        assert_eq!(s.selection(), before);
+        assert_eq!(n(&s.execute("qselect", &json!({ "type": "Circle", "mode": "remove" })).unwrap()), 2);
+        assert!(s.selection().iter().all(|h| s.doc().unwrap().entity(*h).unwrap().kind.type_name() == "Line"));
+    }
+
+    #[test]
+    fn qselect_remove_respects_property_and_preserves_other_selected_handles() {
+        let mut s = session();
+        assert_eq!(n(&s.execute("qselect", &json!({ "type": "Circle" })).unwrap()), 2);
+        assert_eq!(n(&s.execute("qselect", &json!({ "type": "Circle", "property": "radius", "operator": ">", "value": 3, "mode": "remove" })).unwrap()), 1);
+        assert_eq!(n(&s.execute("qselect", &json!({ "type": "Circle", "mode": "remove" })).unwrap()), 0);
     }
 
     #[test]
