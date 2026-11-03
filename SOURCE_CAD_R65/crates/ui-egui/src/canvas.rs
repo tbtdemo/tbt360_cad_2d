@@ -223,6 +223,23 @@ pub struct SnapCycle {
     index: usize,
 }
 
+/// A physical release belongs to the canvas only when its press began there.
+fn raw_release_for_point_prompt(started_on_canvas: bool, released_on_canvas: bool) -> bool {
+    started_on_canvas && released_on_canvas
+}
+
+#[cfg(test)]
+mod point_release_tests {
+    use super::raw_release_for_point_prompt;
+    #[test]
+    fn first_release_on_canvas_is_accepted_but_toolbar_release_is_not() {
+        assert!(raw_release_for_point_prompt(true, true));
+        assert!(!raw_release_for_point_prompt(false, true));
+        assert!(!raw_release_for_point_prompt(true, false));
+        assert!(!raw_release_for_point_prompt(false, false));
+    }
+}
+
 /// A lost pointer release must never leave a selection window active for the next click.
 fn should_cancel_drag_window(active: bool, escape: bool, focused: bool, released: bool, release_inside: bool) -> bool {
     active && (escape || !focused || (released && !release_inside))
@@ -455,10 +472,10 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui) {
     // the gesture as a click (small movement or focus transfer from the toolbar).
     // Require the press to originate on this canvas to avoid stealing a menu click.
     let raw_canvas_release = ui.input(|i| {
-        i.pointer.press_origin().is_some_and(|origin| rect.contains(origin))
-            && i.events.iter().any(|event| matches!(event, egui::Event::PointerButton {
-                pos, button: egui::PointerButton::Primary, pressed: false, ..
-            } if rect.contains(*pos)))
+        let started_on_canvas = i.pointer.press_origin().is_some_and(|origin| rect.contains(origin));
+        raw_release_for_point_prompt(started_on_canvas, i.events.iter().any(|event| matches!(event, egui::Event::PointerButton {
+            pos, button: egui::PointerButton::Primary, pressed: false, ..
+        } if rect.contains(*pos))))
     });
     let pressed_primary = pressed_primary || (point_prompt && (resp.drag_stopped_by(egui::PointerButton::Primary) || raw_canvas_release));
     if point_prompt && inside && pressed_primary && !middle_down && app.cmd.options.is_none() && app.cmd.buffer.is_empty() {
