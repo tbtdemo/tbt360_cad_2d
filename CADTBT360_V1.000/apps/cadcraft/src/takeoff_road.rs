@@ -56,6 +56,30 @@ pub fn station_to_metres(value: &str) -> Result<f64, String> {
     if !n.is_finite() || n < 0.0 || n > 1.0e9 { return Err("Lý trình ngoài giới hạn 0..1.000.000 km.".into()); }
     Ok(n)
 }
+/// Extract an unambiguous explicit Km station label from a selected
+/// TEXT/MTEXT/block attribute string. Never infer stationing from position.
+pub fn station_from_marker_text(text: &str) -> Result<f64,String> {
+    let normalized=text.replace(',',".").replace('＋',"+");
+    let tokens=normalized.split(|c:char| c.is_whitespace() || matches!(c,';'|'('|')'|'['|']'|':'|'='|'\\n'))
+        .filter(|t|!t.is_empty()).collect::<Vec<_>>();
+    let mut found=Vec::new();
+    for (i,token) in tokens.iter().enumerate() {
+        let is_km_prefix=token.eq_ignore_ascii_case("km");
+        let candidate=if is_km_prefix {tokens.get(i+1).copied().unwrap_or("")}
+            else if token.len()>2 && token[..2].eq_ignore_ascii_case("km") {&token[2..]}
+            else {continue};
+        if !candidate.contains('+') {continue;}
+        if let Ok(value)=station_to_metres(candidate) {
+            if !found.iter().any(|n:f64|(n-value).abs()<1e-6){found.push(value);}
+        }
+    }
+    match found.as_slice() {
+        [station]=>Ok(*station),
+        []=>Err("Không tìm thấy lý trình Km...+... hợp lệ trong nhãn cọc.".into()),
+        _=>Err("Một nhãn có nhiều lý trình khác nhau; cần xác nhận thủ công.".into()),
+    }
+}
+
 pub fn station_label(metres: f64) -> String {
     let km = (metres / 1000.0).floor() as u64;
     format!("Km{}+{:06.2}", km, metres - km as f64 * 1000.0)
@@ -247,6 +271,14 @@ mod tests {
     }
     fn section(m:f64,cut:Option<GeometricSource>,fill:Option<GeometricSource>)->RoadCrossSection {
         RoadCrossSection{chainage_m:m,name:station_label(m),plan_marker_handle:None,cut,fill,cut_zero_confirmed:false,fill_zero_confirmed:false,confirmed:true}
+    }
+    #[test]
+    fn station_marker_text_accepts_only_unambiguous_explicit_km_labels() {
+        assert!((station_from_marker_text("Cọc H1 (Km12+345,50)").unwrap()-12345.5).abs()<1e-8);
+        assert_eq!(station_from_marker_text("LY TRINH: KM 2+020.00").unwrap(),2020.0);
+        assert!(station_from_marker_text("Cọc H1 12+345").is_err());
+        assert!(station_from_marker_text("Km1+010 Km1+020").is_err());
+        assert!(station_from_marker_text("Km-1+020").is_err());
     }
     #[test]
     fn km_notation_is_metres_and_rejects_bad_stationing() {
