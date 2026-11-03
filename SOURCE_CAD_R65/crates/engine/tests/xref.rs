@@ -180,7 +180,7 @@ fn xref_reload_preserves_bim_xdata_repairs_member_identity_and_invalidates_root_
 
     let host=dir.join("host.dxf");
     let mut host_doc=host_with(&[("site.dxf",false)]);
-    let root=host_doc.model.first().unwrap().handle;
+    let root=host_doc.model.iter().next().unwrap().handle;
     host_doc.modify_entity(root,|e|e.common=bim_common(root,3)).unwrap();
     save(&host_doc,&host);
 
