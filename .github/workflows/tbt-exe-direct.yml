@@ -5,6 +5,16 @@ on:
     branches:
       - tbt/cad360-active-release
   workflow_dispatch:
+    inputs:
+      batch_count:
+        description: "Số lượt thay đổi kể từ lần đóng gói trước (15-30)"
+        required: true
+        type: choice
+        options:
+          - '15'
+          - '20'
+          - '25'
+          - '30'
 
 permissions:
   contents: write
@@ -39,6 +49,7 @@ jobs:
           if-no-files-found: error
 
   build-exe:
+    if: "${{ (github.event_name == 'workflow_dispatch') || (github.event_name == 'push' && startsWith(github.event.head_commit.message, 'release(cad360): B')) }}"
     name: TBT CAD360 Windows Setup
     runs-on: windows-latest
     timeout-minutes: 120
@@ -54,6 +65,22 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: SOURCE_CAD_R65
+      - name: Enforce packaging cadence 15 to 30 batches
+        shell: pwsh
+        env:
+          RELEASE_MESSAGE: ${{ github.event.head_commit.message }}
+          MANUAL_BATCH_COUNT: ${{ inputs.batch_count }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:GITHUB_EVENT_NAME -eq 'workflow_dispatch') {
+            $batchCount = [int]$env:MANUAL_BATCH_COUNT
+          } else {
+            $match = [regex]::Match($env:RELEASE_MESSAGE, '^release[(]cad360[)]: B([0-9]{2})')
+            if (!$match.Success) { throw 'Commit must use release(cad360): B15 through B30' }
+            $batchCount = [int]$match.Groups[1].Value
+          }
+          if ($batchCount -lt 15 -or $batchCount -gt 30) { throw 'Packaging is only allowed after 15-30 implementation batches' }
+          "CAD360_RELEASE_LABEL=R$('{0:D2}' -f $batchCount)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
       - name: Preflight real build environment and source inputs
         shell: pwsh
         run: |
@@ -156,13 +183,12 @@ jobs:
           if-no-files-found: error
           retention-days: 30
       - name: Build milestone source archive
-        if: "${{ github.event_name == 'push' && startsWith(github.event.head_commit.message, 'release(cad360): R') }}"
+        if: "${{ (github.event_name == 'workflow_dispatch') || (github.event_name == 'push' && startsWith(github.event.head_commit.message, 'release(cad360): B')) }}"
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $match = [regex]::Match($env:RELEASE_MESSAGE, '^release[(]cad360[)]: R([0-9]{2,3})')
-          if (!$match.Success) { throw 'Milestone marker was not found' }
-          $label = "R$($match.Groups[1].Value)"
+          $label = $env:CAD360_RELEASE_LABEL
+          if ($label -notmatch '^R(1[5-9]|2[0-9]|30)$') { throw 'Invalid release label: 15-30 batches required' }
           $sourceArchive = "../dist/CAD360_TBT_Source_$label.zip"
           Push-Location $env:GITHUB_WORKSPACE
           git archive --format=zip --output="dist/CAD360_TBT_Source_$label.zip" HEAD SOURCE_CAD_R65 installer .github README.md
@@ -174,14 +200,24 @@ jobs:
         env:
           RELEASE_MESSAGE: ${{ github.event.head_commit.message }}
       - name: Publish validated Windows milestone release
-        if: "${{ github.event_name == 'push' && startsWith(github.event.head_commit.message, 'release(cad360): R') }}"
+        if: "${{ (github.event_name == 'workflow_dispatch') || (github.event_name == 'push' && startsWith(github.event.head_commit.message, 'release(cad360): B')) }}"
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           $ErrorActionPreference = 'Stop'
           $label = $env:CAD360_RELEASE_LABEL
-          if ($label -notmatch '^R[0-9]{2,3}$') { throw 'Invalid release label' }
+          if ($label -notmatch '^R(1[5-9]|2[0-9]|30)
+          $tag = "cad360-$($label.ToLowerInvariant())"
+          $setup = '../dist/CAD360_VietNam_TBT_Setup.exe'
+          $checksum = '../dist/SHA256SUMS.txt'
+          $source = "../dist/CAD360_TBT_Source_$label.zip"
+          foreach ($file in @($setup, $checksum, $source)) {
+            if (!(Test-Path $file)) { throw "Missing release file: $file" }
+          }
+          gh release create $tag $setup $checksum $source --target $env:GITHUB_SHA --title "CAD360 TBT $label - Windows x64" --notes "Windows setup built from source commit $env:GITHUB_SHA, validated by BIM tests and build gates. Source archive and SHA256SUMS included." --latest
+          if ($LASTEXITCODE -ne 0) { throw 'Publishing GitHub release failed' }
+) { throw 'Only 15-30 batch milestones are allowed' }
           $tag = "cad360-$($label.ToLowerInvariant())"
           $setup = '../dist/CAD360_VietNam_TBT_Setup.exe'
           $checksum = '../dist/SHA256SUMS.txt'
