@@ -62,6 +62,14 @@ impl Recovery {
     }
 
     pub fn restore_latest(&mut self, app: &mut CadApp, bim: &mut bim_collab::State) -> Result<(), String> {
+        // Check the live session before scanning or allocating large DXF recovery data.
+        // Never append recovered drawings while another CAD OPEN is still decoding.
+        if defer_recovery_while_opening(app.opening.busy()) {
+            return Err("Đang mở bản vẽ CAD. Hãy chờ tải xong trước khi phục hồi CAD+BIM.".into());
+        }
+        if bim.pending_changes.iter().any(|change| !change.synced) {
+            return Err("Có ChangeSet BIM chưa đồng bộ. Hãy lưu bản hiện tại trước khi phục hồi.".into());
+        }
         let root = self.root.as_deref().ok_or("Chưa xác định được thư mục phục hồi")?;
         let pair = latest_pair(root).ok_or("Không tìm thấy bản phục hồi CAD+BIM hợp lệ")?;
         let (drawings, metadata, active) = check_bundle(&pair)?;
@@ -72,9 +80,6 @@ impl Recovery {
         }
         let mut proposed = bim_collab::State::default();
         proposed.load_snapshot_json(&metadata)?;
-        if bim.pending_changes.iter().any(|change| !change.synced) {
-            return Err("Có ChangeSet BIM chưa đồng bộ. Hãy lưu bản hiện tại trước khi phục hồi.".into());
-        }
         // Recovery is append-only: preserve original tabs and selection if any later import fails.
         let original_count = app.session.docs.len();
         let original_active = app.session.active;
@@ -97,6 +102,10 @@ impl Recovery {
     }
 
     pub fn save_now(&mut self, app: &CadApp, bim: &bim_collab::State) -> Result<(), String> {
+        // A manual save must honor the same memory-pressure gate as autosave.
+        if defer_recovery_while_opening(app.opening.busy()) {
+            return Err("Đang mở bản vẽ CAD. Hãy chờ tải xong trước khi lưu CAD+BIM.".into());
+        }
         let root = self.root.as_deref().ok_or("Chưa có thư mục tự động lưu CAD+BIM")?;
         save_pair(root, app, bim)?;
         self.last_save = Instant::now();
