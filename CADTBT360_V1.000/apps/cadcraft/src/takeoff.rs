@@ -1964,6 +1964,27 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
             ui.colored_label(egui::Color32::YELLOW,error);
         }
         ui.small("Chỉ bóc các khoảng có đủ hai cọc nằm trong phạm vi. Chưa hỗ trợ tự nhận dạng cọc trên bình đồ; không ngoại suy khối lượng khi cắt giữa hai trắc ngang.");
+        if ui.button("KIỂM TRA NGUỒN CỌC TRƯỚC KHI XUẤT").clicked() {
+            let mut missing=0usize;
+            let mut altered=0usize;
+            let mut duplicates=0usize;
+            let mut used=BTreeSet::<String>::new();
+            for section in &state.road_sections {
+                let Some(marker)=section.plan_marker_handle.as_deref() else {missing+=1;continue;};
+                if !used.insert(marker.to_ascii_uppercase()) {duplicates+=1;}
+                let current=cadcraft_doc::Handle::parse_hex(marker)
+                    .and_then(|handle|app.session.doc().ok().and_then(|doc|doc.model.get(handle).map(|entity|(doc,entity))));
+                match current {
+                    Some((doc,entity))=>{
+                        if matches!(&entity.kind,EntityKind::Text(_) | EntityKind::MText(_) | EntityKind::Insert(_)) {
+                            if qto_road_station_from_entity(doc,entity).is_err_or(|m|(m-section.chainage_m).abs()>0.001) {altered+=1;}
+                        }
+                    },
+                    None=>altered+=1,
+                }
+            }
+            state.import_feedback=format!("Kiểm tra {} trắc ngang: {} chưa gắn cọc, {} nguồn bị xóa/sai lý trình, {} handle dùng trùng. Chỉ xác nhận khối lượng sau khi xử lý cảnh báo.",state.road_sections.len(),missing,altered,duplicates);
+        }
         ui.strong(format!("TRẮC NGANG ĐÃ KHAI BÁO: {} CỌC",state.road_sections.len()));
         let markers=state.road_sections.iter().filter_map(|section|section.plan_marker_handle.as_ref().map(|handle|takeoff_road::RoadPlanMarker{chainage_m:section.chainage_m,handle:handle.clone()})).collect::<Vec<_>>();
         if markers.len()==state.road_sections.len() && !markers.is_empty() {
