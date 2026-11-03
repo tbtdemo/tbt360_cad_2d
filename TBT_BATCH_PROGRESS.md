@@ -43,6 +43,7 @@
 | 22/30 | Chuyển viewport chỉ với cặp nhấn/thả trong đúng vùng đích và không thuộc menu nổi; test chặn drag từ viewport/toolbar khác | `8c6028f5e2792f86e9a99a14237a7bb42ee01357` | 2 test bổ sung trong primary_gesture_tests (Windows CI đã gọi) | Chưa có Windows CI/GUI PASS được xác minh |
 | 23/30 | Đọc file CAD trực tiếp vào Vec theo khối không sao chép qua scratch 1 MiB; kích thước block cuối theo metadata; kiểm thử đuôi file | `e1fad57607404d3a271f9ff9f9fa9946d2722c56` | 1 test phần đuôi và toàn vẹn dữ liệu; CI capped_read::tests đã cấu hình | Chưa có Cargo/Windows benchmark PASS được xác minh |
 | 24/30 | Giữ nguyên display list khi worker dựng hình thất bại, ngăn spawn lặp cùng view; đo riêng install_ms của bản vẽ/XREF; tăng Windows CI test | `b74a92cd2d9749652ea976a98ca2ed4a9a51876a` | 2 unit tests retry key + renderer worker tests (đã cấu hình) | Chưa có Cargo/Windows benchmark PASS được xác minh |
+| 25/30 | Giới hạn cấp phát trước Shapes CPU mỗi frame; bỏ qua mesh Tris/Mask nằm ngoài viewport; tests culling, bổ sung Windows CI | `22db948430e9a258cf79b9ecc76add365f698c40` | 2 tests reserve/visibility, targeted Windows CI | Chưa đo RAM/FPS, Windows PASS chưa xác minh |
 
 ### Trạng thái
 - Hoàn thành bằng chứng mã nguồn: **16 lượt mã nguồn (15 tối thiểu + 1 dự phòng)**.
@@ -221,3 +222,10 @@
 - `.github/workflows/main.yml`: thêm targeted gates cho `canvas::list::background_failure_tests` và các tests `canvas::rebuild::tests` hiện có.
 - Commits: `fb825b081d333cfbb5e2cfd7d56f3d17347f7201`, `bb0389449b04b9e52253cc51dca215aa9b883cda`, `1f951de396db9501fd68895e10818687724ca5da`, `143aa3f3c7f1880cff7bbaaf4ed52c665fdfc73e`, `b74a92cd2d9749652ea976a98ca2ed4a9a51876a`.
 - Tiến độ: 24/30 lượt kế hoạch, 6 lượt còn lại. 8 nhóm active vẫn 39,4% ước lượng chưa nghiệm thu; không có bằng chứng Cargo/Windows artifact PASS hay benchmark thực. Sync/conflict và clash bộ môn PAUSED; account permissions ACTIVE.
+
+### Lượt 25 — giảm RAM tạm và dựng hình CPU ngoài vùng nhìn
+- `canvas/draw.rs`: trước đây mỗi frame CPU draw dùng `Vec::with_capacity(list.prims.len())`, có thể cấp trước hàng trăm nghìn phần tử Shape dù phần lớn đối tượng không nằm trong viewport. Thay bằng `cpu_shape_initial_capacity(list.prims.len())` giới hạn tối đa 4096 Shapes ban đầu, Vec tự mở rộng theo đối tượng thực sự được vẽ. Không giới hạn số đối tượng có thể vẽ.
+- `Kind::Tris | Kind::Mask`: kiểm tra Bounds2 giao với vùng nhìn trước khi cấp phát egui Mesh, bỏ qua hoàn toàn các mặt/mask ở ngoài màn hình. Mask còn hiển thị vẫn giữ thứ tự vẽ để đảm bảo wipeout.
+- 2 regression tests về capacity khi 1 triệu primitive và khả năng kiểm tra bounds trong/ngoài viewport. `.github/workflows/main.yml` có targeted gate cho `canvas::draw::cpu_culling_tests`.
+- Commits `e78ed785fe240441aa6c92288e1ce53fd6d034df`, `a3e7c8ddec0b9c67608dd4430574552d19d4ff06`, `22db948430e9a258cf79b9ecc76add365f698c40`.
+- Chưa có Windows CI PASS/GUI FPS/RAM benchmark hay EXE artifact mới xác minh. 25/30 lượt (còn 5 dự kiến), tiến độ 8 hạng mục vẫn 39,4% ước lượng chưa nghiệm thu. Phân quyền tài khoản giữ ACTIVE, đồng bộ/conflict/clash PAUSED.
