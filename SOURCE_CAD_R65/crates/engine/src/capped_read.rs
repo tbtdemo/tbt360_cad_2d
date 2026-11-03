@@ -57,6 +57,11 @@ pub fn read_progressive(path: &Path, mut report: impl FnMut(u64, u64)) -> io::Re
     if !meta.is_file() { return Err(io::Error::new(io::ErrorKind::InvalidInput, "not a regular file")); }
     let total = meta.len();
     let mut output = Vec::new();
+    // Reserve only a small bounded hint, not the whole drawing length. This avoids
+    // repeated tiny reallocations for ordinary drawings without committing hundreds
+    // of MiB before the file is actually read.
+    let reserve_hint = total.min(8 * 1024 * 1024) as usize;
+    output.try_reserve(reserve_hint).map_err(|e| io::Error::other(format!("not enough memory to initialize drawing read: {e}")))?;
     let mut chunk = vec![0u8; 1024 * 1024];
     let mut read_total = 0u64;
     report(0, total);
@@ -115,6 +120,19 @@ mod tests {
         assert_eq!(updates.first().copied(), Some((0, data.len() as u64)));
         assert_eq!(updates.last().copied(), Some((data.len() as u64, data.len() as u64)));
         assert!(updates.windows(2).all(|pair| pair[0].0 <= pair[1].0));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn progressive_empty_file_reports_zero_and_returns_empty_data() {
+        let dir = std::env::temp_dir().join(format!("cadcraft-progress-empty-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("empty.dxf");
+        std::fs::write(&path, []).unwrap();
+        let mut updates = Vec::new();
+        let content = read_progressive(&path, |done, total| updates.push((done, total))).unwrap();
+        assert!(content.is_empty());
+        assert!(updates.iter().all(|pair| *pair == (0, 0)));
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
