@@ -60,7 +60,7 @@ pub fn station_to_metres(value: &str) -> Result<f64, String> {
 /// TEXT/MTEXT/block attribute string. Never infer stationing from position.
 pub fn station_from_marker_text(text: &str) -> Result<f64,String> {
     let normalized=text.replace(',',".").replace('＋',"+").replace("\\P"," ").replace("\\p"," ").replace('{'," ").replace('}'," ");
-    let tokens=normalized.split(|c:char| c.is_whitespace() || matches!(c,';'|'('|')'|'['|']'|':'|'=))
+    let tokens=normalized.split(|c:char| c.is_whitespace() || matches!(c,';'|'('|')'|'['|']'|':'|'='))
         .filter(|t|!t.is_empty()).collect::<Vec<_>>();
     let mut found:Vec<f64>=Vec::new();
     for (i,token) in tokens.iter().enumerate() {
