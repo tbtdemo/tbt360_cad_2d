@@ -16,10 +16,11 @@
 | 05/15 | CAD+BIM: nếu phục hồi nhiều tab lỗi giữa chừng thì đóng tab mới, khôi phục chỉ số tab gốc; giới hạn 256 bản vẽ và 64 MiB workspace ngay trước ghi; kiểm tra active index sai | `df80c04c43043e4a979a5fe8f3739e1f0385f6db` | 1 regression test | Chưa xác nhận Windows CI |
 | 06/15 | CAD+BIM: fingerprint gồm revision của mọi CAD tab + checksum workspace BIM; bỏ qua ghi tự lưu khi không thay đổi | `70a259938af27788f355b2ba43684d2efcae7feb` | Chưa bổ sung kiểm thử hành vi timer | Chưa xác nhận Windows CI |
 | 07/15 | Canvas first click/drag; mở CAD theo khối có % đọc; bỏ ngưỡng mở file 512 MiB; hàng đợi mở tuần tự giảm áp lực RAM | `6cc13a944a756bd03b0016c3f75130a630404ed9` | 1 Rust test progressive bytes; GUI tests cần bổ sung | Chưa xác nhận Windows CI |
+| 08/15 | Chặn selection drag tồn đọng khi chuột thả ngoài canvas / ESC / focus loss; ETA đọc file theo byte; regression tests | `f8270491c1f49c7852507237633a321756995fc2` | 2 unit tests bổ sung | Windows CI/GUI chưa xác nhận PASS |
 
 ### Trạng thái
-- Hoàn thành bằng chứng mã nguồn: **7/15** lượt tối thiểu.
-- Còn ít nhất **8** lượt trước khi đóng gói định kỳ.
+- Hoàn thành bằng chứng mã nguồn: **8/15** lượt tối thiểu.
+- Còn ít nhất **7** lượt trước khi đóng gói định kỳ.
 - Source inventory (run 41561782723) và IFC metadata test/source snapshot (run 41561782535) PASS. Windows Setup/Portable được skip đúng lịch 15–30. Rust tests CAD+BIM của lượt 02 đã PASS (run 41563233121). Hai regression tests lượt 03 đang chờ xác nhận. Chưa có EXE phát hành của đợt này.
 
 ### Rà soát khả năng phục hồi
@@ -59,3 +60,10 @@
 - Đọc nhiều file: xếp hàng và chỉ giải mã một file đồng thời; tránh tăng áp lực RAM do nhiều decoder song song.
 - Chưa xác minh cargo check, test UI đầu-cuối hay benchmark CAD 300–500 MiB; chưa coi là đạt nghiệm thu.
 - **7/15 = 46,7% nhịp phát hành**, không đại diện độ hoàn thiện toàn bộ CAD360.
+
+### Lượt 08 — chặn kẹt drag và ETA đọc file
+- Canvas: khi drag-selection còn active, release ra khỏi canvas hoặc mất focus/Escape xóa pending_window và drag_window; release trong canvas tiếp tục xác nhận selection, không làm treo trạng thái.
+- Thêm test thuần cho logic hủy drag. Đường OPEN hiển thị ETA cho **đọc byte từ ổ**, không diễn giải đó là ETA tổng cho parse/render.
+- Commit: `150ba828c6f61155b00b10a8eaf1b1bce21b15b1`, `ff6ae5d485587a478cefbd74781df2a2ea1c7b2c`, `f8270491c1f49c7852507237633a321756995fc2`.
+- Còn thiếu: test GUI click đầu tiên theo mọi lệnh, CI Windows của R07–R08, benchmark file 300–500 MiB, kiểm tra phạm vi user trên server, thiết kế streaming parser/render.
+- Tiến độ nhịp: **8/15 = 53,3%**, không đồng nghĩa chất lượng hay độ hoàn thiện tổng thể.
