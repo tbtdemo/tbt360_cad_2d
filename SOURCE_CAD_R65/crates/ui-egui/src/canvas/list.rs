@@ -11,6 +11,14 @@ pub(super) struct PrimIndex {
 }
 
 impl PrimIndex {
+    // Expose only cache statistics to sibling unit tests; never the internal
+    // handle-to-primitive mapping used by production rendering code.
+    #[cfg(test)]
+    pub(super) fn cached_primitive_count(&self) -> usize { self.by_handle.len() }
+
+    #[cfg(test)]
+    pub(super) fn cached_primitive_capacity(&self) -> usize { self.by_handle.capacity() }
+
     /// Indices of the primitives drawn for `handles` (in list order).
     pub(super) fn prims(&mut self, list_gen: u64, list: &DisplayList, handles: &[Handle]) -> Vec<usize> {
         // A new drawing may be much smaller than the previous one. Reclaim the
