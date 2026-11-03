@@ -115,15 +115,18 @@ pub(super) fn ensure_list(app: &mut CadApp, xf: &Xf, views: &[(Bounds2, f64)], c
     };
     let (lwdisplay, transparency_display) = (app.session.settings.lwdisplay, app.session.settings.transparency_display);
     let key: ListKey = (st.uid, st.revision, band(px), lod_band, lwdisplay, transparency_display, std::sync::Arc::as_ptr(&st.doc) as usize, vp_view);
-    // A background build that finished: use it unless the drawing has changed since it started
-    // (or the list was dropped to force a rebuild).
+    // Only install a background result when its view key and captured window
+    // still cover the *current* tiles. Merely matching drawing content can
+    // install a stale GPU mesh after fast zoom/pan and trigger another rebuild.
+    let visible = views.iter().fold(Bounds2::EMPTY, |acc, v| acc.union(&v.0));
     if let Some(job) = &app.canvas.job {
         match job.poll() {
             rebuild::Poll::Pending => {}
             rebuild::Poll::Done(built) => {
                 let (job_key, window) = (job.key, job.window);
+                let still_serves_current_view = job.serves(&key, &visible);
                 app.canvas.job = None;
-                if app.canvas.list.is_some() && same_content(&job_key, &key) {
+                if app.canvas.list.is_some() && still_serves_current_view {
                     app.canvas.install(job_key, window, *built);
                 }
             }
@@ -140,7 +143,6 @@ pub(super) fn ensure_list(app: &mut CadApp, xf: &Xf, views: &[(Bounds2, f64)], c
             }
         }
     }
-    let visible = views.iter().fold(Bounds2::EMPTY, |acc, v| acc.union(&v.0));
     let inside = app.canvas.window.is_none_or(|w| visible.is_empty() || w.contains_box(&visible));
     if app.canvas.list.is_some() && app.canvas.key == key && inside {
         return;
