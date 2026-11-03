@@ -187,7 +187,12 @@ impl eframe::App for App {
                         discipline: Some(self.bim_collab_state.active_discipline.code().to_string()),
                         owner_account_id: Some(self.bim_collab_state.current_account_id.clone()),
                     };
-                    takeoff::panel(&mut columns[1], &self.cad, &mut self.takeoff_state, &qto_scope);
+                    let qto_width = columns[1].available_width();
+                    egui::ScrollArea::vertical().id_salt("cadtbt360_qto_independent_scroll")
+                        .auto_shrink([false, false]).show(&mut columns[1], |ui| {
+                            ui.set_min_width(qto_width);
+                            takeoff::panel(ui, &self.cad, &mut self.takeoff_state, &qto_scope);
+                        });
                 });
             }
             MainTab::Pdf => {
