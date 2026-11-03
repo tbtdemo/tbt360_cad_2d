@@ -48,6 +48,10 @@ impl Recovery {
         let root = self.root.as_deref().ok_or("Chưa xác định được thư mục phục hồi")?;
         let pair = latest_pair(root).ok_or("Không tìm thấy bản phục hồi CAD+BIM hợp lệ")?;
         let (drawing_path, metadata) = check_pair(&pair)?;
+        // A checksum proves unchanged bytes, not that those bytes form a readable drawing.
+        // Decode before opening so malformed geometry cannot replace the current CAD tab.
+        let geometry = std::fs::read(&drawing_path).map_err(|e| format!("Không đọc được DXF phục hồi: {e}"))?;
+        validate_recovery_dxf(&geometry)?;
         // Validate BIM before opening CAD geometry; never overwrite newer unsynced BIM edits.
         let mut proposed = bim_collab::State::default();
         proposed.load_snapshot_json(&metadata)?;
@@ -70,6 +74,12 @@ impl Recovery {
         self.error = None;
         Ok(())
     }
+}
+
+fn validate_recovery_dxf(bytes: &[u8]) -> Result<(), String> {
+    cadcraft_io::read(bytes, "cad360_recovery.dxf")
+        .map(|_| ())
+        .map_err(|error| format!("Hình học DXF không đọc được: {error}"))
 }
 
 fn content_checksum(bytes: &[u8]) -> String {
@@ -236,6 +246,11 @@ mod tests {
         std::fs::remove_dir_all(&root).unwrap();
     }
 
+    #[test]
+    fn invalid_dxf_cannot_be_accepted_for_geometry_recovery() {
+        let invalid = b"this is not a DXF drawing at all";
+        assert!(validate_recovery_dxf(invalid).is_err());
+    }
     #[test]
     fn metadata_pair_rejects_missing_geometry() {
         let dir = std::env::temp_dir().join(format!("tbt-paired-recovery-missing-{}", std::process::id()));
