@@ -1,3 +1,17 @@
+## B21 — QSELECT xem trước không thay đổi tập chọn (03/11/2026)
+
+**Nâng cấp chức năng CAD 2D thực tế:**
+- Lõi CAD `crates/engine/src/cmd/qselect.rs` hỗ trợ `preview: true` trên lệnh `qselect`: tính kết quả theo cùng điều kiện `new/append/exclude`, trả số lượng, không gọi `set_selection`, không gửi mảng handle rất dài cho GUI.
+- Giao diện `crates/ui-egui/src/quick.rs`: nút **Xem trước**, hiển thị `Xem trước: N đối tượng phù hợp`, chỉ hiển thị khi điều kiện lọc và trạng thái bản vẽ/tập chọn không thay đổi; dùng chung `qselect_request` với nút **OK** để hai thao tác cùng một tập điều kiện.
+- Bổ sung 2 test engine: preview không thay đổi selection cho new/append và exclude; 1 test UI xác minh yêu cầu lọc preview/apply thống nhất.
+- Commit lõi [0fc0524c](https://github.com/tbtdemo/tbt360_cad_2d/commit/0fc0524ced9fd6414187e71b5a1fe38ce303ddf1).
+- Commit giao diện [0467cfa7](https://github.com/tbtdemo/tbt360_cad_2d/commit/0467cfa75afeb621a780137323cf5768bc86675f).
+- Commit đóng gói [f719d2cb](https://github.com/tbtdemo/tbt360_cad_2d/commit/f719d2cbb6da23cfa503345c7918d25f9dc70eae).
+- [Ubuntu→Windows EXE run 41642468692](https://github.com/tbtdemo/tbt360_cad_2d/actions/runs/41642468692); [Windows Native run 41642468941](https://github.com/tbtdemo/tbt360_cad_2d/actions/runs/41642468941). Cả hai mới queued ở lượt kiểm tra, chưa xác minh EXE đúng commit.
+- **4 cổng bàn giao B21:** source đã commit 1/4 = **25%**, build/EXE artifact/GUI Windows chưa xác nhận PASS. Không lấy artifact B18 tính cho B21.
+- **Cần nghiệm thu:** xác nhận preview đếm đúng, không làm mất tập chọn; đổi giá trị làm ẩn count cũ; nút OK cho ra đúng count; 3 test mới trên Windows PASS.
+
+
 ## B20 — Sửa bài test BIM Sync để khóa chất lượng bản CAD B19 (03/11/2026)
 
 **B19 còn chờ EXE:** [Ubuntu cross run 41640950657](https://github.com/tbtdemo/tbt360_cad_2d/actions/runs/41640950657) đang cross-compile; [Windows Native run 41640950401](https://github.com/tbtdemo/tbt360_cad_2d/actions/runs/41640950401) đang build release; cả hai chưa có Setup EXE của commit `0e5ac8a1` tại thời điểm kiểm tra. Source ZIP và preflight Native đã upload.
