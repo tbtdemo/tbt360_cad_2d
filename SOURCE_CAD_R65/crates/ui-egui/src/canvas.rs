@@ -665,10 +665,14 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui) {
         app.canvas.hover_cycle = None;
         app.canvas.cycle_key = Some(key);
     }
-    let cycled = pressed_primary && !middle_down && cycle_click(app, &xf, hover_pos, raw_world.filter(|_| inside), mods.shift);
+    // A drag-owned selection must end as a drag, not a second idle click.
+    // egui can report both clicked and drag_stopped in the same slow frame.
+    let drag_window_at_frame_start = app.canvas.drag_window;
+    let cycled = pressed_primary && !drag_window_at_frame_start && !middle_down && cycle_click(app, &xf, hover_pos, raw_world.filter(|_| inside), mods.shift);
     // Clicks.
     if inside
         && pressed_primary
+        && !drag_window_at_frame_start
         && !middle_down
         && !cycled
         && let Some(p) = app.canvas.cursor
@@ -751,14 +755,20 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui) {
     }
     if app.canvas.drag_window && (resp.drag_stopped_by(egui::PointerButton::Primary) || (primary_released && !primary_down)) {
         app.canvas.drag_window = false;
-        if app.session.pending_window.is_some()
-            && let Some(end) = ui.input(|i| i.pointer.interact_pos())
-        {
-            let end = xf.to_world(end);
-            let done = if app.session.prompting() { app.session.input(Input::Point(end)) } else { app.session.idle_click(end, mods.shift) };
-            if let Err(e) = done {
-                app.session.echo(e.to_string());
+        // A release over a palette or outside the drawing cannot finish a CAD
+        // selection window. Never leave its pending first corner alive.
+        if release_is_canvas && app.session.pending_window.is_some() {
+            if let Some(end) = ui.input(|i| i.pointer.interact_pos()) {
+                let end = xf.to_world(end);
+                let done = if app.session.prompting() { app.session.input(Input::Point(end)) } else { app.session.idle_click(end, mods.shift) };
+                if let Err(e) = done {
+                    app.session.echo(e.to_string());
+                }
+            } else {
+                app.session.pending_window = None;
             }
+        } else {
+            app.session.pending_window = None;
         }
     }
     // Right-click acts as Enter while a command runs (the classic CAD default; held, it opens the
