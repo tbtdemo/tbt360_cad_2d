@@ -40,9 +40,9 @@ jobs:
       - name: Run CAD station conflict regression tests
         working-directory: CADTBT360_V1.000
         run: |
-          cargo test --locked -p cadcraft --bin cadcraft zero_padded_hex_marker_is_considered_the_same_entity -- --exact=false
+          cargo test --locked -p cadcraft --bin cadcraft zero_padded_hex_marker_is_considered_the_same_entity -- --nocapture
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          cargo test --locked -p cadcraft --bin cadcraft missing_station_is_not_counted_as_marker_conflict -- --exact=false
+          cargo test --locked -p cadcraft --bin cadcraft missing_station_is_not_counted_as_marker_conflict -- --nocapture
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Check Rust compilation of desktop before release optimization
         working-directory: CADTBT360_V1.000
