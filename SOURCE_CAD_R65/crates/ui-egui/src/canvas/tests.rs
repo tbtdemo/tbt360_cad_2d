@@ -365,3 +365,25 @@ fn grip_pick_respects_configured_unlimited_selection() {
     let pos = xf.to_screen(Vec2::new(219.0 * 25.0, 0.0));
     assert_eq!(grip_at(&app, &xf, Some(pos)), Some((last, 0)));
 }
+
+#[test]
+fn line_command_accepts_first_point_and_keeps_second_point_prompt() {
+    let mut session = cadcraft_engine::Session::new();
+    session.cmdline("line").unwrap();
+    assert!(session.current_prompt().is_some_and(|prompt| cadcraft_engine::pointmod::accepts(&prompt)));
+    session.input(Input::Point(Vec2::new(12.0, 15.0))).unwrap();
+    assert!(session.current_prompt().is_some_and(|prompt| cadcraft_engine::pointmod::accepts(&prompt)));
+    session.input(Input::Point(Vec2::new(25.0, 35.0))).unwrap();
+    assert_eq!(session.doc().unwrap().entity_count(), 1);
+    session.cancel();
+}
+
+#[test]
+fn circle_command_accepts_the_first_point_without_second_click() {
+    let mut session = cadcraft_engine::Session::new();
+    session.cmdline("circle").unwrap();
+    assert!(session.current_prompt().is_some_and(|prompt| cadcraft_engine::pointmod::accepts(&prompt)));
+    session.input(Input::Point(Vec2::new(10.0, 20.0))).unwrap();
+    assert!(session.prompting(), "circle must advance after its first center point");
+    session.cancel();
+}
