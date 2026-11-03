@@ -111,6 +111,27 @@ pub fn validate_section(section: &RoadCrossSection) -> Result<(), String> {
     }
     Ok(())
 }
+/// A geometric region may supply evidence for only one surveyed cross-section.
+/// Checking across the entire station list catches reuse at non-adjacent stations,
+/// and reuse between excavation and embankment in different stations.
+pub fn validate_unique_area_sources(sections: &[RoadCrossSection]) -> Result<(), String> {
+    let mut seen = std::collections::BTreeMap::<String,(f64,EarthworkKind)>::new();
+    for section in sections {
+        for (kind,source) in [(EarthworkKind::Cut,&section.cut),(EarthworkKind::Fill,&section.fill)] {
+            if let Some(source)=source {
+                let handle=cadcraft_doc::Handle::parse_hex(&source.handle)
+                    .ok_or_else(||format!("Vùng diện tích {} tại {} không có handle hợp lệ.",kind.label(),station_label(section.chainage_m)))?;
+                let key=handle.hex().to_ascii_uppercase();
+                if let Some((previous,previous_kind))=seen.insert(key.clone(),(section.chainage_m,kind)) {
+                    return Err(format!("Vùng CAD {} bị dùng cho {} tại {} và {} tại {}. Không được tính trùng diện tích.",
+                        key,previous_kind.label(),station_label(previous),kind.label(),station_label(section.chainage_m)));
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Missing area and verified zero area are distinct. The operator must
 /// explicitly verify zero for a transition cross section; no interpolation of
 /// unknown station geometry or partial intervals is performed here.
@@ -122,6 +143,7 @@ pub fn intervals(sections: &[RoadCrossSection], drawing_unit_to_m: f64,
     let mut sorted = sections.to_vec();
     sorted.sort_by(|a, b| a.chainage_m.total_cmp(&b.chainage_m));
     for section in &sorted { validate_section(section)?; }
+    validate_unique_area_sources(&sorted)?;
     for pair in sorted.windows(2) {
         if pair[1].chainage_m - pair[0].chainage_m <= 1.0e-6 {
             return Err("Trùng hoặc quá gần lý trình trắc ngang; không được tính thể tích hai lần.".into());
@@ -368,6 +390,24 @@ mod tests {
         let first=section(1000.0,Some(source("AA",20.0)),None);
         let second=section(1020.0,Some(source("0AA",30.0)),None);
         assert!(intervals(&[first,second],1.0,true).is_err());
+    }
+    #[test]
+    fn rejects_non_adjacent_area_reuse_across_three_stations() {
+        let sections=[
+            section(1000.0,Some(source("AA",12.0)),None),
+            section(1020.0,Some(source("BB",13.0)),None),
+            section(1040.0,Some(source("0aa",14.0)),None),
+        ];
+        assert!(validate_unique_area_sources(&sections).is_err());
+        assert!(intervals(&sections,1.0,true).is_err());
+    }
+    #[test]
+    fn rejects_cross_kind_area_reuse_between_different_stations() {
+        let sections=[
+            section(1000.0,Some(source("AA",12.0)),None),
+            section(1020.0,None,Some(source("0Aa",13.0))),
+        ];
+        assert!(validate_unique_area_sources(&sections).is_err());
     }
     #[test]
     fn rejects_duplicate_cad_plan_markers_before_export() {
