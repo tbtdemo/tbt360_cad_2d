@@ -66,7 +66,7 @@ pub fn station_from_marker_text(text: &str) -> Result<f64,String> {
     for (i,token) in tokens.iter().enumerate() {
         let is_km_prefix=token.eq_ignore_ascii_case("km");
         let candidate=if is_km_prefix {tokens.get(i+1).copied().unwrap_or("")}
-            else if token.len()>2 && token[..2].eq_ignore_ascii_case("km") {&token[2..]}
+            else if token.get(..2).is_some_and(|prefix|prefix.eq_ignore_ascii_case("km")) {token.get(2..).unwrap_or("")}
             else {continue};
         if !candidate.contains('+') {continue;}
         if let Ok(value)=station_to_metres(candidate) {
