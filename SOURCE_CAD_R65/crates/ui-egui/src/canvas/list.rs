@@ -13,10 +13,17 @@ pub(super) struct PrimIndex {
 impl PrimIndex {
     /// Indices of the primitives drawn for `handles` (in list order).
     pub(super) fn prims(&mut self, list_gen: u64, list: &DisplayList, handles: &[Handle]) -> Vec<usize> {
+        // A new drawing may be much smaller than the previous one. Reclaim the
+        // old index immediately on a generation change even without selection,
+        // instead of retaining millions of stale indices until the next hover.
+        if self.list_gen != Some(list_gen) {
+            self.by_handle = Vec::new();
+            self.list_gen = None;
+        }
         if handles.is_empty() {
             return Vec::new();
         }
-        if self.list_gen != Some(list_gen) {
+        if self.list_gen.is_none() {
             self.by_handle = list.prims.iter().enumerate().map(|(i, p)| (p.handle, i)).collect();
             self.by_handle.sort_unstable();
             self.list_gen = Some(list_gen);
