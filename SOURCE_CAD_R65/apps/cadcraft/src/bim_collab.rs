@@ -40,14 +40,22 @@ fn save_workspace_safely(path: &std::path::Path, snapshot: &serde_json::Value) -
 
         if path.exists() {
             let backup = path.with_extension("json.bak");
-            let backup_temp = path.with_extension(format!("{suffix}.bak.tmp"));
-            std::fs::copy(path, &backup_temp)?;
-            let backup_file = std::fs::OpenOptions::new().read(true).open(&backup_temp)?;
-            backup_file.sync_all()?;
-            drop(backup_file);
-            if let Err(error) = replace_workspace_file(&backup_temp, &backup) {
-                let _ = std::fs::remove_file(&backup_temp);
-                return Err(error);
+            let existing_bytes = std::fs::read(path)?;
+            let previous_valid = serde_json::from_slice::<serde_json::Value>(&existing_bytes)
+                .ok().and_then(|value| value.get("version").and_then(serde_json::Value::as_u64))
+                == Some(2);
+            if previous_valid {
+                let backup_temp = path.with_extension(format!("{suffix}.bak.tmp"));
+                std::fs::copy(path, &backup_temp)?;
+                let backup_file = std::fs::OpenOptions::new().read(true).open(&backup_temp)?;
+                backup_file.sync_all()?;
+                drop(backup_file);
+                if let Err(error) = replace_workspace_file(&backup_temp, &backup) {
+                    let _ = std::fs::remove_file(&backup_temp);
+                    return Err(error);
+                }
+            } else {
+                log::warn!("BIM main workspace is invalid; preserving previous backup instead of overwriting it");
             }
         }
 
