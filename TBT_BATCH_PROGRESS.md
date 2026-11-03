@@ -23,10 +23,11 @@
 | 12/15 | Dừng replay điểm khi lệnh chuyển sang prompt không nhận tọa độ; khi tắt PICKDRAG giữa chừng dọn pending window; thêm tests LINE/CIRCLE | `b0c704f75088f8b22d1638054f7a9c4a2ff452a7` | 2 Rust integration-style tests ở tầng engine | Chưa xác minh Windows cargo/GUI PASS |
 | 13/15 | Báo giai đoạn decode sau khi đọc file thực sự hoàn thành; cấp phát read-ahead tối đa 8 MiB theo metadata; test trạng thái 100% bytes và file rỗng | `e4447bdb11a87069fc3fcdd23aeb11f7c5108188` | 2 regression tests bổ sung | Chưa chạy Cargo/Windows vì môi trường hiện tại không có Cargo và Git DNS lỗi |
 | 14/15 | Kiểm tra quyền xem scope và chia sẻ trên lớp render chính; kiểm tra quyền sửa trước phiên thiết kế/chọn/lease; từ chối lease revision cũ | `9d94bbfe9c44edf502f86a06c16896b2209c7856` | 3 regression tests quyền xem/sửa và lease | Chưa xác minh Windows CI/2-user server PASS |
+| 15/15 | Windows workflow kích hoạt trên nhánh active; kiểm thử targeted canvas/open/read; thử đóng gói Setup/Portable candidate sau các gates; sửa test LINE đếm model | `5d442914d5b2131c9820139467bc25357300ff92` | Bổ sung các lệnh Rust kiểm thử tập trung vào CI | Chưa có artifact hay CI Windows PASS được xác minh |
 
 ### Trạng thái
-- Hoàn thành bằng chứng mã nguồn: **14/15** lượt tối thiểu.
-- Còn ít nhất **1** lượt trước khi đóng gói định kỳ.
+- Hoàn thành bằng chứng mã nguồn: **15/15** lượt tối thiểu.
+- Đã đến mốc **15/15** lượt phát triển tối thiểu. Bộ cài Setup/Portable còn **chưa phát hành**, vì thiếu bằng chứng Windows CI PASS và artifact.
 - Source inventory (run 41561782723) và IFC metadata test/source snapshot (run 41561782535) PASS. Windows Setup/Portable được skip đúng lịch 15–30. Rust tests CAD+BIM của lượt 02 đã PASS (run 41563233121). Hai regression tests lượt 03 đang chờ xác nhận. Chưa có EXE phát hành của đợt này.
 
 ### Rà soát khả năng phục hồi
@@ -122,3 +123,12 @@
 - Chỉ bảo vệ desktop/local BIM, KHÔNG phải enforcement ở server cho mọi mutation; UI đồng bộ còn mô phỏng.
 - Commits `9ba1c2f46dfeb7f8815dfb7e80d09374adabf28b`, `7ad3221ddd197949850aae90f4058f6da7762ceb`, `9d94bbfe9c44edf502f86a06c16896b2209c7856`.
 - Lượt **14/15 = 93,3% nhịp phát triển tối thiểu**; còn 1 lượt đến ngưỡng cân nhắc đóng gói. Không coi là phần mềm hoàn thiện 93,3%.
+
+### Lượt 15 — phát hành ứng viên trên nhánh riêng sau Windows CI gate
+- Phát hiện `.github/workflows/main.yml` ban đầu chỉ chạy khi `push main`, do đó các commit trên `tbt/cad360-active-release` không tự khởi động Windows CI. Sửa branch triggers để nhánh active chạy build/test đầy đủ.
+- Job `regression-tests`: thêm các phép kiểm tra `canvas::point_batch_tests`, `canvas::point_release_tests`, `opening::tests`, `capped_read::tests`. Lệnh PowerShell kiểm tra LASTEXITCODE để báo fail tức thì ở mỗi test.
+- Job `release-windows`: nhánh active có thể tạo **Candidate** Setup/Portable chỉ sau khi toàn bộ build/test jobs `needs` PASS. Main vẫn đóng gói `Release`. Tên artifacts phân biệt Candidate/Release và kèm SHA256.
+- Sửa test LINE dùng `session.doc().unwrap().model.iter().count()` thay `entity_count()` chưa được xác minh.
+- Commit: `bae62df9683cadf7cdbf0cf6337221559e8210e3`, `5d442914d5b2131c9820139467bc25357300ff92`.
+- **15/15 = 100% số lượt phát triển tối thiểu, KHÔNG phải 100% hoàn thiện.** Chưa có artifact được trả về; chưa xác minh build/cargo test Windows mới, GUI 2 người hay benchmark 300–500 MiB. Không gọi candidate là release chính thức.
+- Nếu workflow PASS và có artifact: tải EXE Setup/Portable từ GitHub Actions rồi kiểm thử trên Windows thực. Nếu fail: R16 phân nhóm root cause, sửa từng nhóm cho đến khi PASS; mốc 15 lượt không phải lời hứa EXE đã sẵn sàng.
