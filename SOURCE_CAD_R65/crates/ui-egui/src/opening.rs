@@ -40,7 +40,7 @@ impl Opening {
     pub fn start(&mut self, path: &str) {
         // Large CAD files expand substantially during parsing and rendering. Never launch
         // multiple large decoders concurrently: queue later files rather than exhausting RAM.
-        if !self.jobs.is_empty() {
+        if !self.jobs.is_empty() || !self.queued.is_empty() {
             self.queued.push_back(path.to_string());
             return;
         }
@@ -94,7 +94,13 @@ impl Opening {
     /// installed (or dropped) on the UI thread, minimizing simultaneous RAM peaks.
     pub fn start_next_after_install(&mut self) {
         if self.jobs.is_empty() {
-            if let Some(path) = self.queued.pop_front() { self.start(&path); }
+            if let Some(path) = self.queued.pop_front() {
+                // start() honours queue order, so temporarily drain the rest before
+                // starting the oldest request and then restore the pending FIFO.
+                let remaining = std::mem::take(&mut self.queued);
+                self.start(&path);
+                self.queued = remaining;
+            }
         }
     }
 
@@ -188,6 +194,24 @@ mod tests {
         let (msg, _) = app.status.clone().unwrap_or_default();
         assert!(msg.contains(&p), "status reports the file: {msg}");
         assert!(app.session.log.iter().any(|l| l.contains(&p)));
+    }
+
+    #[test]
+    fn new_open_request_does_not_overtake_queued_drawings() {
+        let mut opening = super::Opening::default();
+        opening.start("/nonexistent/dir/one.dxf");
+        opening.start("/nonexistent/dir/two.dxf");
+        let started = Instant::now();
+        while !opening.jobs.is_empty() && started.elapsed() < Duration::from_secs(10) {
+            opening.poll();
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        assert_eq!(opening.queued.front().map(String::as_str), Some("/nonexistent/dir/two.dxf"));
+        opening.start("/nonexistent/dir/three.dxf");
+        assert_eq!(opening.queued.len(), 2);
+        opening.start_next_after_install();
+        assert_eq!(opening.jobs.first().map(|job| job.path.as_str()), Some("/nonexistent/dir/two.dxf"));
+        assert_eq!(opening.queued.front().map(String::as_str), Some("/nonexistent/dir/three.dxf"));
     }
 
     #[test]
