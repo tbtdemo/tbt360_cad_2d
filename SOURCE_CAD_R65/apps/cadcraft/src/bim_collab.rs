@@ -971,13 +971,19 @@ impl State {
             return;
         }
 
+        let max_existing_id = self.pending_changes.iter().map(|change| change.id).max().unwrap_or(0);
+        let change_id = self.next_change_set_id.max(max_existing_id.saturating_add(1));
+        let Some(next_change_id) = change_id.checked_add(1) else {
+            log::warn!("BIM change rejected: change set ID space exhausted");
+            return;
+        };
         let change = ChangeSet {
-            id: self.next_change_set_id,
+            id: change_id,
             account_id: self.current_account_id.clone(),
             items: vec![ChangeItem { handle, operation: ChangeOperation::Update, base_revision, local_revision }],
             synced: false,
         };
-        self.next_change_set_id += 1;
+        self.next_change_set_id = next_change_id;
         self.pending_changes.push(change);
         self.dirty_local_changes = self.pending_changes.iter().filter(|c| !c.synced).map(|c| c.items.len()).sum();
         self.audit("ENTITY_UPDATE_QUEUED", Some(self.active_floor_id), Some(self.active_discipline), Some(handle), format!("Revision {} -> {}", base_revision, local_revision));
@@ -3076,6 +3082,38 @@ mod tests {
         set_bim_meta(&mut common, &meta);
         assert_eq!(bim_meta(&common), Some(meta));
         assert!(common.xdata.iter().any(|t| t.code == 1001 && t.value == XDATA_APP));
+    }
+
+    #[test]
+    fn new_change_id_skips_ids_already_present_in_loaded_queue() {
+        let mut state = State::default();
+        state.pending_changes.push(ChangeSet {
+            id: 500,
+            account_id: state.current_account_id.clone(),
+            items: vec![ChangeItem {
+                handle: cadcraft_doc::Handle(500),
+                operation: ChangeOperation::Update,
+                base_revision: 0,
+                local_revision: 1,
+            }],
+            synced: false,
+        });
+
+        state.queue_update(cadcraft_doc::Handle(501), 0, 1);
+
+        assert_eq!(state.pending_changes.len(), 2);
+        assert_eq!(state.pending_changes[1].id, 501);
+        assert_eq!(state.next_change_set_id, 502);
+    }
+
+    #[test]
+    fn exhausted_change_ids_do_not_enqueue_partial_edits() {
+        let mut state = State::default();
+        state.next_change_set_id = u64::MAX;
+        state.queue_update(cadcraft_doc::Handle(502), 0, 1);
+
+        assert!(state.pending_changes.is_empty());
+        assert_eq!(state.dirty_local_changes, 0);
     }
 
     #[test]
