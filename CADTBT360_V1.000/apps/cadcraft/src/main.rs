@@ -154,7 +154,7 @@ impl eframe::App for App {
             ui.selectable_value(&mut self.active_tab, MainTab::Pdf, "PDF / BẢN VẼ");
             ui.selectable_value(&mut self.active_tab, MainTab::Model3d, "3D / IFC");
             ui.selectable_value(&mut self.active_tab, MainTab::BimCollab, "BIM CỘNG TÁC");
-            if self.active_tab == MainTab::Cad && ui.button("Aa  QUẢN LÝ KIỂU CHỮ").on_hover_text("Tạo, sửa, đặt hiện hành font và kiểu chữ CAD — lệnh STYLE/ST").clicked() {
+            if self.active_tab == MainTab::Cad && ui.button("Aa KIỂU CHỮ").on_hover_text("Tạo, sửa, đặt hiện hành font và kiểu chữ CAD — lệnh STYLE/ST").clicked() {
                 self.cad.start("style");
             }
             // Embedded at compile time so screenshots identify the executable actually running.
