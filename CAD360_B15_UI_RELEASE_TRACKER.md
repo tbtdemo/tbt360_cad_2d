@@ -1,3 +1,12 @@
+## Kiểm tra lại tiến độ B15 Fix — 03/11/2026
+
+- **Commit mã sửa lỗi đang build:** `06f04db90d47bc1d150dc1653745fda3b7f243ef`.
+- **Run Linux→Windows:** [41634295540](https://github.com/tbtdemo/tbt360_cad_2d/actions/runs/41634295540): đang bước `Cross-compile real CAD360 desktop and CLI for Windows x64`, **chưa có artifact EXE** của commit này khi kiểm tra.
+- **Run Windows Native:** [41634295714](https://github.com/tbtdemo/tbt360_cad_2d/actions/runs/41634295714): inventory + source ZIP + preflight PASS, bước `Build CAD360 native release` đang chạy. Artifact source `13228943268`, preflight `13229642434`.
+- **Cổng bàn giao bản sửa:** 1/4 (25%), chỉ xác nhận source. Test hồi quy 5 lỗi Windows chưa có kết quả PASS. Không nhầm artifact EXE từ commit `e8f7af28` (trước sửa) với bản fix.
+- **Điều kiện nâng lên 75%:** cần Setup EXE và Portable ZIP đúng `06f04db9`, có artifact ID và checksum. **Điều kiện nghiệp vụ bổ sung:** cả 5 test phục hồi/lưu backup PASS (không thay thế GUI smoke-test).
+- **Cần nghiệm thu cuối:** cài bản Windows và chụp giao diện đang chạy, xác nhận nhãn `CAD360 · 06f04db9`, thử 5 tab, lưu liên tiếp BIM workspace và phục hồi backup với thư mục thực của người dùng.
+
 ## Sửa lỗi Windows Native regression — mốc B15 Fix (03/11/2026)
 
 **Lỗi thực tế được xác minh từ log Windows job `125889667162` run [41627300916](https://github.com/tbtdemo/tbt360_cad_2d/actions/runs/41627300916):** 83 test PASS, 5 test FAIL; đều là `Access is denied (os error 5)` khi lưu hoặc phục hồi file backup BIM workspace.
