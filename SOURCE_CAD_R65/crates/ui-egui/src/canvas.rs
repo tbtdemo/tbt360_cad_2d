@@ -251,6 +251,58 @@ mod point_batch_tests {
     }
 }
 
+/// Collect actual complete primary-button gestures, matching each release to its
+/// own press. A toolbar/menu press followed by a release over the canvas must
+/// never become a CAD point. For a press from an earlier frame use egui's
+/// press-origin fallback, but do not reuse that origin for subsequent presses.
+fn primary_canvas_releases(events: &[egui::Event], rect: Rect, earlier_press_on_canvas: bool) -> Vec<Pos2> {
+    let mut pressed_here = None;
+    let mut releases = Vec::new();
+    for event in events {
+        if let egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed, .. } = event {
+            if *pressed {
+                pressed_here = Some(rect.contains(*pos));
+            } else {
+                if pressed_here.take().unwrap_or(earlier_press_on_canvas) && rect.contains(*pos) {
+                    releases.push(*pos);
+                }
+            }
+        }
+    }
+    releases
+}
+
+#[cfg(test)]
+mod primary_gesture_tests {
+    use super::primary_canvas_releases;
+    use egui::{pos2, vec2, Event, Modifiers, PointerButton, Rect};
+
+    fn primary(pos: egui::Pos2, pressed: bool) -> Event {
+        Event::PointerButton { pos, button: PointerButton::Primary, pressed, modifiers: Modifiers::NONE }
+    }
+
+    #[test]
+    fn accepts_two_fast_clicks_at_distinct_canvas_positions() {
+        let rect = Rect::from_min_size(pos2(0.0, 0.0), vec2(100.0, 100.0));
+        let events = [primary(pos2(15.0, 20.0), true), primary(pos2(15.0, 20.0), false), primary(pos2(75.0, 80.0), true), primary(pos2(75.0, 80.0), false)];
+        assert_eq!(primary_canvas_releases(&events, rect, false), vec![pos2(15.0, 20.0), pos2(75.0, 80.0)]);
+    }
+
+    #[test]
+    fn excludes_toolbar_press_and_canvas_release_even_when_followed_by_valid_click() {
+        let rect = Rect::from_min_size(pos2(0.0, 0.0), vec2(100.0, 100.0));
+        let events = [primary(pos2(-20.0, 20.0), true), primary(pos2(20.0, 20.0), false), primary(pos2(70.0, 70.0), true), primary(pos2(70.0, 70.0), false)];
+        assert_eq!(primary_canvas_releases(&events, rect, true), vec![pos2(70.0, 70.0)]);
+    }
+
+    #[test]
+    fn prior_frame_press_origin_is_only_used_for_unpaired_release() {
+        let rect = Rect::from_min_size(pos2(0.0, 0.0), vec2(100.0, 100.0));
+        assert_eq!(primary_canvas_releases(&[primary(pos2(25.0, 25.0), false)], rect, true), vec![pos2(25.0, 25.0)]);
+        assert!(primary_canvas_releases(&[primary(pos2(25.0, 25.0), false)], rect, false).is_empty());
+    }
+}
+
 /// A physical release belongs to the canvas only when its press began there.
 fn raw_release_for_point_prompt(started_on_canvas: bool, released_on_canvas: bool) -> bool {
     started_on_canvas && released_on_canvas
@@ -499,24 +551,14 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui) {
     // A point prompt accepts a physical release even when egui did not classify
     // the gesture as a click (small movement or focus transfer from the toolbar).
     // Require the press to originate on this canvas to avoid stealing a menu click.
-    let raw_canvas_release = ui.input(|i| {
-        let started_on_canvas = i.pointer.press_origin().is_some_and(|origin| rect.contains(origin));
-        raw_release_for_point_prompt(started_on_canvas, i.events.iter().any(|event| matches!(event, egui::Event::PointerButton {
-            pos, button: egui::PointerButton::Primary, pressed: false, ..
-        } if rect.contains(*pos))))
+    let releases = ui.input(|i| {
+        let earlier_press_on_canvas = i.pointer.press_origin().is_some_and(|origin| rect.contains(origin));
+        primary_canvas_releases(&i.events, rect, earlier_press_on_canvas)
     });
-    let pressed_primary = pressed_primary || (point_prompt && (resp.drag_stopped_by(egui::PointerButton::Primary) || raw_canvas_release));
+    let raw_canvas_release = raw_release_for_point_prompt(true, !releases.is_empty());
+    let pressed_primary = pressed_primary || (point_prompt && raw_canvas_release);
     let mut command_finished_in_batch = false;
     if point_prompt && inside && !on_menu && pressed_primary && !middle_down && app.cmd.options.is_none() && app.cmd.buffer.is_empty() {
-        let releases: Vec<egui::Pos2> = ui.input(|i| {
-            i.events
-                .iter()
-                .filter_map(|e| match e {
-                    egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed: false, .. } => Some(*pos),
-                    _ => None,
-                })
-                .collect()
-        });
         // The last release is dispatched by the regular cursor path below. Earlier
         // releases must use their own geometry rather than the final cursor's snap:
         // reusing the last snap would place multiple points at the same coordinate.
