@@ -49,6 +49,45 @@ jobs:
           path: TBT_SOURCE_INVENTORY.txt
           if-no-files-found: error
 
+  source-archive:
+    name: Package downloadable source ZIP immediately
+    needs: source-preflight
+    if: "${{ github.event_name == 'workflow_dispatch' || startsWith(github.event.head_commit.message, 'build(cad360): B') || startsWith(github.event.head_commit.message, 'release(cad360): B') }}"
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Package source at the exact milestone commit
+        shell: bash
+        env:
+          MESSAGE: ${{ github.event.head_commit.message }}
+          MANUAL_BATCH_COUNT: ${{ inputs.batch_count }}
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
+            count="$MANUAL_BATCH_COUNT"
+          else
+            [[ "$MESSAGE" =~ ^(release|build)\(cad360\):\ B([0-9]{2}) ]] || { echo "::error::Invalid milestone commit"; exit 1; }
+            count="${BASH_REMATCH[2]}"
+          fi
+          count=$((10#$count))
+          ((count >= 15 && count <= 30)) || { echo "::error::Batch count outside 15..30"; exit 1; }
+          label=$(printf 'R%02d' "$count")
+          mkdir -p dist
+          git archive --format=zip --output="dist/CAD360_TBT_Source_${label}.zip" HEAD SOURCE_CAD_R65 installer .github README.md
+          test -s "dist/CAD360_TBT_Source_${label}.zip"
+          (cd dist && sha256sum "CAD360_TBT_Source_${label}.zip" > SOURCE_SHA256SUMS.txt)
+          printf 'Commit=%s\nRunId=%s\nStatus=SOURCE_ONLY_WINDOWS_EXE_PENDING\n' "$GITHUB_SHA" "$GITHUB_RUN_ID" > dist/SOURCE_BUILD_INFO.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CAD360-TBT-Source-ZIP-Independent-of-Windows
+          path: |
+            dist/CAD360_TBT_Source_R*.zip
+            dist/SOURCE_SHA256SUMS.txt
+            dist/SOURCE_BUILD_INFO.txt
+          if-no-files-found: error
+          retention-days: 30
+
   build-exe:
     if: "${{ (github.event_name == 'workflow_dispatch') || (github.event_name == 'push' && (startsWith(github.event.head_commit.message, 'release(cad360): B') || startsWith(github.event.head_commit.message, 'build(cad360): B'))) }}"
     needs: source-preflight
@@ -137,12 +176,6 @@ jobs:
           path: TBT_BUILD_PREFLIGHT.txt
           if-no-files-found: warn
           retention-days: 30
-      - name: Validate BIM conflict and revision regression tests
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          cargo test --locked -p cadcraft --bin cadcraft bim_collab::tests -- --test-threads=2
-          if ($LASTEXITCODE -ne 0) { throw 'BIM collaboration regression tests failed' }
       - name: Build CAD360 native release
         run: cargo build --release --locked -p cadcraft -p cadcraft-cli
       - name: Verify native binaries
@@ -245,6 +278,12 @@ jobs:
             dist/BUILD_INFO.txt
           if-no-files-found: error
           retention-days: 30
+      - name: Validate BIM conflict and revision regression tests after candidate artifact
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          cargo test --locked -p cadcraft --bin cadcraft bim_collab::tests -- --test-threads=2
+          if ($LASTEXITCODE -ne 0) { throw 'BIM collaboration regression tests failed; candidate artifact is UNVERIFIED_GUI_CANDIDATE and must not be called a validated release' }
       - name: Publish validated Windows milestone release
         if: "${{ github.event_name == 'workflow_dispatch' || startsWith(github.event.head_commit.message, 'release(cad360): B') }}"
         shell: pwsh
