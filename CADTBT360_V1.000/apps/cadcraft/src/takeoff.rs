@@ -146,6 +146,8 @@ pub struct State {
     road_fill: Option<GeometricSource>,
     road_sections: Vec<RoadCrossSection>,
     road_work_group: String,
+    road_range_start: String,
+    road_range_end: String,
     road_cut_code: String,
     road_fill_code: String,
     edit_work_group: String,
@@ -516,6 +518,8 @@ impl State {
                           "cut":self.road_cut.as_ref().map(GeometricSource::json),
                           "fill":self.road_fill.as_ref().map(GeometricSource::json)},
                 "work_group":self.road_work_group,
+                "range_start":self.road_range_start,
+                "range_end":self.road_range_end,
                 "cut_code":self.road_cut_code,
                 "fill_code":self.road_fill_code
             },
@@ -700,6 +704,8 @@ impl State {
         self.road_chainage=road.and_then(|v|v.get("draft")).and_then(|v|v.get("chainage")).and_then(serde_json::Value::as_str).unwrap_or("").chars().take(50).collect();
         self.road_name=road.and_then(|v|v.get("draft")).and_then(|v|v.get("name")).and_then(serde_json::Value::as_str).unwrap_or("").chars().take(180).collect();
         self.road_work_group=road.and_then(|v|v.get("work_group")).and_then(serde_json::Value::as_str).unwrap_or("Nền đường").chars().take(250).collect();
+        self.road_range_start=road.and_then(|v|v.get("range_start")).and_then(serde_json::Value::as_str).unwrap_or("").chars().take(50).collect();
+        self.road_range_end=road.and_then(|v|v.get("range_end")).and_then(serde_json::Value::as_str).unwrap_or("").chars().take(50).collect();
         self.road_cut_code=road.and_then(|v|v.get("cut_code")).and_then(serde_json::Value::as_str).unwrap_or("GT.DAO").chars().take(150).collect();
         self.road_fill_code=road.and_then(|v|v.get("fill_code")).and_then(serde_json::Value::as_str).unwrap_or("GT.DAP").chars().take(150).collect();
         self.export_config = config;
@@ -1256,10 +1262,12 @@ fn qto_road_report_lines(app: &CadApp, state: &State, config: &ExportConfig,
             }
         }
     }
+    let range=takeoff_road::parse_range(&state.road_range_start,&state.road_range_end)?;
     let intervals=takeoff_road::intervals(&state.road_sections,scale,config.confirmed_only)?;
     let multiplier=config.unit_scale().powi(3);
     let mut out=Vec::new();
     for interval in intervals {
+        if !takeoff_road::within_range(&interval,range) { continue; }
         let (code,kind)=match interval.kind {
             EarthworkKind::Cut => (&state.road_cut_code,"Đào nền đường"),
             EarthworkKind::Fill => (&state.road_fill_code,"Đắp nền đường")
@@ -1721,6 +1729,17 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
             ui.colored_label(egui::Color32::YELLOW,"Cần lý trình hợp lệ, diện tích đào/đắp từ hình học CAD và không trùng lý trình cọc đã lưu.");
         }
         ui.separator();
+        ui.horizontal_wrapped(|ui|{
+            ui.label("Khoảng cọc cần bóc:");
+            ui.add(egui::TextEdit::singleline(&mut state.road_range_start).desired_width(140.0).hint_text("Cọc đầu Km0+000"));
+            ui.label("đến");
+            ui.add(egui::TextEdit::singleline(&mut state.road_range_end).desired_width(140.0).hint_text("Cọc cuối Km0+100"));
+            if ui.small_button("Tất cả cọc đã lưu").clicked(){state.road_range_start.clear();state.road_range_end.clear();}
+        });
+        if let Err(error)=takeoff_road::parse_range(&state.road_range_start,&state.road_range_end) {
+            ui.colored_label(egui::Color32::YELLOW,error);
+        }
+        ui.small("Chỉ bóc các khoảng có đủ hai cọc nằm trong phạm vi. Chưa hỗ trợ tự nhận dạng cọc trên bình đồ; không ngoại suy khối lượng khi cắt giữa hai trắc ngang.");
         ui.strong(format!("TRẮC NGANG ĐÃ KHAI BÁO: {} CỌC",state.road_sections.len()));
         let mut delete=None;
         egui::ScrollArea::vertical().id_salt("cadtbt360_road_station_list").max_height(220.0).show(ui,|ui|{
@@ -1745,7 +1764,9 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
             ui.label("Mã đắp");ui.add(egui::TextEdit::singleline(&mut state.road_fill_code).desired_width(100.0).hint_text("GT.DAP"));
         });
         if let Some(scale)=state.scale_to_m() {
-            match takeoff_road::intervals(&state.road_sections,scale,false) {
+            match takeoff_road::parse_range(&state.road_range_start,&state.road_range_end)
+                .and_then(|range|takeoff_road::intervals(&state.road_sections,scale,false)
+                    .map(|parts|parts.into_iter().filter(|part|takeoff_road::within_range(part,range)).collect::<Vec<_>>())) {
                 Ok(segments)=>{
                     let total_cut=segments.iter().filter(|s|s.kind==EarthworkKind::Cut).map(|s|s.volume_m3).sum::<f64>();
                     let total_fill=segments.iter().filter(|s|s.kind==EarthworkKind::Fill).map(|s|s.volume_m3).sum::<f64>();
@@ -1913,7 +1934,9 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
         let count = state.records.iter().filter(|r| qto_record_in_scope(r, allowed_handles.as_ref()) && !state.export_omitted_ids.contains(&r.id) && qto_measure_type_allowed(r.kind, state.selected_measure_types) && r.status != MeasureStatus::Excluded && !source_validation.invalid_record_ids.contains(&r.id) && qto_record_exportable(r, &source_validation, lf, af, state.export_config.confirmed_only)).count();
         let volume_count = state.volume_records.iter().filter(|volume| (!state.export_config.confirmed_only || volume.confirmed)
             && allowed_handles.as_ref().is_none_or(|handles| handles.contains(&volume.plan.handle) && handles.contains(&volume.section.handle))).count();
-        let road_preview=state.scale_to_m().and_then(|scale| takeoff_road::intervals(&state.road_sections,scale,state.export_config.confirmed_only).ok());
+        let road_preview=state.scale_to_m().and_then(|scale| takeoff_road::parse_range(&state.road_range_start,&state.road_range_end).ok()
+            .and_then(|range|takeoff_road::intervals(&state.road_sections,scale,state.export_config.confirmed_only).ok()
+                .map(|parts|parts.into_iter().filter(|part|takeoff_road::within_range(part,range)).collect::<Vec<_>>())));
         let road_count=road_preview.as_ref().map(|parts|parts.iter().filter(|part|allowed_handles.as_ref()
             .is_none_or(|handles|handles.contains(&part.source_start) && handles.contains(&part.source_end))).count()).unwrap_or(0);
         ui.label(format!("Sẵn sàng xem xét: {count} phép đo 2D + {volume_count} thể tích hai nguồn + {road_count} khoảng cọc đào/đắp, {} cột.",state.export_config.selected().len()));
