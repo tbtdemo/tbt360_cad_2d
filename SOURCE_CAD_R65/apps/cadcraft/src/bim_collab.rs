@@ -3263,6 +3263,25 @@ mod tests {
     }
 
     #[test]
+    fn repeated_workspace_saves_replace_existing_main_and_backup() {
+        let folder = std::env::temp_dir().join(format!("tbt-bim-repeat-{}-{}", std::process::id(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        std::fs::create_dir(&folder).unwrap();
+        let path = folder.join("workspace.json");
+        let backup = path.with_extension("json.bak");
+        for version in 1u64..=4 {
+            let snapshot = serde_json::json!({"version": 2, "iteration": version});
+            save_workspace_safely(&path, &snapshot).unwrap();
+            let saved: serde_json::Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+            assert_eq!(saved["iteration"].as_u64(), Some(version));
+            if version > 1 {
+                let previous: serde_json::Value = serde_json::from_slice(&std::fs::read(&backup).unwrap()).unwrap();
+                assert_eq!(previous["iteration"].as_u64(), Some(version - 1));
+            }
+        }
+        std::fs::remove_dir_all(&folder).unwrap();
+    }
+
+    #[test]
     fn safe_workspace_save_preserves_previous_file_as_backup() {
         let folder = std::env::temp_dir().join(format!("tbt-bim-save-{}-{}", std::process::id(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
         std::fs::create_dir(&folder).unwrap();
