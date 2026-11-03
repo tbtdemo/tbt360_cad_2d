@@ -145,6 +145,36 @@ pub fn validate_unique_area_sources(sections: &[RoadCrossSection]) -> Result<(),
 /// Missing area and verified zero area are distinct. The operator must
 /// explicitly verify zero for a transition cross section; no interpolation of
 /// unknown station geometry or partial intervals is performed here.
+/// Advisory cut/fill transition inferred from opposite signed endpoint areas.
+/// Not a measured cross-section: do not export these estimated volumes as
+/// surveyed AEA quantities without an actual transition profile.
+#[derive(Clone, Debug, PartialEq)]
+pub struct RoadTransitionEstimate {
+    pub chainage_m: f64,
+    pub cut_estimate_m3: f64,
+    pub fill_estimate_m3: f64,
+}
+pub fn estimate_cut_fill_transition(left: &RoadCrossSection, right: &RoadCrossSection, drawing_unit_to_m: f64) -> Option<RoadTransitionEstimate> {
+    if !drawing_unit_to_m.is_finite() || drawing_unit_to_m<=0.0 || !left.chainage_m.is_finite() || !right.chainage_m.is_finite() || right.chainage_m<=left.chainage_m {return None;}
+    let scale_area=drawing_unit_to_m.powi(2);
+    let (cut,fill)=if left.cut.is_some() && right.fill.is_some() && left.fill_zero_confirmed && right.cut_zero_confirmed && left.fill.is_none() && right.cut.is_none() {
+        (left.cut.as_ref()?.raw_value*scale_area,right.fill.as_ref()?.raw_value*scale_area)
+    } else if left.fill.is_some() && right.cut.is_some() && left.cut_zero_confirmed && right.fill_zero_confirmed && left.cut.is_none() && right.fill.is_none() {
+        (right.cut.as_ref()?.raw_value*scale_area,left.fill.as_ref()?.raw_value*scale_area)
+    } else {return None;};
+    if !cut.is_finite() || !fill.is_finite() || cut<=0.0 || fill<=0.0 {return None;}
+    let ratio=cut/(cut+fill);
+    let fraction=if left.cut.is_some(){ratio}else{1.0-ratio};
+    let distance=right.chainage_m-left.chainage_m;
+    let estimate=RoadTransitionEstimate{
+        chainage_m:left.chainage_m+distance*fraction,
+        cut_estimate_m3:cut*(if left.cut.is_some(){fraction}else{1.0-fraction})*distance/2.0,
+        fill_estimate_m3:fill*(if left.cut.is_some(){1.0-fraction}else{fraction})*distance/2.0,
+    };
+    if !estimate.chainage_m.is_finite() || !estimate.cut_estimate_m3.is_finite() || !estimate.fill_estimate_m3.is_finite(){return None;}
+    Some(estimate)
+}
+
 pub fn intervals(sections: &[RoadCrossSection], drawing_unit_to_m: f64,
     confirmed_only: bool) -> Result<Vec<RoadInterval>, String> {
     if !drawing_unit_to_m.is_finite() || drawing_unit_to_m <= 0.0 {
@@ -544,6 +574,23 @@ mod tests {
         assert!(intervals(&[left.clone(),right],1.0,true).is_err());
         left.cut_zero_confirmed=true;
         assert!(validate_section(&left).is_err());
+    }
+    #[test]
+    fn estimates_cut_fill_transition_without_promoting_it_to_surveyed_quantity() {
+        let mut left=section(1000.0,Some(source("1A",20.0)),None);
+        let mut right=section(1020.0,None,Some(source("2B",10.0)));
+        left.fill_zero_confirmed=true;
+        right.cut_zero_confirmed=true;
+        let estimated=estimate_cut_fill_transition(&left,&right,1.0).unwrap();
+        assert!((estimated.chainage_m-(1000.0+40.0/3.0)).abs()<1e-8);
+        assert!((estimated.cut_estimate_m3-400.0/3.0).abs()<1e-8);
+        assert!((estimated.fill_estimate_m3-100.0/3.0).abs()<1e-8);
+        let published=intervals(&[left.clone(),right.clone()],1.0,true).unwrap();
+        assert!((published[0].volume_m3-200.0).abs()<1e-8);
+        assert!((published[1].volume_m3-100.0).abs()<1e-8);
+        assert!(estimate_cut_fill_transition(&left,&right,0.0).is_none());
+        right.cut_zero_confirmed=false;
+        assert!(estimate_cut_fill_transition(&left,&right,1.0).is_none());
     }
     #[test]
     fn zero_area_states_roundtrip_and_both_zeros_do_not_create_volume() {
