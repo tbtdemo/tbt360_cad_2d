@@ -250,19 +250,33 @@ jobs:
           Expand-Archive -Path $archive -DestinationPath $smoke -Force
           & "$smoke/cadcraft-cli.exe" --version
           if ($LASTEXITCODE -ne 0) { throw "Portable CLI smoke test failed" }
+      - name: Archive exact CAD360 source commit
+        shell: pwsh
+        working-directory: .
+        run: |
+          $ErrorActionPreference = "Stop"
+          New-Item -ItemType Directory -Force -Path "dist" | Out-Null
+          $archive = "dist/CAD360_VietNam_TBT_Source.zip"
+          if (Test-Path $archive) { Remove-Item $archive -Force }
+          git archive --format=zip --output=$archive HEAD
+          if ($LASTEXITCODE -ne 0) { throw "Could not archive the checked-out CAD360 commit" }
+          if (!(Test-Path $archive) -or (Get-Item $archive).Length -lt 10000) { throw "Source archive missing or suspiciously small" }
+          $archived = git rev-parse HEAD
+          if ($LASTEXITCODE -ne 0 -or $archived -ne $env:GITHUB_SHA) { throw "Source archive does not match the Windows build commit" }
       - name: Generate release SHA256 checksums
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
           $setup = "../dist/CAD360_VietNam_TBT_Setup.exe"
           $portable = "../dist/CAD360_VietNam_TBT_Portable.zip"
+          $source = "../dist/CAD360_VietNam_TBT_Source.zip"
           $manifest = "../dist/SHA256SUMS.txt"
-          @($setup, $portable) | ForEach-Object {
+          @($setup, $portable, $source) | ForEach-Object {
             if (!(Test-Path $_)) { throw "Release file missing: $_" }
             $hash = (Get-FileHash -Algorithm SHA256 -Path $_).Hash.ToLowerInvariant()
             "$hash  $(Split-Path $_ -Leaf)"
           } | Set-Content -Encoding ascii $manifest
-          if ((Get-Content $manifest).Count -ne 2) { throw "Checksum manifest must contain two files" }
+          if ((Get-Content $manifest).Count -ne 3) { throw "Checksum manifest must contain three files" }
       - name: Record exact candidate commit and verify both hashes
         shell: pwsh
         run: |
@@ -277,7 +291,7 @@ jobs:
             "RunAttempt=$env:GITHUB_RUN_ATTEMPT"
             "Status=UNVERIFIED_GUI_CANDIDATE"
           ) | Set-Content -Encoding utf8 $metadata
-          foreach ($name in @("CAD360_VietNam_TBT_Setup.exe", "CAD360_VietNam_TBT_Portable.zip")) {
+          foreach ($name in @("CAD360_VietNam_TBT_Setup.exe", "CAD360_VietNam_TBT_Portable.zip", "CAD360_VietNam_TBT_Source.zip")) {
             $file = Join-Path $root $name
             if (!(Test-Path $file)) { throw "Missing release candidate: $name" }
             $record = (Get-Content (Join-Path $root "SHA256SUMS.txt") | Where-Object { $_ -match ("  " + [regex]::Escape($name) + "$") })
@@ -289,7 +303,7 @@ jobs:
             "### CAD360 Windows candidate"
             "- Commit: $env:GITHUB_SHA"
             "- Ref: $env:GITHUB_REF"
-            "- Setup and portable produced; SHA256 rechecked."
+            "- Setup, portable and source ZIP produced from this exact commit; all SHA256 values rechecked."
             "- **GUI acceptance and 300–500 MiB benchmark are not certified by this job.**"
           ) | Add-Content -Encoding utf8 $env:GITHUB_STEP_SUMMARY
       - name: Upload Windows Portable and checksums
@@ -300,6 +314,12 @@ jobs:
             dist/CAD360_VietNam_TBT_Portable.zip
             dist/SHA256SUMS.txt
             dist/BUILD_INFO.txt
+          if-no-files-found: error
+      - name: Upload exact source archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: CAD360_VietNam_TBT_Source_${{ github.ref == 'refs/heads/main' && 'Release' || 'Candidate' }}
+          path: dist/CAD360_VietNam_TBT_Source.zip
           if-no-files-found: error
       - name: Upload single Windows Setup
         uses: actions/upload-artifact@v4
