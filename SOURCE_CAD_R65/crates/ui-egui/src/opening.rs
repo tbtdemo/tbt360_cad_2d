@@ -19,6 +19,7 @@ struct LoadProgress {
     bytes: AtomicU64,
     total: AtomicU64,
     parsing: AtomicBool,
+    read_done_ms: AtomicU64,
 }
 
 struct Job {
@@ -48,14 +49,18 @@ impl Opening {
         let p = path.to_string();
         let progress = Arc::new(LoadProgress::default());
         let worker_progress = Arc::clone(&progress);
+        let started = Instant::now();
         let spawned = std::thread::Builder::new().name("cadcraft-open".into()).spawn(move || {
             let phase_progress = Arc::clone(&worker_progress);
             let result = read_file_with_progress_stage(&p, |bytes, total| {
                 worker_progress.total.store(total, Ordering::Relaxed);
                 worker_progress.bytes.store(bytes, Ordering::Relaxed);
             }, || {
+                phase_progress.read_done_ms.store(started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64, Ordering::Relaxed);
                 phase_progress.parsing.store(true, Ordering::Release);
             });
+            let read_elapsed_ms = worker_progress.read_done_ms.load(Ordering::Relaxed);
+            log::info!("CAD OPEN: file={p:?} read_ms={} decode_ms={} total_ms={} status={}", read_elapsed_ms, if worker_progress.parsing.load(Ordering::Acquire) { (started.elapsed().as_millis() as u64).saturating_sub(read_elapsed_ms) } else { 0 }, started.elapsed().as_millis(), if result.is_ok() { "OK" } else { "ERROR" });
             let _ = tx.send(result);
         });
         if spawned.is_err() {
@@ -118,7 +123,9 @@ impl Opening {
         let secs = first.started.elapsed().as_secs_f32();
         let more = self.jobs.len() + self.queued.len() - 1;
         let state = if first.progress.parsing.load(Ordering::Acquire) {
-            "Đang giải mã hình học CAD".to_string()
+            let read_ms = first.progress.read_done_ms.load(Ordering::Relaxed);
+            let decode_secs = first.started.elapsed().as_millis().saturating_sub(u128::from(read_ms)) as f64 / 1000.0;
+            format!("Đã đọc xong sau {:.1}s; đang giải mã hình học ({decode_secs:.1}s)", read_ms as f64 / 1000.0)
         } else {
             let read = first.progress.bytes.load(Ordering::Relaxed);
             let total = first.progress.total.load(Ordering::Relaxed);
@@ -235,6 +242,17 @@ mod tests {
             std::thread::sleep(Duration::from_millis(5));
         }
         assert!(!opening.busy(), "all queued open attempts must finish");
+    }
+
+    #[test]
+    fn decode_timer_starts_only_after_physical_file_read() {
+        let progress = super::LoadProgress::default();
+        progress.bytes.store(512, std::sync::atomic::Ordering::Relaxed);
+        assert_eq!(progress.read_done_ms.load(std::sync::atomic::Ordering::Relaxed), 0);
+        assert!(!progress.parsing.load(std::sync::atomic::Ordering::Acquire));
+        progress.read_done_ms.store(150, std::sync::atomic::Ordering::Relaxed);
+        progress.parsing.store(true, std::sync::atomic::Ordering::Release);
+        assert_eq!(progress.read_done_ms.load(std::sync::atomic::Ordering::Relaxed), 150);
     }
 
     #[test]
