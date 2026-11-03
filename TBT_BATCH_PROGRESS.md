@@ -41,6 +41,7 @@
 | 20/30 | Ghép cặp từng sự kiện nhấn/thả chuột trái; chặn toolbar click thành điểm CAD; dọn drag qua menu/palette; bổ sung Windows test | `1ce77e689fb866cca3958c11375d70f208e18245` | 3 tests press-release gesture; thêm CI targeted test | Chưa xác minh Windows CI hoặc GUI PASS |
 | 21/30 | Không xử lý cú thả kéo chọn thành idle click; dùng press-origin một lần; ESC/focus ưu tiên hủy; Windows tests phân xử click/drag | `501ee9f06799035a2bab5ea93cafa989d37342bc` | 5 regression tests mới về release/drag/cancel | Chưa có Windows CI/GUI PASS được xác minh |
 | 22/30 | Chuyển viewport chỉ với cặp nhấn/thả trong đúng vùng đích và không thuộc menu nổi; test chặn drag từ viewport/toolbar khác | `8c6028f5e2792f86e9a99a14237a7bb42ee01357` | 2 test bổ sung trong primary_gesture_tests (Windows CI đã gọi) | Chưa có Windows CI/GUI PASS được xác minh |
+| 23/30 | Đọc file CAD trực tiếp vào Vec theo khối không sao chép qua scratch 1 MiB; kích thước block cuối theo metadata; kiểm thử đuôi file | `e1fad57607404d3a271f9ff9f9fa9946d2722c56` | 1 test phần đuôi và toàn vẹn dữ liệu; CI capped_read::tests đã cấu hình | Chưa có Cargo/Windows benchmark PASS được xác minh |
 
 ### Trạng thái
 - Hoàn thành bằng chứng mã nguồn: **16 lượt mã nguồn (15 tối thiểu + 1 dự phòng)**.
@@ -204,3 +205,10 @@
 - Thêm 2 unit tests: nhấn tile trái rồi thả tile phải không chuyển, nhấn toolbar rồi thả tile đích không chuyển. Vì dùng cùng module `primary_gesture_tests` nên Windows CI R20 đã gọi tự động.
 - Commits `bde137eac01c4d3e91fa0cd7c24e8eecdaaebfa6`, `8c6028f5e2792f86e9a99a14237a7bb42ee01357`.
 - Không làm thêm đồng bộ/xung đột; chỉ giữ quyền tài khoản/scope. Mốc 22/30 lượt phát triển (còn 8); 8 hạng mục hoạt động vẫn 39,4% **ước lượng chưa nghiệm thu**. Không xác nhận chạy Windows hay tạo EXE thành công.
+
+### Lượt 23 — giảm thao tác sao chép khi đọc CAD lớn
+- `capped_read.rs` thay thế bộ đệm trung gian `chunk = vec![0u8; 1MiB]` + `output.extend_from_slice(&chunk[..n])` bằng đường `Vec::try_reserve`, `resize`, đọc thẳng qua `file.read(&mut output[old_len..])` và `truncate` theo số byte thực. Bỏ một lần sao chép byte lớn ở mỗi khối, không khẳng định giảm toàn bộ RAM/giải mã.
+- Khi metadata cho biết chỉ còn khối cuối vài byte, `read_size` theo số byte còn lại, không zero-init cả 1MiB; vẫn thăm dò sau metadata để không bỏ qua file tăng kích thước.
+- Bảo toàn lỗi trả về khi không đủ RAM/IO, không áp trần 512MiB cho file OPEN; giữ nguyên callback tiến độ. Có test dữ liệu mẫu 2MiB+17 byte bảo đảm không thêm byte 0 hoặc mất tail.
+- Commits `09a3cfa874ec2e376c7d734b2923c4826e806cf3`, `e1fad57607404d3a271f9ff9f9fa9946d2722c56`.
+- Chưa có Cargo trên môi trường thao tác, chưa có CI Windows PASS hoặc benchmark file 300/500MiB. Tiến độ 8 nhóm vẫn 39,4% ước lượng chưa nghiệm thu. Lượt 23/30, còn 7 lượt dự kiến; nhóm sync/conflict/clash PAUSED, quyền tài khoản ACTIVE.
