@@ -1666,9 +1666,15 @@ impl State {
             return Err("Phiên đăng nhập không hợp lệ; không thể khóa đối tượng".into());
         }
 
+        if !self.active_user().is_some_and(|user| user.can_edit) {
+            return Err("Tài khoản không có quyền sửa nên không thể khóa đối tượng".into());
+        }
         if let Some(existing) = self.leases.iter().find(|l| l.handle == handle) {
             if existing.account_id != self.current_account_id {
                 return Err(format!("Đối tượng đang được {} chỉnh sửa", existing.account_id));
+            }
+            if existing.revision != revision {
+                return Err(format!("Phiên bản đối tượng đã thay đổi: lease {}, yêu cầu {}", existing.revision, revision));
             }
             return Ok(());
         }
@@ -3879,6 +3885,17 @@ mod tests {
         state.current_account_id.clear();
         assert!(!state.has_scope_access("", 1, Discipline::Architecture, true));
         assert!(!state.has_scope_access("", 1, Discipline::Architecture, false));
+    }
+
+    #[test]
+    fn lease_rejects_read_only_user_and_stale_same_owner_revision() {
+        let mut state = State::default();
+        let handle = cadcraft_doc::Handle(902);
+        state.acquire_lease(handle, 4).unwrap();
+        assert!(state.acquire_lease(handle, 5).is_err(), "stale lease revision must not be silently accepted");
+        assert!(state.acquire_lease(handle, 4).is_ok());
+        state.users.iter_mut().find(|user| user.account_id == "local-owner").unwrap().can_edit = false;
+        assert!(state.acquire_lease(cadcraft_doc::Handle(903), 0).is_err(), "read-only user must not create a lock");
     }
 
     #[test]
