@@ -36,6 +36,29 @@ fn save_workspace_safely(path: &std::path::Path, snapshot: &serde_json::Value) -
     result.map_err(|error| format!("Không thể lưu BIM workspace an toàn: {error}"))
 }
 
+/// Restore the main workspace, or its last completed backup if the main file is damaged.
+/// This does not bypass the in-memory pending-change protection in load_snapshot_json.
+fn load_workspace_with_recovery(state: &mut State, path: &std::path::Path) -> Result<bool, String> {
+    let load = |candidate: &std::path::Path, state: &mut State| -> Result<(), String> {
+        let bytes = std::fs::read(candidate).map_err(|error| format!("Không đọc được {}: {error}", candidate.display()))?;
+        let value: serde_json::Value = serde_json::from_slice(&bytes).map_err(|error| format!("Workspace JSON bị lỗi: {error}"))?;
+        state.load_snapshot_json(&value)
+    };
+    match load(path, state) {
+        Ok(()) => Ok(false),
+        Err(primary_error) => {
+            let backup = path.with_extension("json.bak");
+            match load(&backup, state) {
+                Ok(()) => {
+                    log::warn!("Recovered BIM workspace from {} because original failed: {}", backup.display(), primary_error);
+                    Ok(true)
+                }
+                Err(backup_error) => Err(format!("Workspace chính lỗi: {primary_error}; bản dự phòng lỗi: {backup_error}")),
+            }
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Discipline {
     Architecture,
@@ -2097,15 +2120,12 @@ fn legacy_panel(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &m
             }
             if ui.button("Mở workspace BIM").clicked() {
                 if let Some(path) = rfd::FileDialog::new().add_filter("TBT BIM Workspace", &["json"]).pick_file() {
-                    if let Ok(data) = std::fs::read(path) {
-                        if let Ok(value) = serde_json::from_slice::<serde_json::Value>(&data) {
-                            match state.load_snapshot_json(&value) {
-                                Ok(())=>{
-                                    if let Err(e)=state.apply_native_viewports(app) { eprintln!("BIM viewport: {e}"); }
-                                }
-                                Err(e)=>eprintln!("BIM workspace: {e}"),
-                            }
+                    match load_workspace_with_recovery(state, &path) {
+                        Ok(recovered_from_backup) => {
+                            if recovered_from_backup { log::warn!("BIM workspace restored from .json.bak; save a fresh copy when verified"); }
+                            if let Err(error) = state.apply_native_viewports(app) { log::error!("BIM viewport: {error}"); }
                         }
+                        Err(error) => log::error!("BIM workspace: {error}"),
                     }
                 }
             }
