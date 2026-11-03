@@ -59,6 +59,12 @@ fn qselect_request(st: &QsState) -> Value {
     p
 }
 
+/// Include selection identity even for drawing-wide Append: the selected objects
+/// influence the preview count although the CAD drawing revision stays unchanged.
+fn qselect_preview_signature(st: &QsState, selection_hash: u64) -> String {
+    format!("{:?}|{selection_hash}|{}", st.info_key, qselect_request(st))
+}
+
 /// Case-insensitive search for a Layer/Linetype name without allocating a
 /// full menu on every frame for drawings with thousands of definitions.
 fn qselect_matching_choices<'a>(choices: &'a [String], query: &str, max_results: usize) -> (Vec<&'a str>, usize) {
@@ -118,15 +124,14 @@ pub fn qselect_dialog(app: &mut CadApp, ctx: &egui::Context, open: &mut bool) {
     let (key, revision) = app.session.state().map(|s| (std::sync::Arc::as_ptr(&s.doc) as usize, s.revision)).unwrap_or((0, 0));
     // A selection can change without a drawing revision. QSELECT.info must refresh
     // in "Current selection" mode rather than showing stale property/type choices.
-    let selection_hash = if st.apply_selection {
-        use std::hash::{Hash, Hasher};
-        let mut hasher = std::collections::hash_map::DefaultHasher::new();
-        let selection = app.session.selection();
-        selection.len().hash(&mut hasher);
-        for handle in selection { handle.hash(&mut hasher); }
-        hasher.finish()
-    } else { 0 };
-    let want = (key, revision, selection_hash, st.apply_selection, st.ty.clone());
+    use std::hash::{Hash, Hasher};
+    let selection = app.session.selection();
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    selection.len().hash(&mut hasher);
+    for handle in &selection { handle.hash(&mut hasher); }
+    let selection_hash = hasher.finish();
+    let info_selection_hash = if st.apply_selection { selection_hash } else { 0 };
+    let want = (key, revision, info_selection_hash, st.apply_selection, st.ty.clone());
     if st.info_key.as_ref() != Some(&want) {
         let ty = if st.ty == "Multiple" { Value::Null } else { json!(st.ty) };
         st.info = app
@@ -135,7 +140,7 @@ pub fn qselect_dialog(app: &mut CadApp, ctx: &egui::Context, open: &mut bool) {
             .unwrap_or(Value::Null);
         st.info_key = Some(want);
     }
-    let has_sel = !app.session.selection().is_empty();
+    let has_sel = !selection.is_empty();
     let mut run: Option<Value> = None;
     let mut preview: Option<Value> = None;
     let mut close = false;
@@ -251,7 +256,7 @@ pub fn qselect_dialog(app: &mut CadApp, ctx: &egui::Context, open: &mut bool) {
             ui.separator();
             let valid_filter = qselect_has_criteria(&st.ty, &st.property, &st.value);
             if !valid_filter { ui.colored_label(egui::Color32::YELLOW, "Chọn loại đối tượng hoặc nhập giá trị thuộc tính trước khi lọc."); }
-            let signature = format!("{:?}|{}", st.info_key, qselect_request(&st));
+            let signature = qselect_preview_signature(&st, selection_hash);
             if let Some((previous, count)) = &st.preview_result {
                 if *previous == signature { ui.strong(format!("Xem trước: {count} đối tượng phù hợp")); }
             }
@@ -278,7 +283,7 @@ pub fn qselect_dialog(app: &mut CadApp, ctx: &egui::Context, open: &mut bool) {
             });
         });
     if let Some(mut p) = preview {
-        let signature = format!("{:?}|{}", st.info_key, p);
+        let signature = qselect_preview_signature(&st, selection_hash);
         p["preview"] = json!(true);
         match app.session.execute("qselect", &p) {
             Ok(result) => st.preview_result = result.get("selected").and_then(Value::as_u64).map(|count| (signature, count)),
@@ -563,6 +568,20 @@ mod qselect_filter_tests {
         assert_eq!(p["mode"], "new");
         st.append = true;
         assert_eq!(super::qselect_request(&st)["mode"], "append");
+    }
+
+    #[test]
+    fn append_preview_signature_changes_when_current_selection_changes() {
+        let mut st = super::QsState::default();
+        st.ty = "Circle".into();
+        st.append = true;
+        st.apply_selection = false;
+        let first = super::qselect_preview_signature(&st, 123);
+        let second = super::qselect_preview_signature(&st, 456);
+        assert_ne!(first, second);
+        assert_eq!(first, super::qselect_preview_signature(&st, 123));
+        st.append = false;
+        assert_ne!(first, super::qselect_preview_signature(&st, 123));
     }
 
     #[test]
