@@ -1241,6 +1241,33 @@ fn qto_road_scan_markers(app: &CadApp, all_model: bool) -> (Vec<takeoff_road::Ro
     (markers,skipped)
 }
 
+/// Attach only unambiguous station labels, preserving manual assignments.
+/// A marker may never be assigned to two survey sections.
+fn qto_road_attach_markers(sections: &mut [RoadCrossSection], markers: &[takeoff_road::RoadPlanMarker]) -> (usize,usize,usize) {
+    let mut linked=0usize;
+    let mut missing=0usize;
+    let mut conflicts=0usize;
+    let mut used=BTreeSet::<String>::new();
+    for section in sections.iter() {
+        if let Some(handle)=&section.plan_marker_handle { used.insert(handle.to_ascii_uppercase()); }
+    }
+    for section in sections.iter_mut() {
+        let candidates=markers.iter().filter(|m|(m.chainage_m-section.chainage_m).abs()<=0.001).collect::<Vec<_>>();
+        match candidates.as_slice() {
+            []=>missing+=1,
+            [marker]=>{
+                let is_existing=section.plan_marker_handle.as_deref().is_some_and(|old|old.eq_ignore_ascii_case(&marker.handle));
+                if (section.plan_marker_handle.is_none() && used.insert(marker.handle.to_ascii_uppercase())) || is_existing {
+                    section.plan_marker_handle=Some(marker.handle.clone());
+                    linked+=1;
+                } else { conflicts+=1; }
+            },
+            _=>conflicts+=1,
+        }
+    }
+    (linked,missing,conflicts)
+}
+
 fn qto_live_handles(app: &CadApp) -> BTreeSet<String> {
     app.session.selection().into_iter().map(|handle| handle.hex()).collect()
 }
@@ -1800,40 +1827,14 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
             }
             if ui.button("QUÉT NHÃN CỌC TỪ VÙNG CHỌN").clicked() {
                 let (markers,skipped)=qto_road_scan_markers(app,false);
-                let mut linked=0usize;
-                let mut ambiguous=0usize;
-                let mut not_found=0usize;
-                for section in &mut state.road_sections {
-                    let matched=markers.iter().filter(|marker|(marker.chainage_m-section.chainage_m).abs()<=0.001)
-                        .collect::<Vec<_>>();
-                    match matched.as_slice() {
-                        [marker] if section.plan_marker_handle.as_deref().is_none_or(|old|old.eq_ignore_ascii_case(&marker.handle))=>{
-                            section.plan_marker_handle=Some(marker.handle.clone());
-                            linked+=1;
-                        },
-                        []=>not_found+=1,
-                        _=>ambiguous+=1,
-                    }
-                }
+                let (linked,not_found,ambiguous)=qto_road_attach_markers(&mut state.road_sections,&markers);
                 state.import_feedback=format!("Quét {} nhãn cọc hợp lệ; ghép {} trắc ngang; chưa tìm thấy {}; xung đột {}; bỏ qua {} đối tượng. Chưa tự phê duyệt; kiểm tra từng dòng trước khi xác nhận.",markers.len(),linked,not_found,ambiguous,skipped);
             }
             if ui.button("QUÉT CỌC TOÀN BỘ MODEL").clicked() {
                 let (markers,skipped)=qto_road_scan_markers(app,true);
-                let mut matched=0usize;
-                let mut missing=0usize;
-                let mut ambiguous=0usize;
-                for section in &mut state.road_sections {
-                    let candidates=markers.iter().filter(|marker|(marker.chainage_m-section.chainage_m).abs()<=0.001).collect::<Vec<_>>();
-                    match candidates.as_slice() {
-                        [marker] if section.plan_marker_handle.as_deref().is_none_or(|old|old.eq_ignore_ascii_case(&marker.handle))=>{
-                            section.plan_marker_handle=Some(marker.handle.clone());
-                            matched+=1;
-                        },
-                        []=>missing+=1,
-                        _=>ambiguous+=1,
-                    }
-                }
-                state.import_feedback=format!("Quét MODEL: {} nhãn cọc nhận dạng; ghép {}; thiếu {}; trùng/xung đột {}; bỏ qua {} nhãn. Chưa phê duyệt số liệu.",markers.len(),matched,missing,ambiguous,skipped);
+                let (matched,missing,ambiguous)=qto_road_attach_markers(&mut state.road_sections,&markers);
+                let incomplete=app.session.doc().ok().is_some_and(|doc|doc.model.len()>100_000);
+                state.import_feedback=format!("Quét MODEL: {} nhãn; ghép {}; thiếu {}; xung đột {}; bỏ qua {}. {} Chưa phê duyệt số liệu.",markers.len(),matched,missing,ambiguous,skipped,if incomplete {"Bản vẽ vượt 100.000 đối tượng, kết quả quét chỉ là một phần."}else{""});
             }
             if ui.small_button("Bỏ gắn cọc").clicked(){state.road_plan_marker_handle=None;}
             ui.label(format!("Cọc bình đồ: {}",state.road_plan_marker_handle.as_deref().unwrap_or("Chưa gắn")));
