@@ -1240,6 +1240,16 @@ fn qto_volume_report_lines(app: &CadApp, state: &State, config: &ExportConfig, a
     Ok(out)
 }
 
+/// Road cut/fill cross sections must be delineated by a genuine closed
+/// boundary, hatch or region. A circle's area is not a road section.
+fn qto_is_road_cross_section_boundary(app: &CadApp, handle: cadcraft_doc::Handle) -> bool {
+    app.session.doc().ok()
+        .and_then(|doc| doc.model.get(handle).map(|entity|match &entity.kind {
+            EntityKind::LwPolyline(poly) => poly.closed,
+            EntityKind::Hatch(_) | EntityKind::Region(_) => true,
+            _ => false,
+        })).unwrap_or(false)
+}
 fn qto_road_source_in_scope(source: &GeometricSource, allowed: Option<&BTreeSet<String>>) -> bool {
     allowed.is_none_or(|handles| handles.contains(&source.handle))
 }
@@ -1275,7 +1285,8 @@ fn qto_road_report_lines(app: &CadApp, state: &State, config: &ExportConfig,
             EarthworkKind::Fill => (&start.fill,&end.fill),
         };
         for source in [sources.0.as_ref(),sources.1.as_ref()].into_iter().flatten() {
-            if !qto_volume_source_current(app,source,MeasureKind::Area) {
+            if !qto_is_road_cross_section_boundary(app,cadcraft_doc::Handle::parse_hex(&source.handle).unwrap())
+                || !qto_volume_source_current(app,source,MeasureKind::Area) {
                 return Err(format!("Nguồn diện tích {} tại đoạn {} → {} đã thay đổi. Hãy quét lại trắc ngang.",
                     source.handle,takeoff_road::station_label(interval.start_m),takeoff_road::station_label(interval.end_m)));
             }
@@ -1694,7 +1705,8 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
         ui.horizontal_wrapped(|ui| {
             for (kind,label) in [(EarthworkKind::Cut,"CHỌN DIỆN TÍCH ĐÀO"),(EarthworkKind::Fill,"CHỌN DIỆN TÍCH ĐẮP")] {
                 if ui.button(label).clicked() {
-                    let candidates=selected_measurements(app).into_iter().filter(|m| m.kind==MeasureKind::Area && m.raw_value>0.0).collect::<Vec<_>>();
+                    let candidates=selected_measurements(app).into_iter().filter(|m| m.kind==MeasureKind::Area
+                        && m.raw_value>0.0 && qto_is_road_cross_section_boundary(app,m.source_handle)).collect::<Vec<_>>();
                     if candidates.len()!=1 {
                         state.import_feedback=format!("Cần quét đúng 1 vùng kín trắc ngang (hiện có {} diện tích).",candidates.len());
                     } else {
