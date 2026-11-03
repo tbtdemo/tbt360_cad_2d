@@ -108,17 +108,18 @@ jobs:
           unzip -p dist/CAD360_TBT_Source_R15_UI.zip SOURCE_CAD_R65/crates/ui-egui/src/canvas.rs | grep -F 'tiny_mouse_noise_is_skipped_but_normal_cad_movement_is_immediate'
           unzip -p dist/CAD360_TBT_Source_R15_UI.zip SOURCE_CAD_R65/crates/ui-egui/src/lib.rs | grep -F 'i18n::Preference::Vietnamese'
           unzip -p dist/CAD360_TBT_Source_R15_UI.zip SOURCE_CAD_R65/crates/ui-egui/src/i18n/vi.tsv | grep -F 'Append to current selection set'
+          unzip -p dist/CAD360_TBT_Source_R15_UI.zip SOURCE_CAD_R65/crates/engine/src/cmd/draw.rs | grep -F 'use cadcraft_doc::Handle;'
           for filename in CAD360_VietNam_TBT_Setup.exe CAD360_VietNam_TBT_Portable.zip CAD360_TBT_Source_R15_UI.zip; do
             test -s "dist/$filename"
           done
           file dist/CAD360_VietNam_TBT_Setup.exe | grep -F 'PE32'
           (cd dist && sha256sum CAD360_VietNam_TBT_Setup.exe CAD360_VietNam_TBT_Portable.zip CAD360_TBT_Source_R15_UI.zip > SHA256SUMS.txt)
-          printf 'Commit=%s\nRunId=%s\nWindowsBuild=Ubuntu cargo-xwin x86_64-pc-windows-msvc\nInstaller=NSIS\nGUI_VERIFIED=false\nReleaseBatch=B26-INPUT-VI\n' "$GITHUB_SHA" "$GITHUB_RUN_ID" > dist/BUILD_INFO.txt
+          printf 'Commit=%s\nRunId=%s\nWindowsBuild=Ubuntu cargo-xwin x86_64-pc-windows-msvc\nInstaller=NSIS\nGUI_VERIFIED=false\nReleaseBatch=B27-RESPONSIVE-VI\n' "$GITHUB_SHA" "$GITHUB_RUN_ID" > dist/BUILD_INFO.txt
           ls -lh dist/*.exe dist/*.zip dist/SHA256SUMS.txt
       - name: Upload actual Windows Setup EXE and portable bundle
         uses: actions/upload-artifact@v4
         with:
-          name: CAD360-TBT-Windows-x64-Setup-Portable-Source-B26-INPUT-VI
+          name: CAD360-TBT-Windows-x64-Setup-Portable-Source-B27-RESPONSIVE-VI
           path: |
             dist/CAD360_VietNam_TBT_Setup.exe
             dist/CAD360_VietNam_TBT_Portable.zip
