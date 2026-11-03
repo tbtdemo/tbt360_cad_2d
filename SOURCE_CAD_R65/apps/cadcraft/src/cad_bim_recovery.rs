@@ -7,7 +7,10 @@ use crate::bim_collab;
 
 const INTERVAL: Duration = Duration::from_secs(5 * 60);
 const MAX_GENERATIONS: usize = 3;
-const MAX_RECOVERY_BYTES: u64 = 512 * 1024 * 1024;
+// Per-generation safety limit, not the former 512 MiB CAD OPEN cap.
+// The decoder still requires available RAM; writing tabs one by one avoids
+// accumulating their serialized geometry in memory.
+const MAX_RECOVERY_BYTES: u64 = 4 * 1024 * 1024 * 1024;
 
 pub struct Recovery {
     root: Option<PathBuf>,
@@ -126,15 +129,8 @@ fn save_pair(root: &Path, app: &CadApp, bim: &bim_collab::State) -> Result<(), S
     if app.session.docs.is_empty() { return Err("Không có bản vẽ CAD đang mở".into()); }
     if app.session.docs.len() > 256 { return Err("Một phiên phục hồi hỗ trợ tối đa 256 bản vẽ CAD".into()); }
     if app.session.active >= app.session.docs.len() { return Err("Chỉ số bản vẽ đang hoạt động không hợp lệ".into()); }
-    let mut drawings = Vec::with_capacity(app.session.docs.len());
-    let mut total_bytes = 0u64;
-    for (index, doc) in app.session.docs.iter().enumerate() {
-        let name = format!("drawing-{index:04}.dxf");
-        let dxf = cadcraft_io::write(doc, "cad360_recovery.dxf").map_err(|e| format!("Không xuất được DXF bản vẽ {}: {e}", index + 1))?;
-        total_bytes = total_bytes.checked_add(dxf.len() as u64).ok_or("Tổng dung lượng CAD vượt giới hạn")?;
-        if dxf.is_empty() || total_bytes > MAX_RECOVERY_BYTES { return Err("Tổng dung lượng CAD phục hồi không hợp lệ hoặc vượt 512 MB".into()); }
-        drawings.push((name, dxf, doc.uid, doc.revision));
-    }
+    // Do not serialize every tab into RAM up front. Recovery can contain
+    // several large DXFs; write and release each one before encoding the next.
     let workspace = serde_json::to_vec_pretty(&bim.snapshot_json()).map_err(|e| e.to_string())?;
     if workspace.is_empty() || workspace.len() > 64 * 1024 * 1024 { return Err("Workspace BIM vượt giới hạn phục hồi 64 MiB".into()); }
     std::fs::create_dir_all(root).map_err(|e| e.to_string())?;
@@ -143,13 +139,21 @@ fn save_pair(root: &Path, app: &CadApp, bim: &bim_collab::State) -> Result<(), S
     let committed = root.join(name);
     std::fs::create_dir(&pending).map_err(|e| e.to_string())?;
     let result = (|| -> Result<(), String> {
-        let mut documents = Vec::with_capacity(drawings.len());
-        for (name, dxf, uid, revision) in &drawings {
-            write_synced(&pending.join(name), dxf)?;
+        let mut documents = Vec::with_capacity(app.session.docs.len());
+        let mut total_bytes = 0u64;
+        for (index, doc) in app.session.docs.iter().enumerate() {
+            let name = format!("drawing-{index:04}.dxf");
+            let dxf = cadcraft_io::write(doc, "cad360_recovery.dxf").map_err(|e| format!("Không xuất được DXF bản vẽ {}: {e}", index + 1))?;
+            total_bytes = total_bytes.checked_add(dxf.len() as u64).ok_or("Tổng dung lượng CAD vượt giới hạn")?;
+            if dxf.is_empty() || total_bytes > MAX_RECOVERY_BYTES {
+                return Err("Tổng dung lượng CAD phục hồi không hợp lệ hoặc vượt giới hạn an toàn".into());
+            }
+            write_synced(&pending.join(&name), &dxf)?;
             documents.push(serde_json::json!({
-                "file": name, "bytes": dxf.len(), "checksum": content_checksum(dxf),
-                "uid": uid, "revision": revision
+                "file": name, "bytes": dxf.len(), "checksum": content_checksum(&dxf),
+                "uid": doc.uid, "revision": doc.revision
             }));
+            // Each encoded DXF is dropped before the next drawing is serialized.
         }
         write_synced(&pending.join("workspace.json"), &workspace)?;
         let manifest = serde_json::json!({
