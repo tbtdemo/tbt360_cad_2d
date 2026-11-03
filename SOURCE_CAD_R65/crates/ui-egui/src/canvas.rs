@@ -478,7 +478,7 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui) {
         } if rect.contains(*pos))))
     });
     let pressed_primary = pressed_primary || (point_prompt && (resp.drag_stopped_by(egui::PointerButton::Primary) || raw_canvas_release));
-    if point_prompt && inside && pressed_primary && !middle_down && app.cmd.options.is_none() && app.cmd.buffer.is_empty() {
+    if point_prompt && inside && !on_menu && pressed_primary && !middle_down && app.cmd.options.is_none() && app.cmd.buffer.is_empty() {
         let releases: Vec<egui::Pos2> = ui.input(|i| {
             i.events
                 .iter()
@@ -490,7 +490,7 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui) {
         });
         // The last one is placed below, at the cursor, like any click.
         if let Some((_, earlier)) = releases.split_last() {
-            for pos in earlier.iter().filter(|p| rect.contains(**p)) {
+            for pos in earlier.iter().filter(|p| rect.contains(**p) && ui.ctx().layer_id_at(**p) == Some(ui.layer_id())) {
                 let w = effective_point(app, xf.to_world(*pos), &xf, ui.ctx());
                 let result = match app.canvas.snap {
                     Some(hit) => app.session.input_snapped(hit),
