@@ -208,7 +208,7 @@ mod gpu_memory_budget_tests {
             let start = list.verts.len();
             list.verts.push(Vec2::new(x, 0.0));
             list.verts.push(Vec2::new(x, 10.0));
-            list.prims.push(cadcraft_render::DPrim { handle: h, color: Rgb(255, 255, 255), aci7: true, lw: 0.0, transparency: 0, kind: Kind::Polyline, start: start as u32, len: 2 });
+            list.prims.push(cadcraft_render::DPrim { handle: h, color: Rgb(255, 255, 255), aci7: true, lw: 0.0, transparency: 0, kind: Kind::Polyline, start: start.try_into().unwrap(), len: 2 });
         }
         let mesh = build_mesh(&list, Vec2::ZERO, Rgb(0, 0, 0), false);
         assert_eq!(mesh.line_vertices(), count * 2);
