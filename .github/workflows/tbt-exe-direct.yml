@@ -23,6 +23,9 @@ concurrency:
 
 jobs:
   source-preflight:
+    # Normal development commits only update source; no packaging or inventory
+    # runner is needed until an intentional 15-30 change milestone.
+    if: "${{ github.event_name == 'workflow_dispatch' || startsWith(github.event.head_commit.message, 'build(cad360): B') || startsWith(github.event.head_commit.message, 'release(cad360): B') }}"
     name: Validate Git checkout and source inventory
     runs-on: ubuntu-latest
     timeout-minutes: 10
