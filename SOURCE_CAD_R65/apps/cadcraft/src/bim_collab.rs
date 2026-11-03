@@ -3182,6 +3182,26 @@ mod tests {
     }
 
     #[test]
+    fn safe_workspace_save_preserves_previous_file_as_backup() {
+        let folder = std::env::temp_dir().join(format!("tbt-bim-save-{}-{}", std::process::id(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        std::fs::create_dir(&folder).unwrap();
+        let path = folder.join("workspace.json");
+        let backup = path.with_extension("json.bak");
+        let first = serde_json::json!({"version": 2, "project_id": "before"});
+        let second = serde_json::json!({"version": 2, "project_id": "after"});
+
+        save_workspace_safely(&path, &first).unwrap();
+        assert!(!backup.exists());
+        save_workspace_safely(&path, &second).unwrap();
+
+        let saved: serde_json::Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        let previous: serde_json::Value = serde_json::from_slice(&std::fs::read(&backup).unwrap()).unwrap();
+        assert_eq!(saved, second);
+        assert_eq!(previous, first);
+        std::fs::remove_dir_all(&folder).unwrap();
+    }
+
+    #[test]
     fn pending_bim_changes_survive_workspace_roundtrip() {
         let mut state = State::default();
         let handle = cadcraft_doc::Handle(62001);
