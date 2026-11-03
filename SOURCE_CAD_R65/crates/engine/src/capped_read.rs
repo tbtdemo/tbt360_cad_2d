@@ -62,14 +62,25 @@ pub fn read_progressive(path: &Path, mut report: impl FnMut(u64, u64)) -> io::Re
     // of MiB before the file is actually read.
     let reserve_hint = total.min(8 * 1024 * 1024) as usize;
     output.try_reserve(reserve_hint).map_err(|e| io::Error::other(format!("not enough memory to initialize drawing read: {e}")))?;
-    let mut chunk = vec![0u8; 1024 * 1024];
+    // Read directly into the destination Vec rather than allocating a separate
+    // 1 MiB scratch buffer and copying every byte a second time. Keep growth
+    // fallible and bounded per iteration; there is still no fixed file-size cap.
+    const READ_BLOCK: usize = 1024 * 1024;
     let mut read_total = 0u64;
     report(0, total);
     loop {
-        let n = file.read(&mut chunk)?;
+        let old_len = output.len();
+        output.try_reserve(READ_BLOCK).map_err(|e| io::Error::other(format!("not enough memory to read drawing: {e}")))?;
+        output.resize(old_len + READ_BLOCK, 0);
+        let n = match file.read(&mut output[old_len..]) {
+            Ok(n) => n,
+            Err(e) => {
+                output.truncate(old_len);
+                return Err(e);
+            }
+        };
+        output.truncate(old_len + n);
         if n == 0 { break; }
-        output.try_reserve(n).map_err(|e| io::Error::other(format!("not enough memory to read drawing: {e}")))?;
-        output.extend_from_slice(&chunk[..n]);
         read_total = read_total.saturating_add(n as u64);
         report(read_total, total);
     }
@@ -120,6 +131,22 @@ mod tests {
         assert_eq!(updates.first().copied(), Some((0, data.len() as u64)));
         assert_eq!(updates.last().copied(), Some((data.len() as u64, data.len() as u64)));
         assert!(updates.windows(2).all(|pair| pair[0].0 <= pair[1].0));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn progressive_read_preserves_partial_tail_without_zero_padding() {
+        let dir = std::env::temp_dir().join(format!("cadcraft-progress-tail-{}-{}", std::process::id(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("tail.dxf");
+        let mut original = vec![0xA5u8; 2 * 1024 * 1024 + 17];
+        original[0] = 0x01;
+        *original.last_mut().unwrap() = 0xFE;
+        std::fs::write(&path, &original).unwrap();
+        let mut last = (0, 0);
+        let read = read_progressive(&path, |done, total| last = (done, total)).unwrap();
+        assert_eq!(read, original);
+        assert_eq!(last, (original.len() as u64, original.len() as u64));
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
