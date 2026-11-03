@@ -104,14 +104,13 @@ pub fn intervals(sections: &[RoadCrossSection], drawing_unit_to_m: f64,
                 EarthworkKind::Cut => (&left.cut, &right.cut, left.cut_zero_confirmed, right.cut_zero_confirmed),
                 EarthworkKind::Fill => (&left.fill, &right.fill, left.fill_zero_confirmed, right.fill_zero_confirmed)
             };
-            let area = |value: &Option<GeometricSource>, zero: bool, station: f64| -> Result<Option<(f64,String)>, String> {
-                if let Some(value) = value { return Ok(Some((value.raw_value * drawing_unit_to_m.powi(2),value.handle.clone()))); }
-                if zero { return Ok(Some((0.0,String::new()))); }
-                let _ = station;
-                Ok(None)
+            let area = |value: &Option<GeometricSource>, zero: bool| -> Option<(f64,String)> {
+                if let Some(value) = value { return Some((value.raw_value * drawing_unit_to_m.powi(2),value.handle.clone())); }
+                if zero { return Some((0.0,String::new())); }
+                None
             };
-            let a=area(a,zero_a,left.chainage_m)?;
-            let b=area(b,zero_b,right.chainage_m)?;
+            let a=area(a,zero_a);
+            let b=area(b,zero_b);
             match (a,b) {
                 (None,None) => {},
                 (Some((area_start_m2,source_start)),Some((area_end_m2,source_end))) => {
@@ -331,12 +330,12 @@ mod tests {
         let mut right=section(20.0,None,Some(source("2B",12.0)));
         left.fill_zero_confirmed=true;
         right.cut_zero_confirmed=true;
-        let intervals=intervals(&[left.clone(),right.clone()],1.0,true).unwrap();
-        assert_eq!(intervals.len(),2);
-        assert!((intervals[0].volume_m3-200.0).abs()<1e-8);
-        assert_eq!(intervals[0].source_end,"");
-        assert!((intervals[1].volume_m3-120.0).abs()<1e-8);
-        assert_eq!(intervals[1].source_start,"");
+        let parts=intervals(&[left.clone(),right.clone()],1.0,true).unwrap();
+        assert_eq!(parts.len(),2);
+        assert!((parts[0].volume_m3-200.0).abs()<1e-8);
+        assert_eq!(parts[0].source_end,"");
+        assert!((parts[1].volume_m3-120.0).abs()<1e-8);
+        assert_eq!(parts[1].source_start,"");
         right.cut_zero_confirmed=false;
         assert!(intervals(&[left.clone(),right],1.0,true).is_err());
         left.cut_zero_confirmed=true;
