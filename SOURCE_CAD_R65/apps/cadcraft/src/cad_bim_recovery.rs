@@ -12,7 +12,7 @@ const MAX_RECOVERY_BYTES: u64 = 512 * 1024 * 1024;
 pub struct Recovery {
     root: Option<PathBuf>,
     last_save: Instant,
-    last_signature: Option<(u64, u64, usize)>,
+    last_signature: Option<(Vec<(u64, u64)>, usize, String)>,
     available: bool,
     pub error: Option<String>,
 }
@@ -31,8 +31,14 @@ impl Recovery {
         }
         self.last_save = Instant::now();
         let Some(root) = self.root.as_deref() else { return };
-        let Some(doc) = app.session.docs.get(app.session.active) else { return };
-        let signature = (doc.uid, doc.revision, bim.dirty_local_changes);
+        let signature = match snapshot_signature(app, bim) {
+            Ok(signature) => signature,
+            Err(error) => { self.error = Some(error); ctx.request_repaint_after(INTERVAL); return; }
+        };
+        if self.last_signature.as_ref() == Some(&signature) {
+            ctx.request_repaint_after(INTERVAL);
+            return;
+        }
         match save_pair(root, app, bim) {
             Ok(()) => { self.last_signature = Some(signature); self.available = true; self.error = None; }
             Err(error) => { log::error!("CAD+BIM recovery autosave: {error}"); self.error = Some(error); }
@@ -83,11 +89,17 @@ impl Recovery {
         let root = self.root.as_deref().ok_or("Chưa có thư mục tự động lưu CAD+BIM")?;
         save_pair(root, app, bim)?;
         self.last_save = Instant::now();
-        self.last_signature = app.session.docs.get(app.session.active).map(|doc| (doc.uid, doc.revision, bim.dirty_local_changes));
+        self.last_signature = Some(snapshot_signature(app, bim)?);
         self.available = true;
         self.error = None;
         Ok(())
     }
+}
+
+fn snapshot_signature(app: &CadApp, bim: &bim_collab::State) -> Result<(Vec<(u64, u64)>, usize, String), String> {
+    let docs = app.session.docs.iter().map(|doc| (doc.uid, doc.revision)).collect();
+    let workspace = serde_json::to_vec(&bim.snapshot_json()).map_err(|e| format!("Không tạo được fingerprint BIM: {e}"))?;
+    Ok((docs, app.session.active, content_checksum(&workspace)))
 }
 
 fn validate_recovery_dxf(bytes: &[u8]) -> Result<(), String> {
