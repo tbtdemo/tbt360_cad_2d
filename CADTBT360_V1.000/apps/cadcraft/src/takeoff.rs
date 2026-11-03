@@ -469,6 +469,16 @@ impl State {
             "version": 4,
             "drawing_distance": self.drawing_distance,
             "real_distance_m": self.real_distance_m,
+            "export_config": {
+                "columns": self.export_config.columns,
+                "group_by": format!("{:?}", self.export_config.group_by),
+                "project": self.export_config.project,
+                "investor": self.export_config.investor,
+                "document_number": self.export_config.document_number,
+                "confirmed_only": self.export_config.confirmed_only,
+                "length_unit": self.export_config.length_unit,
+                "decimals": self.export_config.decimals,
+            },
             "records": self.records.iter().map(Self::record_json).collect::<Vec<_>>(),
             "audit": self.audit.iter().map(|a| serde_json::json!({
                 "sequence": a.sequence, "record_id": a.record_id, "action": a.action, "before": a.before, "after": a.after
@@ -557,6 +567,31 @@ impl State {
         }
         let next_record_id = records.iter().map(|r| r.id).max().unwrap_or(0).checked_add(1).ok_or_else(|| "Hết ID phép đo QTO".to_string())?;
         let next_audit_sequence = audit.iter().map(|a| a.sequence).max().unwrap_or(0).checked_add(1).ok_or_else(|| "Hết ID lịch sử QTO".to_string())?;
+        // Restore export layout from optional QTO metadata without changing old project versions.
+        let mut config = ExportConfig::default();
+        if let Some(v) = value.get("export_config") {
+            if let Some(cols) = v.get("columns").and_then(serde_json::Value::as_array) {
+                if cols.len() == FIELDS.len() {
+                    for (index, item) in cols.iter().enumerate() { config.columns[index] = item.as_bool().unwrap_or(config.columns[index]); }
+                }
+            }
+            config.columns[8] = true;
+            config.columns[9] = true;
+            config.group_by = match v.get("group_by").and_then(serde_json::Value::as_str) {
+                Some("WorkCode") => GroupBy::WorkCode, Some("Layer") => GroupBy::Layer,
+                Some("Floor") => GroupBy::Floor, Some("Discipline") => GroupBy::Discipline,
+                Some("None") => GroupBy::None, _ => GroupBy::WorkGroup,
+            };
+            for (key, target) in [("project", &mut config.project), ("investor", &mut config.investor), ("document_number", &mut config.document_number), ("length_unit", &mut config.length_unit)] {
+                if let Some(value) = v.get(key).and_then(serde_json::Value::as_str) {
+                    if value.len() <= 2048 { *target = value.to_string(); }
+                }
+            }
+            if !matches!(config.length_unit.as_str(), "m" | "cm" | "mm") { config.length_unit = "m".into(); }
+            config.confirmed_only = v.get("confirmed_only").and_then(serde_json::Value::as_bool).unwrap_or(true);
+            config.decimals = v.get("decimals").and_then(serde_json::Value::as_u64).map(|n| n.min(6) as usize).unwrap_or(3);
+        }
+        self.export_config = config;
         self.drawing_distance = drawing_distance;
         self.real_distance_m = real_distance_m;
         self.records = records;
@@ -1122,7 +1157,7 @@ fn qto_report_lines(state: &State, source_validation: &SourceValidation, config:
         return Err("Nhập đầy đủ tên dự án và Chủ đầu tư trước khi xuất báo cáo.".into());
     }
     let length_scale = config.unit_scale();
-    let needs_calibration = state.records.iter().any(|r| r.status == MeasureStatus::Confirmed && r.kind != MeasureKind::Count);
+    let needs_calibration = state.records.iter().any(|r| r.kind != MeasureKind::Count && (!config.confirmed_only || r.status == MeasureStatus::Confirmed));
     let base = state.scale_to_m();
     if needs_calibration && base.is_none() { return Err("Phải hiệu chuẩn tỷ lệ bản vẽ sang mét trước khi xuất khối lượng chiều dài/diện tích.".into()); }
     let lf = base.unwrap_or(1.0) * length_scale;
@@ -1501,24 +1536,26 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
                 columns[idx % 3].add_enabled(!mandatory, egui::Checkbox::new(&mut state.export_config.columns[idx], *label));
             }
         });
-        let report = qto_report_lines(state, &source_validation, &state.export_config);
-        match &report {
-            Ok(rows) => { ui.colored_label(egui::Color32::LIGHT_GREEN, format!("Sẵn sàng: {} phép đo, {} cột, phân nhóm theo {}.", rows.len(), state.export_config.selected().len(), state.export_config.group_by.label())); },
-            Err(message) => { ui.colored_label(egui::Color32::YELLOW, message); },
-        }
+        // Avoid constructing, sorting and grouping the complete report each GUI frame.
+        let count = state.records.iter().filter(|r| qto_record_exportable(r, &source_validation, lf, af, state.export_config.confirmed_only)).count();
+        ui.label(format!("Sẵn sàng xem xét: {count} phép đo, {} cột. File XLSX được tạo khi bấm Xuất.", state.export_config.selected().len()));
         if !state.export_config.confirmed_only {
             ui.colored_label(egui::Color32::YELLOW, "Chế độ DỰ THẢO: có thể bao gồm phép đo chưa xác nhận. Không gửi Chủ đầu tư trước khi kiểm tra.");
         }
-        if ui.add_enabled(report.is_ok(), egui::Button::new("XUẤT EXCEL XLSX — ĐỊNH DẠNG IN A4")).clicked() {
-            if let Ok(rows) = report {
-                if let Some(path) = rfd::FileDialog::new().add_filter("Excel Workbook", &["xlsx"]).set_file_name("CADTBT360_V1.000_BANG_DO_BOC_KHOI_LUONG.xlsx").save_file() {
-                    match takeoff_report::write_xlsx(&path, &state.export_config, &rows) {
-                        Ok(()) => state.file_feedback = format!("Đã tạo Excel XLSX có bố cục in A4: {}", path.display()),
-                        Err(error) => state.file_feedback = format!("Không thể xuất báo cáo Excel: {error}"),
+        if ui.add_enabled(state.export_config.valid() && count > 0, egui::Button::new("XUẤT EXCEL XLSX — ĐỊNH DẠNG IN A4")).clicked() {
+            match qto_report_lines(state, &source_validation, &state.export_config) {
+                Ok(rows) => {
+                    if let Some(path) = rfd::FileDialog::new().add_filter("Excel Workbook", &["xlsx"]).set_file_name("CADTBT360_V1.000_BANG_DO_BOC_KHOI_LUONG.xlsx").save_file() {
+                        match takeoff_report::write_xlsx(&path, &state.export_config, &rows) {
+                            Ok(()) => state.file_feedback = format!("Đã tạo Excel XLSX có bố cục in A4: {}", path.display()),
+                            Err(error) => state.file_feedback = format!("Không thể xuất báo cáo Excel: {error}"),
+                        }
                     }
-                }
+                },
+                Err(error) => state.file_feedback = format!("Chưa đủ điều kiện xuất báo cáo: {error}"),
             }
         }
+        if !state.file_feedback.is_empty() { ui.label(&state.file_feedback); }
     });
 
     ui.separator();
