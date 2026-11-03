@@ -60,14 +60,17 @@ jobs:
         working-directory: CADTBT360_V1.000
         shell: pwsh
         run: cargo test --locked -p cadcraft-engine --lib --no-run
-      - name: Verify investor-ready QTO XLSX formatting, ZIP and export rules
+      - name: Verify complete QTO Excel XLSX, A4 printing and export rules
         working-directory: CADTBT360_V1.000
         shell: pwsh
         run: |
-          cargo test --locked -p cadcraft --bin cadcraft takeoff_report::tests -- --test-threads=2
-          if ($LASTEXITCODE -ne 0) { throw "QTO XLSX workbook tests failed" }
-          cargo test --locked -p cadcraft --bin cadcraft takeoff::tests::qto_investor_excel -- --test-threads=2
+          $env:CADTBT360_QTO_XLSX_FIXTURE = "target/qto_investor_smoke.xlsx"
+          cargo test --locked -p cadcraft --bin cadcraft takeoff_report::tests -- --test-threads=1
+          if ($LASTEXITCODE -ne 0) { throw "QTO XLSX Rust workbook tests failed" }
+          cargo test --locked -p cadcraft --bin cadcraft takeoff::tests::qto_investor_excel -- --test-threads=1
           if ($LASTEXITCODE -ne 0) { throw "QTO investor export tests failed" }
+          python scripts/verify_qto_xlsx.py $env:CADTBT360_QTO_XLSX_FIXTURE
+          if ($LASTEXITCODE -ne 0) { throw "Real XLSX Office XML or A4 print validation failed" }
       - name: Verify CAD Text Style Manager and font properties
         working-directory: CADTBT360_V1.000
         shell: pwsh
