@@ -3,6 +3,7 @@
 //! a spinner and the elapsed time and keeps painting. The finished drawing is added to the session
 //! on the UI thread. The web build has no threads and opens synchronously.
 
+use std::collections::VecDeque;
 use std::sync::mpsc::{Receiver, TryRecvError, channel};
 use std::sync::{Arc, atomic::{AtomicBool, AtomicU64, Ordering}};
 use std::time::{Duration, Instant};
@@ -31,11 +32,18 @@ struct Job {
 #[derive(Default)]
 pub struct Opening {
     jobs: Vec<Job>,
+    queued: VecDeque<String>,
 }
 
 impl Opening {
     /// Start reading `path` on a worker thread.
     pub fn start(&mut self, path: &str) {
+        // Large CAD files expand substantially during parsing and rendering. Never launch
+        // multiple large decoders concurrently: queue later files rather than exhausting RAM.
+        if !self.jobs.is_empty() {
+            self.queued.push_back(path.to_string());
+            return;
+        }
         let (tx, rx) = channel();
         let p = path.to_string();
         let progress = Arc::new(LoadProgress::default());
@@ -60,7 +68,7 @@ impl Opening {
 
     /// Whether any file is still being read.
     pub fn busy(&self) -> bool {
-        !self.jobs.is_empty()
+        !self.jobs.is_empty() || !self.queued.is_empty()
     }
 
     /// The finished reads, as (path, result). A reader that died without answering is an error.
@@ -77,6 +85,9 @@ impl Opening {
                 false
             }
         });
+        if self.jobs.is_empty() {
+            if let Some(path) = self.queued.pop_front() { self.start(&path); }
+        }
         done
     }
 
@@ -85,7 +96,7 @@ impl Opening {
         let first = self.jobs.first()?;
         let name = std::path::Path::new(&first.path).file_name().map_or_else(|| first.path.clone(), |n| n.to_string_lossy().to_string());
         let secs = first.started.elapsed().as_secs_f32();
-        let more = self.jobs.len() - 1;
+        let more = self.jobs.len() + self.queued.len() - 1;
         let state = if first.progress.parsing.load(Ordering::Acquire) {
             "Đang giải mã hình học CAD".to_string()
         } else {
