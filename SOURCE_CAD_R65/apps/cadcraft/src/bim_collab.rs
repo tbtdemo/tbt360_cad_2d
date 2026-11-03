@@ -2,6 +2,40 @@
 //! This module intentionally owns only coordination metadata/UI. CAD geometry stays in the
 //! canonical CadApp/Session and will be bound to these scopes incrementally.
 
+/// Write a workspace next to its destination, flush it and only then replace the original.
+/// Keep a .bak of the previous valid file so a failed replacement remains recoverable.
+fn save_workspace_safely(path: &std::path::Path, snapshot: &serde_json::Value) -> Result<(), String> {
+    use std::io::Write;
+
+    let bytes = serde_json::to_vec_pretty(snapshot).map_err(|error| format!("Không mã hóa được BIM workspace: {error}"))?;
+    let suffix = format!("{}.{}.tmp", std::process::id(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_err(|error| error.to_string())?.as_nanos());
+    let temp = path.with_extension(suffix);
+    let result = (|| -> std::io::Result<()> {
+        let mut file = std::fs::OpenOptions::new().write(true).create_new(true).open(&temp)?;
+        file.write_all(&bytes)?;
+        file.sync_all()?;
+        drop(file);
+
+        if path.exists() {
+            let backup = path.with_extension("json.bak");
+            let backup_temp = path.with_extension(format!("{}.bak.tmp", std::process::id()));
+            std::fs::copy(path, &backup_temp)?;
+            let backup_file = std::fs::OpenOptions::new().read(true).open(&backup_temp)?;
+            backup_file.sync_all()?;
+            drop(backup_file);
+            if let Err(error) = std::fs::rename(&backup_temp, &backup) {
+                let _ = std::fs::remove_file(&backup_temp);
+                return Err(error);
+            }
+        }
+
+        std::fs::rename(&temp, path)?;
+        Ok(())
+    })();
+    if result.is_err() { let _ = std::fs::remove_file(&temp); }
+    result.map_err(|error| format!("Không thể lưu BIM workspace an toàn: {error}"))
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Discipline {
     Architecture,
@@ -2056,10 +2090,8 @@ fn legacy_panel(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &m
             }
             if ui.button("Lưu workspace BIM").clicked() {
                 if let Some(path) = rfd::FileDialog::new().add_filter("TBT BIM Workspace", &["json"]).set_file_name("TBT360_BIM_WORKSPACE.json").save_file() {
-                    if let Ok(data) = serde_json::to_vec_pretty(&state.snapshot_json()) {
-                        if let Err(error) = std::fs::write(path, data) {
-                            log::error!("BIM workspace could not be saved: {error}");
-                        }
+                    if let Err(error) = save_workspace_safely(&path, &state.snapshot_json()) {
+                        log::error!("BIM workspace could not be saved: {error}");
                     }
                 }
             }
