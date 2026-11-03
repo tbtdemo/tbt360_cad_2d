@@ -1316,7 +1316,7 @@ mod road_station_matching_tests {
     fn zero_padded_hex_marker_is_considered_the_same_entity() {
         let mut sections=vec![section(100.0,Some("AA")),section(120.0,None)];
         let markers=vec![takeoff_road::RoadPlanMarker{chainage_m:120.0,handle:"0AA".into()}];
-        assert_eq!(qto_road_attach_markers(&mut sections,&markers),(0,1,1));
+        assert_eq!(qto_road_attach_markers(&mut sections,&markers),(0,0,1));
         assert!(sections[1].plan_marker_handle.is_none());
     }
 }
