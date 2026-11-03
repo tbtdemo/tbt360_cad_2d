@@ -1,3 +1,19 @@
+## B25 — Khắc phục lỗi test ARRAYPATH chặn hồi quy CAD (03/11/2026)
+
+**Kết quả kiểm tra B24 thực tế:** [run 41644498802](https://github.com/tbtdemo/tbt360_cad_2d/actions/runs/41644498802) kết luận `failure` do bước `Regression-test CAD QSELECT engine and UI after uploading installer`. Trước bước đó đã build và upload artifact Setup/Portable/Source [13235336758](https://github.com/tbtdemo/tbt360_cad_2d/actions/runs/41644498802/artifacts/13235336758) (63,895,605 bytes). **Không gọi là release đã PASS test.**
+
+**Lỗi gốc xác định từ log job 125946167268:** `crates/engine/src/cmd/modify2/tests.rs:648` thiếu ký tự `]` trong `json!({"points": [[0, 0], [10, 0]}))` tạo `mismatched closing delimiter`, làm hỏng biên dịch `cadcraft-engine (lib test)` dù mã binary release biên dịch được. Đây là lỗi cú pháp test chung, không phải lỗi qselect runtime.
+
+**Đã sửa mã:** thay bằng `json!({"points": [[0, 0], [10, 0]]})`, không sửa thuật toán ARRAYPATH hay thay assertion. [Commit `6a85b052`](https://github.com/tbtdemo/tbt360_cad_2d/commit/6a85b052497b5b74b88a6579ca7adb3a4cf00897).
+
+**Đóng gói B25:** [commit `ee1064b8`](https://github.com/tbtdemo/tbt360_cad_2d/commit/ee1064b8c720c79ac1f1ccb915329a7b7ee58578) có `ReleaseBatch=B25-CAD-TEST-FIX`, artifact tên `CAD360-TBT-Windows-x64-Setup-Portable-Source-B25-CAD-TEST-FIX`, thêm kiểm tra source chứa dòng test ARRAYPATH đã sửa. Gói này giữ tính năng QSELECT Remove từ B24 và chạy regression engine/UI sau upload.
+
+- [Ubuntu→Windows EXE B25 run 41646348217](https://github.com/tbtdemo/tbt360_cad_2d/actions/runs/41646348217) đang chạy.
+- [Windows Native B25 run 41646348278](https://github.com/tbtdemo/tbt360_cad_2d/actions/runs/41646348278) đang chạy.
+- **B25 cổng bàn giao:** 1/4 = **25%** mã nguồn đã commit; build, EXE artifact, GUI chưa xác minh.
+- **B24 cổng bàn giao:** 3/4 = **75%** mã nguồn, binary, artifact; kiểm thử hồi quy bị lỗi cú pháp, GUI chưa nghiệm thu. Test PASS là cổng chất lượng riêng và đang chờ B25.
+
+
 ## B24 — QSELECT Remove: bỏ đối tượng phù hợp khỏi tập chọn (03/11/2026)
 
 **B22 đã có bộ cài**: run [41643336730](https://github.com/tbtdemo/tbt360_cad_2d/actions/runs/41643336730) commit `e6ab7583`, artifact [13234886102](https://github.com/tbtdemo/tbt360_cad_2d/actions/runs/41643336730/artifacts/13234886102) tên `CAD360-TBT-Windows-x64-Setup-Portable-Source-B22-QSELECT` 63,895,787 bytes. Khâu biên dịch + upload PASS, step regression QSELECT đang chạy khi kiểm tra. Không có kiểm chứng GUI Windows.
