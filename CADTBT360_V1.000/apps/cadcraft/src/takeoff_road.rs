@@ -68,6 +68,9 @@ pub fn station_from_marker_text(text: &str) -> Result<f64,String> {
         let candidate=if is_km_prefix {tokens.get(i+1).copied().unwrap_or("")}
             else if token.get(..2).is_some_and(|prefix|prefix.eq_ignore_ascii_case("km")) {token.get(2..).unwrap_or("")}
             else {continue};
+        // CAD annotations frequently terminate station labels with a sentence
+        // comma/period. Strip only trailing punctuation, never arbitrary words.
+        let candidate=candidate.trim_end_matches(|c:char| matches!(c,'.'|','|';'));
         if !candidate.contains('+') {continue;}
         if let Ok(value)=station_to_metres(candidate) {
             if !found.iter().any(|n|(*n-value).abs()<1e-6){found.push(value);}
@@ -327,6 +330,9 @@ mod tests {
         assert!(station_from_marker_text("Km1+010 Km1+020").is_err());
         assert!(station_from_marker_text("Km-1+020").is_err());
         assert_eq!(station_from_marker_text("Km1+020\\PTrắc ngang").unwrap(),1020.0);
+        assert_eq!(station_from_marker_text("Cọc H2: Km1+025.50.").unwrap(),1025.5);
+        assert_eq!(station_from_marker_text("Km1+025.50,").unwrap(),1025.5);
+        assert!(station_from_marker_text("Km1+025.50unknown").is_err());
     }
     #[test]
     fn km_notation_is_metres_and_rejects_bad_stationing() {
