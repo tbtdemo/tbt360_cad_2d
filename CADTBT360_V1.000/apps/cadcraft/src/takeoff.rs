@@ -1913,11 +1913,17 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
         let count = state.records.iter().filter(|r| qto_record_in_scope(r, allowed_handles.as_ref()) && !state.export_omitted_ids.contains(&r.id) && qto_measure_type_allowed(r.kind, state.selected_measure_types) && r.status != MeasureStatus::Excluded && !source_validation.invalid_record_ids.contains(&r.id) && qto_record_exportable(r, &source_validation, lf, af, state.export_config.confirmed_only)).count();
         let volume_count = state.volume_records.iter().filter(|volume| (!state.export_config.confirmed_only || volume.confirmed)
             && allowed_handles.as_ref().is_none_or(|handles| handles.contains(&volume.plan.handle) && handles.contains(&volume.section.handle))).count();
-        ui.label(format!("Sẵn sàng xem xét: {count} phép đo 2D + {volume_count} phép đo thể tích hai nguồn, {} cột.", state.export_config.selected().len()));
+        let road_preview=state.scale_to_m().and_then(|scale| takeoff_road::intervals(&state.road_sections,scale,state.export_config.confirmed_only).ok());
+        let road_count=road_preview.as_ref().map(|parts|parts.iter().filter(|part|allowed_handles.as_ref()
+            .is_none_or(|handles|handles.contains(&part.source_start) && handles.contains(&part.source_end))).count()).unwrap_or(0);
+        ui.label(format!("Sẵn sàng xem xét: {count} phép đo 2D + {volume_count} thể tích hai nguồn + {road_count} khoảng cọc đào/đắp, {} cột.",state.export_config.selected().len()));
+        if state.road_sections.len() >= 2 && road_preview.is_none() {
+            ui.colored_label(egui::Color32::YELLOW,"Dữ liệu trắc ngang chưa hợp lệ hoặc chưa hiệu chuẩn. Không phát hành Excel giao thông khi chưa khắc phục lỗi.");
+        }
         if !state.export_config.confirmed_only {
             ui.colored_label(egui::Color32::YELLOW, "Chế độ DỰ THẢO: có thể bao gồm phép đo chưa xác nhận. Không gửi Chủ đầu tư trước khi kiểm tra.");
         }
-        if ui.add_enabled(state.export_config.valid() && count + volume_count > 0, egui::Button::new("XUẤT EXCEL XLSX — ĐỊNH DẠNG IN A4")).clicked() {
+        if ui.add_enabled(state.export_config.valid() && count + volume_count + road_count > 0, egui::Button::new("XUẤT EXCEL XLSX — ĐỊNH DẠNG IN A4")).clicked() {
             match qto_combined_report_lines(app, state, &source_validation, &state.export_config, allowed_handles.as_ref()) {
                 Ok(rows) => {
                     if let Some(path) = rfd::FileDialog::new().add_filter("Excel Workbook", &["xlsx"]).set_file_name("CADTBT360_V1.000_BANG_DO_BOC_KHOI_LUONG.xlsx").save_file() {
