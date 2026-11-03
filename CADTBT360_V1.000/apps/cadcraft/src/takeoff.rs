@@ -7,6 +7,7 @@ use cadcraft_doc::EntityKind;
 use cadcraft_ui_egui::CadApp;
 use crate::takeoff_report::{self, ExportConfig, GroupBy, ReportLine, FIELDS};
 use crate::takeoff_composite::{self, GeometricSource, PlanSectionVolume};
+use crate::takeoff_road::{self, EarthworkKind, RoadCrossSection};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum MeasureKind { Length, Area, Perimeter, Count }
@@ -139,6 +140,14 @@ pub struct State {
     volume_work_group: String,
     volume_work_code: String,
     volume_description: String,
+    road_chainage: String,
+    road_name: String,
+    road_cut: Option<GeometricSource>,
+    road_fill: Option<GeometricSource>,
+    road_sections: Vec<RoadCrossSection>,
+    road_work_group: String,
+    road_cut_code: String,
+    road_fill_code: String,
     edit_work_group: String,
     edit_work_code: String,
     edit_description: String,
@@ -501,6 +510,15 @@ impl State {
             "version": 4,
             "drawing_distance": self.drawing_distance,
             "real_distance_m": self.real_distance_m,
+            "road_takeoff": {
+                "sections": self.road_sections.iter().map(RoadCrossSection::json).collect::<Vec<_>>(),
+                "draft": {"chainage":self.road_chainage,"name":self.road_name,
+                          "cut":self.road_cut.as_ref().map(GeometricSource::json),
+                          "fill":self.road_fill.as_ref().map(GeometricSource::json)},
+                "work_group":self.road_work_group,
+                "cut_code":self.road_cut_code,
+                "fill_code":self.road_fill_code
+            },
             "composite_volumes": self.volume_records.iter().map(PlanSectionVolume::json).collect::<Vec<_>>(),
             "composite_draft": {
                 "plan": self.volume_plan.as_ref().map(GeometricSource::json),
@@ -674,6 +692,16 @@ impl State {
         self.volume_work_group.clear();
         self.volume_work_code.clear();
         self.volume_description.clear();
+        let road=value.get("road_takeoff");
+        self.road_sections=road.and_then(|v|v.get("sections")).and_then(serde_json::Value::as_array)
+            .map(|items|items.iter().take(20_000).filter_map(RoadCrossSection::read).collect()).unwrap_or_default();
+        self.road_cut=road.and_then(|v|v.get("draft")).and_then(|v|v.get("cut")).and_then(GeometricSource::read);
+        self.road_fill=road.and_then(|v|v.get("draft")).and_then(|v|v.get("fill")).and_then(GeometricSource::read);
+        self.road_chainage=road.and_then(|v|v.get("draft")).and_then(|v|v.get("chainage")).and_then(serde_json::Value::as_str).unwrap_or("").chars().take(50).collect();
+        self.road_name=road.and_then(|v|v.get("draft")).and_then(|v|v.get("name")).and_then(serde_json::Value::as_str).unwrap_or("").chars().take(180).collect();
+        self.road_work_group=road.and_then(|v|v.get("work_group")).and_then(serde_json::Value::as_str).unwrap_or("Nền đường").chars().take(250).collect();
+        self.road_cut_code=road.and_then(|v|v.get("cut_code")).and_then(serde_json::Value::as_str).unwrap_or("GT.DAO").chars().take(150).collect();
+        self.road_fill_code=road.and_then(|v|v.get("fill_code")).and_then(serde_json::Value::as_str).unwrap_or("GT.DAP").chars().take(150).collect();
         self.export_config = config;
         self.drawing_distance = drawing_distance;
         self.real_distance_m = real_distance_m;
@@ -1206,6 +1234,57 @@ fn qto_volume_report_lines(app: &CadApp, state: &State, config: &ExportConfig, a
     Ok(out)
 }
 
+fn qto_road_source_in_scope(source: &GeometricSource, allowed: Option<&BTreeSet<String>>) -> bool {
+    allowed.is_none_or(|handles| handles.contains(&source.handle))
+}
+fn qto_road_interval_in_scope(left: &RoadCrossSection, right: &RoadCrossSection, kind: EarthworkKind, allowed: Option<&BTreeSet<String>>) -> bool {
+    let get=|section: &RoadCrossSection| match kind {
+        EarthworkKind::Cut => section.cut.as_ref(), EarthworkKind::Fill => section.fill.as_ref()
+    };
+    get(left).zip(get(right)).is_some_and(|(a,b)| qto_road_source_in_scope(a,allowed) && qto_road_source_in_scope(b,allowed))
+}
+fn qto_road_report_lines(app: &CadApp, state: &State, config: &ExportConfig,
+    allowed: Option<&BTreeSet<String>>) -> Result<Vec<ReportLine>,String> {
+    if state.road_sections.len() < 2 { return Ok(Vec::new()); }
+    let scale=state.scale_to_m().ok_or_else(||"Cần hiệu chuẩn tỷ lệ bản vẽ CAD trước khi tính đào/đắp theo lý trình.".to_string())?;
+    // Full geometry revalidation before any contractor-ready quantities leave CAD.
+    for section in &state.road_sections {
+        for source in [&section.cut,&section.fill].into_iter().flatten() {
+            if !qto_volume_source_current(app,source,MeasureKind::Area) {
+                return Err(format!("Nguồn trắc ngang {} tại {} đã đổi hoặc mất. Vui lòng quét lại.",
+                    source.handle,takeoff_road::station_label(section.chainage_m)));
+            }
+        }
+    }
+    let intervals=takeoff_road::intervals(&state.road_sections,scale,config.confirmed_only)?;
+    let multiplier=config.unit_scale().powi(3);
+    let mut out=Vec::new();
+    for interval in intervals {
+        let (code,kind)=match interval.kind {
+            EarthworkKind::Cut => (&state.road_cut_code,"Đào nền đường"),
+            EarthworkKind::Fill => (&state.road_fill_code,"Đắp nền đường")
+        };
+        let start=state.road_sections.iter().find(|section|(section.chainage_m-interval.start_m).abs()<1.0e-6).unwrap();
+        let end=state.road_sections.iter().find(|section|(section.chainage_m-interval.end_m).abs()<1.0e-6).unwrap();
+        if !qto_road_interval_in_scope(start,end,interval.kind,allowed) { continue; }
+        if config.confirmed_only && code.trim().is_empty() {
+            return Err(format!("Chưa khai báo mã công tác {} để phát hành Excel.",kind));
+        }
+        let unit=format!("{}³",config.length_unit);
+        let fields=[
+            String::new(),code.clone(),format!("{} {} → {}",kind,
+                takeoff_road::station_label(interval.start_m),takeoff_road::station_label(interval.end_m)),
+            state.road_work_group.clone(),format!("{} + {}",interval.source_start,interval.source_end),
+            String::new(),"Giao thông".into(),"Thể tích".into(),String::new(),unit.clone(),
+            format!("AEA: L={:.3}m; Ađầu={:.3}m²; Acuối={:.3}m². Tách riêng đào/đắp.",interval.length_m,interval.area_start_m2,interval.area_end_m2),
+            format!("{} + {}",interval.source_start,interval.source_end)
+        ];
+        out.push(ReportLine{group:if state.road_work_group.is_empty(){"Nền đường".into()}else{state.road_work_group.clone()},
+            fields,quantity:interval.volume_m3*multiplier,unit});
+    }
+    Ok(out)
+}
+
 fn qto_record_in_scope(record: &MeasurementRecord, allowed: Option<&BTreeSet<String>>) -> bool {
     match allowed {
         None => true,
@@ -1380,6 +1459,7 @@ fn qto_combined_report_lines(app: &CadApp, state: &State, source_validation: &So
         && (!config.confirmed_only || record.status == MeasureStatus::Confirmed));
     let mut rows = if has_ordinary { qto_report_lines(state, source_validation, config, allowed)? } else { Vec::new() };
     rows.extend(qto_volume_report_lines(app, state, config, allowed)?);
+    rows.extend(qto_road_report_lines(app, state, config, allowed)?);
     if rows.is_empty() { return Err("Không có phép đo đủ điều kiện theo phạm vi và phương pháp đã chọn.".into()); }
     rows.sort_by(|a,b| a.group.cmp(&b.group).then(a.fields[1].cmp(&b.fields[1])).then(a.fields[7].cmp(&b.fields[7])));
     Ok(rows)
