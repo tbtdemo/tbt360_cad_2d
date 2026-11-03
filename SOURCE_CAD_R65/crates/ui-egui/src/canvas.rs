@@ -85,6 +85,9 @@ pub struct CanvasState {
     /// A rebuild for a new view running on a worker thread (see [`rebuild`]); `list` is drawn
     /// meanwhile.
     job: Option<rebuild::Job>,
+    /// A background view rebuild that failed. Avoid spawning it every frame
+    /// until the view key changes; keep the previous list visible meantime.
+    failed_rebuild_key: Option<ListKey>,
     /// Bumped whenever `list` is rebuilt (identifies it for [`PrimIndex`]).
     list_gen: u64,
     prim_index: PrimIndex,
@@ -209,6 +212,7 @@ impl CanvasState {
             self.infinite = m.infinite;
         }
         self.list = Some(built.list);
+        self.failed_rebuild_key = None;
         self.key = key;
         self.window = window;
         self.build_ms = built.build_ms;
