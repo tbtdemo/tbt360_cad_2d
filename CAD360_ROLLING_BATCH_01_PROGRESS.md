@@ -83,3 +83,9 @@ B15 gồm 15 bộ chức năng đã ghi ở trên. Build Windows là ứng viên
 - `b34f5a10f307465c1e2e9c66d027911a5ac74e59`: unit test kiểm zoom x4, pan ra khỏi vùng cache, zoom x1.3 và chính xác ngưỡng ổn định 150 ms, thêm CI discovery/target.
 - **Mốc ứng viên B15 cố định ở commit `51d41f51f3dd0a23fc2b0ee0ece24b9ecf11c7ae`**; mã của chu kỳ mới nằm trên các commit sau, KHÔNG sửa nội dung B15 đang build.
 - Chu kỳ mới **1/15** chỉ phản ánh thay đổi chức năng đã commit. Vẫn còn 14 bộ tới mốc đóng gói ứng viên kế tiếp. Mức 39,4% của 8 nhóm là baseline ước lượng chưa nghiệm thu Windows/GUI/benchmark.
+
+## Tiếp tục build + tối ưu — chu kỳ mới 3/15
+- **Bộ 02/15 — Peak RAM của OPEN lớn:** `8968eec8739cd0f647dad444a454b5bb84a3254d`: chuyển `read_progressive` sang `try_reserve_exact`, không tự đẩy Vec từ 300–500 MiB lên mức tăng cấp số nhân chỉ vì yêu cầu thêm 1 MiB; loại bỏ lượt cấp phát/đọc thử thêm một khối 1 MiB sau khi đã đủ kích thước snapshot, trước khi kiểm tra file bị thay đổi. Regression đọc file >11 MiB nhiều khối, đối chiếu nguyên dữ liệu và capacity. `2294f2556d98cf6344c21b99f2087d3e961a2131` thêm vào CI.
+- **Bộ 03/15 — CPU frame time polyline:** `84bc15d439213c804a3d74e947d6754a23149f44`: đường `draw_list_filtered` chỉ tính Bounds2 AABB một lần/primitive, tránh duyệt mọi đỉnh polyline hai lượt mỗi frame trong CPU renderer. Vẫn clip Infinite/Ray riêng, giữ culling sớm trước ACI/transparency.
+- **3/15 bộ mã nguồn sau B15.** Chưa báo vượt baseline 39,4% kỹ thuật vì chưa benchmark RAM/FPS/P95 và chưa chạy Windows GUI. Các commit tiếp theo không làm thay đổi SHA của B15 đang queued.
+- Windows build B30 run 41593081243: preflight PASS, job `Validate BIM conflict and revision regression tests` còn in_progress tại lần đọc; chưa đến cargo release build, EXE chưa có. B15 run 41601992146: queued, chưa có artifact. Không nhận định PASS trước khi có kết quả thực tế.
