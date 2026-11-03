@@ -70,8 +70,13 @@ pub fn read_progressive(path: &Path, mut report: impl FnMut(u64, u64)) -> io::Re
     report(0, total);
     loop {
         let old_len = output.len();
-        output.try_reserve(READ_BLOCK).map_err(|e| io::Error::other(format!("not enough memory to read drawing: {e}")))?;
-        output.resize(old_len + READ_BLOCK, 0);
+        // Most regular CAD files have reliable metadata. Avoid zero-initializing
+        // a full MiB for a tiny trailing chunk; still permit growth beyond the
+        // observed metadata length by probing another block at the boundary.
+        let remaining = total.saturating_sub(read_total);
+        let read_size = if remaining == 0 { READ_BLOCK } else { remaining.min(READ_BLOCK as u64) as usize };
+        output.try_reserve(read_size).map_err(|e| io::Error::other(format!("not enough memory to read drawing: {e}")))?;
+        output.resize(old_len + read_size, 0);
         let n = match file.read(&mut output[old_len..]) {
             Ok(n) => n,
             Err(e) => {
