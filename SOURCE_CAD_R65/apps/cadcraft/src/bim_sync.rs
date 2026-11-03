@@ -336,10 +336,13 @@ mod tests {
     fn duplicate_object_handle_in_one_changeset_is_rejected_atomically() {
         let mut transport = MemoryTransport::default();
         let mut batch = change(3, "A", 0, 1);
-        batch.items.push(ChangeEnvelopeItem { source_handle: "A".into(), operation: "UPDATE".into(), base_revision: 0, local_revision: 2, payload_json: "{}".into() });
+        // Both entries must be independently revision-valid; this test targets
+        // duplicate-handle atomic rejection, not the earlier revision validator.
+        batch.items.push(ChangeEnvelopeItem { source_handle: "A".into(), operation: "UPDATE".into(), base_revision: 0, local_revision: 1, payload_json: "{}".into() });
         let result = transport.push_changes("p1", &[batch]).unwrap();
         assert!(result.accepted_change_set_ids.is_empty());
         assert_eq!(result.conflicts.len(), 1);
+        assert_eq!(result.conflicts[0].remote_updated_by, "duplicate-handle-in-batch");
         assert!(!transport.object_revisions.contains_key("A"));
         assert_eq!(transport.project_revision, 0);
     }
