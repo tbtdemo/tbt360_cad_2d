@@ -321,4 +321,34 @@ mod tests {
         assert!(check_pair(&dir).is_err());
         std::fs::remove_dir_all(&dir).unwrap();
     }
+    #[test]
+    fn multi_drawing_bundle_validates_every_tab_and_active_selection() {
+        let root = std::env::temp_dir().join(format!("tbt-multi-recovery-{}-{}", std::process::id(), SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()));
+        let pair = root.join("pair-multi");
+        std::fs::create_dir_all(&pair).unwrap();
+        let geometry = b"0\nSECTION\n2\nENTITIES\n0\nENDSEC\n0\nEOF\n";
+        let workspace = br#"{"version":2,"project_id":"multi-test"}"#;
+        let docs: Vec<_> = (0..3).map(|index| {
+            let name = format!("drawing-{index:04}.dxf");
+            std::fs::write(pair.join(&name), geometry).unwrap();
+            serde_json::json!({"file":name,"bytes":geometry.len(),"checksum":content_checksum(geometry),"uid":index + 100,"revision":index})
+        }).collect();
+        std::fs::write(pair.join("workspace.json"), workspace).unwrap();
+        let manifest = serde_json::json!({
+            "format":2, "documents":docs, "active":1,
+            "workspace_bytes":workspace.len(), "workspace_checksum":content_checksum(workspace),
+            "project_id":"multi-test"
+        });
+        std::fs::write(pair.join("commit.json"), serde_json::to_vec(&manifest).unwrap()).unwrap();
+        let (paths, metadata, active) = check_bundle(&pair).unwrap();
+        assert_eq!(paths.len(), 3);
+        assert_eq!(active, 1);
+        assert_eq!(metadata["project_id"], "multi-test");
+        assert_eq!(check_pair(&pair).unwrap().0, pair.join("drawing-0001.dxf"));
+        std::fs::write(pair.join("drawing-0002.dxf"), b"corrupted").unwrap();
+        assert!(check_bundle(&pair).is_err(), "corruption in an inactive tab must invalidate the whole snapshot");
+        assert!(latest_pair(&root).is_none());
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
 }
