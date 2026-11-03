@@ -2082,6 +2082,20 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
                         ui.separator();
                         ui.label(format!("{} khoảng cọc có khối lượng (dự thảo)",segments.len()));
                     });
+                    let mut sorted=state.road_sections.iter().collect::<Vec<_>>();
+                    sorted.sort_by(|a,b|a.chainage_m.total_cmp(&b.chainage_m));
+                    let transitions=sorted.windows(2).filter_map(|pair| {
+                        let estimated=takeoff_road::estimate_cut_fill_transition(pair[0],pair[1],scale)?;
+                        let accepted=takeoff_road::parse_range(&state.road_range_start,&state.road_range_end).ok().flatten()
+                            .is_none_or(|(from,to)|pair[0].chainage_m>=from-1e-6 && pair[1].chainage_m<=to+1e-6);
+                        if accepted {Some(estimated)} else {None}
+                    }).collect::<Vec<_>>();
+                    if !transitions.is_empty(){
+                        ui.colored_label(egui::Color32::YELLOW,format!("{} điểm chuyển đào–đắp ƯỚC TÍNH (diện tích biến thiên tuyến tính; chưa nghiệm thu, không đưa vào Excel).",transitions.len()));
+                        for t in transitions.iter().take(12) {
+                            ui.label(format!("Điểm chuyển dự báo {} | Đào ~{:.3} m³ | Đắp ~{:.3} m³; cần đo trắc ngang thực tế.",takeoff_road::station_label(t.chainage_m),t.cut_estimate_m3,t.fill_estimate_m3));
+                        }
+                    }
                     egui::ScrollArea::both().id_salt("cadtbt360_road_interval_preview").max_height(170.0).show(ui,|ui|{
                         egui::Grid::new("cadtbt360_road_segments").striped(true).show(ui,|ui|{
                             for heading in ["Từ cọc","Đến cọc","Loại","L (m)","A1 (m²)","A2 (m²)","V (m³)"]{ui.strong(heading);}
@@ -2104,7 +2118,7 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
         } else {
             ui.colored_label(egui::Color32::YELLOW,"Cần hiệu chuẩn tỷ lệ CAD sang mét trước khi tính khối lượng giao thông.");
         }
-        ui.small("Tại cọc chuyển đào–đắp có thể xác nhận bằng 0 cho từng loại. V1.022 không tự nội suy điểm chuyển giữa hai lý trình; nếu chưa có mặt cắt xác nhận thì báo thiếu dữ liệu.");
+        ui.small("Điểm chuyển đào–đắp tính gần đúng theo diện tích đầu/cuối và chỉ để đối chiếu. Không tự xuất khối lượng nội suy; phải có trắc ngang thực tế khi nghiệm thu.");
     });
 
     ui.collapsing("CÔNG CỤ CŨ — nhập nhanh từ đối tượng đang chọn", |ui| {
