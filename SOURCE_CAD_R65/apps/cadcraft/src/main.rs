@@ -26,6 +26,7 @@ mod system_animations;
 mod workspace;
 mod takeoff;
 mod bim_collab;
+mod cad_bim_recovery;
 mod model3d;
 mod bounded_io;
 mod ifc_mesh;
@@ -63,6 +64,7 @@ struct App {
     active_tab: MainTab,
     takeoff_state: takeoff::State,
     bim_collab_state: bim_collab::State,
+    paired_recovery: cad_bim_recovery::Recovery,
     model3d_state: model3d::State,
     spacemouse: spacemouse::SpaceMouse,
     /// The desktop's light/dark choice where winit reports none (Linux, the BSDs).
@@ -133,6 +135,7 @@ impl eframe::App for App {
             self.spacemouse.poll(&mut self.cad, ctx);
             // After `cad.logic`, so a control command's workspace change is saved in the same frame.
             self.persist_workspace(Some(ctx));
+            self.paired_recovery.tick(&self.cad, &self.bim_collab_state, ctx);
         }
         if std::mem::take(&mut self.cad.quit_requested) {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
@@ -151,6 +154,12 @@ impl eframe::App for App {
             ui.selectable_value(&mut self.active_tab, MainTab::Pdf, "PDF / BẢN VẼ");
             ui.selectable_value(&mut self.active_tab, MainTab::Model3d, "3D / IFC");
             ui.selectable_value(&mut self.active_tab, MainTab::BimCollab, "BIM CỘNG TÁC");
+            if ui.button("Lưu CAD+BIM").on_hover_text("Lưu ngay một cặp hình học DXF và metadata BIM").clicked() {
+                if let Err(error) = self.paired_recovery.save_now(&self.cad, &self.bim_collab_state) { self.cad.set_status(format!("CAD+BIM: {error}")); }
+            }
+            if self.paired_recovery.has_recovery() && ui.button("Phục hồi CAD+BIM").on_hover_text("Mở một bản vẽ phục hồi độc lập cùng trạng thái BIM, không ghi đè bản vẽ gốc").clicked() {
+                if let Err(error) = self.paired_recovery.restore_latest(&mut self.cad, &mut self.bim_collab_state) { self.cad.set_status(format!("Phục hồi: {error}")); }
+            }
         });
         ui.separator();
         match self.active_tab {
@@ -474,6 +483,7 @@ fn main() -> eframe::Result {
                 active_tab: MainTab::default(),
                 takeoff_state: takeoff::State::default(),
                 bim_collab_state: bim_collab::State::default(),
+                paired_recovery: cad_bim_recovery::Recovery::new(config_dir().map(|dir| dir.join("cad-bim-recovery"))),
                 model3d_state: model3d::State::default(),
                 spacemouse: spacemouse::SpaceMouse::start(cc.egui_ctx.clone()),
                 workspace,
