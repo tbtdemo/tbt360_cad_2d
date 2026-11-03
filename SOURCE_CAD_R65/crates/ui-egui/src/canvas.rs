@@ -257,13 +257,18 @@ mod point_batch_tests {
 /// press-origin fallback, but do not reuse that origin for subsequent presses.
 fn primary_canvas_releases(events: &[egui::Event], rect: Rect, earlier_press_on_canvas: bool) -> Vec<Pos2> {
     let mut pressed_here = None;
+    let mut carried_press = earlier_press_on_canvas;
     let mut releases = Vec::new();
     for event in events {
         if let egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed, .. } = event {
             if *pressed {
+                // An explicit press replaces any fallback carried from the last frame.
+                carried_press = false;
                 pressed_here = Some(rect.contains(*pos));
             } else {
-                if pressed_here.take().unwrap_or(earlier_press_on_canvas) && rect.contains(*pos) {
+                let was_pressed_here = pressed_here.take().unwrap_or(carried_press);
+                carried_press = false;
+                if was_pressed_here && rect.contains(*pos) {
                     releases.push(*pos);
                 }
             }
@@ -293,6 +298,20 @@ mod primary_gesture_tests {
         let rect = Rect::from_min_size(pos2(0.0, 0.0), vec2(100.0, 100.0));
         let events = [primary(pos2(-20.0, 20.0), true), primary(pos2(20.0, 20.0), false), primary(pos2(70.0, 70.0), true), primary(pos2(70.0, 70.0), false)];
         assert_eq!(primary_canvas_releases(&events, rect, true), vec![pos2(70.0, 70.0)]);
+    }
+
+    #[test]
+    fn carried_press_cannot_authorize_multiple_releases() {
+        let rect = Rect::from_min_size(pos2(0.0, 0.0), vec2(100.0, 100.0));
+        let events = [primary(pos2(20.0, 20.0), false), primary(pos2(50.0, 50.0), false)];
+        assert_eq!(primary_canvas_releases(&events, rect, true), vec![pos2(20.0, 20.0)]);
+    }
+
+    #[test]
+    fn explicit_press_outside_canvas_overrides_carried_press() {
+        let rect = Rect::from_min_size(pos2(0.0, 0.0), vec2(100.0, 100.0));
+        let events = [primary(pos2(-20.0, 20.0), true), primary(pos2(30.0, 30.0), false)];
+        assert!(primary_canvas_releases(&events, rect, true).is_empty());
     }
 
     #[test]
