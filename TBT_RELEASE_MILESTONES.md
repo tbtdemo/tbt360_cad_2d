@@ -1,21 +1,17 @@
-# CAD360 TBT - mốc bàn giao R05
+# CAD360 TBT — Quy trình bàn giao 15–30 lượt / 1 bộ cài
 
-## Quy định đóng gói
-- Mọi lượt sửa mã nguồn: commit lên nhánh `tbt/cad360-active-release`, cung cấp link mã nguồn đúng commit.
-- Các mốc R05, R10, R15, R20...: bắt buộc build Windows Setup x64, chạy test BIM, kiểm tra EXE và checksum, kèm ZIP mã nguồn; chỉ được phát hành GitHub Release khi mọi bước PASS.
-- Tag: `cad360-r05`, `cad360-r10`, ... . Khi mốc bị lỗi CI, giữ trạng thái blocked, tuyệt đối không nhận là đã có bộ cài.
-- Mốc phát hành được kích hoạt bằng commit `release(cad360): R05`, `release(cad360): R10`, ... ; không dùng ZIP mã nguồn để thay cho EXE.
-- Gói EXE: `CAD360_VietNam_TBT_Setup.exe`; checksum: `SHA256SUMS.txt`; nguồn: `CAD360_TBT_Source_RXX.zip`.
-- Source snapshot sau mỗi commit vẫn có tại GitHub Actions `CAD360 IFC Windows Portable`, artifact `CAD360-TBT-Active-Source`.
+## Quy tắc mới (03/11/2026)
+- Sau mỗi lượt phát triển: commit đầy đủ mã nguồn, báo cáo chức năng và link tải source theo commit. Không tuyên bố hoàn tất nếu chưa có bằng chứng.
+- **Chỉ đóng gói một lần sau khi tích lũy từ 15 đến 30 lượt/bộ thay đổi**, tùy quy mô đợt. Không đóng gói tự động tại mốc 5 hoặc 10 nữa.
+- Mốc đóng gói dùng định dạng `B15`, `B20`, `B25` hoặc `B30` (số lượt phải được ghi trong báo cáo tiến độ thực tế). Ví dụ commit kích hoạt: `release(cad360): B15`.
+- Workflow Direct EXE mỗi commit chỉ chạy kiểm kê nguồn. Windows build chỉ chạy ở commit mốc B15–B30 hoặc khi dispatch với số lượt tương ứng.
+- Workflow IFC Portable tiếp tục tạo source snapshot trên các commit có thay đổi code; chỉ xây dựng EXE Portable khi dispatch với đủ 15–30 lượt.
+- **Một lần đóng gói gồm** `CAD360_VietNam_TBT_Setup.exe`, `SHA256SUMS.txt`, `CAD360_TBT_Source_RXX.zip`. Phát hành lên GitHub Releases nếu đủ test PASS, build Release PASS và file cài đặt tồn tại.
+- Nếu một gate thất bại, trạng thái là `BLOCKED`: phải sửa và chạy lại; không được lấy file cũ hoặc ZIP nguồn thay EXE.
+- GitHub Releases: https://github.com/tbtdemo/tbt360_cad_2d/releases
+- Nhánh phát triển: `tbt/cad360-active-release`. Không dùng thư mục CAD/QTO lịch sử làm binary đầu vào.
 
-## Trạng thái R05
-- Đã kích hoạt workflow để build bản R05; chỉ chuyển thành PASS khi GitHub Release có file EXE tải được.
-- Môi trường test: GitHub-hosted Windows x64 (MSVC, Rust 1.95, Inno Setup 6).
-- Mã nguồn: nhánh release đang hoạt động. Không sử dụng `CAD_ORIGINAL_014_REFERENCE` hoặc `QTO_R134_WEB_WORKSPACE` làm binary đầu vào.
-
-## R05 - build retry after YAML repair
-- Rebuild with corrected workflow expression. Only a release containing the Windows installer counts as delivered.
-
-## R05 - sửa lỗi biên dịch thực tế
-- Sửa 6 lỗi đã được xác nhận trong Windows Cargo log: chrono Local, egui scroll, cấm unsafe FFI, borrow/move suffix.
-- Bắt buộc chạy lại các gate trước khi phát hành EXE.
+## Đợt hiện tại
+- Quy tắc 5/10 cũ đã được thay thế bởi đợt 15–30. Đếm số lượt thực hiện trong báo cáo, không giả vờ mỗi commit tương đương một lượt hoàn chỉnh.
+- Lần build R05 trước khi đổi quy tắc là build kiểm tra tồn đọng; không được tính là bản phát hành của đợt 15–30 mới.
+- Chưa có bản Windows Setup phát hành chính thức được xác nhận.
