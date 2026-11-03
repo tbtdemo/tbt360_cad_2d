@@ -1,3 +1,20 @@
+## B27 — CAD 2D độ nhạy + chống chập chờn + Việt hóa Windows (03/11/2026)
+
+**Phản hồi yêu cầu người dùng:** CAD 2D rê chuột/chọn chậm, không nhạy, chập chờn và còn nhiều mục tiếng Anh. B27 ưu tiên input hover và i18n, không mở rộng QSELECT chỉ để tăng version.
+
+**Mã đã commit:**
+- `crates/ui-egui/src/canvas.rs`: nhớ danh tính tài liệu, revision, tâm và độ cao view và tỷ lệ pixel để chỉ tái tính hover pick khi con trỏ di chuyển quá 0.75 px hoặc bản vẽ/khung nhìn thay đổi. Tránh xử lý các rung vi mô của chuột Windows mà vẫn nhận di chuyển bình thường, zoom/pan/resize, sửa bản vẽ. Test `tiny_mouse_noise_is_skipped_but_normal_cad_movement_is_immediate`. [Commit `832ee976`](https://github.com/tbtdemo/tbt360_cad_2d/commit/832ee976c76e37c790e082a01e62d34a8fcd1bc2), [commit `fadbe866`](https://github.com/tbtdemo/tbt360_cad_2d/commit/fadbe866f2e0341031fe285ed74e252e950a876a).
+- `crates/ui-egui/src/i18n/vi.tsv`: bổ sung **104 nhãn** menu, chọn đối tượng, chỉnh sửa và thiết lập bản vẽ (`~202 → 306` khóa nguồn); đây là mở rộng đáng kể nhưng CHƯA phải Việt hóa 100%. [Commit `80fb33ec`](https://github.com/tbtdemo/tbt360_cad_2d/commit/80fb33ec27ab6cf2c5b9297af2b3adae1f9c46e0).
+- `crates/ui-egui/src/lib.rs`: bản cài mới trên Windows mặc định `Vietnamese` (chỉ khi chưa có cấu hình người dùng); tôn trọng lựa chọn ngôn ngữ đã lưu. [Commit `8bb1dd16`](https://github.com/tbtdemo/tbt360_cad_2d/commit/8bb1dd1672986c57e5bfde6bc1666c79f15c8e0d).
+- Lỗi CI phát hiện trong B25: `draw.rs` test có 2 lần gọi `Session::new_doc()` không tồn tại và 1 chỗ thiếu `use cadcraft_doc::Handle`. Đã sửa 3 lỗi; [commit `d0ab5f85`](https://github.com/tbtdemo/tbt360_cad_2d/commit/d0ab5f85575bb6d65d6a23994517f01fc32a2f05).
+
+**Build B27:** [commit workflow `bc6ea093`](https://github.com/tbtdemo/tbt360_cad_2d/commit/bc6ea0935906dd6da711d6a13cda8c2d9941567c), artifact tên `CAD360-TBT-Windows-x64-Setup-Portable-Source-B27-RESPONSIVE-VI`. [Ubuntu→Windows run 41650857741](https://github.com/tbtdemo/tbt360_cad_2d/actions/runs/41650857741) đang cài MSVC cross toolchain, [Windows Native run 41650857720](https://github.com/tbtdemo/tbt360_cad_2d/actions/runs/41650857720) đang cài Rust; chỉ source ZIP đã upload. **B27 chưa có EXE mới** khi kiểm tra.
+
+**Cổng bàn giao B27:** 1/4=25% mã nguồn commit; chưa chứng minh build artifact/GUI. Chưa benchmark khung hình thực tế, chưa được gọi là hết lag/chập chờn. Các kiểm thử chưa xác nhận PASS. Cần tiếp tục audit UI hot paths và phần còn thiếu trong catalog `vi.tsv` (hiện 306 khóa so với ~1250 catalog lớn khác).
+
+**B25:** Windows Native build [41646348278](https://github.com/tbtdemo/tbt360_cad_2d/actions/runs/41646348278) đã success; Ubuntu cross [41646348217](https://github.com/tbtdemo/tbt360_cad_2d/actions/runs/41646348217) có EXE nhưng workflow FAIL do 3 lỗi compile test `draw.rs` nêu trên. Có artifact [13236635190](https://github.com/tbtdemo/tbt360_cad_2d/actions/runs/41646348217/artifacts/13236635190), không coi test PASS.
+
+
 ## B25 — Khắc phục lỗi test ARRAYPATH chặn hồi quy CAD (03/11/2026)
 
 **Kết quả kiểm tra B24 thực tế:** [run 41644498802](https://github.com/tbtdemo/tbt360_cad_2d/actions/runs/41644498802) kết luận `failure` do bước `Regression-test CAD QSELECT engine and UI after uploading installer`. Trước bước đó đã build và upload artifact Setup/Portable/Source [13235336758](https://github.com/tbtdemo/tbt360_cad_2d/actions/runs/41644498802/artifacts/13235336758) (63,895,605 bytes). **Không gọi là release đã PASS test.**
