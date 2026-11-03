@@ -344,6 +344,31 @@ mod primary_gesture_tests {
     }
 }
 
+/// Filter releases *before* batching point prompts. A click over a canvas
+/// overlay is never a drawing point, even when several events share a frame.
+fn eligible_point_releases(releases: &[Pos2], mut eligible: impl FnMut(Pos2) -> bool) -> Vec<Pos2> {
+    releases.iter().copied().filter(|pos| eligible(*pos)).collect()
+}
+
+#[cfg(test)]
+mod eligible_point_release_tests {
+    use super::eligible_point_releases;
+    use egui::pos2;
+
+    #[test]
+    fn preserves_the_order_of_valid_clicks_while_excluding_menu_release() {
+        let clicks = [pos2(12.0, 12.0), pos2(55.0, 55.0), pos2(90.0, 90.0)];
+        let filtered = eligible_point_releases(&clicks, |pos| pos != pos2(55.0, 55.0));
+        assert_eq!(filtered, vec![pos2(12.0, 12.0), pos2(90.0, 90.0)]);
+    }
+
+    #[test]
+    fn an_overlay_only_burst_cannot_submit_a_cad_point() {
+        let filtered = eligible_point_releases(&[pos2(50.0, 50.0)], |_| false);
+        assert!(filtered.is_empty());
+    }
+}
+
 /// After a fast click burst, pointer.hover_pos may already describe the
 /// next frame or another UI surface. The last physical release is the actual
 /// CAD point, not that later cursor position.
@@ -657,9 +682,10 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui) {
         let earlier_press_on_canvas = i.pointer.press_origin().is_some_and(|origin| rect.contains(origin));
         primary_canvas_releases(&i.events, rect, earlier_press_on_canvas)
     });
-    let valid_last_release = releases.iter().rev().copied().find(|pos| {
-        ui.ctx().layer_id_at(*pos) == Some(ui.layer_id()) && !over_canvas_menu(app, *pos)
+    let point_releases = eligible_point_releases(&releases, |pos| {
+        rect.contains(pos) && ui.ctx().layer_id_at(pos) == Some(ui.layer_id()) && !over_canvas_menu(app, pos)
     });
+    let valid_last_release = point_releases.last().copied();
     let point_hover_pos = point_input_position(point_prompt, valid_last_release, hover_pos);
     let point_inside = if point_prompt && valid_last_release.is_some() { true } else { inside };
     let point_on_menu = if point_prompt && valid_last_release.is_some() { false } else { on_menu };
@@ -680,8 +706,8 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui) {
         // A command may finish on an earlier event (for example a two-point
         // operation). Remaining clicks must not start an accidental selection.
         // The main path will handle only the last release if the prompt is still active.
-        if let Some((_, earlier)) = releases.split_last() {
-            for pos in earlier.iter().filter(|p| rect.contains(**p) && ui.ctx().layer_id_at(**p) == Some(ui.layer_id())) {
+        if let Some((_, earlier)) = point_releases.split_last() {
+            for pos in earlier {
                 if !app.session.current_prompt().is_some_and(|prompt| cadcraft_engine::pointmod::accepts(&prompt)) {
                     command_finished_in_batch = true;
                     break;
