@@ -71,8 +71,9 @@ impl Recovery {
             return Err("Có ChangeSet BIM chưa đồng bộ. Hãy lưu bản hiện tại trước khi phục hồi.".into());
         }
         let root = self.root.as_deref().ok_or("Chưa xác định được thư mục phục hồi")?;
-        let pair = latest_pair(root).ok_or("Không tìm thấy bản phục hồi CAD+BIM hợp lệ")?;
-        let (drawings, metadata, active) = check_bundle(&pair)?;
+        // The discovery scan already verifies checksums and parses BIM metadata.
+        // Reuse that verified bundle instead of reading multi-gigabyte DXFs twice.
+        let (pair, drawings, metadata, active) = latest_bundle(root).ok_or("Không tìm thấy bản phục hồi CAD+BIM hợp lệ")?;
         // Validate every drawing before opening any tab. A valid checksum alone is insufficient.
         for drawing_path in &drawings {
             let geometry = std::fs::read(drawing_path).map_err(|e| format!("Không đọc được DXF phục hồi: {e}"))?;
@@ -329,8 +330,16 @@ fn generations(root: &Path) -> Vec<PathBuf> {
     dirs
 }
 
+/// Return the newest fully verified snapshot together with its decoded metadata.
+/// Sharing this result with restore avoids a second multi-file checksum pass.
+fn latest_bundle(root: &Path) -> Option<(PathBuf, Vec<PathBuf>, serde_json::Value, usize)> {
+    generations(root).into_iter().find_map(|dir| {
+        check_bundle(&dir).ok().map(|(paths, metadata, active)| (dir, paths, metadata, active))
+    })
+}
+
 fn latest_pair(root: &Path) -> Option<PathBuf> {
-    generations(root).into_iter().find(|dir| check_bundle(dir).is_ok())
+    latest_bundle(root).map(|(dir, _, _, _)| dir)
 }
 
 fn prune_generations(root: &Path) {
@@ -496,6 +505,11 @@ mod tests {
         assert_eq!(paths.len(), 3);
         assert_eq!(active, 1);
         assert_eq!(metadata["project_id"], "multi-test");
+        let (selected, cached_paths, cached_metadata, cached_active) = latest_bundle(&root).unwrap();
+        assert_eq!(selected, pair);
+        assert_eq!(cached_paths, paths);
+        assert_eq!(cached_metadata, metadata);
+        assert_eq!(cached_active, active);
         assert_eq!(check_pair(&pair).unwrap().0, pair.join("drawing-0001.dxf"));
         std::fs::write(pair.join("drawing-0002.dxf"), b"corrupted").unwrap();
         assert!(check_bundle(&pair).is_err(), "corruption in an inactive tab must invalidate the whole snapshot");
