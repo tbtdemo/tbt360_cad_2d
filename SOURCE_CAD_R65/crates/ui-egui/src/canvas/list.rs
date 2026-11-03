@@ -207,6 +207,9 @@ pub(super) fn ensure_list(app: &mut CadApp, xf: &Xf, views: &[(Bounds2, f64)], c
     app.canvas.key = key;
     app.canvas.window = opts.view;
     app.canvas.list_gen = app.canvas.list_gen.wrapping_add(1);
+    // The old highlight index can be larger than the new drawing and must not
+    // linger in RAM until a future hover or selection event.
+    app.canvas.prim_index = PrimIndex::default();
     app.canvas.build_ms = crate::now_ms() - t0;
 }
 
