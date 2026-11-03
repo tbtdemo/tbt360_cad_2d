@@ -1814,6 +1814,22 @@ pub fn enforce_selection_scope(app: &mut cadcraft_ui_egui::CadApp, state: &State
     }
 }
 
+/// True means primary editable-layer rendering; false means a visible
+/// reference overlay. Neither result grants mutation permission.
+fn render_bucket(state: &State, slot: &ViewSlot, meta: &BimEntityMeta, visible_to_account: bool) -> Option<bool> {
+    let owner_matches = slot.owner_account_id.as_ref().is_none_or(|owner| owner == &meta.owner_account_id);
+    if meta.floor_id == slot.floor_id && meta.discipline == slot.discipline && owner_matches {
+        return ((slot.show_other_users || meta.owner_account_id == state.current_account_id) && visible_to_account).then_some(true);
+    }
+    if meta.floor_id != slot.floor_id
+        || (!slot.show_other_users && meta.owner_account_id != state.current_account_id)
+        || !visible_to_account
+    {
+        return None;
+    }
+    Some(false)
+}
+
 pub fn sync_render_filters(app: &mut cadcraft_ui_egui::CadApp, state: &State) {
     let Ok(doc) = app.session.doc() else {
         app.tile_render_filters.clear();
@@ -1840,22 +1856,11 @@ pub fn sync_render_filters(app: &mut cadcraft_ui_egui::CadApp, state: &State) {
         let visible_to_account = state.users.iter().find(|user| user.account_id == meta.owner_account_id)
             .is_some_and(|user| state.can_view(user, meta.floor_id, state.active_floor_id));
         for (slot, filter) in state.views.iter().zip(filters.iter_mut()) {
-            let owner_matches = slot.owner_account_id.as_ref().is_none_or(|owner| owner == &meta.owner_account_id);
-            if meta.floor_id == slot.floor_id && meta.discipline == slot.discipline && owner_matches {
-                if (slot.show_other_users || meta.owner_account_id == state.current_account_id)
-                    && visible_to_account
-                {
-                    filter.primary_handles.push(entity.handle);
-                }
-                continue;
+            match render_bucket(state, slot, &meta, visible_to_account) {
+                Some(true) => filter.primary_handles.push(entity.handle),
+                Some(false) => filter.reference_handles.push(entity.handle),
+                None => {}
             }
-            if meta.floor_id != slot.floor_id { continue; }
-            if (!slot.show_other_users && meta.owner_account_id != state.current_account_id)
-                || !visible_to_account
-            {
-                continue;
-            }
-            filter.reference_handles.push(entity.handle);
         }
     }
     if !has_bim_meta {
@@ -2660,6 +2665,21 @@ fn legacy_panel(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &m
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn render_bucket_keeps_primary_and_reference_scope_separate_for_four_views() {
+        let state = State::default();
+        let own = BimEntityMeta { floor_id: 1, discipline: Discipline::Architecture, owner_account_id: "local-owner".into(), revision: 1, entity_handle: None };
+        let struct_user = BimEntityMeta { floor_id: 1, discipline: Discipline::Structure, owner_account_id: "struct-01".into(), revision: 1, entity_handle: None };
+        assert_eq!(render_bucket(&state, &state.views[0], &own, true), Some(true));
+        assert_eq!(render_bucket(&state, &state.views[1], &own, true), Some(false));
+        assert_eq!(render_bucket(&state, &state.views[0], &struct_user, true), None);
+        assert_eq!(render_bucket(&state, &state.views[1], &struct_user, true), Some(true));
+        assert_eq!(render_bucket(&state, &state.views[1], &struct_user, false), None);
+        let mut upper_floor = struct_user;
+        upper_floor.floor_id = 2;
+        assert!(state.views.iter().all(|slot| render_bucket(&state, slot, &upper_floor, true).is_none()));
+    }
 
     #[test]
     fn selection_requires_foreign_owner_edit_grant_not_just_view_grant() {
