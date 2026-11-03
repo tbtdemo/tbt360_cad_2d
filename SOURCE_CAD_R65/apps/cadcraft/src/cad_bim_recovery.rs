@@ -120,6 +120,24 @@ fn content_checksum(bytes: &[u8]) -> String {
     format!("{hash:016x}")
 }
 
+/// Same FNV-1a digest as content_checksum, but read from disk in bounded
+/// chunks so startup verification doesn't allocate the size of a large DXF.
+fn content_checksum_file(path: &Path) -> Result<String, String> {
+    use std::io::Read;
+    let mut file = std::fs::File::open(path).map_err(|e| e.to_string())?;
+    let mut hash = 0xcbf29ce484222325u64;
+    let mut block = [0u8; 64 * 1024];
+    loop {
+        let count = file.read(&mut block).map_err(|e| e.to_string())?;
+        if count == 0 { break; }
+        for byte in &block[..count] {
+            hash ^= u64::from(*byte);
+            hash = hash.wrapping_mul(0x100000001b3);
+        }
+    }
+    Ok(format!("{hash:016x}"))
+}
+
 fn new_generation_name() -> Result<String, String> {
     let ns = SystemTime::now().duration_since(UNIX_EPOCH).map_err(|e| e.to_string())?.as_nanos();
     Ok(format!("pair-{}-{ns}", std::process::id()))
@@ -197,10 +215,16 @@ fn check_bundle(dir: &Path) -> Result<(Vec<PathBuf>, serde_json::Value, usize), 
         let expected_name = format!("drawing-{index:04}.dxf");
         if doc.get("file").and_then(serde_json::Value::as_str) != Some(expected_name.as_str()) { return Err("Tên file CAD không khớp manifest".into()); }
         let path = dir.join(expected_name);
-        let bytes = std::fs::read(&path).map_err(|e| e.to_string())?;
-        total = total.checked_add(bytes.len() as u64).ok_or("Dung lượng CAD vượt giới hạn")?;
-        if bytes.is_empty() || total > MAX_RECOVERY_BYTES || doc.get("bytes").and_then(serde_json::Value::as_u64) != Some(bytes.len() as u64) || doc.get("checksum").and_then(serde_json::Value::as_str) != Some(content_checksum(&bytes).as_str()) {
-            return Err("Một bản vẽ CAD bị thiếu hoặc sai checksum".into());
+        let file_bytes = std::fs::metadata(&path).map_err(|e| e.to_string())?.len();
+        total = total.checked_add(file_bytes).ok_or("Dung lượng CAD vượt giới hạn")?;
+        if file_bytes == 0 || total > MAX_RECOVERY_BYTES || doc.get("bytes").and_then(serde_json::Value::as_u64) != Some(file_bytes) {
+            return Err("Một bản vẽ CAD bị thiếu hoặc sai kích thước".into());
+        }
+        // Validate checksum incrementally: checking an existing 4 GiB recovery
+        // must not load the whole drawing just to display the Restore button.
+        let digest = content_checksum_file(&path)?;
+        if doc.get("checksum").and_then(serde_json::Value::as_str) != Some(digest.as_str()) {
+            return Err("Một bản vẽ CAD bị sai checksum".into());
         }
         paths.push(path);
     }
@@ -233,9 +257,9 @@ fn check_pair_v1(dir: &Path) -> Result<(PathBuf, serde_json::Value), String> {
     let actual_json = std::fs::metadata(&metadata_path).map_err(|e| e.to_string())?.len();
     let expected_json = manifest.get("workspace_bytes").and_then(serde_json::Value::as_u64).unwrap_or(0);
     if actual_json == 0 || actual_json > 64 * 1024 * 1024 || actual_json != expected_json { return Err("Metadata BIM không đầy đủ".into()); }
-    let drawing_bytes = std::fs::read(&drawing_path).map_err(|e| e.to_string())?;
+    let drawing_digest = content_checksum_file(&drawing_path)?;
     let workspace_bytes = std::fs::read(metadata_path).map_err(|e| e.to_string())?;
-    if manifest.get("drawing_checksum").and_then(serde_json::Value::as_str) != Some(content_checksum(&drawing_bytes).as_str())
+    if manifest.get("drawing_checksum").and_then(serde_json::Value::as_str) != Some(drawing_digest.as_str())
         || manifest.get("workspace_checksum").and_then(serde_json::Value::as_str) != Some(content_checksum(&workspace_bytes).as_str()) {
         return Err("Checksum bản phục hồi CAD+BIM không khớp".into());
     }
