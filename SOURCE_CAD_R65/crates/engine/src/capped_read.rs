@@ -40,6 +40,38 @@ pub fn read_capped(path: &Path, max: usize) -> io::Result<Vec<u8>> {
     Ok(buf)
 }
 
+
+/// Progressive read for large regular drawing files. Unlike read_capped, this API does not
+/// impose a fixed on-disk file-size ceiling. Each allocation is fallible and chunked.
+/// A file may still fail to decode if actual memory is insufficient; callers must report that.
+pub fn read_progressive(path: &Path, mut report: impl FnMut(u64, u64)) -> io::Result<Vec<u8>> {
+    let mut options = OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.custom_flags(libc::O_NONBLOCK);
+    }
+    let mut file = options.open(path)?;
+    let meta = file.metadata()?;
+    if !meta.is_file() { return Err(io::Error::new(io::ErrorKind::InvalidInput, "not a regular file")); }
+    let total = meta.len();
+    let mut output = Vec::new();
+    let mut chunk = vec![0u8; 1024 * 1024];
+    let mut read_total = 0u64;
+    report(0, total);
+    loop {
+        let n = file.read(&mut chunk)?;
+        if n == 0 { break; }
+        output.try_reserve(n).map_err(|e| io::Error::other(format!("not enough memory to read drawing: {e}")))?;
+        output.extend_from_slice(&chunk[..n]);
+        read_total = read_total.saturating_add(n as u64);
+        report(read_total, total);
+    }
+    report(read_total, read_total);
+    Ok(output)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
