@@ -276,12 +276,20 @@ pub fn read_file(path: &str) -> std::result::Result<ReadFile, String> {
 
 /// Report physical bytes read / current file length. Parsing follows after the final read callback;
 /// these byte counts must not be presented as an overall parse/render percentage.
-pub fn read_file_with_progress(path: &str, mut progress: impl FnMut(u64, u64)) -> std::result::Result<ReadFile, String> {
+pub fn read_file_with_progress(path: &str, progress: impl FnMut(u64, u64)) -> std::result::Result<ReadFile, String> {
+    read_file_with_progress_stage(path, progress, || {})
+}
+
+/// The phase callback fires only after the physical file read has completed and
+/// before the decoder starts. A byte count reaching the metadata length is not
+/// sufficient proof that decoding has begun (files can grow during reading).
+pub fn read_file_with_progress_stage(path: &str, mut progress: impl FnMut(u64, u64), mut decoding: impl FnMut()) -> std::result::Result<ReadFile, String> {
     #[cfg(not(target_arch = "wasm32"))]
     {
         let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             let bytes = crate::capped_read::read_progressive(std::path::Path::new(path), &mut progress)
                 .map_err(|e| bad("open", format!("{path}: {e}")))?;
+            decoding();
             read_bytes(&bytes, path, Some(path.to_string()))
         }));
         match r {
@@ -291,7 +299,7 @@ pub fn read_file_with_progress(path: &str, mut progress: impl FnMut(u64, u64)) -
     }
     #[cfg(target_arch = "wasm32")]
     {
-        let _ = (path, progress);
+        let _ = (path, progress, decoding);
         Err(bad("open", "paths are not available on the web; pass `data`").to_string())
     }
 }
