@@ -2,6 +2,28 @@
 //! This module intentionally owns only coordination metadata/UI. CAD geometry stays in the
 //! canonical CadApp/Session and will be bound to these scopes incrementally.
 
+/// Replace a file in the same directory. Windows std::fs::rename does not consistently
+/// replace an existing destination, so use the native replace-existing operation.
+#[cfg(windows)]
+fn replace_workspace_file(source: &std::path::Path, destination: &std::path::Path) -> std::io::Result<()> {
+    use std::os::windows::ffi::OsStrExt;
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn MoveFileExW(existing: *const u16, new_name: *const u16, flags: u32) -> i32;
+    }
+    let source_wide: Vec<u16> = source.as_os_str().encode_wide().chain(std::iter::once(0)).collect();
+    let target_wide: Vec<u16> = destination.as_os_str().encode_wide().chain(std::iter::once(0)).collect();
+    const MOVEFILE_REPLACE_EXISTING: u32 = 0x00000001;
+    const MOVEFILE_WRITE_THROUGH: u32 = 0x00000008;
+    let ok = unsafe { MoveFileExW(source_wide.as_ptr(), target_wide.as_ptr(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) };
+    if ok == 0 { Err(std::io::Error::last_os_error()) } else { Ok(()) }
+}
+
+#[cfg(not(windows))]
+fn replace_workspace_file(source: &std::path::Path, destination: &std::path::Path) -> std::io::Result<()> {
+    std::fs::rename(source, destination)
+}
+
 /// Write a workspace next to its destination, flush it and only then replace the original.
 /// Keep a .bak of the previous valid file so a failed replacement remains recoverable.
 fn save_workspace_safely(path: &std::path::Path, snapshot: &serde_json::Value) -> Result<(), String> {
@@ -18,18 +40,18 @@ fn save_workspace_safely(path: &std::path::Path, snapshot: &serde_json::Value) -
 
         if path.exists() {
             let backup = path.with_extension("json.bak");
-            let backup_temp = path.with_extension(format!("{}.bak.tmp", std::process::id()));
+            let backup_temp = path.with_extension(format!("{suffix}.bak.tmp"));
             std::fs::copy(path, &backup_temp)?;
             let backup_file = std::fs::OpenOptions::new().read(true).open(&backup_temp)?;
             backup_file.sync_all()?;
             drop(backup_file);
-            if let Err(error) = std::fs::rename(&backup_temp, &backup) {
+            if let Err(error) = replace_workspace_file(&backup_temp, &backup) {
                 let _ = std::fs::remove_file(&backup_temp);
                 return Err(error);
             }
         }
 
-        std::fs::rename(&temp, path)?;
+        replace_workspace_file(&temp, path)?;
         Ok(())
     })();
     if result.is_err() { let _ = std::fs::remove_file(&temp); }
