@@ -777,7 +777,7 @@ impl State {
             return false;
         }
 
-        if self.auth.account_id != self.current_account_id {
+        if self.auth.account_id != self.current_account_id || !self.active_user().is_some_and(|user| user.can_edit) {
             return false;
         }
 
@@ -1704,7 +1704,8 @@ impl State {
     pub fn can_view(&self, target: &UserAccess, target_floor: u64, active_floor: u64) -> bool {
         let Some(me) = self.active_user() else { return false };
         if target.account_id == me.account_id {
-            return target_floor == active_floor || me.can_view_other_floors;
+            return (target_floor == active_floor || me.can_view_other_floors)
+                && self.has_scope_access(&me.account_id, target_floor, target.discipline, false);
         }
         let broad = (me.can_view_other_disciplines || target.discipline == me.discipline)
             && (target_floor == active_floor || me.can_view_other_floors);
@@ -1763,7 +1764,11 @@ impl State {
 pub fn enforce_selection_scope(app: &mut cadcraft_ui_egui::CadApp, state: &State) {
     let index = state.active_native_view_index(app);
     let Some(slot) = state.views.get(index) else { return };
-    if slot.mode == ViewMode::Reference || !state.has_scope_access(&state.current_account_id, slot.floor_id, slot.discipline, true) {
+    if slot.mode == ViewMode::Reference
+        || state.auth.status == AuthStatus::SignedOut
+        || state.auth.account_id != state.current_account_id
+        || !state.active_user().is_some_and(|user| user.can_edit)
+        || !state.has_scope_access(&state.current_account_id, slot.floor_id, slot.discipline, true) {
         if !app.session.selection().is_empty() {
             app.session.set_selection(Vec::new());
         }
@@ -1799,7 +1804,12 @@ pub fn sync_render_filters(app: &mut cadcraft_ui_egui::CadApp, state: &State) {
             };
             let owner_matches = slot.owner_account_id.as_ref().is_none_or(|owner| owner == &meta.owner_account_id);
             if meta.floor_id == slot.floor_id && meta.discipline == slot.discipline && owner_matches {
-                primary_handles.push(entity.handle);
+                // A matching tile is not permission to see or edit an entity.
+                // Respect account access rules and owner share grants even in its primary layer.
+                let user = state.users.iter().find(|u| u.account_id == meta.owner_account_id);
+                if user.is_some_and(|target| state.can_view(target, meta.floor_id, state.active_floor_id)) {
+                    primary_handles.push(entity.handle);
+                }
                 continue;
             }
             if meta.floor_id != slot.floor_id {
