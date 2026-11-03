@@ -1618,6 +1618,52 @@ mod tests {
     use cadcraft_doc::geom::Vec2;
 
     #[test]
+    fn qto_investor_excel_report_filters_excluded_and_invalid_sources() {
+        let mut state = State::default();
+        let id = state.add_measurement(MeasureKind::Count, vec![], 3.0, "Layer A".into()).unwrap();
+        assert!(state.edit_metadata(id, "Kết cấu".into(), "KC.01".into(), "Thống kê cấu kiện".into(), "".into()));
+        assert!(state.set_status(id, MeasureStatus::Confirmed));
+        let removed = state.add_measurement(MeasureKind::Count, vec![], 9.0, "Layer B".into()).unwrap();
+        assert!(state.set_status(removed, MeasureStatus::Excluded));
+        let cfg = ExportConfig { project: "Dự án thử nghiệm".into(), investor: "Chủ đầu tư A".into(), ..Default::default() };
+        let records = qto_report_lines(&state, &SourceValidation::default(), &cfg).unwrap();
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].quantity, 3.0);
+        assert_eq!(records[0].unit, "cái");
+        assert_eq!(records[0].group, "Kết cấu");
+        let mut draft = cfg.clone();
+        draft.confirmed_only = false;
+        assert_eq!(qto_report_lines(&state, &SourceValidation::default(), &draft).unwrap().len(), 1);
+        let mut invalid = SourceValidation::default();
+        invalid.invalid_record_ids.insert(id);
+        assert!(qto_report_lines(&state, &invalid, &cfg).is_err());
+    }
+
+    #[test]
+    fn qto_investor_excel_units_and_options_survive_project_save() {
+        let mut state = State::default();
+        let id = state.add_measurement(MeasureKind::Length, vec![[0.0, 0.0], [1000.0, 0.0]], 1000.0, "A".into()).unwrap();
+        assert!(state.edit_metadata(id, "Nền móng".into(), "CT.001".into(), "Chiều dài tuyến".into(), "".into()));
+        assert!(state.set_status(id, MeasureStatus::Confirmed));
+        state.drawing_distance = 1000.0;
+        state.real_distance_m = 1.0;
+        let cfg = ExportConfig { project: "Dự án B".into(), investor: "CĐT B".into(), length_unit: "cm".into(), ..Default::default() };
+        state.export_config = cfg.clone();
+        let records = qto_report_lines(&state, &SourceValidation::default(), &cfg).unwrap();
+        assert_eq!(records.len(), 1);
+        assert!((records[0].quantity - 100.0).abs() < 1.0e-9);
+        assert_eq!(records[0].unit, "cm");
+        let snapshot = state.to_json();
+        let mut restored = State::default();
+        restored.load_json(&snapshot).unwrap();
+        assert_eq!(restored.export_config.project, "Dự án B");
+        assert_eq!(restored.export_config.investor, "CĐT B");
+        assert_eq!(restored.export_config.length_unit, "cm");
+        assert_eq!(restored.export_config.columns[8], true);
+        assert_eq!(restored.export_config.columns[9], true);
+    }
+
+    #[test]
     fn qto_rejects_nan_and_infinite_measurement_coordinates() {
         let mut state = State::default();
         assert!(state.add_measurement(MeasureKind::Length, vec![[f64::NAN, 0.0]], 1.0, "L".into()).is_err());
