@@ -208,6 +208,20 @@ pub fn parse_range(start: &str, end: &str) -> Result<Option<(f64, f64)>, String>
 }
 
 
+/// A station-limited AEA export must start and end at surveyed cross-sections.
+/// Otherwise silently omitting the partial edge intervals misrepresents the
+/// requested route range. We do not fabricate partial section geometry.
+pub fn validate_range_station_coverage(sections: &[RoadCrossSection], range: Option<(f64,f64)>) -> Result<(), String> {
+    let Some((start,end))=range else {return Ok(());};
+    if !start.is_finite() || !end.is_finite() || end <= start {return Err("Khoảng cọc không hợp lệ.".into());}
+    for (station,description) in [(start,"đầu"),(end,"cuối")] {
+        if !sections.iter().any(|section|(section.chainage_m-station).abs()<=1.0e-6) {
+            return Err(format!("Cọc {} {} chưa có trắc ngang đúng lý trình. Không được tự bỏ đoạn biên khi xuất khối lượng.",description,station_label(station)));
+        }
+    }
+    Ok(())
+}
+
 /// A surveyed marker on the plan drawing. The handle is retained as evidence,
 /// not used to infer stationing from arbitrary drawing coordinates.
 #[derive(Clone, Debug)]
@@ -414,6 +428,18 @@ mod tests {
             section(1020.0,None,Some(source("0Aa",13.0))),
         ];
         assert!(validate_unique_area_sources(&sections).is_err());
+    }
+    #[test]
+    fn range_requires_real_cross_sections_at_both_boundary_stations() {
+        let sections=[
+            section(1000.0,Some(source("AA",12.0)),None),
+            section(1020.0,Some(source("BB",13.0)),None),
+            section(1040.0,Some(source("CC",14.0)),None),
+        ];
+        assert!(validate_range_station_coverage(&sections,Some((1000.0,1040.0))).is_ok());
+        assert!(validate_range_station_coverage(&sections,Some((1005.0,1040.0))).is_err());
+        assert!(validate_range_station_coverage(&sections,Some((1000.0,1035.0))).is_err());
+        assert!(validate_range_station_coverage(&sections,None).is_ok());
     }
     #[test]
     fn rejects_duplicate_cad_plan_markers_before_export() {
