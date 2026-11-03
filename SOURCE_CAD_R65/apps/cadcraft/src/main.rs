@@ -154,6 +154,7 @@ impl eframe::App for App {
             ui.selectable_value(&mut self.active_tab, MainTab::Pdf, "PDF / BẢN VẼ");
             ui.selectable_value(&mut self.active_tab, MainTab::Model3d, "3D / IFC");
             ui.selectable_value(&mut self.active_tab, MainTab::BimCollab, "BIM CỘNG TÁC");
+            ui.label("Tự lưu CAD+BIM: 5 phút");
             if ui.button("Lưu CAD+BIM").on_hover_text("Lưu ngay một cặp hình học DXF và metadata BIM").clicked() {
                 if let Err(error) = self.paired_recovery.save_now(&self.cad, &self.bim_collab_state) { self.cad.set_status(format!("CAD+BIM: {error}")); }
             }
@@ -193,6 +194,9 @@ impl eframe::App for App {
     /// crash leaves them for recovery).
     fn on_exit(&mut self) {
         self.persist_workspace(None);
+        if let Err(error) = self.paired_recovery.save_now(&self.cad, &self.bim_collab_state) {
+            log::warn!("Could not save final CAD+BIM recovery pair on exit: {error}");
+        }
         self.cad.cancel_screenshots();
         self.cad.shutdown_autosave();
     }
