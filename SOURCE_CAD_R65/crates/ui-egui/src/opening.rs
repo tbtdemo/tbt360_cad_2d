@@ -52,7 +52,9 @@ impl Opening {
             let result = read_file_with_progress(&p, |bytes, total| {
                 worker_progress.total.store(total, Ordering::Relaxed);
                 worker_progress.bytes.store(bytes, Ordering::Relaxed);
-                if bytes >= total { worker_progress.parsing.store(true, Ordering::Release); }
+                // A zero-length or growing file is not parsed just because bytes >= its
+                // initial metadata length. Parsing starts after the reader has returned.
+                if total > 0 && bytes >= total { worker_progress.parsing.store(true, Ordering::Release); }
             });
             let _ = tx.send(result);
         });
@@ -202,6 +204,14 @@ mod tests {
             std::thread::sleep(Duration::from_millis(5));
         }
         assert!(!opening.busy(), "all queued open attempts must finish");
+    }
+
+    #[test]
+    fn zero_byte_initial_progress_is_not_parse_completion() {
+        let progress = super::LoadProgress::default();
+        progress.bytes.store(0, std::sync::atomic::Ordering::Relaxed);
+        progress.total.store(0, std::sync::atomic::Ordering::Relaxed);
+        assert!(!progress.parsing.load(std::sync::atomic::Ordering::Acquire));
     }
 
     #[test]
