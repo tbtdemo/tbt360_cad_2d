@@ -62,7 +62,7 @@ pub fn station_from_marker_text(text: &str) -> Result<f64,String> {
     let normalized=text.replace(',',".").replace('＋',"+");
     let tokens=normalized.split(|c:char| c.is_whitespace() || matches!(c,';'|'('|')'|'['|']'|':'|'='|'\\n'))
         .filter(|t|!t.is_empty()).collect::<Vec<_>>();
-    let mut found=Vec::new();
+    let mut found:Vec<f64>=Vec::new();
     for (i,token) in tokens.iter().enumerate() {
         let is_km_prefix=token.eq_ignore_ascii_case("km");
         let candidate=if is_km_prefix {tokens.get(i+1).copied().unwrap_or("")}
@@ -70,7 +70,7 @@ pub fn station_from_marker_text(text: &str) -> Result<f64,String> {
             else {continue};
         if !candidate.contains('+') {continue;}
         if let Ok(value)=station_to_metres(candidate) {
-            if !found.iter().any(|n:f64|(n-value).abs()<1e-6){found.push(value);}
+            if !found.iter().any(|n|(*n-value).abs()<1e-6){found.push(value);}
         }
     }
     match found.as_slice() {
