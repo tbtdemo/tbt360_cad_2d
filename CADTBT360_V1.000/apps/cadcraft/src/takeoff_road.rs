@@ -15,6 +15,7 @@ impl EarthworkKind {
 pub struct RoadCrossSection {
     pub chainage_m: f64,
     pub name: String,
+    pub plan_marker_handle: Option<String>,
     pub cut: Option<GeometricSource>,
     pub fill: Option<GeometricSource>,
     pub confirmed: bool,
@@ -60,6 +61,7 @@ pub fn validate_section(section: &RoadCrossSection) -> Result<(), String> {
     if !section.chainage_m.is_finite() || section.chainage_m < 0.0 || section.chainage_m > 1.0e9 {
         return Err("Lý trình mặt cắt không hợp lệ.".into());
     }
+    if section.plan_marker_handle.as_deref().is_some_and(|handle| cadcraft_doc::Handle::parse_hex(handle).is_none()) { return Err("Mã đối tượng cọc bình đồ không hợp lệ.".into()); }
     if section.cut.is_none() && section.fill.is_none() { return Err("Mỗi trắc ngang cần nguồn hình học diện tích đào hoặc đắp.".into()); }
     if let (Some(cut), Some(fill)) = (&section.cut, &section.fill) {
         if cut.handle == fill.handle { return Err("Không thể sử dụng cùng một vùng CAD cho cả đào và đắp.".into()); }
@@ -177,7 +179,7 @@ pub fn link_plan_markers(markers: &[RoadPlanMarker], sections: &[RoadCrossSectio
     for section in sections {
         validate_section(section)?;
         let matches: Vec<usize> = markers.iter().enumerate()
-            .filter(|(_, marker)| (marker.chainage_m - section.chainage_m).abs() <= tolerance_m)
+            .filter(|(_, marker)| (marker.chainage_m - section.chainage_m).abs() <= tolerance_m && section.plan_marker_handle.as_deref().is_none_or(|h| h.eq_ignore_ascii_case(&marker.handle)))
             .map(|(index, _)| index).collect();
         if matches.len() != 1 {
             return Err(format!("Lý trình {} có {} cọc bình đồ phù hợp; cần đúng một cọc.", station_label(section.chainage_m), matches.len()));
@@ -206,7 +208,7 @@ pub fn link_plan_markers(markers: &[RoadPlanMarker], sections: &[RoadCrossSectio
 
 impl RoadCrossSection {
     pub fn json(&self) -> serde_json::Value {
-        serde_json::json!({"chainage_m":self.chainage_m,"name":self.name,
+        serde_json::json!({"chainage_m":self.chainage_m,"name":self.name,"plan_marker_handle":self.plan_marker_handle,
             "cut":self.cut.as_ref().map(GeometricSource::json),
             "fill":self.fill.as_ref().map(GeometricSource::json),"confirmed":self.confirmed})
     }
@@ -214,6 +216,7 @@ impl RoadCrossSection {
         let section=Self {
             chainage_m:v.get("chainage_m")?.as_f64()?,
             name:v.get("name").and_then(serde_json::Value::as_str).unwrap_or("").chars().take(180).collect(),
+            plan_marker_handle:v.get("plan_marker_handle").and_then(serde_json::Value::as_str).map(str::to_string),
             cut:v.get("cut").and_then(GeometricSource::read),
             fill:v.get("fill").and_then(GeometricSource::read),
             confirmed:v.get("confirmed").and_then(serde_json::Value::as_bool).unwrap_or(false),
@@ -229,7 +232,7 @@ mod tests {
         GeometricSource{handle:handle.into(),signature:format!("Area:{area}"),raw_value:area}
     }
     fn section(m:f64,cut:Option<GeometricSource>,fill:Option<GeometricSource>)->RoadCrossSection {
-        RoadCrossSection{chainage_m:m,name:station_label(m),cut,fill,confirmed:true}
+        RoadCrossSection{chainage_m:m,name:station_label(m),plan_marker_handle:None,cut,fill,confirmed:true}
     }
     #[test]
     fn km_notation_is_metres_and_rejects_bad_stationing() {
@@ -304,6 +307,8 @@ mod tests {
         assert!(link_plan_markers(&[markers[0].clone(),markers[0].clone()],&sections[..1],0.001).is_err());
         assert!(link_plan_markers(&[RoadPlanMarker{chainage_m:1000.0,handle:"XX".into()}],&sections[1..],0.001).is_err());
         assert!(link_plan_markers(&markers,&sections,0.1).is_err());
+        let mut linked=sections[0].clone(); linked.plan_marker_handle=Some("AA".into());
+        assert!(link_plan_markers(&markers,&[linked],0.001).is_err());
     }
     #[test]
     fn section_roundtrip_retains_evidence_but_not_implicit_approval() {
