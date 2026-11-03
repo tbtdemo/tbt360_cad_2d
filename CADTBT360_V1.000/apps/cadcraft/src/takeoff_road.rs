@@ -197,7 +197,7 @@ pub fn validate_unique_plan_handles(sections: &[RoadCrossSection]) -> Result<(),
     for section in sections {
         if let Some(handle)=section.plan_marker_handle.as_deref() {
             if cadcraft_doc::Handle::parse_hex(handle).is_none() {return Err(format!("Cọc {} có handle CAD không hợp lệ.",station_label(section.chainage_m)));}
-            let key=handle.to_ascii_uppercase();
+            let key=cadcraft_doc::Handle::parse_hex(handle).map(|h|h.hex().to_ascii_uppercase()).unwrap_or_default();
             if let Some(previous)=seen.insert(key.clone(),section.chainage_m) {
                 return Err(format!("Handle cọc {} bị dùng chung bởi {} và {}.",key,station_label(previous),station_label(section.chainage_m)));
             }
@@ -221,7 +221,7 @@ pub fn link_plan_markers(markers: &[RoadPlanMarker], sections: &[RoadCrossSectio
             || cadcraft_doc::Handle::parse_hex(&marker.handle).is_none() {
             return Err("Cọc trên bình đồ có lý trình hoặc CAD handle không hợp lệ.".into());
         }
-        if !used.insert(marker.handle.to_ascii_uppercase()) {
+        if !used.insert(cadcraft_doc::Handle::parse_hex(&marker.handle).map(|h|h.hex().to_ascii_uppercase()).unwrap_or_default()) {
             return Err("Một đối tượng cọc trên bình đồ bị khai báo nhiều lần.".into());
         }
     }
@@ -358,6 +358,8 @@ mod tests {
         let mut b=section(1020.0,Some(source("2A",12.0)),None);
         a.plan_marker_handle=Some("AA".into());
         b.plan_marker_handle=Some("aa".into());
+        assert!(validate_unique_plan_handles(&[a.clone(),b.clone()]).is_err());
+        b.plan_marker_handle=Some("0AA".into());
         assert!(validate_unique_plan_handles(&[a.clone(),b.clone()]).is_err());
         b.plan_marker_handle=Some("BB".into());
         assert!(validate_unique_plan_handles(&[a,b]).is_ok());
