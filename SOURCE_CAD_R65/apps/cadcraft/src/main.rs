@@ -154,6 +154,11 @@ impl eframe::App for App {
             ui.selectable_value(&mut self.active_tab, MainTab::Pdf, "PDF / BẢN VẼ");
             ui.selectable_value(&mut self.active_tab, MainTab::Model3d, "3D / IFC");
             ui.selectable_value(&mut self.active_tab, MainTab::BimCollab, "BIM CỘNG TÁC");
+            // Embedded at compile time so screenshots identify the executable actually running.
+            // Local builds without CAD360_BUILD_SHA are explicitly labelled DEV.
+            let build_sha = option_env!("CAD360_BUILD_SHA").unwrap_or("DEV");
+            ui.label(format!("CAD360 · {}", build_sha.get(..8).unwrap_or(build_sha)))
+                .on_hover_text(format!("Mã bản dựng: {build_sha}"));
             ui.label("Tự lưu CAD+BIM: 5 phút");
             if ui.button("Lưu CAD+BIM").on_hover_text("Lưu ngay một cặp hình học DXF và metadata BIM").clicked() {
                 if let Err(error) = self.paired_recovery.save_now(&self.cad, &self.bim_collab_state) { self.cad.set_status(format!("CAD+BIM: {error}")); }
