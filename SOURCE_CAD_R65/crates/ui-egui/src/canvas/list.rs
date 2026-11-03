@@ -102,9 +102,15 @@ pub(super) fn ensure_list(app: &mut CadApp, xf: &Xf, views: &[(Bounds2, f64)], c
                 }
             }
             rebuild::Poll::Lost => {
-                log::warn!("canvas: a background rebuild failed; rebuilding on the UI thread");
+                // Rebuilding a multi-hundred-MiB drawing synchronously here can
+                // freeze the GUI for seconds after a background worker panics.
+                // Retain the old list and retry only after the view key changes.
+                let failed_key = job.key;
+                log::warn!("canvas: background rebuild failed; keeping previous display list until the view changes");
                 app.canvas.job = None;
-                app.canvas.list = None;
+                if app.canvas.list.is_some() {
+                    app.canvas.failed_rebuild_key = Some(failed_key);
+                }
             }
         }
     }
@@ -116,6 +122,12 @@ pub(super) fn ensure_list(app: &mut CadApp, xf: &Xf, views: &[(Bounds2, f64)], c
     // Only the view moved: keep drawing the current list and build the new one in the background.
     let view_only = app.canvas.list.is_some() && same_content(&app.canvas.key, &key);
     if view_only && app.canvas.job.as_ref().is_some_and(|j| j.serves(&key, &visible)) {
+        return;
+    }
+    // Do not repeatedly spawn a worker that just failed for this exact view.
+    // The old display list remains drawable while panning/zooming; new view
+    // requests can try again, and changed drawing content rebuilds normally.
+    if view_only && app.canvas.failed_rebuild_key == Some(key) {
         return;
     }
     // A build for another view, or for a drawing that has since changed, is no longer wanted:
@@ -156,6 +168,7 @@ pub(super) fn ensure_list(app: &mut CadApp, xf: &Xf, views: &[(Bounds2, f64)], c
     }
     let space = st.space.clone();
     app.canvas.list = Some(cadcraft_render::build(&st.doc, &space, &opts));
+    app.canvas.failed_rebuild_key = None;
     app.canvas.key = key;
     app.canvas.window = opts.view;
     app.canvas.list_gen = app.canvas.list_gen.wrapping_add(1);
