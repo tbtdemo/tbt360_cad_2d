@@ -38,6 +38,7 @@
 | 17/30 | Tạm ngưng phát triển sync/conflict; giữ account permissions; sửa trạng thái hàng đợi OPEN và thêm gates LINE/CIRCLE/ESC trên Windows | `6c8a66fcecc9cdc808e2e616908662eb36d3ad5f` | 1 regression test trạng thái queued; 4 gates mục tiêu bổ sung | Windows test PASS + artifact chưa xác minh |
 | 18/30 | Tách thời gian đọc/giải mã CAD, log mỗi file theo ms và hiển thị thời gian giải mã; đồng nhất mốc Instant của worker/UI | `75952a357f31a6dbd553d6e02872cfcdad262cf1` | 1 regression test đồng hồ khi decode bắt đầu; đã bổ sung CI opening::tests ở R15 | Chưa xác minh Cargo/Windows GUI/EXE PASS |
 | 19/30 | Git archive nguồn đúng commit Windows; Setup/Portable/Source cùng SHA256; kiểm tra có Cargo.toml, Cargo.lock, installer và workflow | `dacacfd0b15a19110d821c7b55b399abea09fcf1` | Kiểm tra sự tồn tại file trong archive và 3 SHA256 trong CI; chưa chạy Windows | Windows run PASS, EXE và artifact vẫn chưa xác minh |
+| 20/30 | Ghép cặp từng sự kiện nhấn/thả chuột trái; chặn toolbar click thành điểm CAD; dọn drag qua menu/palette; bổ sung Windows test | `1ce77e689fb866cca3958c11375d70f208e18245` | 3 tests press-release gesture; thêm CI targeted test | Chưa xác minh Windows CI hoặc GUI PASS |
 
 ### Trạng thái
 - Hoàn thành bằng chứng mã nguồn: **16 lượt mã nguồn (15 tối thiểu + 1 dự phòng)**.
@@ -177,3 +178,12 @@
 - Commits `13aa97201386390ff5662a4806127bdb5a2df0cf`, `dacacfd0b15a19110d821c7b55b399abea09fcf1`.
 - Sự có mặt của source archive trong workflow **không phải bằng chứng đã có file**. Chưa có Windows CI PASS và file tải về được xác minh; không nâng % tính năng, vẫn 39,4% ước lượng trên 8 đầu việc đang hoạt động.
 - Sync/conflict và clash bộ môn vẫn PAUSED. Phân quyền tài khoản tiếp tục ACTIVE.
+
+### Lượt 20 — khắc phục sự kiện chuột đầu tiên và kéo chọn
+- `canvas.rs`: thêm `primary_canvas_releases` ghép từng cặp nhấn và thả Primary riêng biệt, chỉ nhận sự kiện khi cả điểm nhấn và thả thuộc canvas; dùng `pointer.press_origin` dự phòng nếu nhấn ở frame trước. Tránh trường hợp kéo từ toolbar/menu vào canvas làm phát sinh điểm vẽ không đúng.
+- Lệnh đang yêu cầu tọa độ chỉ lấy click canvas hợp lệ (raw paired releases hoặc `resp.clicked_by`) thay vì sử dụng click toàn cục trên UI; giữ đường thao tác menu Dynamic Input.
+- Hủy kéo chọn khi thả trên vùng giao diện nổi/palette và không khởi tạo vùng chọn từ menu; thêm điều kiện ESC/focus.
+- Viết 3 tests cho 2 cú click liên tiếp trong frame, press toolbar rồi thả lên canvas, và release khi press frame trước. CI Windows được bổ sung `canvas::primary_gesture_tests`.
+- Commits `c699be8066b6597d47bc6633a4443be15fc0b23d`, `232b0e366fb77e287087485c533dcc6be82252e4`, `7c8d811e7a0330c0985bd1e35db6e302b4c832df`, `1ce77e689fb866cca3958c11375d70f208e18245`.
+- **Đây là sửa mã nguồn và viết test; chưa xác minh Rust tests chạy PASS hoặc GUI trên Windows.** Giữ 39,4% ước lượng trên 8 nhóm active, không tự tăng vì chưa có QA.
+- Lượt **20/30**, còn 10 lượt trong kế hoạch. Đồng bộ/xung đột bộ môn và giữa tài khoản đang tạm dừng; phân quyền tài khoản vẫn active.
