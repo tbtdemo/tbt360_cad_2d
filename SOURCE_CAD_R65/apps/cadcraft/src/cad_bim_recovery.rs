@@ -58,11 +58,21 @@ impl Recovery {
         if bim.pending_changes.iter().any(|change| !change.synced) {
             return Err("Có ChangeSet BIM chưa đồng bộ. Hãy lưu bản hiện tại trước khi phục hồi.".into());
         }
-        // Restore the active tab last so it remains selected. All files are opened as copies.
-        for (index, drawing_path) in drawings.iter().enumerate().filter(|(index, _)| *index != active)
-            .chain(drawings.iter().enumerate().filter(|(index, _)| *index == active)) {
-            let title = format!("CAD+BIM phục hồi {} - bản vẽ {}", pair.file_name().unwrap_or_default().to_string_lossy(), index + 1);
-            app.run("recover", serde_json::json!({ "path": drawing_path.to_string_lossy().to_string(), "copy": true, "title": title }))?;
+        // Recovery is append-only: preserve original tabs and selection if any later import fails.
+        let original_count = app.session.docs.len();
+        let original_active = app.session.active;
+        let result = (|| -> Result<(), String> {
+            for (index, drawing_path) in drawings.iter().enumerate().filter(|(index, _)| *index != active)
+                .chain(drawings.iter().enumerate().filter(|(index, _)| *index == active)) {
+                let title = format!("CAD+BIM phục hồi {} - bản vẽ {}", pair.file_name().unwrap_or_default().to_string_lossy(), index + 1);
+                app.run("recover", serde_json::json!({ "path": drawing_path.to_string_lossy().to_string(), "copy": true, "title": title }))?;
+            }
+            Ok(())
+        })();
+        if let Err(error) = result {
+            app.session.docs.truncate(original_count);
+            app.session.active = original_active;
+            return Err(format!("Phục hồi CAD+BIM thất bại, đã đóng các tab mới: {error}"));
         }
         *bim = proposed;
         self.last_signature = None;
@@ -102,6 +112,7 @@ fn new_generation_name() -> Result<String, String> {
 
 fn save_pair(root: &Path, app: &CadApp, bim: &bim_collab::State) -> Result<(), String> {
     if app.session.docs.is_empty() { return Err("Không có bản vẽ CAD đang mở".into()); }
+    if app.session.docs.len() > 256 { return Err("Một phiên phục hồi hỗ trợ tối đa 256 bản vẽ CAD".into()); }
     if app.session.active >= app.session.docs.len() { return Err("Chỉ số bản vẽ đang hoạt động không hợp lệ".into()); }
     let mut drawings = Vec::with_capacity(app.session.docs.len());
     let mut total_bytes = 0u64;
@@ -113,6 +124,7 @@ fn save_pair(root: &Path, app: &CadApp, bim: &bim_collab::State) -> Result<(), S
         drawings.push((name, dxf, doc.uid, doc.revision));
     }
     let workspace = serde_json::to_vec_pretty(&bim.snapshot_json()).map_err(|e| e.to_string())?;
+    if workspace.is_empty() || workspace.len() > 64 * 1024 * 1024 { return Err("Workspace BIM vượt giới hạn phục hồi 64 MiB".into()); }
     std::fs::create_dir_all(root).map_err(|e| e.to_string())?;
     let name = new_generation_name()?;
     let pending = root.join(format!("{name}.pending"));
