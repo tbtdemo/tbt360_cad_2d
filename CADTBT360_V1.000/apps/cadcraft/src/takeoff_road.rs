@@ -38,11 +38,14 @@ pub struct RoadInterval {
 
 pub fn station_to_metres(value: &str) -> Result<f64, String> {
     let s = value.trim().replace(',', ".");
-    let n = if let Some((km, metre)) = s.split_once('+') {
+    // CAD station labels use Km/KM/km interchangeably. Match the prefix
+    // case-insensitively, without dropping unrelated leading characters.
+    let station = if s.get(..2).is_some_and(|prefix|prefix.eq_ignore_ascii_case("km")) { &s[2..] } else { s.as_str() };
+    let n = if let Some((km, metre)) = station.split_once('+') {
         if km.contains('+') || metre.contains('+') || km.trim().is_empty() || metre.trim().is_empty() {
             return Err("Lý trình phải có dạng Km12+345.67.".into());
         }
-        let km = km.trim().trim_start_matches("Km").trim_start_matches("km").trim();
+        let km = km.trim();
         let km: u64 = km.parse().map_err(|_| "Km phải là số nguyên không âm.".to_string())?;
         let metre: f64 = metre.trim().parse().map_err(|_| "Mét sau dấu + không hợp lệ.".to_string())?;
         if !metre.is_finite() || !(0.0..1000.0).contains(&metre) {
@@ -50,7 +53,7 @@ pub fn station_to_metres(value: &str) -> Result<f64, String> {
         }
         (km as f64) * 1000.0 + metre
     } else {
-        s.trim_start_matches("Km").trim_start_matches("km").trim().parse::<f64>()
+        station.trim().parse::<f64>()
             .map_err(|_| "Nhập lý trình theo mét hoặc Km12+345.67.".to_string())?
     };
     if !n.is_finite() || n < 0.0 || n > 1.0e9 { return Err("Lý trình ngoài giới hạn 0..1.000.000 km.".into()); }
@@ -372,6 +375,10 @@ mod tests {
     fn km_notation_is_metres_and_rejects_bad_stationing() {
         assert_eq!(station_to_metres("Km12+345,50").unwrap(),12345.5);
         assert_eq!(station_to_metres("12+000").unwrap(),12000.0);
+        assert_eq!(station_to_metres("KM12+345.50").unwrap(),12345.5);
+        assert_eq!(station_to_metres("kM12+345,50").unwrap(),12345.5);
+        assert_eq!(station_to_metres("KM1250.5").unwrap(),1250.5);
+        assert!(station_to_metres("XKM12+345").is_err());
         assert_eq!(station_to_metres("1250.5").unwrap(),1250.5);
         assert_eq!(station_label(12345.5),"Km12+345.50");
         for invalid in ["12+1000","Km-1+100","3+abc","Km3+","NaN",""] {
