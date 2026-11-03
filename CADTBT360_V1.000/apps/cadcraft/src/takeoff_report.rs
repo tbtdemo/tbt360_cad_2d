@@ -37,7 +37,9 @@ pub struct ExportConfig {
 impl Default for ExportConfig {
     fn default() -> Self {
         Self {
-            columns: [true, true, true, true, true, true, true, true, true, true, true, false],
+            // Eight clearly readable A4-landscape columns by default; users may
+            // include Layer, discipline, notes and source handles as needed.
+            columns: [true, true, true, true, false, true, false, true, true, true, false, false],
             group_by: GroupBy::WorkGroup,
             project: String::new(), investor: String::new(), document_number: String::new(),
             confirmed_only: true, length_unit: "m".into(), decimals: 3,
