@@ -161,7 +161,10 @@ fn save_pair(root: &Path, app: &CadApp, bim: &bim_collab::State) -> Result<(), S
         let mut total_bytes = 0u64;
         for (index, doc) in app.session.docs.iter().enumerate() {
             let name = format!("drawing-{index:04}.dxf");
-            let dxf = cadcraft_io::write(doc, "cad360_recovery.dxf").map_err(|e| format!("Không xuất được DXF bản vẽ {}: {e}", index + 1))?;
+            // DocState is the editor tab, not Drawing. Preserve unsaved BEDIT
+            // changes by composing the recovery drawing before DXF encoding.
+            let drawing = doc.recovery_drawing().map_err(|e| format!("Không tạo được hình học phục hồi bản vẽ {}: {e}", index + 1))?;
+            let dxf = cadcraft_io::write(drawing.as_ref(), "cad360_recovery.dxf").map_err(|e| format!("Không xuất được DXF bản vẽ {}: {e}", index + 1))?;
             total_bytes = total_bytes.checked_add(dxf.len() as u64).ok_or("Tổng dung lượng CAD vượt giới hạn")?;
             if dxf.is_empty() || total_bytes > MAX_RECOVERY_BYTES {
                 return Err("Tổng dung lượng CAD phục hồi không hợp lệ hoặc vượt giới hạn an toàn".into());
