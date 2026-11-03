@@ -45,6 +45,7 @@
 | 24/30 | Giữ nguyên display list khi worker dựng hình thất bại, ngăn spawn lặp cùng view; đo riêng install_ms của bản vẽ/XREF; tăng Windows CI test | `b74a92cd2d9749652ea976a98ca2ed4a9a51876a` | 2 unit tests retry key + renderer worker tests (đã cấu hình) | Chưa có Cargo/Windows benchmark PASS được xác minh |
 | 25/30 | Giới hạn cấp phát trước Shapes CPU mỗi frame; bỏ qua mesh Tris/Mask nằm ngoài viewport; tests culling, bổ sung Windows CI | `22db948430e9a258cf79b9ecc76add365f698c40` | 2 tests reserve/visibility, targeted Windows CI | Chưa đo RAM/FPS, Windows PASS chưa xác minh |
 | 26/30 | Giới hạn dự trữ trước GPU Mesh CPU 1 MiB mỗi vertex buffer, bỏ Vec cho transform mỗi frame, bảo vệ upload lặp | `dc8c785167c5909caf9bd1db3ccf5899e0bf6ed7` | 2 regression tests dự trữ hình học, targeted Windows CI | Chưa xác minh Cargo/Windows PASS, RAM/VRAM/EXE |
+| 27/30 | Chuyển ghi CAD+BIM multi-tab từ giữ tất cả DXF trong RAM sang từng bản vẽ; tăng budget phục hồi lên 4 GiB; kiểm tra checksum theo streaming | `2dc46e8a239a6fd2db890fd7b29ef42e4280d81c` | 2 tests checksum/giới hạn + CI toàn bộ cad_bim_recovery::tests | Chưa có Windows CI/GUI/recovery PASS được xác minh |
 
 ### Trạng thái
 - Hoàn thành bằng chứng mã nguồn: **16 lượt mã nguồn (15 tối thiểu + 1 dự phòng)**.
@@ -238,3 +239,12 @@
 - 2 tests: dự trữ với estimated 500MiB chỉ reserve 1MiB ban đầu; mesh build vẫn giữ nguyên 1024 segments/2048 line vertices. Windows CI thêm `gpu::gpu_memory_budget_tests`.
 - Commits: `4f029daf104c1d70aff601eeb06e033abc5da935`, `04a42d2eea75557ecc2fb36f229d0ed0a8d769ee`, `6639f2e1fd88460a5a28dd340a7cd8fba8e4f860`, `afb0661d84b163449072d6aaaa28747c44d25131`, `dc8c785167c5909caf9bd1db3ccf5899e0bf6ed7`.
 - Windows CI, Cargo test, EXE Setup/Portable/Source và benchmark file CAD lớn chưa được xác minh, không báo PASS. 26/30 lượt, còn 4 lượt kế hoạch; tiến độ 8 nhóm hoạt động vẫn 39,4% ước lượng. Sync/conflict/clash PAUSED, account permissions ACTIVE.
+
+### Lượt 27 — Autosave CAD+BIM nhiều bản vẽ, giữ hình học và giảm đỉnh RAM
+- Đã rà thực tế: engine `autosave.rs` đã có SAVETIME mặc định 10 phút, lưu DXF mỗi bản vẽ thay đổi trên worker, có `atomic_write` và danh sách phục hồi khi crash. App có **cặp snapshot CAD+BIM 5 phút** trong `cad_bim_recovery.rs` hỗ trợ nhiều tab, tự ghi và phục hồi bản sao độc lập.
+- Lỗi đã xác định: trước R27 `save_pair` mã hóa tất cả DXF vào Vec `drawings` trước khi ghi xuống disk; với nhiều bản vẽ lớn, RAM tăng theo tổng kích thước tất cả DXF. R27 chuyển ghi từng tab vào `.pending`, giải phóng DXF trước khi mã hóa tab kế tiếp; chỉ tạo `commit.json` và rename sang generation hoàn chỉnh sau khi mọi tab đã được sync.
+- Gỡ giới hạn snapshot tổng **512 MiB** bằng ngưỡng bảo vệ mới **4 GiB cho một generation**; không xóa giới hạn an toàn, không tuyên bố giải mã tùy ý hay sao lưu vượt 4 GiB.
+- `check_bundle` và `check_pair_v1`: xác minh checksum DXF đọc từng khối 64 KiB, tránh `std::fs::read` nguyên DXF ngay khi khởi động/dò snapshot hoặc prune. Vẫn kiểm tra dung lượng, manifest và metadata BIM.
+- Hai tests mới: checksum streaming tương ứng checksum trên RAM và nhận ra thay đổi byte cuối; xác nhận ngưỡng phục hồi lớn hơn 512 MiB. Windows CI có targeted gate chạy toàn bộ `cad_bim_recovery::tests` gồm multi-tab, corrupt và checksum.
+- Commits: `af25f320110a76857117336036e7508bbce045eb`, `6628057f9f2a35cf82611d302fd4c51a48ce2e54`, `c94e0debfe021590f0ccacbb21d10322629010a6`, `2dc46e8a239a6fd2db890fd7b29ef42e4280d81c`.
+- Giới hạn còn lại: encode DXF cho từng tab vẫn đồng bộ trên UI thread trong snapshot CAD+BIM định kỳ, có thể gây lag với tab 300–500 MiB; phục hồi vẫn đọc từng tab đầy đủ để decode; chỉ giới hạn peak so với giữ mọi tab cùng lúc, chưa có benchmark. Lượt 27/30, còn 3 lượt dự kiến; 39,4% ước lượng 8 mục chưa nghiệm thu, Windows/EXE PASS chưa có chứng cứ. Sync/conflict/clash PAUSED, account permissions ACTIVE.
