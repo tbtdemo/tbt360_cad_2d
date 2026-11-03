@@ -2046,9 +2046,9 @@ fn legacy_panel(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &m
         ui.horizontal(|ui| {
             let has_unsynced_edits = state.pending_changes.iter().any(|change| !change.synced);
             if has_unsynced_edits {
-                ui.colored_label(egui::Color32::YELLOW, "Cảnh báo: workspace JSON không lưu hàng đợi thay đổi BIM chưa đồng bộ.");
+                ui.colored_label(egui::Color32::YELLOW, "Workspace sẽ lưu hàng đợi ChangeSet để khôi phục; lưu bản vẽ CAD riêng để bảo toàn hình học.");
             }
-            if ui.add_enabled(!has_unsynced_edits, egui::Button::new("Lưu workspace BIM")).clicked() {
+            if ui.button("Lưu workspace BIM").clicked() {
                 if let Some(path) = rfd::FileDialog::new().add_filter("TBT BIM Workspace", &["json"]).set_file_name("TBT360_BIM_WORKSPACE.json").save_file() {
                     if let Ok(data) = serde_json::to_vec_pretty(&state.snapshot_json()) {
                         if let Err(error) = std::fs::write(path, data) {
@@ -3141,6 +3141,36 @@ mod tests {
         set_bim_meta(&mut common, &meta);
         assert_eq!(bim_meta(&common), Some(meta));
         assert!(common.xdata.iter().any(|t| t.code == 1001 && t.value == XDATA_APP));
+    }
+
+    #[test]
+    fn pending_bim_changes_survive_workspace_roundtrip() {
+        let mut state = State::default();
+        let handle = cadcraft_doc::Handle(62001);
+        state.queue_update(handle, 3, 4);
+        let snapshot = state.snapshot_json();
+        let mut restored = State::default();
+
+        restored.load_snapshot_json(&snapshot).unwrap();
+
+        assert_eq!(restored.pending_changes.len(), 1);
+        assert_eq!(restored.pending_changes[0].items[0].handle, handle);
+        assert_eq!(restored.pending_changes[0].items[0].base_revision, 3);
+        assert_eq!(restored.pending_changes[0].items[0].local_revision, 4);
+        assert!(!restored.pending_changes[0].synced);
+        assert_eq!(restored.dirty_local_changes, 1);
+    }
+
+    #[test]
+    fn corrupt_workspace_change_queue_is_rejected_without_mutating_current_queue() {
+        let mut state = State::default();
+        state.queue_update(cadcraft_doc::Handle(62002), 0, 1);
+        let mut snapshot = state.snapshot_json();
+        snapshot["pending_changes"][0]["items"][0]["local_revision"] = serde_json::json!(0);
+
+        assert!(state.load_snapshot_json(&snapshot).is_err());
+        assert_eq!(state.pending_changes.len(), 1);
+        assert_eq!(state.pending_changes[0].items[0].local_revision, 1);
     }
 
     #[test]
