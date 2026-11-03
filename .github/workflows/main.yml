@@ -129,6 +129,8 @@ jobs:
       - name: Test CAD canvas input and file-opening regressions
         shell: pwsh
         run: |
+          cargo test --locked -p cadcraft-ui-egui canvas::primary_gesture_tests -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw "Canvas primary press/release pairing failed" }
           cargo test --locked -p cadcraft-ui-egui canvas::point_batch_tests -- --nocapture
           if ($LASTEXITCODE -ne 0) { throw "Canvas batched-click regression failed" }
           cargo test --locked -p cadcraft-ui-egui canvas::point_release_tests -- --nocapture
