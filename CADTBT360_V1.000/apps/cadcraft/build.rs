@@ -5,6 +5,8 @@ fn main() {
     println!("cargo:rerun-if-changed=../../assets/app-icon/tbt360.ico");
     println!("cargo:rerun-if-env-changed=CADCRAFT_REQUIRE_WINRES");
     println!("cargo:rerun-if-env-changed=CADCRAFT_BUILD_SHA");
+    println!("cargo:rerun-if-env-changed=CAD360_BUILD_SHA");
+    println!("cargo:rerun-if-env-changed=CADTBT360_RELEASE_VERSION");
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("windows") {
         return;
     }
@@ -12,9 +14,10 @@ fn main() {
     if std::path::Path::new("../../assets/app-icon/tbt360.ico").exists() {
         res.set_icon("../../assets/app-icon/tbt360.ico");
     }
+    let release=std::env::var("CADTBT360_RELEASE_VERSION").unwrap_or_else(|_|"CADTBT360-dev".into());
     res.set("ProductName", "CAD 2D - TBT 360")
-        .set("FileDescription", "CAD 2D - TBT 360 computer-aided design")
-        .set("CompanyName", "TBT 360")
+        .set("FileDescription", &format!("CAD 2D - TBT 360 ({release})"))
+        .set("CompanyName", "TBT Việt Nam")
         .set("LegalCopyright", "Copyright (c) 2026 TBT 360 contributors. MIT OR Apache-2.0.")
         .set("OriginalFilename", "tbt360.exe")
         .set("InternalName", "tbt360");
