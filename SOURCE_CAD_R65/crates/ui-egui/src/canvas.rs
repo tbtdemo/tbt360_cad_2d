@@ -315,6 +315,24 @@ mod primary_gesture_tests {
     }
 
     #[test]
+    fn switching_tiles_requires_press_and_release_in_same_destination_tile() {
+        let left = Rect::from_min_size(pos2(0.0, 0.0), vec2(100.0, 100.0));
+        let right = Rect::from_min_size(pos2(100.0, 0.0), vec2(100.0, 100.0));
+        let cross_tile = [primary(pos2(40.0, 30.0), true), primary(pos2(150.0, 30.0), false)];
+        assert!(primary_canvas_releases(&cross_tile, right, false).is_empty());
+        let right_tile = [primary(pos2(145.0, 30.0), true), primary(pos2(145.0, 30.0), false)];
+        assert!(primary_canvas_releases(&right_tile, left, false).is_empty());
+        assert_eq!(primary_canvas_releases(&right_tile, right, false), vec![pos2(145.0, 30.0)]);
+    }
+
+    #[test]
+    fn toolbar_press_cannot_activate_an_inactive_tile() {
+        let target = Rect::from_min_size(pos2(100.0, 0.0), vec2(100.0, 100.0));
+        let events = [primary(pos2(15.0, 20.0), true), primary(pos2(150.0, 20.0), false)];
+        assert!(primary_canvas_releases(&events, target, true).is_empty());
+    }
+
+    #[test]
     fn prior_frame_press_origin_is_only_used_for_unpaired_release() {
         let rect = Rect::from_min_size(pos2(0.0, 0.0), vec2(100.0, 100.0));
         assert_eq!(primary_canvas_releases(&[primary(pos2(25.0, 25.0), false)], rect, true), vec![pos2(25.0, 25.0)]);
