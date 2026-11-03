@@ -1,3 +1,21 @@
+## B17 — QSELECT an toàn hơn và đồng bộ theo tập chọn (03/11/2026)
+
+**Mã thực tế đã commit** tại `SOURCE_CAD_R65/crates/ui-egui/src/quick.rs`:
+1. `QSELECT.info` cache bổ sung `selection_hash` để tự cập nhật khi tập đối tượng chọn thay đổi dù drawing revision không đổi.
+2. Ngăn click OK khi không có loại đối tượng và cũng không nhập giá trị thuộc tính: tránh chọn nhầm toàn bộ bản vẽ.
+3. Bổ sung nút `Xóa điều kiện` để trả về bộ lọc gốc và xóa điều kiện cũ.
+4. Chỉ đẩy điều kiện thuộc tính khi đã nhập giá trị không rỗng; type-only vẫn hợp lệ.
+5. Bổ sung unit test `qselect_requires_real_criteria_before_modifying_selection` (cùng 3 test tìm Layer ở B16).
+
+**Bằng chứng:** [commit mã chức năng dd9b6a43](https://github.com/tbtdemo/tbt360_cad_2d/commit/dd9b6a43213527cf00d62e9e23af88ef2ff5d899); [commit đóng gói 39a375bc](https://github.com/tbtdemo/tbt360_cad_2d/commit/39a375bc6ecd864a60647464369af0fa2e3bac3d).
+
+**Run đóng gói B17:**
+- [Ubuntu cross Windows 41636304823](https://github.com/tbtdemo/tbt360_cad_2d/actions/runs/41636304823): đang chạy bước cài toolchain tại lần kiểm tra, chưa có EXE.
+- [Windows Native 41636304819](https://github.com/tbtdemo/tbt360_cad_2d/actions/runs/41636304819): inventory đã PASS, các job xây ZIP/EXE chờ runner.
+- **Các cổng nghiệm thu B17:** 1/4 = **25% xác minh** (mã nguồn); EXE, artifact đúng SHA và chạy GUI chưa xác nhận.
+- **Trạng thái test:** mã đã viết, không báo PASS nếu CI chưa hoàn tất; build B16 vẫn đang chạy, không thay thế B17.
+
+
 ## B16 — Nâng cấp chức năng CAD 2D: QSELECT (03/11/2026)
 
 **Phạm vi đã triển khai vào mã thực tế:** `SOURCE_CAD_R65/crates/ui-egui/src/quick.rs`.
