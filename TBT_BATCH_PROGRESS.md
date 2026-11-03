@@ -21,10 +21,11 @@
 | 10/15 | Không lấy các release từ lớp overlay/menu thành điểm CAD; mở nhiều file đúng FIFO ngay cả khi thêm file mới trong lúc finish_open | `0b9297f2a4a093978d02f6e58de373c653cb40b5` | 1 unit test thứ tự FIFO, chưa chạy Windows | Chưa xác nhận Windows CI PASS |
 | 11/15 | Giữ đúng tọa độ cho các click nhanh trong một UI frame; dừng nhập điểm khi lệnh đã hoàn tất; chặn click dư thành chọn đối tượng | `4f4ff825fa64b0e7894ee94b48e020a72b5b89cf` | 2 regression tests (tọa độ đa click và chặn click dư) | Chưa có Windows CI PASS |
 | 12/15 | Dừng replay điểm khi lệnh chuyển sang prompt không nhận tọa độ; khi tắt PICKDRAG giữa chừng dọn pending window; thêm tests LINE/CIRCLE | `b0c704f75088f8b22d1638054f7a9c4a2ff452a7` | 2 Rust integration-style tests ở tầng engine | Chưa xác minh Windows cargo/GUI PASS |
+| 13/15 | Báo giai đoạn decode sau khi đọc file thực sự hoàn thành; cấp phát read-ahead tối đa 8 MiB theo metadata; test trạng thái 100% bytes và file rỗng | `e4447bdb11a87069fc3fcdd23aeb11f7c5108188` | 2 regression tests bổ sung | Chưa chạy Cargo/Windows vì môi trường hiện tại không có Cargo và Git DNS lỗi |
 
 ### Trạng thái
-- Hoàn thành bằng chứng mã nguồn: **12/15** lượt tối thiểu.
-- Còn ít nhất **3** lượt trước khi đóng gói định kỳ.
+- Hoàn thành bằng chứng mã nguồn: **13/15** lượt tối thiểu.
+- Còn ít nhất **2** lượt trước khi đóng gói định kỳ.
 - Source inventory (run 41561782723) và IFC metadata test/source snapshot (run 41561782535) PASS. Windows Setup/Portable được skip đúng lịch 15–30. Rust tests CAD+BIM của lượt 02 đã PASS (run 41563233121). Hai regression tests lượt 03 đang chờ xác nhận. Chưa có EXE phát hành của đợt này.
 
 ### Rà soát khả năng phục hồi
@@ -103,3 +104,11 @@
 - Thêm test LINE và CIRCLE xác nhận prompt tọa độ đầu tiên được tiếp nhận ở lớp Session. Test đã được viết, **chưa chạy Windows PASS**.
 - Commits `92003c26a1d9667cb9c819e5ba3893018543c0e6`, `84a852ffb93c38f72e52e06e5dba7d46d9bfeeae`, `b0c704f75088f8b22d1638054f7a9c4a2ff452a7`.
 - Nhịp phát hành tối thiểu 12/15 = 80%, nhưng tiến độ hạng mục chức năng vẫn giữ 37,2% (ước lượng chưa nghiệm thu). Còn 3 lượt đến R15 và tối đa 18 lượt nếu dùng toàn bộ dự phòng đến R30.
+
+### Lượt 13 — phân pha đọc/giải mã chính xác và cấp phát đầu vào
+- Đường OPEN desktop có callback riêng cho thời điểm thật sự bắt đầu giải mã, thay vì UI suy ra từ số byte đọc = kích thước file. Giữ % chỉ ở giai đoạn đọc byte; parse/render vẫn chưa có % thật.
+- Đường đọc theo khối cấp phát ban đầu bằng `try_reserve` với hint tối đa 8 MiB để giảm cấp phát lại nhưng không chiếm trước cả file 300–500 MiB. Không đặt trần kích thước đầu vào.
+- Thêm regression test giai đoạn metadata boundary và file rỗng.
+- Commits: `5670d1c36a88f31607ae0ecb1d9aaee5ab6d2813`, `7abb7f30516ab600142fbb116d8146f0315052d6`, `e4447bdb11a87069fc3fcdd23aeb11f7c5108188`.
+- Giới hạn: môi trường shell hiện tại thiếu Cargo, git remote không thể resolve DNS GitHub, không có benchmark thực và không thể xác nhận Windows CI PASS.
+- Nhịp phát hành: 13/15=86,7%, chỉ nói số lượt; còn 2 lượt đến mốc tối thiểu. Phát hành EXE chỉ khi có gate Windows thực tế.
