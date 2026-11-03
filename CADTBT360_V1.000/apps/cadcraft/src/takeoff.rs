@@ -1165,7 +1165,12 @@ fn qto_report_lines(state: &State, source_validation: &SourceValidation, config:
     if !lf.is_finite() || !af.is_finite() { return Err("Đơn vị quy đổi không hợp lệ.".into()); }
     let mut result = Vec::new();
     for record in &state.records {
+        // Never export excluded or invalid-source measurements, even in draft mode.
+        if record.status == MeasureStatus::Excluded || source_validation.invalid_record_ids.contains(&record.id) { continue; }
         if !qto_record_exportable(record, source_validation, lf, af, config.confirmed_only) { continue; }
+        if config.confirmed_only && record.description.trim().is_empty() {
+            return Err(format!("Phép đo #{} chưa có diễn giải công tác, cần bổ sung trước khi xuất hồ sơ Chủ đầu tư.", record.id));
+        }
         let (quantity, unit, kind) = match record.kind {
             MeasureKind::Length => (record.raw_value * lf, config.length_unit.clone(), "Chiều dài"),
             MeasureKind::Perimeter => (record.raw_value * lf, config.length_unit.clone(), "Chu vi"),
@@ -1537,7 +1542,7 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
             }
         });
         // Avoid constructing, sorting and grouping the complete report each GUI frame.
-        let count = state.records.iter().filter(|r| qto_record_exportable(r, &source_validation, lf, af, state.export_config.confirmed_only)).count();
+        let count = state.records.iter().filter(|r| r.status != MeasureStatus::Excluded && !source_validation.invalid_record_ids.contains(&r.id) && qto_record_exportable(r, &source_validation, lf, af, state.export_config.confirmed_only)).count();
         ui.label(format!("Sẵn sàng xem xét: {count} phép đo, {} cột. File XLSX được tạo khi bấm Xuất.", state.export_config.selected().len()));
         if !state.export_config.confirmed_only {
             ui.colored_label(egui::Color32::YELLOW, "Chế độ DỰ THẢO: có thể bao gồm phép đo chưa xác nhận. Không gửi Chủ đầu tư trước khi kiểm tra.");
