@@ -142,6 +142,7 @@ pub struct State {
     volume_description: String,
     road_chainage: String,
     road_name: String,
+    road_plan_marker_handle: Option<String>,
     road_cut: Option<GeometricSource>,
     road_fill: Option<GeometricSource>,
     road_sections: Vec<RoadCrossSection>,
@@ -514,7 +515,7 @@ impl State {
             "real_distance_m": self.real_distance_m,
             "road_takeoff": {
                 "sections": self.road_sections.iter().map(RoadCrossSection::json).collect::<Vec<_>>(),
-                "draft": {"chainage":self.road_chainage,"name":self.road_name,
+                "draft": {"chainage":self.road_chainage,"name":self.road_name,"plan_marker_handle":self.road_plan_marker_handle,
                           "cut":self.road_cut.as_ref().map(GeometricSource::json),
                           "fill":self.road_fill.as_ref().map(GeometricSource::json)},
                 "work_group":self.road_work_group,
@@ -699,6 +700,7 @@ impl State {
         let road=value.get("road_takeoff");
         self.road_sections=road.and_then(|v|v.get("sections")).and_then(serde_json::Value::as_array)
             .map(|items|items.iter().take(20_000).filter_map(RoadCrossSection::read).collect()).unwrap_or_default();
+        self.road_plan_marker_handle=road.and_then(|v|v.get("draft")).and_then(|v|v.get("plan_marker_handle")).and_then(serde_json::Value::as_str).filter(|h|cadcraft_doc::Handle::parse_hex(h).is_some()).map(str::to_string);
         self.road_cut=road.and_then(|v|v.get("draft")).and_then(|v|v.get("cut")).and_then(GeometricSource::read);
         self.road_fill=road.and_then(|v|v.get("draft")).and_then(|v|v.get("fill")).and_then(GeometricSource::read);
         self.road_chainage=road.and_then(|v|v.get("draft")).and_then(|v|v.get("chainage")).and_then(serde_json::Value::as_str).unwrap_or("").chars().take(50).collect();
@@ -1704,6 +1706,23 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
             }
         });
         ui.horizontal_wrapped(|ui| {
+            if ui.button("GẮN CỌC TỪ BÌNH ĐỒ").clicked() {
+                let handles=app.session.selection();
+                if handles.len()!=1 {state.import_feedback=format!("Hãy chọn đúng 1 đối tượng cọc trên bình đồ; hiện chọn {}.",handles.len());}
+                else if let Some(handle)=handles.into_iter().next() {
+                    let value=handle.hex();
+                    if state.road_sections.iter().any(|section|section.plan_marker_handle.as_deref()==Some(value.as_str())) {
+                        state.import_feedback="Đối tượng cọc này đã được sử dụng ở trắc ngang khác.".into();
+                    } else {
+                        state.road_plan_marker_handle=Some(value.clone());
+                        state.import_feedback=format!("Đã gắn đối tượng CAD {} làm cọc bình đồ. Kiểm tra lý trình trước khi lưu.",value);
+                    }
+                }
+            }
+            if ui.small_button("Bỏ gắn cọc").clicked(){state.road_plan_marker_handle=None;}
+            ui.label(format!("Cọc bình đồ: {}",state.road_plan_marker_handle.as_deref().unwrap_or("Chưa gắn")));
+        });
+        ui.horizontal_wrapped(|ui| {
             for (kind,label) in [(EarthworkKind::Cut,"CHỌN DIỆN TÍCH ĐÀO"),(EarthworkKind::Fill,"CHỌN DIỆN TÍCH ĐẮP")] {
                 if ui.button(label).clicked() {
                     let candidates=selected_measurements(app).into_iter().filter(|m| m.kind==MeasureKind::Area
@@ -1728,11 +1747,11 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
             cols[1].label(format!("DIỆN TÍCH ĐẮP: {}",source_label(&state.road_fill)));
         });
         let station=takeoff_road::station_to_metres(&state.road_chainage).ok().map(|chainage_m|RoadCrossSection {
-            chainage_m,name:state.road_name.trim().to_string(),
+            chainage_m,name:state.road_name.trim().to_string(),plan_marker_handle:state.road_plan_marker_handle.clone(),
             cut:state.road_cut.clone(),fill:state.road_fill.clone(),confirmed:false,
         });
         let valid=station.as_ref().is_some_and(|candidate|takeoff_road::validate_section(candidate).is_ok()
-            && state.road_sections.iter().all(|old|(old.chainage_m-candidate.chainage_m).abs()>1.0e-6));
+            && state.road_sections.iter().all(|old|(old.chainage_m-candidate.chainage_m).abs()>1.0e-6 && candidate.plan_marker_handle.as_deref().is_none_or(|h|old.plan_marker_handle.as_deref()!=Some(h))));
         if ui.add_enabled(valid,egui::Button::new("LƯU TRẮC NGANG VÀO DANH SÁCH CỌC")).clicked() {
             let next=station.unwrap();
             for source in [&next.cut,&next.fill].into_iter().flatten() {state.captured_handles.insert(source.handle.clone());}
@@ -1741,6 +1760,7 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
             state.source_mode=QtoSourceMode::CapturedRegion;
             state.road_cut=None;
             state.road_fill=None;
+            state.road_plan_marker_handle=None;
             state.import_feedback=format!("Đã lưu {} mặt cắt. Phải kiểm tra và xác nhận trước khi xuất.",state.road_sections.len());
         }
         if !valid {
@@ -1759,15 +1779,23 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
         }
         ui.small("Chỉ bóc các khoảng có đủ hai cọc nằm trong phạm vi. Chưa hỗ trợ tự nhận dạng cọc trên bình đồ; không ngoại suy khối lượng khi cắt giữa hai trắc ngang.");
         ui.strong(format!("TRẮC NGANG ĐÃ KHAI BÁO: {} CỌC",state.road_sections.len()));
+        let markers=state.road_sections.iter().filter_map(|section|section.plan_marker_handle.as_ref().map(|handle|takeoff_road::RoadPlanMarker{chainage_m:section.chainage_m,handle:handle.clone()})).collect::<Vec<_>>();
+        if markers.len()==state.road_sections.len() && !markers.is_empty() {
+            match takeoff_road::link_plan_markers(&markers,&state.road_sections,0.001) {
+                Ok(links)=>{ui.colored_label(egui::Color32::LIGHT_GREEN,format!("Đã đối chiếu {} cọc bình đồ với trắc ngang theo lý trình.",links.len()));},
+                Err(error)=>{ui.colored_label(egui::Color32::YELLOW,error);},
+            }
+        } else { ui.small("Cọc chưa gắn bình đồ vẫn mở được theo dữ liệu V1.000; cần gắn nguồn trước khi nghiệm thu liên kết cọc."); }
         let mut delete=None;
         egui::ScrollArea::vertical().id_salt("cadtbt360_road_station_list").max_height(220.0).show(ui,|ui|{
             egui::Grid::new("cadtbt360_road_station_grid").striped(true).show(ui,|ui|{
-                for heading in ["Duyệt","Lý trình","Tên cọc","Diện tích đào (đv²)","Diện tích đắp (đv²)","Thao tác"] {ui.strong(heading);}
+                for heading in ["Duyệt","Lý trình","Tên cọc","Cọc bình đồ","Diện tích đào (đv²)","Diện tích đắp (đv²)","Thao tác"] {ui.strong(heading);}
                 ui.end_row();
                 for (i,section) in state.road_sections.iter_mut().enumerate(){
                     ui.checkbox(&mut section.confirmed,"");
                     ui.label(takeoff_road::station_label(section.chainage_m));
                     ui.label(&section.name);
+                    ui.label(section.plan_marker_handle.as_deref().unwrap_or("Chưa gắn"));
                     ui.label(section.cut.as_ref().map(|s|format!("{:.3}",s.raw_value)).unwrap_or_else(||"-".into()));
                     ui.label(section.fill.as_ref().map(|s|format!("{:.3}",s.raw_value)).unwrap_or_else(||"-".into()));
                     if ui.small_button("Xóa").clicked(){delete=Some(i);}
