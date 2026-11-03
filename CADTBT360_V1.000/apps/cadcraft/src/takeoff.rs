@@ -1327,6 +1327,64 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
     });
 
     let source_validation=validate_sources(app,state);
+    // Keep investor-ready Excel settings discoverable near the top of QTO,
+    // not buried beneath large measurement and summary tables.
+    ui.separator();
+    egui::CollapsingHeader::new("XUẤT EXCEL CHỦ ĐẦU TƯ • Cấu hình cột / nhóm / đơn vị / trang in").id_salt("cadtbt360_qto_excel_settings").default_open(false).show(ui, |ui| {
+        ui.strong("BÁO CÁO ĐO BÓC KHỐI LƯỢNG — CADTBT360_V1.000");
+        ui.small("Tạo XLSX có tiêu đề, nhóm công việc, tổng theo đơn vị, bảng kẻ chuẩn, A4 ngang, tiêu đề lặp mỗi trang và ô ký duyệt.");
+        ui.horizontal_wrapped(|ui| {
+            ui.label("Tên dự án");
+            ui.add(egui::TextEdit::singleline(&mut state.export_config.project).desired_width(260.0).hint_text("Tên công trình / dự án"));
+            ui.label("Chủ đầu tư");
+            ui.add(egui::TextEdit::singleline(&mut state.export_config.investor).desired_width(260.0).hint_text("Tên Chủ đầu tư"));
+            ui.label("Số hiệu biểu mẫu");
+            ui.add(egui::TextEdit::singleline(&mut state.export_config.document_number).desired_width(160.0).hint_text("VD: BB-DB-001"));
+        });
+        ui.horizontal_wrapped(|ui| {
+            ui.label("Phân nhóm");
+            egui::ComboBox::from_id_salt("cadtbt360_qto_group_by").selected_text(state.export_config.group_by.label()).show_ui(ui, |ui| {
+                for group in GroupBy::ALL { ui.selectable_value(&mut state.export_config.group_by, group, group.label()); }
+            });
+            ui.label("Đơn vị chiều dài");
+            egui::ComboBox::from_id_salt("cadtbt360_qto_length_unit").selected_text(&state.export_config.length_unit).show_ui(ui, |ui| {
+                for unit in ["m", "cm", "mm"] { ui.selectable_value(&mut state.export_config.length_unit, unit.to_string(), unit); }
+            });
+            ui.label("Số chữ số lẻ");
+            ui.add(egui::DragValue::new(&mut state.export_config.decimals).range(0..=6));
+            ui.checkbox(&mut state.export_config.confirmed_only, "Chỉ xuất khối lượng đã xác nhận và nguồn hợp lệ");
+        });
+        ui.strong("CHỌN NỘI DUNG HIỂN THỊ TRONG BẢNG EXCEL");
+        ui.columns(3, |columns| {
+            for (idx, (label, _)) in FIELDS.iter().enumerate() {
+                let mandatory = idx == 8 || idx == 9;
+                if mandatory { state.export_config.columns[idx] = true; }
+                columns[idx % 3].add_enabled(!mandatory, egui::Checkbox::new(&mut state.export_config.columns[idx], *label));
+            }
+        });
+        // Avoid constructing, sorting and grouping the complete report each GUI frame.
+        let count = state.records.iter().filter(|r| r.status != MeasureStatus::Excluded && !source_validation.invalid_record_ids.contains(&r.id) && qto_record_exportable(r, &source_validation, lf, af, state.export_config.confirmed_only)).count();
+        ui.label(format!("Sẵn sàng xem xét: {count} phép đo, {} cột. File XLSX được tạo khi bấm Xuất.", state.export_config.selected().len()));
+        if !state.export_config.confirmed_only {
+            ui.colored_label(egui::Color32::YELLOW, "Chế độ DỰ THẢO: có thể bao gồm phép đo chưa xác nhận. Không gửi Chủ đầu tư trước khi kiểm tra.");
+        }
+        if ui.add_enabled(state.export_config.valid() && count > 0, egui::Button::new("XUẤT EXCEL XLSX — ĐỊNH DẠNG IN A4")).clicked() {
+            match qto_report_lines(state, &source_validation, &state.export_config) {
+                Ok(rows) => {
+                    if let Some(path) = rfd::FileDialog::new().add_filter("Excel Workbook", &["xlsx"]).set_file_name("CADTBT360_V1.000_BANG_DO_BOC_KHOI_LUONG.xlsx").save_file() {
+                        match takeoff_report::write_xlsx(&path, &state.export_config, &rows) {
+                            Ok(()) => state.file_feedback = format!("Đã tạo Excel XLSX có bố cục in A4: {}", path.display()),
+                            Err(error) => state.file_feedback = format!("Không thể xuất báo cáo Excel: {error}"),
+                        }
+                    }
+                },
+                Err(error) => state.file_feedback = format!("Chưa đủ điều kiện xuất báo cáo: {error}"),
+            }
+        }
+        if !state.file_feedback.is_empty() { ui.label(&state.file_feedback); }
+    });
+
+
     if source_validation.missing_source>0 || source_validation.scope_mismatch>0 || source_validation.stale_revision>0 || source_validation.stale_geometry>0 || source_validation.identity_collision>0 {
         ui.colored_label(egui::Color32::YELLOW,format!(
             "Liên kết nguồn QTO cần kiểm tra: {} mất nguồn, {} lệch scope, {} lệch revision, {} đổi geometry, {} trùng BIM identity.",
@@ -1508,60 +1566,6 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
         });
     });
 
-    ui.separator();
-    ui.collapsing("XUẤT EXCEL CHỦ ĐẦU TƯ • CẤU HÌNH CỘT / NHÓM / ĐƠN VỊ / TRANG IN", |ui| {
-        ui.strong("BÁO CÁO ĐO BÓC KHỐI LƯỢNG — CADTBT360_V1.000");
-        ui.small("Tạo XLSX có tiêu đề, nhóm công việc, tổng theo đơn vị, bảng kẻ chuẩn, A4 ngang, tiêu đề lặp mỗi trang và ô ký duyệt.");
-        ui.horizontal_wrapped(|ui| {
-            ui.label("Tên dự án");
-            ui.add(egui::TextEdit::singleline(&mut state.export_config.project).desired_width(260.0).hint_text("Tên công trình / dự án"));
-            ui.label("Chủ đầu tư");
-            ui.add(egui::TextEdit::singleline(&mut state.export_config.investor).desired_width(260.0).hint_text("Tên Chủ đầu tư"));
-            ui.label("Số hiệu biểu mẫu");
-            ui.add(egui::TextEdit::singleline(&mut state.export_config.document_number).desired_width(160.0).hint_text("VD: BB-DB-001"));
-        });
-        ui.horizontal_wrapped(|ui| {
-            ui.label("Phân nhóm");
-            egui::ComboBox::from_id_salt("cadtbt360_qto_group_by").selected_text(state.export_config.group_by.label()).show_ui(ui, |ui| {
-                for group in GroupBy::ALL { ui.selectable_value(&mut state.export_config.group_by, group, group.label()); }
-            });
-            ui.label("Đơn vị chiều dài");
-            egui::ComboBox::from_id_salt("cadtbt360_qto_length_unit").selected_text(&state.export_config.length_unit).show_ui(ui, |ui| {
-                for unit in ["m", "cm", "mm"] { ui.selectable_value(&mut state.export_config.length_unit, unit.to_string(), unit); }
-            });
-            ui.label("Số chữ số lẻ");
-            ui.add(egui::DragValue::new(&mut state.export_config.decimals).range(0..=6));
-            ui.checkbox(&mut state.export_config.confirmed_only, "Chỉ xuất khối lượng đã xác nhận và nguồn hợp lệ");
-        });
-        ui.strong("CHỌN NỘI DUNG HIỂN THỊ TRONG BẢNG EXCEL");
-        ui.columns(3, |columns| {
-            for (idx, (label, _)) in FIELDS.iter().enumerate() {
-                let mandatory = idx == 8 || idx == 9;
-                if mandatory { state.export_config.columns[idx] = true; }
-                columns[idx % 3].add_enabled(!mandatory, egui::Checkbox::new(&mut state.export_config.columns[idx], *label));
-            }
-        });
-        // Avoid constructing, sorting and grouping the complete report each GUI frame.
-        let count = state.records.iter().filter(|r| r.status != MeasureStatus::Excluded && !source_validation.invalid_record_ids.contains(&r.id) && qto_record_exportable(r, &source_validation, lf, af, state.export_config.confirmed_only)).count();
-        ui.label(format!("Sẵn sàng xem xét: {count} phép đo, {} cột. File XLSX được tạo khi bấm Xuất.", state.export_config.selected().len()));
-        if !state.export_config.confirmed_only {
-            ui.colored_label(egui::Color32::YELLOW, "Chế độ DỰ THẢO: có thể bao gồm phép đo chưa xác nhận. Không gửi Chủ đầu tư trước khi kiểm tra.");
-        }
-        if ui.add_enabled(state.export_config.valid() && count > 0, egui::Button::new("XUẤT EXCEL XLSX — ĐỊNH DẠNG IN A4")).clicked() {
-            match qto_report_lines(state, &source_validation, &state.export_config) {
-                Ok(rows) => {
-                    if let Some(path) = rfd::FileDialog::new().add_filter("Excel Workbook", &["xlsx"]).set_file_name("CADTBT360_V1.000_BANG_DO_BOC_KHOI_LUONG.xlsx").save_file() {
-                        match takeoff_report::write_xlsx(&path, &state.export_config, &rows) {
-                            Ok(()) => state.file_feedback = format!("Đã tạo Excel XLSX có bố cục in A4: {}", path.display()),
-                            Err(error) => state.file_feedback = format!("Không thể xuất báo cáo Excel: {error}"),
-                        }
-                    }
-                },
-                Err(error) => state.file_feedback = format!("Chưa đủ điều kiện xuất báo cáo: {error}"),
-            }
-        }
-        if !state.file_feedback.is_empty() { ui.label(&state.file_feedback); }
-    });
 
     ui.separator();
     ui.horizontal(|ui| {
