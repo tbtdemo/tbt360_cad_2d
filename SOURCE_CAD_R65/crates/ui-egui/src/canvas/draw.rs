@@ -40,7 +40,10 @@ pub(crate) fn draw_list_filtered(
     opacity: f32,
 ) {
     let vis = xf.world_bounds();
-    let mut shapes: Vec<Shape> = Vec::with_capacity(list.prims.len());
+    // Large drawings may contain hundreds of thousands of primitives, most
+    // outside the current viewport. Reserving one Shape per primitive on every
+    // frame adds substantial transient RAM; grow only as visible shapes arrive.
+    let mut shapes: Vec<Shape> = Vec::with_capacity(list.prims.len().min(4096));
     let px = 1.0 / xf.scale;
     for prim in &list.prims {
         if let Some(handles) = handles
@@ -72,7 +75,12 @@ pub(crate) fn draw_list_filtered(
                 }
             }
             Kind::Tris | Kind::Mask => {
-                // A wipeout's mask hides what was drawn before it with the background colour.
+                // Do not allocate large triangle meshes for geometry entirely
+                // outside the visible view. Keep the wipeout draw order intact
+                // for masks that do intersect the viewport.
+                if !Bounds2::from_points(pts.iter().copied()).intersects(&vis) {
+                    continue;
+                }
                 let col = if prim.kind == Kind::Mask { color32(bg) } else { col };
                 let mut mesh = egui::Mesh::default();
                 for tri in pts.chunks(3) {
