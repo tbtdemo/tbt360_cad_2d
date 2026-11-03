@@ -15,11 +15,11 @@ on:
       - 'installer/**'
       - '.github/workflows/main.yml'
 
-# Preserve a full Windows test result for each pushed commit.
-# Frequent updates previously cancelled runs before regression or packaging completed.
+# Preserve a full test and packaging result for each commit, including the active branch.
+# Do not cancel a build just because a newer change is pushed while Rust compiles.
 concurrency:
-  group: cad360-${{ github.workflow }}-${{ github.ref }}-${{ github.ref == 'refs/heads/main' && github.sha || 'latest' }}
-  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+  group: cad360-${{ github.workflow }}-${{ github.ref }}-${{ github.sha }}
+  cancel-in-progress: false
 
 jobs:
   build-core:
@@ -257,6 +257,35 @@ jobs:
             "$hash  $(Split-Path $_ -Leaf)"
           } | Set-Content -Encoding ascii $manifest
           if ((Get-Content $manifest).Count -ne 2) { throw "Checksum manifest must contain two files" }
+      - name: Record exact candidate commit and verify both hashes
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $root = "../dist"
+          $metadata = Join-Path $root "BUILD_INFO.txt"
+          @(
+            "Repository=$env:GITHUB_REPOSITORY"
+            "Commit=$env:GITHUB_SHA"
+            "Ref=$env:GITHUB_REF"
+            "RunId=$env:GITHUB_RUN_ID"
+            "RunAttempt=$env:GITHUB_RUN_ATTEMPT"
+            "Status=UNVERIFIED_GUI_CANDIDATE"
+          ) | Set-Content -Encoding utf8 $metadata
+          foreach ($name in @("CAD360_VietNam_TBT_Setup.exe", "CAD360_VietNam_TBT_Portable.zip")) {
+            $file = Join-Path $root $name
+            if (!(Test-Path $file)) { throw "Missing release candidate: $name" }
+            $record = (Get-Content (Join-Path $root "SHA256SUMS.txt") | Where-Object { $_ -match ("  " + [regex]::Escape($name) + "$") })
+            if (@($record).Count -ne 1) { throw "SHA256 entry not unique for $name" }
+            $actual = (Get-FileHash -Algorithm SHA256 -Path $file).Hash.ToLowerInvariant()
+            if ($record -ne "$actual  $name") { throw "SHA256 mismatch for $name" }
+          }
+          @(
+            "### CAD360 Windows candidate"
+            "- Commit: $env:GITHUB_SHA"
+            "- Ref: $env:GITHUB_REF"
+            "- Setup and portable produced; SHA256 rechecked."
+            "- **GUI acceptance and 300–500 MiB benchmark are not certified by this job.**"
+          ) | Add-Content -Encoding utf8 $env:GITHUB_STEP_SUMMARY
       - name: Upload Windows Portable and checksums
         uses: actions/upload-artifact@v4
         with:
@@ -264,6 +293,7 @@ jobs:
           path: |
             dist/CAD360_VietNam_TBT_Portable.zip
             dist/SHA256SUMS.txt
+            dist/BUILD_INFO.txt
           if-no-files-found: error
       - name: Upload single Windows Setup
         uses: actions/upload-artifact@v4
