@@ -37,3 +37,11 @@ Tổng các ước lượng = 315%, chia 8 = **39,375% ≈ 39,4%**. Đây là ba
 - Các run kiểm thử mới có thể queued hoặc bị rút khỏi hàng do cập nhật code. Không dùng run cũ để chứng nhận code HEAD mới.
 - Không công bố link EXE tải về khi chưa có kết quả PASS cùng file thật.
 - Ưu tiên phát triển tiếp; tới mốc 15–30 bộ thay đổi sẽ đóng gói **một bộ** cùng nguồn, không đóng gói lặp lại theo từng commit.
+
+## Checkpoint tiếp theo — sửa điểm CAD và menu nổi (03/11/2026)
+- **Nhóm thao tác input**, không tính từng commit/test thành một “bộ” độc lập: lọc toàn bộ physical primary releases theo vùng canvas thật, topmost layer và menu overlay **trước** khi chọn điểm cuối và phát các click trước vào lệnh. Tránh chuỗi LINE/PLINE có nhiều click trong cùng frame bị trộn với click menu. Tests kiểm thứ tự và overlay-only. Chỉ tính nhóm này là một bộ thay đổi chức năng, không dùng mỗi commit để tăng bộ đếm.
+- Trên frame bình thường khi không có lệnh chờ điểm, không cấp phát Vec và không duyệt topmost layer lặp để lọc point events.
+- Windows CI bắt buộc phát hiện và chạy `canvas::eligible_point_release_tests`, vẫn giữ kiểm thử tọa độ nhả chuột và toàn bộ workspace.
+- Commit code: `07d256381974d2f418cf9e992ed828b702284569`; tests gate `6b76cf7c56717192193b4654a2ff4b4097c8cade`; tối ưu idle `b10b100ae9695d27f74fa52ce329bf6942edca11`.
+- **Chưa nghiệm thu**: chưa có Windows CI PASS, GUI test 100 lần/lệnh, FPS/P95 hoặc DXF thực 300/500MiB. Không tăng tỷ lệ 8 nhóm, giữ 39,4% baseline ước lượng và không thay việc nghiệm thu bằng số lượng commit.
+- **Đúng nhịp đóng gói**: trên các commit phát triển thông thường, workflow Direct EXE hiện trả `skipped` có chủ đích; chỉ mốc `build(cad360): B15..B30`, `release(cad360): B15..B30` hoặc kích hoạt thủ công mới chạy installer. Chưa yêu cầu đóng gói giữa chu kỳ.
