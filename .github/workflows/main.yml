@@ -169,6 +169,7 @@ jobs:
             @{ Label = "App"; Found = $appTests; Name = "cad_bim_recovery::tests::streamed_file_checksum_matches_in_memory_and_detects_modified_tail" },
             @{ Label = "App"; Found = $appTests; Name = "cad_bim_recovery::tests::recovery_drawing_exports_actual_drawing_not_editor_tab_state" },
             @{ Label = "App"; Found = $appTests; Name = "cad_bim_recovery::tests::corrupt_recovery_metadata_is_rejected_before_large_allocation" },
+            @{ Label = "App"; Found = $appTests; Name = "cad_bim_recovery::tests::cad_recovery_waits_for_open_decoder_but_remains_due_afterward" },
             @{ Label = "App"; Found = $appTests; Name = "bim_collab::tests::selection_requires_foreign_owner_edit_grant_not_just_view_grant" },
             @{ Label = "App"; Found = $appTests; Name = "bim_collab::tests::selection_rejects_wrong_floor_discipline_or_reference_view" },
             @{ Label = "App"; Found = $appTests; Name = "bim_collab::tests::render_bucket_keeps_primary_and_reference_scope_separate_for_four_views" },
@@ -237,6 +238,8 @@ jobs:
       - name: Test CAD+BIM recovery Drawing export and checksum
         shell: pwsh
         run: |
+          cargo test --locked -p cadcraft --bin cadcraft cad_bim_recovery::tests::cad_recovery_waits_for_open_decoder_but_remains_due_afterward -- --exact --nocapture
+          if ($LASTEXITCODE -ne 0) { throw "CAD recovery must postpone heavyweight autosave while OPEN decoders are active" }
           cargo test --locked -p cadcraft --bin cadcraft cad_bim_recovery::tests::corrupt_recovery_metadata_is_rejected_before_large_allocation -- --exact --nocapture
           if ($LASTEXITCODE -ne 0) { throw "Oversized CAD recovery manifest was not rejected" }
           cargo test --locked -p cadcraft --bin cadcraft cad_bim_recovery::tests::recovery_drawing_exports_actual_drawing_not_editor_tab_state -- --exact --nocapture
