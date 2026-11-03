@@ -329,6 +329,35 @@ mod tests {
         assert!(zip.windows(4).any(|x| x == b"PK\x05\x06"));
     }
     #[test]
+    fn xlsx_full_workbook_fixture_for_office_validation() {
+        let Ok(output) = std::env::var("CADTBT360_QTO_XLSX_FIXTURE") else { return; };
+        let config = ExportConfig {
+            project: "TBT - Dự án kiểm thử".into(),
+            investor: "Chủ đầu tư kiểm tra".into(),
+            document_number: "DB-001".into(),
+            decimals: 2,
+            ..ExportConfig::default()
+        };
+        let mut first = std::array::from_fn(|_| String::new());
+        first[1] = "CT.001".into();
+        first[2] = "Đo chiều dài kết cấu A".into();
+        first[3] = "Kết cấu".into();
+        first[7] = "Chiều dài".into();
+        first[9] = "m".into();
+        let mut second = first.clone();
+        second[1] = "CT.002".into();
+        second[2] = "Đo diện tích kết cấu B".into();
+        second[7] = "Diện tích".into();
+        second[9] = "m²".into();
+        let rows = [
+            ReportLine { group: "Kết cấu".into(), fields: first, quantity: 12.25, unit: "m".into() },
+            ReportLine { group: "Kết cấu".into(), fields: second, quantity: 8.5, unit: "m²".into() },
+        ];
+        write_xlsx(Path::new(&output), &config, &rows).unwrap();
+        assert!(std::fs::metadata(output).unwrap().len() > 3_000);
+    }
+
+    #[test]
     fn required_quantity_and_unit_cannot_be_hidden() {
         let mut config = ExportConfig::default();
         config.columns[8] = false;
