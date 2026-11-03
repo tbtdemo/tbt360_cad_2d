@@ -1313,6 +1313,13 @@ mod road_station_matching_tests {
         assert!(sections[0].plan_marker_handle.is_none());
     }
     #[test]
+    fn missing_station_is_not_counted_as_marker_conflict() {
+        let mut sections=vec![section(100.0,None)];
+        let markers=vec![takeoff_road::RoadPlanMarker{chainage_m:140.0,handle:"BB".into()}];
+        assert_eq!(qto_road_attach_markers(&mut sections,&markers),(0,1,0));
+        assert!(sections[0].plan_marker_handle.is_none());
+    }
+    #[test]
     fn zero_padded_hex_marker_is_considered_the_same_entity() {
         let mut sections=vec![section(100.0,Some("AA")),section(120.0,None)];
         let markers=vec![takeoff_road::RoadPlanMarker{chainage_m:120.0,handle:"0AA".into()}];
