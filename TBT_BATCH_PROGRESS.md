@@ -9,9 +9,9 @@
 ## Tiến độ đợt hiện tại
 | Lượt | Phạm vi | Commit mã nguồn | Test bổ sung | CI |
 | --- | --- | --- | --- | --- |
-| 01/15 | IFC/OBJ: giới hạn 1024 byte cho tên nhóm; chặn đỉnh trùng không liền kề | `39c4ea534bf801fd73184e7bf3876a6b52835ae4` | 3 Rust unit tests | Chưa xác nhận chạy |
+| 01/15 | IFC/OBJ: giới hạn 1024 byte cho tên nhóm; chặn đỉnh trùng không liền kề | `39c4ea534bf801fd73184e7bf3876a6b52835ae4` | 3 Rust unit tests | Source/metadata PASS; Rust tests chưa chạy |
 
 ### Trạng thái
 - Hoàn thành bằng chứng mã nguồn: **1/15** lượt tối thiểu.
 - Còn ít nhất **14** lượt trước khi đóng gói định kỳ.
-- Các thay đổi/test đang chờ kiểm chứng Windows Rust CI; chưa có EXE phát hành của đợt này.
+- Source inventory (run 41561782723) và IFC metadata test/source snapshot (run 41561782535) PASS. Windows Setup/Portable được skip đúng lịch 15–30. Rust unit tests chưa chạy; chưa có EXE phát hành của đợt này.
