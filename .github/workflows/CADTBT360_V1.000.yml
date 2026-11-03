@@ -55,6 +55,12 @@ jobs:
         working-directory: CADTBT360_V1.000
         shell: pwsh
         run: cargo test --locked -p cadcraft-engine --lib --no-run
+      - name: Verify CAD Text Style Manager and font properties
+        working-directory: CADTBT360_V1.000
+        shell: pwsh
+        run: |
+          cargo test --locked -p cadcraft-ui-egui text_style_editor_tests -- --test-threads=2
+          if ($LASTEXITCODE -ne 0) { throw "CAD font management UI regression test failed" }
       - name: Verify BIM desktop layout and tab regression tests
         working-directory: CADTBT360_V1.000
         shell: pwsh
