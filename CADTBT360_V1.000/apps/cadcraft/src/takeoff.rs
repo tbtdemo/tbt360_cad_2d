@@ -1237,9 +1237,7 @@ fn qto_road_find_marker_entity<'a>(doc: &'a cadcraft_doc::Drawing, handle: cadcr
     Ok(found)
 }
 
-fn qto_road_scan_markers(app: &CadApp, all_model: bool, include_layouts: bool) -> (Vec<takeoff_road::RoadPlanMarker>,usize) {
-    let selected=if all_model {Vec::new()} else {app.session.selection()};
-    let Ok(doc)=app.session.doc() else {return (Vec::new(),selected.len());};
+fn qto_road_scan_drawing_markers(doc: &cadcraft_doc::Drawing, selected: &[cadcraft_doc::Handle], all_model: bool, include_layouts: bool) -> (Vec<takeoff_road::RoadPlanMarker>,usize) {
     let mut markers=Vec::new();
     let mut skipped=0usize;
     let mut handles=BTreeSet::<String>::new();
@@ -1266,6 +1264,12 @@ fn qto_road_scan_markers(app: &CadApp, all_model: bool, include_layouts: bool) -
         }
     }
     (markers,skipped)
+}
+
+fn qto_road_scan_markers(app: &CadApp, all_model: bool, include_layouts: bool) -> (Vec<takeoff_road::RoadPlanMarker>,usize) {
+    let selected=if all_model {Vec::new()} else {app.session.selection()};
+    let Ok(doc)=app.session.doc() else {return (Vec::new(),selected.len());};
+    qto_road_scan_drawing_markers(doc,&selected,all_model,include_layouts)
 }
 
 fn qto_station_handle_key(value: &str) -> String {
@@ -1338,6 +1342,58 @@ mod road_station_matching_tests {
         let markers=vec![takeoff_road::RoadPlanMarker{chainage_m:140.0,handle:"BB".into()}];
         assert_eq!(qto_road_attach_markers(&mut sections,&markers),(0,1,0));
         assert!(sections[0].plan_marker_handle.is_none());
+    }
+    fn marker_text(handle:u64,value:&str)->cadcraft_doc::Entity {
+        let text=cadcraft_doc::Text{
+            insert:Default::default(),align_pt:None,height:2.5,value:value.into(),rotation:0.0,width_factor:1.0,oblique:0.0,
+            style:"Standard".into(),halign:Default::default(),valign:Default::default(),
+        };
+        cadcraft_doc::Entity::new(cadcraft_doc::Handle(handle),EntityKind::Text(text))
+    }
+    #[test]
+    fn scans_multiple_paper_layouts_and_resolves_original_marker_entity() {
+        let mut doc=cadcraft_doc::Drawing::new_metric();
+        doc.model.push(marker_text(0x11,"Km1+000"));
+        let mut p1=cadcraft_doc::Layout::new("Trắc ngang 1",1);
+        p1.entities.push(marker_text(0x21,"Km1+020"));
+        let mut p2=cadcraft_doc::Layout::new("Trắc ngang 2",2);
+        p2.entities.push(marker_text(0x31,"Km1+040"));
+        doc.layouts.push(p1);
+        doc.layouts.push(p2);
+        let (markers,skipped)=qto_road_scan_drawing_markers(&doc,&[],true,true);
+        assert_eq!(markers.len(),3);
+        assert_eq!(skipped,0);
+        let (only_model,_)=qto_road_scan_drawing_markers(&doc,&[],true,false);
+        assert_eq!(only_model.len(),1);
+        let found=qto_road_find_marker_entity(&doc,cadcraft_doc::Handle(0x31)).unwrap().unwrap();
+        assert_eq!(qto_road_station_from_entity(&doc,found).unwrap(),1040.0);
+        let mut sections=vec![section(1000.0,None),section(1020.0,None),section(1040.0,None)];
+        assert_eq!(qto_road_attach_markers(&mut sections,&markers),(3,0,0));
+    }
+    #[test]
+    fn duplicate_handle_across_model_and_paper_space_is_not_accepted_for_export() {
+        let mut doc=cadcraft_doc::Drawing::new_metric();
+        doc.model.push(marker_text(0x11,"Km1+000"));
+        let mut paper=cadcraft_doc::Layout::new("Trắc ngang",1);
+        paper.entities.push(marker_text(0x11,"Km1+020"));
+        doc.layouts.push(paper);
+        assert!(qto_road_find_marker_entity(&doc,cadcraft_doc::Handle(0x11)).is_err());
+        let (markers,skipped)=qto_road_scan_drawing_markers(&doc,&[],true,true);
+        assert_eq!(markers.len(),1);
+        assert_eq!(skipped,1);
+    }
+    #[test]
+    fn generated_multilayout_dxf_roundtrip_recovers_station_labels() {
+        let mut doc=cadcraft_doc::Drawing::new_metric();
+        doc.model.push(marker_text(0x11,"Km1+000"));
+        let mut paper=cadcraft_doc::Layout::new("Trac ngang",1);
+        paper.entities.push(marker_text(0x21,"Km1+020"));
+        doc.layouts.push(paper);
+        let dxf=cadcraft_io::write(&doc,"road_station_multilayout.dxf").unwrap();
+        let imported=cadcraft_io::read(&dxf,"road_station_multilayout.dxf").unwrap();
+        let (markers,_)=qto_road_scan_drawing_markers(&imported,&[],true,true);
+        assert!(markers.iter().any(|marker|(marker.chainage_m-1000.0).abs()<1e-6));
+        assert!(markers.iter().any(|marker|(marker.chainage_m-1020.0).abs()<1e-6));
     }
     #[test]
     fn zero_padded_hex_marker_is_considered_the_same_entity() {
