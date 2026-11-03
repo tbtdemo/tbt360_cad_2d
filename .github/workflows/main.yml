@@ -169,6 +169,11 @@ jobs:
         run: |
           cargo test --locked -p cadcraft --bin cadcraft cad_bim_recovery::tests -- --nocapture
           if ($LASTEXITCODE -ne 0) { throw "CAD/BIM autosave, multi-tab and corruption recovery regressions failed" }
+      - name: Test fail-safe CAD autosave on exit
+        shell: pwsh
+        run: |
+          cargo test --locked -p cadcraft-engine autosave::native::exit_recovery_tests -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw "Failed-final-snapshot autosave preservation regression failed" }
       - name: Test complete workspace
         run: cargo test --workspace --locked --no-fail-fast
 
