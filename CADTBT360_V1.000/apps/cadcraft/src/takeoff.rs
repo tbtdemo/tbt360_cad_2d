@@ -1482,6 +1482,7 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
     if !state.file_feedback.is_empty() { ui.label(&state.file_feedback); }
 
     ui.separator();
+    if state.source_mode == QtoSourceMode::EntireProject {
     egui::ScrollArea::both().auto_shrink([false, false]).show(ui, |ui| {
         egui::Grid::new("native_qto_table").striped(true).min_col_width(105.0).show(ui, |ui| {
             for heading in ["Layer", "Số đối tượng", "LINE", "ARC", "PLINE", "PLINE kín", "CIRCLE", "Khác/chưa đo"] {
@@ -1501,6 +1502,10 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
             }
         });
     });
+
+    } else {
+        ui.small("Bảng tổng hợp Layer toàn bản vẽ đã được ẩn. Dùng bảng xem trước phía trên và danh sách phép đo trong phạm vi chọn; muốn thống kê toàn bộ phải chủ động đổi Phạm vi bóc.");
+    }
 
     let source_validation=validate_sources(app,state);
     // Keep investor-ready Excel settings discoverable near the top of QTO,
@@ -1614,14 +1619,14 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
         ui.horizontal_wrapped(|ui| {
             if ui.button("Chọn tất cả phép đo đang lọc để xuất").clicked() {
                 for record in &state.records {
-                    if measurement_matches_filter(record, &state.search_text, state.status_filter) {
+                    if measurement_matches_filter(record, &state.search_text, state.status_filter) && qto_record_in_scope(record, qto_allowed_handles(app, state).as_ref()) {
                         state.export_omitted_ids.remove(&record.id);
                     }
                 }
             }
             if ui.button("Bỏ chọn phép đo đang lọc").clicked() {
                 for record in &state.records {
-                    if measurement_matches_filter(record, &state.search_text, state.status_filter) {
+                    if measurement_matches_filter(record, &state.search_text, state.status_filter) && qto_record_in_scope(record, qto_allowed_handles(app, state).as_ref()) {
                         state.export_omitted_ids.insert(record.id);
                     }
                 }
@@ -1633,7 +1638,7 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
                 for h in ["Xuất", "ID","Handle nguồn","Nguồn","Tầng","Bộ môn","Owner","Loại","Layer","Nhóm","Mã CT","Diễn giải","Giá trị","Trạng thái","Thao tác"] { ui.strong(h); }
                 ui.end_row();
                 for record in &state.records {
-                    if !measurement_matches_filter(record, &state.search_text, state.status_filter) { continue; }
+                    if !measurement_matches_filter(record, &state.search_text, state.status_filter) || !qto_record_in_scope(record, qto_allowed_handles(app, state).as_ref()) { continue; }
                     let value = match record.kind {
                         MeasureKind::Area => record.raw_value * af,
                         MeasureKind::Length | MeasureKind::Perimeter => record.raw_value * lf,
