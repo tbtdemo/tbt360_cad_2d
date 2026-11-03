@@ -36,13 +36,22 @@ pub struct Opening {
     queued: VecDeque<String>,
 }
 
+/// Windows paths entered through Open, drag-and-drop and file dialogs can
+/// use different separators or letter casing for the same in-flight drawing.
+fn same_pending_path(a: &str, b: &str) -> bool {
+    #[cfg(windows)]
+    { a.replace('/', "\\").eq_ignore_ascii_case(&b.replace('/', "\\")) }
+    #[cfg(not(windows))]
+    { a == b }
+}
+
 impl Opening {
     /// Start reading `path` on a worker thread.
     pub fn start(&mut self, path: &str) {
         // Repeated OPEN clicks must not queue the same drawing multiple times
         // while the first request is reading or waiting. A new OPEN after the
         // earlier request has been installed remains permitted.
-        if self.jobs.iter().any(|job| job.path == path) || self.queued.iter().any(|queued| queued == path) { return; }
+        if self.jobs.iter().any(|job| same_pending_path(&job.path, path)) || self.queued.iter().any(|queued| same_pending_path(queued, path)) { return; }
         // Large CAD files expand substantially during parsing and rendering. Never launch
         // multiple large decoders concurrently: queue later files rather than exhausting RAM.
         if !self.jobs.is_empty() || !self.queued.is_empty() {
@@ -231,6 +240,15 @@ mod tests {
         opening.start_next_after_install();
         assert_eq!(opening.jobs.first().map(|job| job.path.as_str()), Some("/nonexistent/dir/two.dxf"));
         assert_eq!(opening.queued.front().map(String::as_str), Some("/nonexistent/dir/three.dxf"));
+    }
+
+    #[test]
+    fn pending_path_comparison_respects_platform_file_system_conventions() {
+        assert!(super::same_pending_path("C:/Plans/Model.dxf", "C:/Plans/Model.dxf"));
+        #[cfg(windows)]
+        assert!(super::same_pending_path("C:/Plans/Model.dxf", "c:\\plans\\MODEL.DXF"));
+        #[cfg(not(windows))]
+        assert!(!super::same_pending_path("/Plans/Model.dxf", "/plans/MODEL.DXF"));
     }
 
     #[test]
