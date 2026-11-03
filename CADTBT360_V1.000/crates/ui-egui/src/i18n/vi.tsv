@@ -314,3 +314,17 @@
 	Zoom In	Phóng to
 	Zoom Out	Thu nhỏ
 	Zoom Previous	Khung nhìn trước
+# CADTBT360_V1.000 - Typography & Text Style Manager
+	Text Style...	Quản lý kiểu chữ...
+	Text & Annotation	Chữ và chú thích
+	Set Current	Đặt hiện hành
+	Current style	Kiểu chữ hiện hành
+	New style name	Tên kiểu chữ mới
+	Font Name	Tên font
+	Big Font	Font chữ lớn
+	Height (0 = ask)	Chiều cao (0 = nhập khi vẽ)
+	Width factor	Hệ số chiều rộng
+	Oblique angle	Góc nghiêng
+	Backwards	Viết ngược
+	Upside down	Lật ngược
+	Annotative	Theo tỷ lệ chú thích
