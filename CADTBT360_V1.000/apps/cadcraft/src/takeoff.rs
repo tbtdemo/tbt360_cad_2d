@@ -1178,18 +1178,33 @@ fn selected_measurements(app:&CadApp)->Vec<PendingMeasurement> {
     out
 }
 
-/// Recognize an explicit Km station from CAD TEXT, MTEXT or INSERT attributes.
-/// Do not infer labels from XY coordinates or hide ambiguous annotations.
-fn qto_road_station_from_entity(entity: &cadcraft_doc::Entity) -> Result<f64,String> {
+/// Decode an explicit Km station from CAD annotations. The station is read
+/// from written survey text, never from XY position. Empty/ambiguous means
+/// operator review is required.
+fn qto_road_station_from_entity(doc: &cadcraft_doc::Drawing, entity: &cadcraft_doc::Entity) -> Result<f64,String> {
     let mut stations=Vec::<f64>::new();
-    let values:Vec<&str>=match &entity.kind {
-        EntityKind::Text(text)=>vec![text.value.as_str()],
-        EntityKind::MText(text)=>vec![text.contents.as_str()],
-        EntityKind::Insert(block)=>block.attribs.iter().map(|attrib|attrib.text.value.as_str()).collect(),
-        _=>return Err("Đối tượng không phải TEXT, MTEXT hoặc Block có thuộc tính lý trình.".into()),
-    };
+    let mut values=Vec::<String>::new();
+    match &entity.kind {
+        EntityKind::Text(text)=>values.push(text.value.clone()),
+        EntityKind::MText(text)=>values.push(text.contents.clone()),
+        EntityKind::Insert(block)=>{
+            values.extend(block.attribs.iter().filter(|a|!a.invisible).map(|a|a.text.value.clone()));
+            // Non-attributed station labels embedded directly in the block
+            // definition. No nested-block transform/auto-approval is attempted.
+            if let Some(def)=doc.blocks.get(&block.block) {
+                for child in &def.entities {
+                    match &child.kind {
+                        EntityKind::Text(t)=>values.push(t.value.clone()),
+                        EntityKind::MText(t)=>values.push(t.contents.clone()),
+                        _=>{},
+                    }
+                }
+            }
+        },
+        _=>return Err("Đối tượng không phải TEXT, MTEXT hoặc Block có nhãn cọc.".into()),
+    }
     for value in values {
-        match takeoff_road::station_from_marker_text(value) {
+        match takeoff_road::station_from_marker_text(&value) {
             Ok(station)=>{if !stations.iter().any(|old|(*old-station).abs()<=1.0e-6) {stations.push(station);}},
             Err(error) if error.contains("nhiều lý trình")=>return Err(error),
             Err(_)=>{},
@@ -1202,17 +1217,25 @@ fn qto_road_station_from_entity(entity: &cadcraft_doc::Entity) -> Result<f64,Str
     }
 }
 
-/// Scan only objects the operator selected in the CAD canvas. The resulting
-/// marker handles are drawing references; ambiguous stations are not accepted.
-fn qto_road_scan_selected_markers(app: &CadApp) -> (Vec<takeoff_road::RoadPlanMarker>,usize) {
-    let handles=app.session.selection();
-    let Ok(doc)=app.session.doc() else {return (Vec::new(),handles.len());};
+fn qto_road_scan_markers(app: &CadApp, all_model: bool) -> (Vec<takeoff_road::RoadPlanMarker>,usize) {
+    let selected=if all_model {Vec::new()} else {app.session.selection()};
+    let Ok(doc)=app.session.doc() else {return (Vec::new(),selected.len());};
     let mut markers=Vec::new();
     let mut skipped=0usize;
-    for handle in handles {
-        match doc.model.get(handle).and_then(|entity|qto_road_station_from_entity(&entity).ok()) {
-            Some(chainage_m)=>markers.push(takeoff_road::RoadPlanMarker{chainage_m,handle:handle.hex()}),
-            None=>skipped+=1,
+    let mut inspect=|entity: &cadcraft_doc::Entity| {
+        if !matches!(&entity.kind,EntityKind::Text(_) | EntityKind::MText(_) | EntityKind::Insert(_)) {return;}
+        match qto_road_station_from_entity(doc,entity) {
+            Ok(chainage_m)=>markers.push(takeoff_road::RoadPlanMarker{chainage_m,handle:entity.handle.hex()}),
+            Err(_)=>skipped+=1,
+        }
+    };
+    if all_model {
+        // Explicit user action: scan the current model space, bounded for UI responsiveness.
+        for entity in doc.model.iter().take(100_000) {inspect(entity);}
+    } else {
+        for handle in selected {
+            if let Some(entity)=doc.model.get(handle) {inspect(entity);}
+            else {skipped+=1;}
         }
     }
     (markers,skipped)
@@ -1776,7 +1799,7 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
                 }
             }
             if ui.button("QUÉT NHÃN CỌC TỪ VÙNG CHỌN").clicked() {
-                let (markers,skipped)=qto_road_scan_selected_markers(app);
+                let (markers,skipped)=qto_road_scan_markers(app,false);
                 let mut linked=0usize;
                 let mut ambiguous=0usize;
                 let mut not_found=0usize;
@@ -1793,6 +1816,24 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
                     }
                 }
                 state.import_feedback=format!("Quét {} nhãn cọc hợp lệ; ghép {} trắc ngang; chưa tìm thấy {}; xung đột {}; bỏ qua {} đối tượng. Chưa tự phê duyệt; kiểm tra từng dòng trước khi xác nhận.",markers.len(),linked,not_found,ambiguous,skipped);
+            }
+            if ui.button("QUÉT CỌC TOÀN BỘ MODEL").clicked() {
+                let (markers,skipped)=qto_road_scan_markers(app,true);
+                let mut matched=0usize;
+                let mut missing=0usize;
+                let mut ambiguous=0usize;
+                for section in &mut state.road_sections {
+                    let candidates=markers.iter().filter(|marker|(marker.chainage_m-section.chainage_m).abs()<=0.001).collect::<Vec<_>>();
+                    match candidates.as_slice() {
+                        [marker] if section.plan_marker_handle.as_deref().is_none_or(|old|old.eq_ignore_ascii_case(&marker.handle))=>{
+                            section.plan_marker_handle=Some(marker.handle.clone());
+                            matched+=1;
+                        },
+                        []=>missing+=1,
+                        _=>ambiguous+=1,
+                    }
+                }
+                state.import_feedback=format!("Quét MODEL: {} nhãn cọc nhận dạng; ghép {}; thiếu {}; trùng/xung đột {}; bỏ qua {} nhãn. Chưa phê duyệt số liệu.",markers.len(),matched,missing,ambiguous,skipped);
             }
             if ui.small_button("Bỏ gắn cọc").clicked(){state.road_plan_marker_handle=None;}
             ui.label(format!("Cọc bình đồ: {}",state.road_plan_marker_handle.as_deref().unwrap_or("Chưa gắn")));
