@@ -3,7 +3,7 @@ name: CAD 360 Viet Nam - TBT Windows CI
 on:
   workflow_dispatch:
   push:
-    branches: [main]
+    branches: [main, tbt/cad360-active-release]
     paths:
       - 'SOURCE_CAD_R65/**'
       - 'installer/**'
@@ -126,6 +126,17 @@ jobs:
         run: cargo test --locked -p cadcraft-engine --test undo_control -- --nocapture
       - name: Test XREF and XCLIP integration
         run: cargo test --locked -p cadcraft-engine --test xref -- --nocapture
+      - name: Test CAD canvas input and file-opening regressions
+        shell: pwsh
+        run: |
+          cargo test --locked -p cadcraft-ui-egui canvas::point_batch_tests -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw "Canvas batched-click regression failed" }
+          cargo test --locked -p cadcraft-ui-egui canvas::point_release_tests -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw "Canvas first-release regression failed" }
+          cargo test --locked -p cadcraft-ui-egui opening::tests -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw "Large CAD opening regression failed" }
+          cargo test --locked -p cadcraft-engine capped_read::tests -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw "Progressive file read regression failed" }
       - name: Test complete workspace
         run: cargo test --workspace --locked --no-fail-fast
 
@@ -171,8 +182,9 @@ jobs:
         run: cargo test --locked -p cadcraft ${{ matrix.module }}::tests -- --nocapture
 
   release-windows:
-    name: "Release - Single Windows Setup"
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    name: "Windows Setup / Portable Candidate"
+    # Branch artifacts are release candidates; only main is a production release.
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/tbt/cad360-active-release')
     needs: [build-core, unified-ui, vi-tbt-branding, regression-tests, bim-module-regressions, qto-xref-smoke]
     runs-on: windows-latest
     defaults:
@@ -248,7 +260,7 @@ jobs:
       - name: Upload Windows Portable and checksums
         uses: actions/upload-artifact@v4
         with:
-          name: CAD360_VietNam_TBT_Windows_Portable_And_SHA256
+          name: CAD360_VietNam_TBT_Windows_Portable_And_SHA256_${{ github.ref == 'refs/heads/main' && 'Release' || 'Candidate' }}
           path: |
             dist/CAD360_VietNam_TBT_Portable.zip
             dist/SHA256SUMS.txt
@@ -256,6 +268,6 @@ jobs:
       - name: Upload single Windows Setup
         uses: actions/upload-artifact@v4
         with:
-          name: CAD360_VietNam_TBT_Windows_Setup
+          name: CAD360_VietNam_TBT_Windows_Setup_${{ github.ref == 'refs/heads/main' && 'Release' || 'Candidate' }}
           path: dist/CAD360_VietNam_TBT_Setup.exe
           if-no-files-found: error
