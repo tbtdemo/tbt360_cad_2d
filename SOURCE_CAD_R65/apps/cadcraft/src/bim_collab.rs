@@ -1579,6 +1579,10 @@ impl State {
     }
 
     fn load_snapshot_json(&mut self,value:&serde_json::Value)->Result<(),String> {
+        let target_project_id = value.get("project_id").and_then(serde_json::Value::as_str).unwrap_or("").trim();
+        if !self.pending_changes.iter().all(|change| change.synced) && target_project_id != self.project_id {
+            return Err("Không thể chuyển sang dự án BIM khác khi vẫn còn ChangeSet chưa đồng bộ".into());
+        }
         let backup=self.snapshot_json();
         match self.load_snapshot_json_in_place(value) {
             Ok(())=>Ok(()),
@@ -1991,10 +1995,16 @@ fn legacy_panel(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &m
             ui.text_edit_singleline(&mut state.project_name);
         });
         ui.horizontal(|ui| {
-            if ui.button("Lưu workspace BIM").clicked() {
+            let has_unsynced_edits = state.pending_changes.iter().any(|change| !change.synced);
+            if has_unsynced_edits {
+                ui.colored_label(egui::Color32::YELLOW, "Cảnh báo: workspace JSON không lưu hàng đợi thay đổi BIM chưa đồng bộ.");
+            }
+            if ui.add_enabled(!has_unsynced_edits, egui::Button::new("Lưu workspace BIM")).clicked() {
                 if let Some(path) = rfd::FileDialog::new().add_filter("TBT BIM Workspace", &["json"]).set_file_name("TBT360_BIM_WORKSPACE.json").save_file() {
                     if let Ok(data) = serde_json::to_vec_pretty(&state.snapshot_json()) {
-                        let _ = std::fs::write(path, data);
+                        if let Err(error) = std::fs::write(path, data) {
+                            log::error!("BIM workspace could not be saved: {error}");
+                        }
                     }
                 }
             }
