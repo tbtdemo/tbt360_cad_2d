@@ -525,6 +525,9 @@ impl CadApp {
             }
             self.opened(r);
         }
+        // Do not start another large decoder until all completed drawings have
+        // been fully installed into the session or released on failure.
+        self.opening.start_next_after_install();
     }
 
     /// Load a LISP file: its routine runs and may wait for the user (APPLOAD typed or from the
