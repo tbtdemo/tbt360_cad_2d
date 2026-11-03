@@ -230,6 +230,29 @@ mod tests {
     }
 
     #[test]
+    fn ten_queued_files_preserve_fifo_order_with_one_decoder_at_a_time() {
+        let mut opening = super::Opening::default();
+        for i in 0..10 {
+            opening.start(&format!("/nonexistent/cad360/fifo-{i:02}.dxf"));
+        }
+        assert_eq!(opening.jobs.len(), 1);
+        assert_eq!(opening.queued.len(), 9);
+        for i in 0..10 {
+            let expected = format!("/nonexistent/cad360/fifo-{i:02}.dxf");
+            assert_eq!(opening.jobs[0].path, expected);
+            let started = Instant::now();
+            while !opening.jobs.is_empty() && started.elapsed() < Duration::from_secs(10) {
+                opening.poll();
+                std::thread::sleep(Duration::from_millis(2));
+            }
+            assert!(opening.jobs.is_empty(), "file {i} did not finish");
+            opening.start_next_after_install();
+            assert!(opening.jobs.len() <= 1);
+        }
+        assert!(!opening.busy());
+    }
+
+    #[test]
     fn files_open_serially_to_bound_decoder_memory() {
         let mut opening = super::Opening::default();
         opening.start("/nonexistent/dir/first.dxf");
