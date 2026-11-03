@@ -40,6 +40,22 @@ Cập nhật: 2026-11-03 (Asia/Bangkok). Nhánh phát triển: `tbt/cad360-activ
 
 Chỉ ghi **ĐÃ CÓ B15-UI EXE** sau khi có run và artifact cụ thể đúng SHA, kiểm tra tệp setup/portable/source và SHA256. Chỉ ghi **ĐÃ NGHIỆM THU GIAO DIỆN** sau khi chạy ứng dụng trên Windows thực, chụp màn hình chương trình đang chạy (không phải ảnh dựng) và kiểm tra các tab.
 
+## Xác minh run và artifact bổ sung (03/11/2026)
+
+| Phiên bản | Run | Commit | Build / artifact | Test GUI |
+|---|---|---|---|---|
+| B15-UI gốc | [41623015347](https://github.com/tbtdemo/tbt360_cad_2d/actions/runs/41623015347) | `2625310f` | PASS; artifact `13225806171` | Chưa kiểm thử |
+| B15-UI có cổng regression | [41623511205](https://github.com/tbtdemo/tbt360_cad_2d/actions/runs/41623511205) | `953e6703` | EXE, Portable, Source ZIP đã được upload; artifact `13226737978` (63,929,983 bytes) | Regression BIM còn đang chạy, GUI chưa kiểm thử |
+| B15-UI Responsive (tab/KPI cuộn ngang) | [41627300710](https://github.com/tbtdemo/tbt360_cad_2d/actions/runs/41627300710) | `e34815ef` | Setup chưa có artifact; bước biên dịch `cargo xwin build` đang chạy | Chưa kiểm thử |
+| B15-UI Responsive — Windows native | [41627300916](https://github.com/tbtdemo/tbt360_cad_2d/actions/runs/41627300916) | `e34815ef` | Source inventory, source ZIP, preflight PASS; native Rust release build đang chạy | Chưa kiểm thử |
+
+**Tính theo 4 cổng nghiệm thu bằng chứng (source / compiled EXE / artifact / chạy Windows):**
+- B15-UI `953e6703`: **3/4 = 75%** (có artifact tải được, nhưng regression chưa có kết quả và GUI chưa kiểm thử).
+- Responsive `e34815ef`: **1/4 = 25%** (biên dịch đang chạy, chưa có artifact installer).
+- Các tỷ lệ này **không đo chất lượng hay % hoàn thiện tính năng** và không được cộng với 15/15 bộ chức năng.
+
+**Tải bản EXE mới nhất đã xác minh artifact:** [B15-UI run 41623511205, artifact 13226737978](https://github.com/tbtdemo/tbt360_cad_2d/actions/runs/41623511205/artifacts/13226737978). Bản Responsive chưa đủ điều kiện tải.
+
 ## Kết quả chạy GitHub Actions đã kiểm tra (2026-11-03, giờ Việt Nam)
 
 **B15-UI gốc — ĐÃ CÓ BỘ CÀI:**
