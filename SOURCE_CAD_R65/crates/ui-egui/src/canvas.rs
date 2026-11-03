@@ -682,9 +682,15 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui) {
         let earlier_press_on_canvas = i.pointer.press_origin().is_some_and(|origin| rect.contains(origin));
         primary_canvas_releases(&i.events, rect, earlier_press_on_canvas)
     });
-    let point_releases = eligible_point_releases(&releases, |pos| {
-        rect.contains(pos) && ui.ctx().layer_id_at(pos) == Some(ui.layer_id()) && !over_canvas_menu(app, pos)
-    });
+    // Only a coordinate command needs the extra release list. Avoid an
+    // allocation and repeated UI layer probes on idle hover/zoom/selection.
+    let point_releases = if point_prompt {
+        eligible_point_releases(&releases, |pos| {
+            rect.contains(pos) && ui.ctx().layer_id_at(pos) == Some(ui.layer_id()) && !over_canvas_menu(app, pos)
+        })
+    } else {
+        Vec::new()
+    };
     let valid_last_release = point_releases.last().copied();
     let point_hover_pos = point_input_position(point_prompt, valid_last_release, hover_pos);
     let point_inside = if point_prompt && valid_last_release.is_some() { true } else { inside };
