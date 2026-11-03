@@ -19,8 +19,8 @@ struct QsState {
     value: String,
     exclude: bool,
     append: bool,
-    /// (doc key, applyTo, type) → info reply.
-    info_key: Option<(usize, bool, String)>,
+    /// (drawing identity, revision, applyTo, type) → info reply.
+    info_key: Option<(usize, u64, bool, String)>,
     info: Value,
 }
 
@@ -38,6 +38,21 @@ impl Default for QsState {
             info: Value::Null,
         }
     }
+}
+
+/// Case-insensitive search for a Layer/Linetype name without allocating a
+/// full menu on every frame for drawings with thousands of definitions.
+fn qselect_matching_choices<'a>(choices: &'a [String], query: &str, max_results: usize) -> (Vec<&'a str>, usize) {
+    let needle = query.trim().to_lowercase();
+    let mut results = Vec::new();
+    let mut count = 0;
+    for choice in choices {
+        if needle.is_empty() || choice.to_lowercase().contains(&needle) {
+            count += 1;
+            if results.len() < max_results { results.push(choice.as_str()); }
+        }
+    }
+    (results, count)
 }
 
 const OPERATORS: &[(&str, &str)] =
@@ -64,8 +79,8 @@ pub fn qselect_dialog(app: &mut CadApp, ctx: &egui::Context, open: &mut bool) {
     let t = Tokens::get();
     let sid = egui::Id::unique("qselect_state");
     let mut st: QsState = ctx.data_mut(|d| d.get_temp(sid)).unwrap_or_default();
-    let key = app.session.state().map(|s| std::sync::Arc::as_ptr(&s.doc) as usize).unwrap_or(0);
-    let want = (key, st.apply_selection, st.ty.clone());
+    let (key, revision) = app.session.state().map(|s| (std::sync::Arc::as_ptr(&s.doc) as usize, s.revision)).unwrap_or((0, 0));
+    let want = (key, revision, st.apply_selection, st.ty.clone());
     if st.info_key.as_ref() != Some(&want) {
         let ty = if st.ty == "Multiple" { Value::Null } else { json!(st.ty) };
         st.info = app
@@ -107,12 +122,14 @@ pub fn qselect_dialog(app: &mut CadApp, ctx: &egui::Context, open: &mut bool) {
                             .collect()
                     })
                     .unwrap_or_default();
+                let old_type = st.ty.clone();
                 craft_ui::ComboBox::from_id_salt("qs_type").width(220.0).selected_text(crate::i18n::t(&st.ty)).show_ui(ui, |ui| {
                     ui.selectable_value(&mut st.ty, "Multiple".to_string(), crate::tl!("Multiple"));
                     for (n, c) in &types {
                         ui.selectable_value(&mut st.ty, n.clone(), format!("{} ({c})", crate::i18n::t(n)));
                     }
                 });
+                if st.ty != old_type { st.value.clear(); st.info_key = None; }
                 ui.end_row();
                 ui.label(crate::tl!("Properties:"));
                 let props: Vec<String> = st
@@ -121,6 +138,10 @@ pub fn qselect_dialog(app: &mut CadApp, ctx: &egui::Context, open: &mut bool) {
                     .and_then(Value::as_array)
                     .map(|a| a.iter().filter_map(|v| v.as_str().map(str::to_string)).collect())
                     .unwrap_or_default();
+                if !props.is_empty() && !props.iter().any(|p| p == &st.property) {
+                    st.property = props[0].clone();
+                    st.value.clear();
+                }
                 egui::Frame::NONE.fill(t.chrome_dark).corner_radius(3).inner_margin(4).show(ui, |ui| {
                     egui::ScrollArea::vertical().max_height(150.0).min_scrolled_height(150.0).show(ui, |ui| {
                         ui.set_width(212.0);
@@ -128,6 +149,7 @@ pub fn qselect_dialog(app: &mut CadApp, ctx: &egui::Context, open: &mut bool) {
                             for p in &props {
                                 if ui.selectable_label(st.property == *p, crate::i18n::t(&pretty(p))).clicked() {
                                     st.property = p.clone();
+                                    st.value.clear();
                                 }
                             }
                         });
@@ -157,16 +179,17 @@ pub fn qselect_dialog(app: &mut CadApp, ctx: &egui::Context, open: &mut bool) {
                         .labelled_by(value_label.id);
                     if !choices.is_empty() {
                         ui.menu_button("▼", |ui| {
-                            egui::ScrollArea::vertical().max_height(240.0).show(ui, |ui| {
-                                for c in &choices {
-                                    if ui
-                                        .button(if ["color", "type"].contains(&st.property.as_str()) { crate::i18n::t(c) } else { c.as_str() })
-                                        .clicked()
-                                    {
-                                        st.value = c.clone();
+                            let (filtered, count) = qselect_matching_choices(&choices, &st.value, 100);
+                            ui.label(format!("Tìm thấy {count} giá trị{}", if count > filtered.len() { " (hiển thị 100)" } else { "" }));
+                            ui.separator();
+                            egui::ScrollArea::vertical().max_height(260.0).show(ui, |ui| {
+                                for c in filtered {
+                                    if ui.button(if ["color", "type"].contains(&st.property.as_str()) { crate::i18n::t(c) } else { c }).clicked() {
+                                        st.value = c.to_string();
                                         ui.close();
                                     }
                                 }
+                                if count == 0 { ui.label("Không tìm thấy giá trị phù hợp"); }
                             });
                         });
                     }
@@ -432,5 +455,34 @@ mod tests {
     fn pretty_names() {
         assert_eq!(super::pretty("centerX"), "Center X");
         assert_eq!(super::pretty("layer"), "Layer");
+    }
+}
+
+
+#[cfg(test)]
+mod qselect_filter_tests {
+    use super::qselect_matching_choices;
+
+    #[test]
+    fn qselect_search_is_case_insensitive_and_counts_all_matches() {
+        let choices = vec!["A-WALL".to_string(), "a-door".to_string(), "S-Column".to_string()];
+        let (matches, count) = qselect_matching_choices(&choices, " A- ", 20);
+        assert_eq!(matches, vec!["A-WALL", "a-door"]);
+        assert_eq!(count, 2);
+    }
+
+    #[test]
+    fn qselect_large_layer_list_caps_rendered_rows_but_keeps_total() {
+        let choices: Vec<String> = (0..500).map(|i| format!("LAYER-{i:03}")).collect();
+        let (matches, count) = qselect_matching_choices(&choices, "layer", 100);
+        assert_eq!(count, 500);
+        assert_eq!(matches.len(), 100);
+        assert_eq!(matches[0], "LAYER-000");
+    }
+
+    #[test]
+    fn qselect_no_match_does_not_fall_back_to_entire_layer_list() {
+        let choices = vec!["WALL".to_string(), "DOOR".to_string()];
+        assert_eq!(qselect_matching_choices(&choices, "HVAC", 100), (Vec::new(), 0));
     }
 }
