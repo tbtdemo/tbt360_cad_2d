@@ -1254,7 +1254,9 @@ fn qto_road_report_lines(app: &CadApp, state: &State, config: &ExportConfig,
     if state.road_sections.len() < 2 { return Ok(Vec::new()); }
     let scale=state.scale_to_m().ok_or_else(||"Cần hiệu chuẩn tỷ lệ bản vẽ CAD trước khi tính đào/đắp theo lý trình.".to_string())?;
     let range=takeoff_road::parse_range(&state.road_range_start,&state.road_range_end)?;
-    let intervals=takeoff_road::intervals(&state.road_sections,scale,config.confirmed_only)?;
+    let scoped_sections=state.road_sections.iter().filter(|section|range.is_none_or(|(from,to)|
+        section.chainage_m>=from-1.0e-6 && section.chainage_m<=to+1.0e-6)).cloned().collect::<Vec<_>>();
+    let intervals=takeoff_road::intervals(&scoped_sections,scale,config.confirmed_only)?;
     let multiplier=config.unit_scale().powi(3);
     let mut out=Vec::new();
     for interval in intervals {
@@ -1768,7 +1770,8 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
         });
         if let Some(scale)=state.scale_to_m() {
             match takeoff_road::parse_range(&state.road_range_start,&state.road_range_end)
-                .and_then(|range|takeoff_road::intervals(&state.road_sections,scale,false)
+                .and_then(|range|takeoff_road::intervals(&state.road_sections.iter().filter(|section|range.is_none_or(|(from,to)|
+                    section.chainage_m>=from-1.0e-6 && section.chainage_m<=to+1.0e-6)).cloned().collect::<Vec<_>>(),scale,false)
                     .map(|parts|parts.into_iter().filter(|part|takeoff_road::within_range(part,range)).collect::<Vec<_>>())) {
                 Ok(segments)=>{
                     let total_cut=segments.iter().filter(|s|s.kind==EarthworkKind::Cut).map(|s|s.volume_m3).sum::<f64>();
@@ -1938,7 +1941,8 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
         let volume_count = state.volume_records.iter().filter(|volume| (!state.export_config.confirmed_only || volume.confirmed)
             && allowed_handles.as_ref().is_none_or(|handles| handles.contains(&volume.plan.handle) && handles.contains(&volume.section.handle))).count();
         let road_preview=state.scale_to_m().and_then(|scale| takeoff_road::parse_range(&state.road_range_start,&state.road_range_end).ok()
-            .and_then(|range|takeoff_road::intervals(&state.road_sections,scale,state.export_config.confirmed_only).ok()
+            .and_then(|range|takeoff_road::intervals(&state.road_sections.iter().filter(|section|range.is_none_or(|(from,to)|
+                section.chainage_m>=from-1.0e-6 && section.chainage_m<=to+1.0e-6)).cloned().collect::<Vec<_>>(),scale,state.export_config.confirmed_only).ok()
                 .map(|parts|parts.into_iter().filter(|part|takeoff_road::within_range(part,range)).collect::<Vec<_>>())));
         let road_count=road_preview.as_ref().map(|parts|parts.iter().filter(|part|allowed_handles.as_ref()
             .is_none_or(|handles|handles.contains(&part.source_start) && handles.contains(&part.source_end))).count()).unwrap_or(0);
