@@ -102,8 +102,15 @@ impl Opening {
         } else {
             let read = first.progress.bytes.load(Ordering::Relaxed);
             let total = first.progress.total.load(Ordering::Relaxed);
-            if total > 0 { format!("Đọc dữ liệu: {:.1}% ({:.1}/{:.1} MiB)", 100.0 * (read.min(total) as f64) / total as f64, read as f64 / 1_048_576.0, total as f64 / 1_048_576.0) }
-            else { "Đang mở file".to_string() }
+            if total > 0 {
+                let progress = 100.0 * (read.min(total) as f64) / total as f64;
+                let elapsed = first.started.elapsed().as_secs_f64();
+                let eta = if read > 0 && elapsed > 0.1 && read < total {
+                    let remaining = ((total - read) as f64 * elapsed / read as f64).ceil();
+                    if remaining.is_finite() && remaining < 86_400.0 { format!("; ETA đọc ~{remaining:.0}s") } else { String::new() }
+                } else { String::new() };
+                format!("Đọc dữ liệu: {progress:.1}% ({:.1}/{:.1} MiB){eta}", read as f64 / 1_048_576.0, total as f64 / 1_048_576.0)
+            } else { "Đang mở file".to_string() }
         };
         Some(if more == 0 { format!("Opening {name}... {secs:.0} s — {state}") } else { format!("Opening {name} and {more} more... {secs:.0} s — {state}") })
     }
@@ -189,6 +196,18 @@ mod tests {
             std::thread::sleep(Duration::from_millis(5));
         }
         assert!(!opening.busy(), "all queued open attempts must finish");
+    }
+
+    #[test]
+    fn opening_progress_reports_bytes_without_claiming_decode_complete() {
+        let p = super::LoadProgress::default();
+        p.total.store(100, std::sync::atomic::Ordering::Relaxed);
+        p.bytes.store(30, std::sync::atomic::Ordering::Relaxed);
+        assert!(!p.parsing.load(std::sync::atomic::Ordering::Acquire));
+        assert_eq!(p.bytes.load(std::sync::atomic::Ordering::Relaxed), 30);
+        p.bytes.store(100, std::sync::atomic::Ordering::Relaxed);
+        p.parsing.store(true, std::sync::atomic::Ordering::Release);
+        assert!(p.parsing.load(std::sync::atomic::Ordering::Acquire));
     }
 
     #[test]
