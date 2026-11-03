@@ -1931,10 +1931,37 @@ fn can_sync_from_dashboard(state: &State) -> bool {
 /// Dashboard cells intentionally use real BIM session values, never mock sample counts.
 fn collaboration_metric(ui: &mut egui::Ui, title: &str, value: usize, description: &str) {
     egui::Frame::group(ui.style()).show(ui, |ui| {
-        ui.set_min_width(120.0);
-        ui.label(title);
+        ui.set_min_width(148.0);
+        ui.set_max_width(192.0);
+        ui.strong(title);
         ui.heading(value.to_string());
         ui.small(description);
+    });
+}
+
+/// The CAD viewport may be narrow when docked. Keep navigation horizontal
+/// instead of wrapping labels into a tall vertical menu.
+fn collaboration_navigation(ui: &mut egui::Ui, active: &mut u8) {
+    egui::ScrollArea::horizontal().id_salt("tbt360_bim_tabs_horizontal").show(ui, |ui| {
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 6.0;
+            for (index, section) in CollaborationTab::ALL.iter().enumerate() {
+                if ui.add_sized([174.0, 38.0], egui::Button::new(section.title()).selected(*active == index as u8)).clicked() {
+                    *active = index as u8;
+                }
+            }
+        });
+    });
+}
+
+/// KPIs remain one horizontal row at every window size.
+fn collaboration_metrics_row(ui: &mut egui::Ui, metrics: &[(&str, usize, &str)]) {
+    egui::ScrollArea::horizontal().id_salt("tbt360_bim_kpi_scroll").show(ui, |ui| {
+        ui.horizontal(|ui| {
+            for &(title, value, description) in metrics {
+                collaboration_metric(ui, title, value, description);
+            }
+        });
     });
 }
 
@@ -1945,13 +1972,7 @@ pub fn panel(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut 
     ui.heading("PHỐI HỢP THIẾT KẾ");
     ui.label("BIM CỘNG TÁC  •  RFI / BCF  •  Issue / Clash  •  Đồng bộ");
     ui.add_space(10.0);
-    // Fixed five-column navigation: each tab occupies an equal horizontal cell.
-    ui.columns(5, |columns| {
-        for (index, section) in CollaborationTab::ALL.iter().enumerate() {
-            if columns[index].add_sized([columns[index].available_width(), 34.0],
-                egui::Button::new(section.title()).selected(tab == index as u8)).clicked() { tab = index as u8; }
-        }
-    });
+    collaboration_navigation(ui, &mut tab);
     ui.add_space(8.0);
     ui.separator();
     match CollaborationTab::ALL.get(tab as usize).copied().unwrap_or(CollaborationTab::Issues) {
@@ -1969,13 +1990,13 @@ pub fn panel(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut 
                 });
             });
             ui.add_space(8.0);
-            ui.columns(5, |cols| {
-                collaboration_metric(&mut cols[0], "Đối tượng CAD", health.total_entities, "Dữ liệu trong bản vẽ");
-                collaboration_metric(&mut cols[1], "Thiếu BIM scope", health.unscoped_entities, "Chưa gắn bộ môn / tầng");
-                collaboration_metric(&mut cols[2], "Issue đang mở", health.open_issues, "Yêu cầu phối hợp");
-                collaboration_metric(&mut cols[3], "Xung đột", health.conflicts, "Cần giải quyết");
-                collaboration_metric(&mut cols[4], "Chờ đồng bộ", health.pending_changes, "Thay đổi cục bộ");
-            });
+            collaboration_metrics_row(ui, &[
+                ("Đối tượng CAD", health.total_entities, "Dữ liệu bản vẽ"),
+                ("Thiếu BIM scope", health.unscoped_entities, "Chưa gắn tầng/bộ môn"),
+                ("Issue đang mở", health.open_issues, "Yêu cầu phối hợp"),
+                ("Xung đột", health.conflicts, "Cần giải quyết"),
+                ("Chờ đồng bộ", health.pending_changes, "Thay đổi cục bộ"),
+            ]);
             ui.add_space(8.0);
             ui.columns(2, |cols| {
                 cols[0].group(|ui| {
@@ -2161,12 +2182,12 @@ pub fn panel(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut 
         CollaborationTab::Sync => {
             ui.heading("ĐỒNG BỘ & PHIÊN LÀM VIỆC");
             let pending = state.pending_changes.iter().filter(|change| !change.synced).count();
-            ui.columns(4, |cols| {
-                collaboration_metric(&mut cols[0], "ChangeSet chờ gửi", pending, "Dữ liệu cục bộ");
-                collaboration_metric(&mut cols[1], "Xung đột", state.conflicts.len(), "Cần xử lý trước khi phát hành");
-                collaboration_metric(&mut cols[2], "Thành viên hiện diện", state.presence.len(), "Phiên online hiện tại");
-                collaboration_metric(&mut cols[3], "Nhật ký thay đổi", state.audit_log.len(), "Lịch sử có thật");
-            });
+            collaboration_metrics_row(ui, &[
+                ("ChangeSet chờ gửi", pending, "Dữ liệu cục bộ"),
+                ("Xung đột", state.conflicts.len(), "Cần xử lý"),
+                ("Thành viên hiện diện", state.presence.len(), "Phiên hiện tại"),
+                ("Nhật ký thay đổi", state.audit_log.len(), "Lịch sử thực"),
+            ]);
             ui.add_space(8.0);
             ui.group(|ui| {
                 ui.horizontal_wrapped(|ui| {
@@ -2224,12 +2245,12 @@ pub fn panel(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut 
         }
         CollaborationTab::Permissions => {
             ui.heading("QUYỀN TRUY CẬP");
-            ui.columns(4, |cols| {
-                collaboration_metric(&mut cols[0], "Thành viên", state.users.len(), "Tài khoản trong workspace");
-                collaboration_metric(&mut cols[1], "Quy tắc truy cập", state.access_rules.len(), "Theo tài khoản và bộ môn");
-                collaboration_metric(&mut cols[2], "Phạm vi chia sẻ", state.share_grants.len(), "Quyền được cấp");
-                collaboration_metric(&mut cols[3], "Đang hiện diện", state.presence.len(), "Phiên online");
-            });
+            collaboration_metrics_row(ui, &[
+                ("Thành viên", state.users.len(), "Tài khoản workspace"),
+                ("Quy tắc truy cập", state.access_rules.len(), "Theo phạm vi"),
+                ("Phạm vi chia sẻ", state.share_grants.len(), "Quyền được cấp"),
+                ("Đang hiện diện", state.presence.len(), "Phiên online"),
+            ]);
             ui.add_space(8.0);
             ui.columns(2, |cols| {
                 cols[0].group(|ui| {
