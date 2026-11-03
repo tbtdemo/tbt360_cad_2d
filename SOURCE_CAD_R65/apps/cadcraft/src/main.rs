@@ -201,8 +201,13 @@ impl eframe::App for App {
         }
         self.cad.cancel_screenshots();
         if dirty_drawings && final_snapshot.is_err() {
-            // Do not delete the only remaining recoverable geometry if paired
-            // snapshot serialization/disk IO failed on exit.
+            // A final best-effort urgent DXF save can cover edits made since
+            // the last timed autosave; join its writer before releasing the lock.
+            if let Some(saver) = self.cad.autosave.as_mut() {
+                let scheduled = saver.save_now(&self.cad.session);
+                log::warn!("Final paired snapshot failed; preserving autosave files, scheduled {scheduled} emergency DXF writes");
+            }
+            // Never delete the only remaining recoverable geometry on exit.
             self.cad.shutdown_autosave_preserving_recovery();
         } else {
             self.cad.shutdown_autosave();
