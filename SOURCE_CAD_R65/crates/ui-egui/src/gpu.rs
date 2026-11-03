@@ -202,6 +202,22 @@ mod gpu_memory_budget_tests {
     }
 
     #[test]
+    fn gpu_highlight_preserves_selected_segments_after_bounded_reservation() {
+        let mut list = DisplayList::default();
+        let h = cadcraft_doc::Handle(91);
+        for i in 0..2048usize {
+            let start = list.verts.len();
+            list.verts.push(Vec2::new(i as f64, 0.0));
+            list.verts.push(Vec2::new(i as f64, 2.0));
+            list.prims.push(cadcraft_render::DPrim { handle: h, color: Rgb(255, 255, 255), aci7: true, lw: 0.0, transparency: 0, kind: Kind::Polyline, start: start.try_into().unwrap(), len: 2 });
+        }
+        let selected: Vec<usize> = (0..list.prims.len()).collect();
+        let mesh = build_highlight_mesh(&list, &selected, Vec2::ZERO, [255, 255, 0, 255], 2.0, false);
+        assert_eq!(mesh.quad_instances(), selected.len());
+        assert_eq!(mesh_initial_capacity(100_000_000usize.saturating_mul(INSTANCE_SIZE)), 1024 * 1024);
+    }
+
+    #[test]
     fn mesh_build_still_preserves_every_small_line_after_bounded_reservation() {
         let mut list = DisplayList::default();
         let h = cadcraft_doc::Handle(42);
@@ -285,7 +301,10 @@ pub fn build_mesh(list: &DisplayList, origin: Vec2, bg: Rgb, lwdisplay: bool) ->
 /// the callback's `dash` dashes the lines) outlined. A wipeout is always outlined, since filling it
 /// would hide the drawing; infinite lines are left to the CPU (they are clipped per frame).
 pub fn build_highlight_mesh(list: &DisplayList, prims: &[usize], origin: Vec2, color: [u8; 4], width: f32, dashed: bool) -> MeshData {
-    let mut m = MeshData::default();
+    // Large window selections mostly draw line/point instances. Reserve a
+    // bounded estimate to avoid geometric Vec growth/reallocation, without
+    // ever limiting the actual selected primitive count.
+    let mut m = MeshData { quads: Vec::with_capacity(mesh_initial_capacity(prims.len().saturating_mul(INSTANCE_SIZE))), ..Default::default() };
     for prim in prims.iter().filter_map(|&i| list.prims.get(i)) {
         let pts = list.points(prim);
         match prim.kind {
