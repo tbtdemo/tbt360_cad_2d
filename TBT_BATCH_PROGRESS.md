@@ -46,6 +46,7 @@
 | 25/30 | Giới hạn cấp phát trước Shapes CPU mỗi frame; bỏ qua mesh Tris/Mask nằm ngoài viewport; tests culling, bổ sung Windows CI | `22db948430e9a258cf79b9ecc76add365f698c40` | 2 tests reserve/visibility, targeted Windows CI | Chưa đo RAM/FPS, Windows PASS chưa xác minh |
 | 26/30 | Giới hạn dự trữ trước GPU Mesh CPU 1 MiB mỗi vertex buffer, bỏ Vec cho transform mỗi frame, bảo vệ upload lặp | `dc8c785167c5909caf9bd1db3ccf5899e0bf6ed7` | 2 regression tests dự trữ hình học, targeted Windows CI | Chưa xác minh Cargo/Windows PASS, RAM/VRAM/EXE |
 | 27/30 | Chuyển ghi CAD+BIM multi-tab từ giữ tất cả DXF trong RAM sang từng bản vẽ; tăng budget phục hồi lên 4 GiB; kiểm tra checksum theo streaming | `2dc46e8a239a6fd2db890fd7b29ef42e4280d81c` | 2 tests checksum/giới hạn + CI toàn bộ cad_bim_recovery::tests | Chưa có Windows CI/GUI/recovery PASS được xác minh |
+| 28/30 | Thoát lỗi lưu CAD+BIM không xóa autosave các bản vẽ còn dirty; thử lưu DXF khẩn cấp và chờ worker; test bảo toàn file | `6a7be12fe0352bfd116430270b3b0853bf1f4782` | Test giữ file khi snapshot lỗi / xóa ở clean exit; targeted Windows CI | Chưa xác minh Windows Cargo/GUI/recovery PASS |
 
 ### Trạng thái
 - Hoàn thành bằng chứng mã nguồn: **16 lượt mã nguồn (15 tối thiểu + 1 dự phòng)**.
@@ -248,3 +249,13 @@
 - Hai tests mới: checksum streaming tương ứng checksum trên RAM và nhận ra thay đổi byte cuối; xác nhận ngưỡng phục hồi lớn hơn 512 MiB. Windows CI có targeted gate chạy toàn bộ `cad_bim_recovery::tests` gồm multi-tab, corrupt và checksum.
 - Commits: `af25f320110a76857117336036e7508bbce045eb`, `6628057f9f2a35cf82611d302fd4c51a48ce2e54`, `c94e0debfe021590f0ccacbb21d10322629010a6`, `2dc46e8a239a6fd2db890fd7b29ef42e4280d81c`.
 - Giới hạn còn lại: encode DXF cho từng tab vẫn đồng bộ trên UI thread trong snapshot CAD+BIM định kỳ, có thể gây lag với tab 300–500 MiB; phục hồi vẫn đọc từng tab đầy đủ để decode; chỉ giới hạn peak so với giữ mọi tab cùng lúc, chưa có benchmark. Lượt 27/30, còn 3 lượt dự kiến; 39,4% ước lượng 8 mục chưa nghiệm thu, Windows/EXE PASS chưa có chứng cứ. Sync/conflict/clash PAUSED, account permissions ACTIVE.
+
+### Lượt 28 — không xóa bản phục hồi khi lần lưu cuối thất bại
+- Phát hiện lỗi ở đường thoát: `App::on_exit` gọi `paired_recovery.save_now` nhưng dù lỗi vẫn chạy `cad.shutdown_autosave()`, xóa autosave còn có thể là bản phục hồi hình học duy nhất. Với file lớn/hết dung lượng/đĩa lỗi, rủi ro mất dữ liệu chưa được loại trừ.
+- `autosave.rs`: thêm `Autosaver::shutdown_preserving_recovery()`: đợi tất cả writer đang chạy; **không xóa file DXF đã ghi**; xóa instance lock để lần mở sau thấy file cần phục hồi. `shutdown()` cũ vẫn giữ clean-up khi thoát thành công.
+- `ui-egui/src/autosave.rs`: thêm `CadApp::shutdown_autosave_preserving_recovery` chỉ gọi trên đường lỗi.
+- `apps/cadcraft/src/main.rs`: chỉ gọi bảo toàn file nếu còn `DocState::is_dirty()` và snapshot CAD+BIM cuối lỗi; trước đó gọi `Autosaver::save_now` để thử flush những thay đổi chưa tới SAVETIME, chờ worker trong đường shutdown bảo toàn. Nếu không lỗi hoặc không dirty vẫn dọn file theo hành vi cũ.
+- Regression test `autosave::native::exit_recovery_tests` tạo file mô phỏng, xác nhận file còn sau shutdown bảo toàn và bị dọn khi shutdown bình thường. `.github/workflows/main.yml` thêm targeted gate.
+- Commits: `9a49287e91a5e1ce74585f2f8eebcea4fcecce6d`, `ec1f780ed8b90e179b8728505ebb708ac7a6c89a`, `cb1d9c2b0ede8adf11527e1102927f22d61f70a7`, `b8d07268e99d8d7ff9171b2aa8af46c45116e83e`, `8c073c9166dc10f515c6155efd22dc6578562d43`, `7b65dbdc9095077738adfcc8afd0302eff5c3bec`, `6a7be12fe0352bfd116430270b3b0853bf1f4782`.
+- **Giới hạn:** Cặp snapshot CAD+BIM 5 phút vẫn encode trên UI; R28 không khẳng định đã giải quyết lag. Khi `SAVETIME=0` hoặc hệ thống mất dung lượng, không bảo đảm cứu được phần hình học chưa ghi; chỉ bảo vệ các autosave đã có và thử ghi thêm. Chưa có Windows CI PASS, GUI smoke hay EXE artifact được xác minh.
+- Mốc **28/30**, còn hai lượt trong kế hoạch ban đầu, nhưng số lượt không thay thế release gate. 8 nhóm active vẫn 39,4% ước lượng chưa nghiệm thu; Sync/conflict/clash PAUSED, account permissions ACTIVE.
