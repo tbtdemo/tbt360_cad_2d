@@ -457,6 +457,24 @@ mod native {
             }
         }
 
+        #[cfg(test)]
+        #[test]
+        fn failed_final_snapshot_keeps_recovery_file_but_regular_exit_deletes_it() {
+            let dir = std::env::temp_dir().join(format!("cad-autosave-exit-{}-{}", std::process::id(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+            std::fs::create_dir_all(&dir).unwrap();
+            let keep = dir.join(file_name("drawing", "123-abc", 11));
+            std::fs::write(&keep, b"complete recovery data").unwrap();
+            let mut first = Autosaver::new("123-abc");
+            first.docs.insert(11, Tracked { file: Some(keep.to_string_lossy().to_string()), ..Default::default() });
+            first.shutdown_preserving_recovery();
+            assert!(keep.exists(), "a failed final backup must preserve the most recent autosave");
+            let mut normal = Autosaver::new("123-abc");
+            normal.docs.insert(11, Tracked { file: Some(keep.to_string_lossy().to_string()), ..Default::default() });
+            normal.shutdown();
+            assert!(!keep.exists(), "normal clean exit may clear its transient autosaves");
+            std::fs::remove_dir_all(dir).unwrap();
+        }
+
         /// The app is closing normally: finish writes in progress, then delete this app's autosave
         /// files and its lock file.
         pub fn shutdown(&mut self) {
