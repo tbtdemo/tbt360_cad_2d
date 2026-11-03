@@ -156,6 +156,7 @@ jobs:
             @{ Label = "UI"; Found = $uiTests; Name = "opening::tests::ten_queued_files_preserve_fifo_order_with_one_decoder_at_a_time" },
             @{ Label = "UI"; Found = $uiTests; Name = "opening::tests::repeated_open_clicks_do_not_queue_duplicate_cad_decoders" },
             @{ Label = "UI"; Found = $uiTests; Name = "canvas::tests::prim_index_releases_large_old_drawing_after_switch_with_empty_selection" },
+            @{ Label = "UI"; Found = $uiTests; Name = "canvas::tests::single_object_highlight_on_large_drawing_does_not_allocate_global_lookup" },
             @{ Label = "UI"; Found = $uiTests; Name = "canvas::draw::highlight_view_culling_tests::offscreen_selected_geometry_does_not_need_cpu_highlight_shapes" },
             @{ Label = "UI"; Found = $uiTests; Name = "gpu::gpu_memory_budget_tests::gpu_highlight_preserves_selected_segments_after_bounded_reservation" },
             @{ Label = "UI"; Found = $uiTests; Name = "opening::tests::card_text_names_the_file_and_counts_queued_ones" },
@@ -201,6 +202,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "LINE first-click regression failed" }
           cargo test --locked -p cadcraft-ui-egui canvas::tests::circle_command_accepts_the_first_point_without_second_click -- --exact --nocapture
           if ($LASTEXITCODE -ne 0) { throw "CIRCLE first-click regression failed" }
+          cargo test --locked -p cadcraft-ui-egui canvas::tests::single_object_highlight_on_large_drawing_does_not_allocate_global_lookup -- --exact --nocapture
+          if ($LASTEXITCODE -ne 0) { throw "Large CAD selection should not build unnecessary 55k-object global index" }
           cargo test --locked -p cadcraft-ui-egui canvas::tests::prim_index_releases_large_old_drawing_after_switch_with_empty_selection -- --exact --nocapture
           if ($LASTEXITCODE -ne 0) { throw "CAD tab switch retained stale large highlight index" }
           cargo test --locked -p cadcraft-ui-egui opening::tests -- --nocapture
