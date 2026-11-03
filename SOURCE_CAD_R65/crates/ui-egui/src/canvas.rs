@@ -478,6 +478,7 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui) {
         } if rect.contains(*pos))))
     });
     let pressed_primary = pressed_primary || (point_prompt && (resp.drag_stopped_by(egui::PointerButton::Primary) || raw_canvas_release));
+    let mut command_finished_in_batch = false;
     if point_prompt && inside && !on_menu && pressed_primary && !middle_down && app.cmd.options.is_none() && app.cmd.buffer.is_empty() {
         let releases: Vec<egui::Pos2> = ui.input(|i| {
             i.events
@@ -500,6 +501,10 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui) {
                 let w = xf.to_world(*pos);
                 if let Err(e) = app.session.input(Input::Point(w)) {
                     app.session.echo(e.to_string());
+                }
+                if !app.session.prompting() {
+                    command_finished_in_batch = true;
+                    break;
                 }
             }
         }
@@ -564,7 +569,7 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui) {
         app.canvas.drag_window = false;
     }
     // Never consume a click on an egui menu or an overlay owned by the canvas.
-    let pressed_primary = pressed_primary && !picked && !hatch_dialog && !idle_dbl && !on_menu;
+    let pressed_primary = pressed_primary && !picked && !hatch_dialog && !idle_dbl && !on_menu && !command_finished_in_batch;
     let key: CycleKey = (
         app.session.running.as_ref().map(|r| r.id.clone()),
         app.session.current_prompt().map(|p| p.message),
