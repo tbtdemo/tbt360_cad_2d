@@ -45,7 +45,8 @@ jobs:
           if-no-files-found: error
 
   build-exe:
-    if: "${{ (github.event_name == 'workflow_dispatch') || (github.event_name == 'push' && startsWith(github.event.head_commit.message, 'release(cad360): B')) }}"
+    if: "${{ (github.event_name == 'workflow_dispatch') || (github.event_name == 'push' && (startsWith(github.event.head_commit.message, 'release(cad360): B') || startsWith(github.event.head_commit.message, 'build(cad360): B'))) }}"
+    needs: source-preflight
     name: TBT CAD360 Windows Setup
     runs-on: windows-latest
     timeout-minutes: 120
@@ -71,9 +72,9 @@ jobs:
           if ($env:GITHUB_EVENT_NAME -eq 'workflow_dispatch') {
             $batchCount = [int]$env:MANUAL_BATCH_COUNT
           } else {
-            $match = [regex]::Match($env:RELEASE_MESSAGE, '^release[(]cad360[)]: B([0-9]{2})')
-            if (!$match.Success) { throw 'Commit must use release(cad360): B15 through B30' }
-            $batchCount = [int]$match.Groups[1].Value
+            $match = [regex]::Match($env:RELEASE_MESSAGE, '^(release|build)[(]cad360[)]: B([0-9]{2})')
+            if (!$match.Success) { throw 'Commit must start with release(cad360): B15..B30 or build(cad360): B15..B30' }
+            $batchCount = [int]$match.Groups[2].Value
           }
           if ($batchCount -lt 15 -or $batchCount -gt 30) { throw 'Packaging is only allowed after 15-30 implementation batches' }
           "CAD360_RELEASE_LABEL=R$('{0:D2}' -f $batchCount)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
@@ -179,7 +180,7 @@ jobs:
           if-no-files-found: error
           retention-days: 30
       - name: Build milestone source archive
-        if: "${{ github.event_name == 'workflow_dispatch' || startsWith(github.event.head_commit.message, 'release(cad360): B') }}"
+        if: "${{ github.event_name == 'workflow_dispatch' || startsWith(github.event.head_commit.message, 'release(cad360): B') || startsWith(github.event.head_commit.message, 'build(cad360): B') }}"
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
@@ -192,6 +193,53 @@ jobs:
           Pop-Location
           if ($archiveExitCode -ne 0) { throw 'Cannot archive milestone sources' }
           if (!(Test-Path $sourceArchive)) { throw 'Source ZIP missing' }
+      - name: Package full R30 candidate bundle
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $root = '../dist'
+          $label = $env:CAD360_RELEASE_LABEL
+          $portableDir = Join-Path $root "CAD360_TBT_Portable_$label"
+          New-Item -ItemType Directory -Force -Path $portableDir | Out-Null
+          foreach ($name in @('cadcraft.exe', 'cadcraft-cli.exe')) {
+            Copy-Item "target/release/$name" (Join-Path $portableDir $name) -Force
+          }
+          Set-Content -Encoding utf8 (Join-Path $portableDir 'README.txt') 'CAD 360 Viet Nam - TBT Portable Windows x64. Extract all files before running cadcraft.exe.'
+          $portable = Join-Path $root 'CAD360_VietNam_TBT_Portable.zip'
+          if (Test-Path $portable) { Remove-Item $portable -Force }
+          Compress-Archive -Path "$portableDir/*" -DestinationPath $portable
+          $setup = Join-Path $root 'CAD360_VietNam_TBT_Setup.exe'
+          $source = Join-Path $root "CAD360_TBT_Source_$label.zip"
+          $manifest = Join-Path $root 'SHA256SUMS.txt'
+          @($setup, $portable, $source) | ForEach-Object {
+            if (!(Test-Path $_) -or (Get-Item $_).Length -lt 10000) { throw "Missing or incomplete candidate file: $_" }
+            $hash = (Get-FileHash -Algorithm SHA256 -Path $_).Hash.ToLowerInvariant()
+            "$hash  $(Split-Path $_ -Leaf)"
+          } | Set-Content -Encoding ascii $manifest
+          if ((Get-Content $manifest).Count -ne 3) { throw 'Candidate checksum manifest must contain 3 files' }
+          foreach ($name in @('CAD360_VietNam_TBT_Setup.exe', 'CAD360_VietNam_TBT_Portable.zip', "CAD360_TBT_Source_$label.zip")) {
+            $file = Join-Path $root $name
+            $actual = (Get-FileHash -Algorithm SHA256 -Path $file).Hash.ToLowerInvariant()
+            if (!(Get-Content $manifest | Where-Object { $_ -eq "$actual  $name" })) { throw "SHA256 mismatch: $name" }
+          }
+          @(
+            "Commit=$env:GITHUB_SHA"
+            "RunId=$env:GITHUB_RUN_ID"
+            "Ref=$env:GITHUB_REF"
+            'Status=UNVERIFIED_GUI_CANDIDATE'
+          ) | Set-Content -Encoding utf8 (Join-Path $root 'BUILD_INFO.txt')
+      - name: Upload complete Windows candidate bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: CAD360_TBT_R30_Setup_Portable_Source_Candidate
+          path: |
+            dist/CAD360_VietNam_TBT_Setup.exe
+            dist/CAD360_VietNam_TBT_Portable.zip
+            dist/CAD360_TBT_Source_R30.zip
+            dist/SHA256SUMS.txt
+            dist/BUILD_INFO.txt
+          if-no-files-found: error
+          retention-days: 30
       - name: Publish validated Windows milestone release
         if: "${{ github.event_name == 'workflow_dispatch' || startsWith(github.event.head_commit.message, 'release(cad360): B') }}"
         shell: pwsh
@@ -208,5 +256,6 @@ jobs:
           foreach ($file in @($setup, $checksum, $source)) {
             if (!(Test-Path $file)) { throw "Missing release file: $file" }
           }
-          gh release create $tag $setup $checksum $source --target $env:GITHUB_SHA --title "CAD360 TBT $label - Windows x64" --notes "Windows setup built from source commit $env:GITHUB_SHA, validated by BIM tests and build gates. Source archive and SHA256SUMS included." --latest
+          $portable = '../dist/CAD360_VietNam_TBT_Portable.zip'
+          gh release create $tag $setup $portable $checksum $source --target $env:GITHUB_SHA --title "CAD360 TBT $label - Windows x64" --notes "Windows setup built from source commit $env:GITHUB_SHA, validated by BIM tests and build gates. Source archive and SHA256SUMS included." --latest
           if ($LASTEXITCODE -ne 0) { throw 'Publishing GitHub release failed' }
