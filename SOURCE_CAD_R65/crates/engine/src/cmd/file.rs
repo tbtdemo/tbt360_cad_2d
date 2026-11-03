@@ -20,11 +20,8 @@ pub use pgp::{MAX_ALIASES, alias_name, command_id};
 pub(crate) use pgp::{specs as alias_specs, user_alias};
 pub use template::{qnew_template, set_qnew_template};
 
-/// Largest drawing accepted from a local path, matching the per-file xref limit. A path naming an
-/// endless device must be rejected before it exhausts memory (CWE-400), so native opens read
-/// through [`crate::capped_read`] rather than buffering to EOF.
-#[cfg(not(target_arch = "wasm32"))]
-const MAX_DRAWING_BYTES: usize = 512 << 20;
+/// Drawing paths are read incrementally from regular files with fallible allocations.
+/// This removes the old 512 MiB input ceiling; decoding/rendering still need sufficient RAM.
 /// Largest `.scr` script accepted from a local path.
 #[cfg(not(target_arch = "wasm32"))]
 const MAX_SCRIPT_BYTES: usize = 64 << 20;
@@ -274,13 +271,19 @@ pub struct ReadFile {
 
 /// Read and decode `path` (the slow half of `OPEN {path}`). Needs no session; runs anywhere.
 pub fn read_file(path: &str) -> std::result::Result<ReadFile, String> {
+    read_file_with_progress(path, |_, _| {})
+}
+
+/// Report physical bytes read / current file length. Parsing follows after the final read callback;
+/// these byte counts must not be presented as an overall parse/render percentage.
+pub fn read_file_with_progress(path: &str, mut progress: impl FnMut(u64, u64)) -> std::result::Result<ReadFile, String> {
     #[cfg(not(target_arch = "wasm32"))]
     {
-        let r = std::panic::catch_unwind(|| {
-            let bytes =
-                crate::capped_read::read_capped(std::path::Path::new(path), MAX_DRAWING_BYTES).map_err(|e| bad("open", format!("{path}: {e}")))?;
+        let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let bytes = crate::capped_read::read_progressive(std::path::Path::new(path), &mut progress)
+                .map_err(|e| bad("open", format!("{path}: {e}")))?;
             read_bytes(&bytes, path, Some(path.to_string()))
-        });
+        }));
         match r {
             Ok(r) => r.map_err(|e| e.to_string()),
             Err(_) => Err(bad("open", format!("{path}: the file could not be read")).to_string()),
@@ -288,7 +291,7 @@ pub fn read_file(path: &str) -> std::result::Result<ReadFile, String> {
     }
     #[cfg(target_arch = "wasm32")]
     {
-        let _ = path;
+        let _ = (path, progress);
         Err(bad("open", "paths are not available on the web; pass `data`").to_string())
     }
 }
@@ -346,8 +349,8 @@ fn run_open(s: &mut Session, p: &Value) -> Result<Value> {
         let path = _path;
         #[cfg(not(target_arch = "wasm32"))]
         {
-            let bytes =
-                crate::capped_read::read_capped(std::path::Path::new(path), MAX_DRAWING_BYTES).map_err(|e| bad("open", format!("{path}: {e}")))?;
+            let bytes = crate::capped_read::read_progressive(std::path::Path::new(path), |_, _| {})
+                .map_err(|e| bad("open", format!("{path}: {e}")))?;
             let i = open_bytes(s, &bytes, path, Some(path.to_string()))?;
             super::blocks::xref::after_open(s, i);
             return Ok(opened(s, i, true));
