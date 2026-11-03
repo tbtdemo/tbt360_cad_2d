@@ -47,19 +47,23 @@ impl Recovery {
     pub fn restore_latest(&mut self, app: &mut CadApp, bim: &mut bim_collab::State) -> Result<(), String> {
         let root = self.root.as_deref().ok_or("Chưa xác định được thư mục phục hồi")?;
         let pair = latest_pair(root).ok_or("Không tìm thấy bản phục hồi CAD+BIM hợp lệ")?;
-        let (drawing_path, metadata) = check_pair(&pair)?;
-        // A checksum proves unchanged bytes, not that those bytes form a readable drawing.
-        // Decode before opening so malformed geometry cannot replace the current CAD tab.
-        let geometry = std::fs::read(&drawing_path).map_err(|e| format!("Không đọc được DXF phục hồi: {e}"))?;
-        validate_recovery_dxf(&geometry)?;
-        // Validate BIM before opening CAD geometry; never overwrite newer unsynced BIM edits.
+        let (drawings, metadata, active) = check_bundle(&pair)?;
+        // Validate every drawing before opening any tab. A valid checksum alone is insufficient.
+        for drawing_path in &drawings {
+            let geometry = std::fs::read(drawing_path).map_err(|e| format!("Không đọc được DXF phục hồi: {e}"))?;
+            validate_recovery_dxf(&geometry)?;
+        }
         let mut proposed = bim_collab::State::default();
         proposed.load_snapshot_json(&metadata)?;
         if bim.pending_changes.iter().any(|change| !change.synced) {
             return Err("Có ChangeSet BIM chưa đồng bộ. Hãy lưu bản hiện tại trước khi phục hồi.".into());
         }
-        let title = format!("CAD+BIM phục hồi {}", pair.file_name().unwrap_or_default().to_string_lossy());
-        app.run("recover", serde_json::json!({ "path": drawing_path.to_string_lossy().to_string(), "copy": true, "title": title }))?;
+        // Restore the active tab last so it remains selected. All files are opened as copies.
+        for (index, drawing_path) in drawings.iter().enumerate().filter(|(index, _)| *index != active)
+            .chain(drawings.iter().enumerate().filter(|(index, _)| *index == active)) {
+            let title = format!("CAD+BIM phục hồi {} - bản vẽ {}", pair.file_name().unwrap_or_default().to_string_lossy(), index + 1);
+            app.run("recover", serde_json::json!({ "path": drawing_path.to_string_lossy().to_string(), "copy": true, "title": title }))?;
+        }
         *bim = proposed;
         self.last_signature = None;
         Ok(())
@@ -97,9 +101,17 @@ fn new_generation_name() -> Result<String, String> {
 }
 
 fn save_pair(root: &Path, app: &CadApp, bim: &bim_collab::State) -> Result<(), String> {
-    let drawing = app.session.doc().map_err(|e| format!("Không có bản vẽ CAD: {e}"))?;
-    let dxf = cadcraft_io::write(drawing, "cad360_recovery.dxf").map_err(|e| format!("Không xuất được DXF: {e}"))?;
-    if dxf.is_empty() || dxf.len() as u64 > MAX_RECOVERY_BYTES { return Err("Kích thước hình học DXF không hợp lệ".into()); }
+    if app.session.docs.is_empty() { return Err("Không có bản vẽ CAD đang mở".into()); }
+    if app.session.active >= app.session.docs.len() { return Err("Chỉ số bản vẽ đang hoạt động không hợp lệ".into()); }
+    let mut drawings = Vec::with_capacity(app.session.docs.len());
+    let mut total_bytes = 0u64;
+    for (index, doc) in app.session.docs.iter().enumerate() {
+        let name = format!("drawing-{index:04}.dxf");
+        let dxf = cadcraft_io::write(doc, "cad360_recovery.dxf").map_err(|e| format!("Không xuất được DXF bản vẽ {}: {e}", index + 1))?;
+        total_bytes = total_bytes.checked_add(dxf.len() as u64).ok_or("Tổng dung lượng CAD vượt giới hạn")?;
+        if dxf.is_empty() || total_bytes > MAX_RECOVERY_BYTES { return Err("Tổng dung lượng CAD phục hồi không hợp lệ hoặc vượt 512 MB".into()); }
+        drawings.push((name, dxf, doc.uid, doc.revision));
+    }
     let workspace = serde_json::to_vec_pretty(&bim.snapshot_json()).map_err(|e| e.to_string())?;
     std::fs::create_dir_all(root).map_err(|e| e.to_string())?;
     let name = new_generation_name()?;
@@ -107,11 +119,18 @@ fn save_pair(root: &Path, app: &CadApp, bim: &bim_collab::State) -> Result<(), S
     let committed = root.join(name);
     std::fs::create_dir(&pending).map_err(|e| e.to_string())?;
     let result = (|| -> Result<(), String> {
-        write_synced(&pending.join("drawing.dxf"), &dxf)?;
+        let mut documents = Vec::with_capacity(drawings.len());
+        for (name, dxf, uid, revision) in &drawings {
+            write_synced(&pending.join(name), dxf)?;
+            documents.push(serde_json::json!({
+                "file": name, "bytes": dxf.len(), "checksum": content_checksum(dxf),
+                "uid": uid, "revision": revision
+            }));
+        }
         write_synced(&pending.join("workspace.json"), &workspace)?;
         let manifest = serde_json::json!({
-            "format": 1, "drawing_bytes": dxf.len(), "workspace_bytes": workspace.len(),
-            "drawing_checksum": content_checksum(&dxf), "workspace_checksum": content_checksum(&workspace),
+            "format": 2, "documents": documents, "active": app.session.active,
+            "workspace_bytes": workspace.len(), "workspace_checksum": content_checksum(&workspace),
             "project_id": bim.project_id,
             "created_at_unix_ms": SystemTime::now().duration_since(UNIX_EPOCH).map_err(|e| e.to_string())?.as_millis()
         });
@@ -132,7 +151,50 @@ fn write_synced(path: &Path, bytes: &[u8]) -> Result<(), String> {
     file.sync_all().map_err(|e| e.to_string())
 }
 
+fn check_bundle(dir: &Path) -> Result<(Vec<PathBuf>, serde_json::Value, usize), String> {
+    let manifest: serde_json::Value = serde_json::from_slice(&std::fs::read(dir.join("commit.json")).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
+    let format = manifest.get("format").and_then(serde_json::Value::as_u64).unwrap_or(0);
+    if format == 1 {
+        let (path, workspace) = check_pair_v1(dir)?;
+        return Ok((vec![path], workspace, 0));
+    }
+    if format != 2 { return Err("Định dạng phục hồi không hợp lệ".into()); }
+    let docs = manifest.get("documents").and_then(serde_json::Value::as_array).ok_or("Thiếu danh sách bản vẽ CAD")?;
+    if docs.is_empty() || docs.len() > 256 { return Err("Số bản vẽ CAD không hợp lệ".into()); }
+    let active = manifest.get("active").and_then(serde_json::Value::as_u64).ok_or("Thiếu chỉ số bản vẽ đang hoạt động")? as usize;
+    if active >= docs.len() { return Err("Chỉ số bản vẽ đang hoạt động vượt giới hạn".into()); }
+    let mut paths = Vec::with_capacity(docs.len());
+    let mut total = 0u64;
+    for (index, doc) in docs.iter().enumerate() {
+        let expected_name = format!("drawing-{index:04}.dxf");
+        if doc.get("file").and_then(serde_json::Value::as_str) != Some(expected_name.as_str()) { return Err("Tên file CAD không khớp manifest".into()); }
+        let path = dir.join(expected_name);
+        let bytes = std::fs::read(&path).map_err(|e| e.to_string())?;
+        total = total.checked_add(bytes.len() as u64).ok_or("Dung lượng CAD vượt giới hạn")?;
+        if bytes.is_empty() || total > MAX_RECOVERY_BYTES || doc.get("bytes").and_then(serde_json::Value::as_u64) != Some(bytes.len() as u64) || doc.get("checksum").and_then(serde_json::Value::as_str) != Some(content_checksum(&bytes).as_str()) {
+            return Err("Một bản vẽ CAD bị thiếu hoặc sai checksum".into());
+        }
+        paths.push(path);
+    }
+    let workspace_bytes = std::fs::read(dir.join("workspace.json")).map_err(|e| e.to_string())?;
+    if workspace_bytes.is_empty() || workspace_bytes.len() > 64 * 1024 * 1024 ||
+        manifest.get("workspace_bytes").and_then(serde_json::Value::as_u64) != Some(workspace_bytes.len() as u64) ||
+        manifest.get("workspace_checksum").and_then(serde_json::Value::as_str) != Some(content_checksum(&workspace_bytes).as_str()) {
+        return Err("Metadata BIM không đầy đủ hoặc sai checksum".into());
+    }
+    let workspace: serde_json::Value = serde_json::from_slice(&workspace_bytes).map_err(|e| e.to_string())?;
+    if workspace.get("project_id") != manifest.get("project_id") || workspace.get("version").and_then(serde_json::Value::as_u64) != Some(2) {
+        return Err("Dữ liệu BIM và bản CAD không cùng snapshot".into());
+    }
+    Ok((paths, workspace, active))
+}
+
 fn check_pair(dir: &Path) -> Result<(PathBuf, serde_json::Value), String> {
+    let (drawings, workspace, active) = check_bundle(dir)?;
+    Ok((drawings[active].clone(), workspace))
+}
+
+fn check_pair_v1(dir: &Path) -> Result<(PathBuf, serde_json::Value), String> {
     let manifest: serde_json::Value = serde_json::from_slice(&std::fs::read(dir.join("commit.json")).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
     if manifest.get("format").and_then(serde_json::Value::as_u64) != Some(1) { return Err("Định dạng phục hồi không hợp lệ".into()); }
     let drawing_path = dir.join("drawing.dxf");
@@ -167,7 +229,7 @@ fn generations(root: &Path) -> Vec<PathBuf> {
 }
 
 fn latest_pair(root: &Path) -> Option<PathBuf> {
-    generations(root).into_iter().find(|dir| check_pair(dir).is_ok())
+    generations(root).into_iter().find(|dir| check_bundle(dir).is_ok())
 }
 
 fn prune_generations(root: &Path) {
@@ -175,7 +237,7 @@ fn prune_generations(root: &Path) {
     // folders must never displace the last recoverable CAD geometry and BIM state.
     let mut verified = 0usize;
     for candidate in generations(root) {
-        if check_pair(&candidate).is_err() { continue; }
+        if check_bundle(&candidate).is_err() { continue; }
         verified += 1;
         if verified > MAX_GENERATIONS {
             if let Err(error) = std::fs::remove_dir_all(&candidate) {
