@@ -2612,7 +2612,7 @@ mod r18_tests {
 
     #[test]
     fn pointcloud_voxel_and_clipplane_are_non_destructive_filters() {
-        let mut s=Session::new(); s.new_doc();
+        let mut s=Session::new();
         run_pointcloud(&mut s,&json!({"name":"FILTERS","points":[[0,0,0],[0.1,0.1,0.1],[2,0,0],[-2,0,0]]})).unwrap();
         let v=run_pointcloud_voxel(&mut s,&json!({"name":"FILTERS","size":1.0})).unwrap();
         assert_eq!(v["visible"],3);
@@ -2623,7 +2623,7 @@ mod r18_tests {
 
     #[test]
     fn facet_dedup_reports_then_deletes_duplicate_faces() {
-        let mut s=Session::new(); s.new_doc();
+        let mut s=Session::new();
         let a=run_3dface(&mut s,&json!({"points":[[0,0,0],[1,0,0],[0,1,0]]})).unwrap();
         let b=run_3dface(&mut s,&json!({"points":[[1,0,0],[0,1,0],[0,0,0]]})).unwrap();
         let ha=a["handle"].as_str().unwrap(); let hb=b["handle"].as_str().unwrap();
@@ -2705,6 +2705,7 @@ mod r25_tests {
 #[cfg(test)]
 mod r30_tests {
     use super::*; use crate::Session;
+    use cadcraft_doc::Handle;
     #[test] fn triangulate_and_weld_facets(){
         let mut s=Session::new();
         let h=s.add_entity(EntityKind::Face3d(Face3d{corners:[Vec3::new(0.0,0.0,0.0),Vec3::new(1.0,0.0,0.0),Vec3::new(1.0,1.0,0.0),Vec3::new(0.0,1.0,0.0)],hidden_edges:0})).unwrap();
