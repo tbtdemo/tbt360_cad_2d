@@ -92,8 +92,8 @@ fn row_start(index: usize, height: u32) -> String {
 fn detail_row_height(selected: &[usize], fields: &[String; 12]) -> u32 {
     let wrapped_lines = selected.iter().filter(|&&index| index != 0 && index != 8).map(|&index| {
         let estimated_characters_per_line = (FIELDS[index].1 * 0.85).round().max(8.0) as usize;
-        fields[index].split('\\n').map(|line| {
-            let width = line.chars().map(|c| if c.is_ascii() { 1 } else { 1 }).sum::<usize>();
+        fields[index].split('\n').map(|line| {
+            let width = line.chars().count();
             width.max(1).div_ceil(estimated_characters_per_line)
         }).sum::<usize>().max(1)
     }).max().unwrap_or(1);
