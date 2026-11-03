@@ -37,6 +37,7 @@
 | 16/30 | Không hủy Windows build khi có push mới; ghi BUILD_INFO commit/run/ref; xác minh lại SHA256 cả Setup + Portable; in Actions step summary | `f5d95c61637c64eb448869ca76efca7f81bac99b` | Bổ sung kiểm tra manifest/artefact trong workflow; chưa kiểm tra Windows thực | CI Windows và artifact vẫn chưa có bằng chứng PASS |
 | 17/30 | Tạm ngưng phát triển sync/conflict; giữ account permissions; sửa trạng thái hàng đợi OPEN và thêm gates LINE/CIRCLE/ESC trên Windows | `6c8a66fcecc9cdc808e2e616908662eb36d3ad5f` | 1 regression test trạng thái queued; 4 gates mục tiêu bổ sung | Windows test PASS + artifact chưa xác minh |
 | 18/30 | Tách thời gian đọc/giải mã CAD, log mỗi file theo ms và hiển thị thời gian giải mã; đồng nhất mốc Instant của worker/UI | `75952a357f31a6dbd553d6e02872cfcdad262cf1` | 1 regression test đồng hồ khi decode bắt đầu; đã bổ sung CI opening::tests ở R15 | Chưa xác minh Cargo/Windows GUI/EXE PASS |
+| 19/30 | Git archive nguồn đúng commit Windows; Setup/Portable/Source cùng SHA256; kiểm tra có Cargo.toml, Cargo.lock, installer và workflow | `dacacfd0b15a19110d821c7b55b399abea09fcf1` | Kiểm tra sự tồn tại file trong archive và 3 SHA256 trong CI; chưa chạy Windows | Windows run PASS, EXE và artifact vẫn chưa xác minh |
 
 ### Trạng thái
 - Hoàn thành bằng chứng mã nguồn: **16 lượt mã nguồn (15 tối thiểu + 1 dự phòng)**.
@@ -168,3 +169,11 @@
 - Commits `6c01c27b86fd231f0665f2a3d4b42553c5b1397c`, `75952a357f31a6dbd553d6e02872cfcdad262cf1`.
 - R18 không tiếp tục phát triển đồng bộ/xung đột; vẫn giữ lại phân quyền tài khoản và kiểm tra quyền xem/sửa.
 - **18/30 lượt tối đa; 12 lượt còn lại dự phòng**. Ước lượng 8 đầu việc vẫn 39,4% chưa nghiệm thu, do chưa có kết quả Windows PASS/benchmark/EXE thực.
+
+### Lượt 19 — bộ 3 artifacts đi cùng một SHA nguồn (đang chờ CI thật)
+- `.github/workflows/main.yml`: sau khi build Windows và kiểm thử, tạo `CAD360_VietNam_TBT_Source.zip` từ `git archive HEAD` đúng commit run, phân biệt Candidate/Release như Setup và Portable.
+- Có kiểm tra `git rev-parse HEAD == GITHUB_SHA`, kiểm tra trong ZIP có `SOURCE_CAD_R65/Cargo.toml`, `SOURCE_CAD_R65/Cargo.lock`, `installer/CAD360_TBT_Windows.iss`, workflow build; bước bắt lỗi sẽ làm job thất bại.
+- `SHA256SUMS.txt` giờ gồm ba dòng (Setup.exe, Portable.zip, Source.zip); job tái kiểm chứng ba hash trước khi publish. Artifact ZIP nguồn nằm cùng run với hai artifact Windows.
+- Commits `13aa97201386390ff5662a4806127bdb5a2df0cf`, `dacacfd0b15a19110d821c7b55b399abea09fcf1`.
+- Sự có mặt của source archive trong workflow **không phải bằng chứng đã có file**. Chưa có Windows CI PASS và file tải về được xác minh; không nâng % tính năng, vẫn 39,4% ước lượng trên 8 đầu việc đang hoạt động.
+- Sync/conflict và clash bộ môn vẫn PAUSED. Phân quyền tài khoản tiếp tục ACTIVE.
