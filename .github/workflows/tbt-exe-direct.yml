@@ -195,7 +195,7 @@ jobs:
           Pop-Location
           if ($archiveExitCode -ne 0) { throw 'Cannot archive milestone sources' }
           if (!(Test-Path $sourceArchive)) { throw 'Source ZIP missing' }
-      - name: Package full R30 candidate bundle
+      - name: Package 15-30 batch candidate bundle
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
@@ -233,11 +233,11 @@ jobs:
       - name: Upload complete Windows candidate bundle
         uses: actions/upload-artifact@v4
         with:
-          name: CAD360_TBT_R30_Setup_Portable_Source_Candidate
+          name: CAD360_TBT_B15_B30_Setup_Portable_Source_Candidate
           path: |
             dist/CAD360_VietNam_TBT_Setup.exe
             dist/CAD360_VietNam_TBT_Portable.zip
-            dist/CAD360_TBT_Source_R30.zip
+            dist/CAD360_TBT_Source_R*.zip
             dist/SHA256SUMS.txt
             dist/BUILD_INFO.txt
           if-no-files-found: error
