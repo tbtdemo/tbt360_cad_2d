@@ -983,14 +983,6 @@ impl State {
         self.audit("ENTITY_UPDATE_QUEUED", Some(self.active_floor_id), Some(self.active_discipline), Some(handle), format!("Revision {} -> {}", base_revision, local_revision));
     }
 
-    fn mark_all_synced(&mut self) {
-        for change in &mut self.pending_changes {
-            change.synced = true;
-        }
-        self.dirty_local_changes = 0;
-        self.audit("SYNC_ALL_CONFIRMED", Some(self.active_floor_id), Some(self.active_discipline), None, "All pending local changes marked synced");
-    }
-
     fn remote_revision(&self, handle: cadcraft_doc::Handle) -> u64 {
         self.remote_revisions.iter().find(|(h, _)| *h == handle).map(|(_, r)| *r).unwrap_or(0)
     }
@@ -3087,15 +3079,19 @@ mod tests {
     }
 
     #[test]
-    fn offline_changes_are_queued_and_can_be_marked_synced() {
+    fn offline_changes_stay_pending_until_explicit_mock_sync() {
         let mut state = State::default();
-        state.queue_update(cadcraft_doc::Handle(10), 2, 3);
+        let handle = cadcraft_doc::Handle(10);
+        state.set_remote_revision(handle, 2);
+        state.queue_update(handle, 2, 3);
         assert_eq!(state.dirty_local_changes, 1);
         assert_eq!(state.pending_changes.len(), 1);
         assert!(!state.pending_changes[0].synced);
-        state.mark_all_synced();
+        assert_eq!(state.remote_revision(handle), 2);
+        state.sync_pending_changes();
         assert_eq!(state.dirty_local_changes, 0);
         assert!(state.pending_changes[0].synced);
+        assert_eq!(state.remote_revision(handle), 3);
     }
 
     #[test]
