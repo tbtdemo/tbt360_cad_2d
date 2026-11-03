@@ -74,3 +74,6 @@ Ngày 03/11/2026; nhánh: `tbt/cad360-active-release`.
 - `d6c47e72c2f125a883ad5c04bff1e7175a030a1f`: Windows CI bắt buộc phát hiện và chạy hai regression mới.
 - **Mốc 15/15 đạt bằng thay đổi mã nguồn có chức năng**, không tính số commit thành phần trăm. Kích hoạt riêng commit `build(cad360): B15` để chạy một lần Setup EXE, Portable ZIP, Source ZIP cùng SHA256, không xuất bản production khi chưa nghiệm thu.
 - Bản ứng viên B15 và các commit tiếp sau có thể chạy song song; Windows build thật và artifacts được báo PASS chỉ sau khi GitHub hoàn thành, không dựa trên queued/preflight.
+
+## Mốc đóng gói B15
+B15 gồm 15 bộ chức năng đã ghi ở trên. Build Windows là ứng viên kiểm thử, độc lập với các commit tối ưu tiếp theo, không công bố thành bản phát hành cho tới khi có artifact thật, SHA256 và kiểm chứng GUI Windows.
