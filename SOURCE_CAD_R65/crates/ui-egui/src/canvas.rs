@@ -491,8 +491,12 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui) {
         // The last release is dispatched by the regular cursor path below. Earlier
         // releases must use their own geometry rather than the final cursor's snap:
         // reusing the last snap would place multiple points at the same coordinate.
+        // A command may finish on an earlier event (for example a two-point
+        // operation). Remaining clicks must not start an accidental selection.
+        // The main path will handle only the last release if the prompt is still active.
         if let Some((_, earlier)) = releases.split_last() {
             for pos in earlier.iter().filter(|p| rect.contains(**p) && ui.ctx().layer_id_at(**p) == Some(ui.layer_id())) {
+                if !app.session.prompting() { break; }
                 let w = xf.to_world(*pos);
                 if let Err(e) = app.session.input(Input::Point(w)) {
                     app.session.echo(e.to_string());
