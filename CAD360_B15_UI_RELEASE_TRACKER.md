@@ -1,3 +1,16 @@
+## B20 — Sửa bài test BIM Sync để khóa chất lượng bản CAD B19 (03/11/2026)
+
+**B19 còn chờ EXE:** [Ubuntu cross run 41640950657](https://github.com/tbtdemo/tbt360_cad_2d/actions/runs/41640950657) đang cross-compile; [Windows Native run 41640950401](https://github.com/tbtdemo/tbt360_cad_2d/actions/runs/41640950401) đang build release; cả hai chưa có Setup EXE của commit `0e5ac8a1` tại thời điểm kiểm tra. Source ZIP và preflight Native đã upload.
+
+**Phát hiện lỗi cụ thể từ log test của CI B19 [run 41640907180](https://github.com/tbtdemo/tbt360_cad_2d/actions/runs/41640907180), job `125934368115`:** `bim_sync::tests::duplicate_object_handle_in_one_changeset_is_rejected_atomically` fail vì test tự tạo một object với `base_revision=0`, `local_revision=2`, vi phạm quy tắc `local=base+1` và bị từ chối trước khi kiểm tra trùng handle. 24/25 test BIM Sync đạt, 1 FAIL. Đây là lỗi dữ liệu test, không có bằng chứng lỗi thuật toán production.
+
+**Đã sửa:** đổi item trùng về `base_revision=0`, `local_revision=1`, bổ sung assert `remote_updated_by == "duplicate-handle-in-batch"` để test thực sự xác minh từ chối nguyên tử do handle trùng. Không thay đổi chính sách kiểm tra revision trong transport. [Commit `930939e0`](https://github.com/tbtdemo/tbt360_cad_2d/commit/930939e010bc3638c76d11db6026c45ebdc234af).
+
+**Đóng gói B20** gồm QSELECT hiệu suất cao và sửa test BIM Sync: [commit `b1a2861d`](https://github.com/tbtdemo/tbt360_cad_2d/commit/b1a2861dc30c82de08f69cd914f40046adb7edae). [Ubuntu Windows EXE run 41641837917](https://github.com/tbtdemo/tbt360_cad_2d/actions/runs/41641837917) và [Windows Native run 41641837877](https://github.com/tbtdemo/tbt360_cad_2d/actions/runs/41641837877) đã chạy, **chưa xác minh có EXE B20**.
+
+**Cổng bàn giao B20:** 1/4=25% (source). Đợi kiểm thử BIM Sync PASS + các bước biên dịch và upload artifact. Chưa nghiệm thu GUI Windows.
+
+
 ## B19 — QSELECT Append nhanh trên bản vẽ lớn (03/11/2026)
 
 **B18 artifact đã xác minh:** run [41639678494](https://github.com/tbtdemo/tbt360_cad_2d/actions/runs/41639678494), commit `a5f3c105`, artifact [13232447591](https://github.com/tbtdemo/tbt360_cad_2d/actions/runs/41639678494/artifacts/13232447591) `CAD360-TBT-REAL-Windows-x64-Setup-Portable-Source-B15-UI` (63,951,592 bytes). Cross-compile, package, upload PASS; test hồi quy BIM đang chạy lúc ghi, GUI Windows chưa nghiệm thu. Tên artifact B15-UI giữ theo workflow nhưng mã commit là B18.
