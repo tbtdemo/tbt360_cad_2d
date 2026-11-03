@@ -291,7 +291,23 @@ pub fn write_xlsx(path: &Path, config: &ExportConfig, rows: &[ReportLine]) -> Re
     let mut out = std::fs::File::create(&tmp).map_err(|e| e.to_string())?;
     out.write_all(&zip).map_err(|e| e.to_string())?;
     out.sync_all().map_err(|e| e.to_string())?;
-    std::fs::rename(&tmp, path).map_err(|e| e.to_string())
+    drop(out);
+    // Windows cannot rename over an existing XLSX file. Preserve the old
+    // workbook in a temporary backup until the new archive is committed.
+    if path.exists() {
+        let backup = path.with_extension("xlsx.previous");
+        if backup.exists() { std::fs::remove_file(&backup).map_err(|e| format!("Không thể thay bản sao lưu Excel: {e}"))?; }
+        std::fs::rename(path, &backup).map_err(|e| format!("Không thể thay file đang mở trong Excel: {e}"))?;
+        match std::fs::rename(&tmp, path) {
+            Ok(()) => { let _ = std::fs::remove_file(backup); Ok(()) },
+            Err(error) => {
+                let restored = std::fs::rename(&backup, path).is_ok();
+                Err(format!("Không thể lưu Excel mới: {error}. Khôi phục bản cũ: {restored}"))
+            }
+        }
+    } else {
+        std::fs::rename(&tmp, path).map_err(|e| e.to_string())
+    }
 }
 #[cfg(test)]
 mod tests {
