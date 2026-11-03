@@ -12,3 +12,6 @@
 - Đã kích hoạt workflow để build bản R05; chỉ chuyển thành PASS khi GitHub Release có file EXE tải được.
 - Môi trường test: GitHub-hosted Windows x64 (MSVC, Rust 1.95, Inno Setup 6).
 - Mã nguồn: nhánh release đang hoạt động. Không sử dụng `CAD_ORIGINAL_014_REFERENCE` hoặc `QTO_R134_WEB_WORKSPACE` làm binary đầu vào.
+
+## R05 - build retry after YAML repair
+- Rebuild with corrected workflow expression. Only a release containing the Windows installer counts as delivered.
