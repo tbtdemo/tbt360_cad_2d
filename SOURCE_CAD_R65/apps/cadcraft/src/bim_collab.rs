@@ -1837,12 +1837,13 @@ pub fn sync_render_filters(app: &mut cadcraft_ui_egui::CadApp, state: &State) {
             continue;
         };
         has_bim_meta = true;
-        let target = state.users.iter().find(|user| user.account_id == meta.owner_account_id);
+        let visible_to_account = state.users.iter().find(|user| user.account_id == meta.owner_account_id)
+            .is_some_and(|user| state.can_view(user, meta.floor_id, state.active_floor_id));
         for (slot, filter) in state.views.iter().zip(filters.iter_mut()) {
             let owner_matches = slot.owner_account_id.as_ref().is_none_or(|owner| owner == &meta.owner_account_id);
             if meta.floor_id == slot.floor_id && meta.discipline == slot.discipline && owner_matches {
                 if (slot.show_other_users || meta.owner_account_id == state.current_account_id)
-                    && target.is_some_and(|user| state.can_view(user, meta.floor_id, state.active_floor_id))
+                    && visible_to_account
                 {
                     filter.primary_handles.push(entity.handle);
                 }
@@ -1850,7 +1851,7 @@ pub fn sync_render_filters(app: &mut cadcraft_ui_egui::CadApp, state: &State) {
             }
             if meta.floor_id != slot.floor_id { continue; }
             if (!slot.show_other_users && meta.owner_account_id != state.current_account_id)
-                || !target.is_some_and(|user| state.can_view(user, meta.floor_id, state.active_floor_id))
+                || !visible_to_account
             {
                 continue;
             }
