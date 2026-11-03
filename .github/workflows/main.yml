@@ -166,6 +166,7 @@ jobs:
             @{ Label = "UI"; Found = $uiTests; Name = "canvas::draw::cpu_culling_tests::large_offscreen_drawing_does_not_reserve_one_shape_per_entity" },
             @{ Label = "UI"; Found = $uiTests; Name = "gpu::gpu_memory_budget_tests::huge_mesh_estimate_does_not_preallocate_hundreds_of_megabytes" },
             @{ Label = "App"; Found = $appTests; Name = "cad_bim_recovery::tests::streamed_file_checksum_matches_in_memory_and_detects_modified_tail" },
+            @{ Label = "App"; Found = $appTests; Name = "cad_bim_recovery::tests::recovery_drawing_exports_actual_drawing_not_editor_tab_state" },
             @{ Label = "App"; Found = $appTests; Name = "bim_collab::tests::selection_requires_foreign_owner_edit_grant_not_just_view_grant" },
             @{ Label = "App"; Found = $appTests; Name = "bim_collab::tests::selection_rejects_wrong_floor_discipline_or_reference_view" },
             @{ Label = "App"; Found = $appTests; Name = "bim_collab::tests::render_bucket_keeps_primary_and_reference_scope_separate_for_four_views" },
@@ -231,6 +232,13 @@ jobs:
         run: |
           cargo test --locked -p cadcraft --bin cadcraft cad_bim_recovery::tests -- --nocapture
           if ($LASTEXITCODE -ne 0) { throw "CAD/BIM autosave, multi-tab and corruption recovery regressions failed" }
+      - name: Test CAD+BIM recovery Drawing export and checksum
+        shell: pwsh
+        run: |
+          cargo test --locked -p cadcraft --bin cadcraft cad_bim_recovery::tests::recovery_drawing_exports_actual_drawing_not_editor_tab_state -- --exact --nocapture
+          if ($LASTEXITCODE -ne 0) { throw "CAD recovery Drawing type or DXF export failed" }
+          cargo test --locked -p cadcraft --bin cadcraft cad_bim_recovery::tests::streamed_file_checksum_matches_in_memory_and_detects_modified_tail -- --exact --nocapture
+          if ($LASTEXITCODE -ne 0) { throw "CAD backup checksum integrity failed" }
       - name: Test fail-safe CAD autosave on exit
         shell: pwsh
         run: |
