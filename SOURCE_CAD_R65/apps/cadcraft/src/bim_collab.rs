@@ -1015,17 +1015,32 @@ impl State {
                     return;
                 }
 
+                if self.remote_revision(handle) != conflict.remote_revision {
+                    log::warn!("BIM conflict cannot be rebased against a stale revision");
+                    return;
+                }
+
                 let Some(next_revision) = conflict.remote_revision.checked_add(1) else {
                     log::warn!("BIM conflict revision overflow");
                     return;
                 };
+
+                let matching_change_count = self.pending_changes.iter().filter(|change| {
+                    !change.synced
+                        && change.account_id == self.current_account_id
+                        && change.items.iter().any(|item| item.handle == handle)
+                }).count();
+
+                if matching_change_count != 1 {
+                    log::warn!("BIM conflict requires exactly one local change set for safe rebase");
+                    return;
+                }
 
                 let Some(change) = self.pending_changes.iter_mut().find(|change| {
                     !change.synced
                         && change.account_id == self.current_account_id
                         && change.items.iter().any(|item| item.handle == handle)
                 }) else {
-                    log::warn!("BIM conflict has no editable pending local change");
                     return;
                 };
 
