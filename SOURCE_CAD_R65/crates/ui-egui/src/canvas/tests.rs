@@ -374,7 +374,7 @@ fn line_command_accepts_first_point_and_keeps_second_point_prompt() {
     session.input(Input::Point(Vec2::new(12.0, 15.0))).unwrap();
     assert!(session.current_prompt().is_some_and(|prompt| cadcraft_engine::pointmod::accepts(&prompt)));
     session.input(Input::Point(Vec2::new(25.0, 35.0))).unwrap();
-    assert_eq!(session.doc().unwrap().entity_count(), 1);
+    assert_eq!(session.doc().unwrap().model.iter().count(), 1);
     session.cancel();
 }
 
