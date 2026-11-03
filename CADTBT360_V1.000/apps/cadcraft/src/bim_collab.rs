@@ -2166,7 +2166,30 @@ fn collaboration_panel_content(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::Ca
                     if ui.add_enabled(state.can_edit_active_view(app), egui::Button::new("Bắt đầu phiên thiết kế")).clicked() { state.start_work_session(app); }
                 } else if ui.button("Kết thúc phiên thiết kế").clicked() { state.stop_work_session(); }
             });
-            ui.label("Bố cục 1–4 viewport và các tùy chọn nâng cao được giữ trong phần công cụ chi tiết.");
+            ui.add_space(10.0);
+            let columns = if ui.available_width() >= 760.0 { 2 } else { 1 };
+            ui.columns(columns, |cols| {
+                collaboration_dashboard_card(&mut cols[0], "PHIÊN LÀM VIỆC & PHẠM VI", |ui| {
+                    ui.label(format!("Tài khoản hiện tại: {}", state.current_account_id));
+                    ui.label(format!("Trạng thái: {}", if state.work_session_active { "Đang thiết kế" } else { "Chưa bắt đầu phiên" }));
+                    ui.label(format!("Đối tượng CAD đang chọn: {}", app.session.selection().len()));
+                    ui.label(format!("Thay đổi chờ đồng bộ: {}", state.pending_changes.iter().filter(|change| !change.synced).count()));
+                    ui.label(format!("Kết nối: {}", state.connection.label()));
+                    ui.small("Các đối tượng được gắn phạm vi tầng/bộ môn khi phiên thiết kế hoạt động.");
+                });
+                collaboration_dashboard_card(&mut cols[1 % columns], "KHUNG NHÌN & BỘ MÔN", |ui| {
+                    for (index, slot) in state.views.iter().enumerate().take(4) {
+                        ui.horizontal(|ui| {
+                            ui.strong(format!("Khung {}", index + 1));
+                            ui.label(state.floors.iter().find(|f| f.id == slot.floor_id).map(|f| f.name.as_str()).unwrap_or("Tầng khác"));
+                            ui.label(slot.discipline.label());
+                            ui.colored_label(egui::Color32::from_rgb(92, 181, 242), slot.mode.label());
+                        });
+                        ui.separator();
+                    }
+                    ui.small("Thay đổi bố cục viewport trong cửa sổ Công cụ BIM nâng cao.");
+                });
+            });
         }
         CollaborationTab::Issues => {
             ui.heading("ISSUE / CLASH — RFI / BCF WORKFLOW");
