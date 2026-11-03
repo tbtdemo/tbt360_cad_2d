@@ -177,6 +177,21 @@ mod tests {
     }
 
     #[test]
+    fn files_open_serially_to_bound_decoder_memory() {
+        let mut opening = super::Opening::default();
+        opening.start("/nonexistent/dir/first.dxf");
+        opening.start("/nonexistent/dir/second.dxf");
+        assert_eq!(opening.jobs.len(), 1);
+        assert_eq!(opening.queued.len(), 1);
+        let started = Instant::now();
+        while opening.busy() && started.elapsed() < Duration::from_secs(10) {
+            opening.poll();
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        assert!(!opening.busy(), "all queued open attempts must finish");
+    }
+
+    #[test]
     fn card_text_names_the_file_and_counts_queued_ones() {
         let mut o = super::Opening::default();
         assert!(o.label().is_none());
