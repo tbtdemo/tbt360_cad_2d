@@ -223,6 +223,34 @@ pub struct SnapCycle {
     index: usize,
 }
 
+/// Do not reinterpret the last click as an idle selection after an earlier
+/// release in the same UI frame has finished the interactive CAD command.
+fn may_dispatch_last_click(clicked: bool, finished_earlier: bool, menu_or_dialog: bool) -> bool {
+    clicked && !finished_earlier && !menu_or_dialog
+}
+
+#[cfg(test)]
+mod point_batch_tests {
+    use super::{may_dispatch_last_click, Xf};
+    use cadcraft_geom::Vec2;
+    use egui::{pos2, Rect};
+    #[test]
+    fn batched_releases_use_distinct_world_coordinates() {
+        let xf = Xf { rect: Rect::from_min_size(pos2(0.0, 0.0), egui::vec2(100.0, 100.0)), center: Vec2::ZERO, scale: 10.0 };
+        let a = xf.to_world(pos2(30.0, 50.0));
+        let b = xf.to_world(pos2(70.0, 50.0));
+        assert!((a.x - b.x).abs() > 1.0);
+        assert_eq!(a.y, b.y);
+    }
+    #[test]
+    fn completed_command_does_not_turn_final_release_into_selection() {
+        assert!(may_dispatch_last_click(true, false, false));
+        assert!(!may_dispatch_last_click(true, true, false));
+        assert!(!may_dispatch_last_click(true, false, true));
+        assert!(!may_dispatch_last_click(false, false, false));
+    }
+}
+
 /// A physical release belongs to the canvas only when its press began there.
 fn raw_release_for_point_prompt(started_on_canvas: bool, released_on_canvas: bool) -> bool {
     started_on_canvas && released_on_canvas
@@ -569,7 +597,7 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui) {
         app.canvas.drag_window = false;
     }
     // Never consume a click on an egui menu or an overlay owned by the canvas.
-    let pressed_primary = pressed_primary && !picked && !hatch_dialog && !idle_dbl && !on_menu && !command_finished_in_batch;
+    let pressed_primary = may_dispatch_last_click(pressed_primary, command_finished_in_batch, picked || hatch_dialog || idle_dbl || on_menu);
     let key: CycleKey = (
         app.session.running.as_ref().map(|r| r.id.clone()),
         app.session.current_prompt().map(|p| p.message),
