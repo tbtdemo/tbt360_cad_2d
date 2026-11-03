@@ -1,6 +1,8 @@
 //! QSELECT: build a selection set from an object type and a property filter
 //! (`property operator value`), and `qselect.info` for the Quick Select dialog.
 
+use std::collections::HashSet;
+
 use cadcraft_color::Color;
 use cadcraft_doc::{Drawing, Entity, Handle};
 use serde_json::{Value, json};
@@ -222,6 +224,16 @@ fn candidates(s: &Session, p: &Value) -> Result<Vec<Handle>> {
     Ok(s.doc()?.space(&space).map(|st| st.iter().take(MAX_SCAN).map(|e| e.handle).collect()).unwrap_or_default())
 }
 
+/// Append handles without quadratic duplicate scans. Preserve the current
+/// selection order, then add previously unseen matches in drawing order.
+fn append_unique_handles(mut current: Vec<Handle>, matched: impl IntoIterator<Item = Handle>) -> Vec<Handle> {
+    let mut seen: HashSet<Handle> = current.iter().copied().collect();
+    for handle in matched {
+        if seen.insert(handle) { current.push(handle); }
+    }
+    current
+}
+
 fn run_qselect(s: &mut Session, p: &Value) -> Result<Value> {
     let cmd = "qselect";
     let ty = str_param(p, "type");
@@ -240,6 +252,9 @@ fn run_qselect(s: &mut Session, p: &Value) -> Result<Value> {
     }
     let layer = str_param(p, "layer");
     let color = p.get("color").filter(|c| !c.is_null());
+    // Reuse one filter value across all entities instead of allocating it
+    // for every scanned object in very large CAD drawings.
+    let filter_value = value.unwrap_or(Value::String("*".into()));
     let cands = candidates(s, p)?;
     let d = s.doc()?;
     let mut matched = Vec::new();
@@ -257,9 +272,8 @@ fn run_qselect(s: &mut Session, p: &Value) -> Result<Value> {
             ok &= compare(&Value::String(e.common.color.name()), Op::Eq, c);
         }
         if let Some(pr) = &prop {
-            let v = value.clone().unwrap_or(Value::String("*".into()));
             ok &= match property(d, e, pr) {
-                Some(pv) => compare(&pv, op.unwrap_or(Op::Eq), &v),
+                Some(pv) => compare(&pv, op.unwrap_or(Op::Eq), &filter_value),
                 // A property the object doesn't have never matches (`!=` included, like QSELECT).
                 None => false,
             };
@@ -272,15 +286,7 @@ fn run_qselect(s: &mut Session, p: &Value) -> Result<Value> {
     }
     let sel = match mode.as_str() {
         "exclude" => excluded,
-        "append" => {
-            let mut cur = s.selection();
-            for h in matched {
-                if !cur.contains(&h) {
-                    cur.push(h);
-                }
-            }
-            cur
-        }
+        "append" => append_unique_handles(s.selection(), matched),
         _ => matched,
     };
     s.set_selection(sel);
@@ -386,6 +392,25 @@ mod tests {
             let _ = s.execute("qselect", &json!({ "property": "radius", "operator": "*", "value": v }));
             let _ = s.execute("qselect", &json!({ "property": v, "operator": ">", "value": v, "type": v }));
         }
+    }
+
+    #[test]
+    fn qselect_append_preserves_original_order_without_duplicates() {
+        let a = Handle(101);
+        let b = Handle(102);
+        let c = Handle(103);
+        let d = Handle(104);
+        assert_eq!(append_unique_handles(vec![b, a], [a, c, b, d, c]), vec![b, a, c, d]);
+    }
+
+    #[test]
+    fn qselect_append_handles_large_selection_without_duplication() {
+        let before: Vec<Handle> = (0..20_000).map(Handle).collect();
+        let matches = (10_000..30_000).map(Handle);
+        let after = append_unique_handles(before, matches);
+        assert_eq!(after.len(), 30_000);
+        assert_eq!(after.first(), Some(&Handle(0)));
+        assert_eq!(after.last(), Some(&Handle(29_999)));
     }
 
     #[test]
