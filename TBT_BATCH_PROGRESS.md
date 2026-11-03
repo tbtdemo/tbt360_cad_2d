@@ -24,9 +24,10 @@
 | 13/15 | Báo giai đoạn decode sau khi đọc file thực sự hoàn thành; cấp phát read-ahead tối đa 8 MiB theo metadata; test trạng thái 100% bytes và file rỗng | `e4447bdb11a87069fc3fcdd23aeb11f7c5108188` | 2 regression tests bổ sung | Chưa chạy Cargo/Windows vì môi trường hiện tại không có Cargo và Git DNS lỗi |
 | 14/15 | Kiểm tra quyền xem scope và chia sẻ trên lớp render chính; kiểm tra quyền sửa trước phiên thiết kế/chọn/lease; từ chối lease revision cũ | `9d94bbfe9c44edf502f86a06c16896b2209c7856` | 3 regression tests quyền xem/sửa và lease | Chưa xác minh Windows CI/2-user server PASS |
 | 15/15 | Windows workflow kích hoạt trên nhánh active; kiểm thử targeted canvas/open/read; thử đóng gói Setup/Portable candidate sau các gates; sửa test LINE đếm model | `5d442914d5b2131c9820139467bc25357300ff92` | Bổ sung các lệnh Rust kiểm thử tập trung vào CI | Chưa có artifact hay CI Windows PASS được xác minh |
+| 16/30 | Không hủy Windows build khi có push mới; ghi BUILD_INFO commit/run/ref; xác minh lại SHA256 cả Setup + Portable; in Actions step summary | `f5d95c61637c64eb448869ca76efca7f81bac99b` | Bổ sung kiểm tra manifest/artefact trong workflow; chưa kiểm tra Windows thực | CI Windows và artifact vẫn chưa có bằng chứng PASS |
 
 ### Trạng thái
-- Hoàn thành bằng chứng mã nguồn: **15/15** lượt tối thiểu.
+- Hoàn thành bằng chứng mã nguồn: **16 lượt mã nguồn (15 tối thiểu + 1 dự phòng)**.
 - Đã đến mốc **15/15** lượt phát triển tối thiểu. Bộ cài Setup/Portable còn **chưa phát hành**, vì thiếu bằng chứng Windows CI PASS và artifact.
 - Source inventory (run 41561782723) và IFC metadata test/source snapshot (run 41561782535) PASS. Windows Setup/Portable được skip đúng lịch 15–30. Rust tests CAD+BIM của lượt 02 đã PASS (run 41563233121). Hai regression tests lượt 03 đang chờ xác nhận. Chưa có EXE phát hành của đợt này.
 
@@ -132,3 +133,10 @@
 - Commit: `bae62df9683cadf7cdbf0cf6337221559e8210e3`, `5d442914d5b2131c9820139467bc25357300ff92`.
 - **15/15 = 100% số lượt phát triển tối thiểu, KHÔNG phải 100% hoàn thiện.** Chưa có artifact được trả về; chưa xác minh build/cargo test Windows mới, GUI 2 người hay benchmark 300–500 MiB. Không gọi candidate là release chính thức.
 - Nếu workflow PASS và có artifact: tải EXE Setup/Portable từ GitHub Actions rồi kiểm thử trên Windows thực. Nếu fail: R16 phân nhóm root cause, sửa từng nhóm cho đến khi PASS; mốc 15 lượt không phải lời hứa EXE đã sẵn sàng.
+
+### Lượt 16 — giữ nguyên Windows CI run và chứng thực artifacts
+- Sửa concurrency group theo `github.ref + github.sha`, `cancel-in-progress: false`, tránh job dài bị hủy khi commit mới lên nhánh active.
+- Sau build và SHA256, workflow xuất `BUILD_INFO.txt` ghi `GITHUB_SHA`, ref, RunId, RunAttempt và trạng thái `UNVERIFIED_GUI_CANDIDATE` — không tuyên bố nghiệm thu giao diện.
+- Kiểm tra 2 file Setup/Portable thực sự tồn tại và hash của từng file trùng đúng một dòng trong `SHA256SUMS.txt`; ghi Actions summary giúp kiểm tra kết quả theo run.
+- SHA `f5d95c61637c64eb448869ca76efca7f81bac99b`. Chưa có EXE mới verified; chưa có Cargo/Windows GUI/benchmark PASS qua các công cụ hiện tại.
+- **16/30 lượt kế hoạch tối đa; nhưng số lượt không thể thay thế build/test hay artifact thực**. Chuyển R17 sang phân tích lỗi CI từ log thật và loại bỏ blocker Windows.
