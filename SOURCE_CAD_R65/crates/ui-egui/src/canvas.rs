@@ -155,7 +155,7 @@ pub struct CanvasState {
     pub draw_ms: f64,
     hover_at: Option<Pos2>,
     /// Re-evaluate hover when the drawing or view changes even if the cursor is still.
-    hover_content: Option<(usize, u64, Vec2, f64)>,
+    hover_content: Option<(usize, u64, Vec2, f64, f64)>,
     /// Constraint glyphs for the parametric overlay (cached per drawing revision).
     pub param: crate::parametric::Cache,
     /// A selection window opened by a press-and-drag, to close where the button is let go.
@@ -457,6 +457,24 @@ mod stuck_drag_tests {
         assert!(should_cancel_drag_window(true, false, true, true, false));
         assert!(!should_cancel_drag_window(true, false, true, true, true));
         assert!(!should_cancel_drag_window(false, true, false, true, false));
+    }
+}
+
+/// Ignore sub-pixel OS pointer jitter; never skip an actual move by 1 px.
+fn hover_moved_enough(current: Option<Pos2>, previous: Option<Pos2>) -> bool {
+    current.zip(previous).is_none_or(|(now, prev)| now.distance_sq(prev) > 0.75 * 0.75)
+}
+
+#[cfg(test)]
+mod hover_performance_tests {
+    use super::hover_moved_enough;
+    use egui::pos2;
+
+    #[test]
+    fn tiny_mouse_noise_is_skipped_but_normal_cad_movement_is_immediate() {
+        assert!(!hover_moved_enough(Some(pos2(100.2, 50.0)), Some(pos2(100.0, 50.0))));
+        assert!(hover_moved_enough(Some(pos2(101.0, 50.0)), Some(pos2(100.0, 50.0))));
+        assert!(hover_moved_enough(Some(pos2(101.0, 50.0)), None));
     }
 }
 
@@ -952,8 +970,8 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui) {
     if inside && selecting && app.session.pending_window.is_none() {
         if let (Some(w), Ok(st)) = (raw_world, app.session.state()) {
             let view = st.view();
-            let content = (std::sync::Arc::as_ptr(&st.doc) as usize, st.revision, view.center, view.height);
-            let moved = hover_pos.zip(app.canvas.hover_at).is_none_or(|(now, prev)| now.distance_sq(prev) > 0.75 * 0.75);
+            let content = (std::sync::Arc::as_ptr(&st.doc) as usize, st.revision, view.center, view.height, scale);
+            let moved = hover_moved_enough(hover_pos, app.canvas.hover_at);
             if moved || app.canvas.hover_content != Some(content) {
                 let filter = app.session.settings.previewfilter;
                 app.canvas.hover = cadcraft_engine::select::pick(&st.doc, &st.edit_space(), w, app.session.settings.pickbox.max(1.0) * 1.5 / scale)
