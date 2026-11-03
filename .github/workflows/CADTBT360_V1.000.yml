@@ -6,6 +6,11 @@ on:
     paths: ['CADTBT360_V1.000/**', 'installer/**', '.github/workflows/CADTBT360_V1.000.yml']
 permissions:
   contents: read
+# Superseded source commits should not occupy scarce Windows runners.
+# Only the latest build of each branch remains active.
+concurrency:
+  group: cadtbt360-v1-windows-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   native:
     name: Windows x64 native setup
