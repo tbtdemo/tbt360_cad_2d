@@ -322,6 +322,33 @@ mod primary_gesture_tests {
     }
 }
 
+/// A physical release must not be dispatched as a second selection click when
+/// it finishes an owned drag, or when ESC/focus loss invalidates the gesture.
+fn may_dispatch_canvas_click(drag_active: bool, drag_stopped: bool, cancelled: bool) -> bool {
+    !drag_active && !drag_stopped && !cancelled
+}
+
+#[cfg(test)]
+mod click_drag_arbitration_tests {
+    use super::may_dispatch_canvas_click;
+
+    #[test]
+    fn click_click_selection_remains_available_without_a_drag() {
+        assert!(may_dispatch_canvas_click(false, false, false));
+    }
+
+    #[test]
+    fn ending_a_drag_cannot_also_dispatch_an_idle_click() {
+        assert!(!may_dispatch_canvas_click(true, true, false));
+        assert!(!may_dispatch_canvas_click(false, true, false));
+    }
+
+    #[test]
+    fn escape_and_focus_loss_cancel_click_dispatch() {
+        assert!(!may_dispatch_canvas_click(false, false, true));
+    }
+}
+
 /// A physical release belongs to the canvas only when its press began there.
 fn raw_release_for_point_prompt(started_on_canvas: bool, released_on_canvas: bool) -> bool {
     started_on_canvas && released_on_canvas
@@ -690,7 +717,7 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui) {
     let cancel_canvas_interaction = ui.input(|i| i.key_pressed(egui::Key::Escape) || !i.focused);
     let drag_window_at_frame_start = app.canvas.drag_window;
     let point_drag_stopped = !point_prompt && resp.drag_stopped_by(egui::PointerButton::Primary);
-    let click_is_not_selection_drag = !drag_window_at_frame_start && !point_drag_stopped && !cancel_canvas_interaction;
+    let click_is_not_selection_drag = may_dispatch_canvas_click(drag_window_at_frame_start, point_drag_stopped, cancel_canvas_interaction);
     let cycled = pressed_primary && click_is_not_selection_drag && !middle_down && cycle_click(app, &xf, hover_pos, raw_world.filter(|_| inside), mods.shift);
     // Clicks.
     if inside
