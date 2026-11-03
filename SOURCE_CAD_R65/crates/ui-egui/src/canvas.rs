@@ -719,7 +719,8 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui) {
         i.focused,
         i.pointer.interact_pos(),
     ));
-    if should_cancel_drag_window(app.canvas.drag_window, escape, window_focused, primary_released, release_pos.is_some_and(|p| rect.contains(p))) {
+    let release_is_canvas = release_pos.is_some_and(|p| rect.contains(p) && ui.ctx().layer_id_at(p) == Some(ui.layer_id()) && !over_canvas_menu(app, p));
+    if should_cancel_drag_window(app.canvas.drag_window, escape, window_focused, primary_released, release_is_canvas) {
         app.canvas.drag_window = false;
         app.session.pending_window = None;
     }
@@ -731,12 +732,17 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui) {
     }
     if app.session.settings.pickdrag
         && !point_prompt
+        && !escape
+        && window_focused
+        && !on_menu
         && resp.drag_started_by(egui::PointerButton::Primary)
         && !middle_down
         && app.canvas.cycle.is_none()
         && app.session.pending_window.is_none()
         && let Some(origin) = ui.input(|i| i.pointer.press_origin())
         && rect.contains(origin)
+        && ui.ctx().layer_id_at(origin) == Some(ui.layer_id())
+        && !over_canvas_menu(app, origin)
         && grip_at(app, &xf, Some(origin)).is_none()
         && crate::arraygrips::at(app, &xf, Some(origin)).is_none()
         && crate::dyngrips::at(app, &xf, Some(origin)).is_none()
