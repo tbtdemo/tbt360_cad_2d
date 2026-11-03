@@ -1,0 +1,248 @@
+name: CADTBT360 V1.017 Windows EXE
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - release/CADTBT360_V1.017
+    paths:
+      - 'CADTBT360_V1.000/**'
+      - '.github/workflows/cadtbt360-v1017-windows.yml'
+      - 'RELEASES/CADTBT360_V1.017.md'
+jobs:
+  windows-x64:
+    runs-on: windows-latest
+    permissions:
+      contents: read
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Checkout release sources
+        uses: actions/checkout@v4
+      - name: Install Rust 1.95 stable toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.95.0'
+      - name: Cache Cargo downloads and compilation
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: CADTBT360_V1.000
+          key: cadtbt360-v1017-win-x64
+      - name: Verify locked Cargo workspace metadata
+        working-directory: CADTBT360_V1.000
+        run: cargo metadata --locked --no-deps --format-version 1 | Out-Null
+      - name: Check road takeoff logic tests
+        working-directory: CADTBT360_V1.000
+        run: cargo test --locked -p cadcraft --bin cadcraft takeoff_road::tests -- --nocapture
+      - name: Check station matching and QTO integration tests
+        working-directory: CADTBT360_V1.000
+        run: cargo test --locked -p cadcraft --bin cadcraft road_station_matching_tests -- --nocapture
+      - name: Run CAD station conflict regression tests
+        working-directory: CADTBT360_V1.000
+        run: |
+          cargo test --locked -p cadcraft --bin cadcraft zero_padded_hex_marker_is_considered_the_same_entity -- --nocapture
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo test --locked -p cadcraft --bin cadcraft missing_station_is_not_counted_as_marker_conflict -- --nocapture
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Check canonical CAD area references are never double-counted
+        working-directory: CADTBT360_V1.000
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $test = 'reject_same_area_geometry_handle_regardless_of_hex_padding'
+          $available = cargo test --locked -p cadcraft --bin cadcraft $test -- --list
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if (-not ($available | Select-String -SimpleMatch $test)) { throw "Required road regression test was not discovered: $test" }
+          cargo test --locked -p cadcraft --bin cadcraft $test -- --nocapture
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Check reused CAD regions across distant stations
+        working-directory: CADTBT360_V1.000
+        run: |
+          $ErrorActionPreference = 'Stop'
+          cargo test --locked -p cadcraft --bin cadcraft rejects_non_adjacent_area_reuse_across_three_stations -- --nocapture
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo test --locked -p cadcraft --bin cadcraft rejects_cross_kind_area_reuse_between_different_stations -- --nocapture
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Verify CAD station label punctuation regression
+        working-directory: CADTBT360_V1.000
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $test = 'station_marker_text_accepts_only_unambiguous_explicit_km_labels'
+          $available = cargo test --locked -p cadcraft --bin cadcraft $test -- --list
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if (-not ($available | Select-String -SimpleMatch $test)) { throw "Required test missing: $test" }
+          cargo test --locked -p cadcraft --bin cadcraft $test -- --nocapture
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Check surveyed station-range export boundaries
+        working-directory: CADTBT360_V1.000
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $test = 'range_requires_real_cross_sections_at_both_boundary_stations'
+          $available = cargo test --locked -p cadcraft --bin cadcraft $test -- --list
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if (-not ($available | Select-String -SimpleMatch $test)) { throw "Missing required test: $test" }
+          cargo test --locked -p cadcraft --bin cadcraft $test -- --nocapture
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Verify approved station intervals before final quantity export
+        working-directory: CADTBT360_V1.000
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $test = 'selected_range_requires_confirmed_pair_for_final_export'
+          $available = cargo test --locked -p cadcraft --bin cadcraft $test -- --list
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if (-not ($available | Select-String -SimpleMatch $test)) { throw "Required station-approval test was not discovered: $test" }
+          cargo test --locked -p cadcraft --bin cadcraft $test -- --nocapture
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Reject partially approved road-range release exports
+        working-directory: CADTBT360_V1.000
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $test = 'selected_road_range_rejects_unapproved_gap_after_first_valid_pair'
+          $available = cargo test --locked -p cadcraft --bin cadcraft $test -- --list
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if (-not ($available | Select-String -SimpleMatch $test)) { throw "Missing required station-range safety test: $test" }
+          cargo test --locked -p cadcraft --bin cadcraft $test -- --nocapture
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Check Rust compilation of desktop before release optimization
+        working-directory: CADTBT360_V1.000
+        env:
+          CAD360_BUILD_SHA: ${{ github.sha }}
+          CADCRAFT_BUILD_SHA: ${{ github.sha }}
+          CADTBT360_RELEASE_VERSION: CADTBT360_V1.017
+        run: cargo check --locked -p cadcraft --bin cadcraft
+      - name: Compile Windows desktop application with embedded Git SHA
+        working-directory: CADTBT360_V1.000
+        env:
+          CAD360_BUILD_SHA: ${{ github.sha }}
+          CADCRAFT_BUILD_SHA: ${{ github.sha }}
+          CADTBT360_RELEASE_VERSION: CADTBT360_V1.017
+        run: cargo build --locked --release -p cadcraft --bin cadcraft
+      - name: Verify compiled target and release identity
+        working-directory: CADTBT360_V1.000
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $exe = 'target/release/cadcraft.exe'
+          if (!(Test-Path $exe)) { throw "Expected desktop binary missing: $exe" }
+          $size = (Get-Item $exe).Length
+          if ($size -lt 1048576) { throw "Unexpected small desktop binary: $size bytes" }
+          Write-Host "Release CADTBT360_V1.017; Git commit: $env:GITHUB_SHA; binary bytes: $size"
+      - name: Prepare portable EXE
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          $source = 'CADTBT360_V1.000/target/release/cadcraft.exe'
+          if (!(Test-Path $source)) { throw "No compiled cadcraft.exe found at $source" }
+          Copy-Item $source 'dist/CADTBT360_V1.017.exe'
+          Compress-Archive -Path 'dist/CADTBT360_V1.017.exe' -DestinationPath 'dist/CADTBT360_V1.017_Portable.zip' -Force
+      - name: Verify portable Windows artifact before installing
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $portable = 'dist/CADTBT360_V1.017.exe'
+          if (!(Test-Path $portable)) { throw "Missing Windows executable" }
+          $info = Get-Item $portable
+          if ($info.Length -lt 1048576) { throw "Suspiciously small executable: $($info.Length) bytes" }
+          $bytes = [System.IO.File]::ReadAllBytes((Resolve-Path $portable))
+          if ([Text.Encoding]::ASCII.GetString($bytes, 0, 2) -ne 'MZ') { throw 'Not a Windows PE executable' }
+          $peOffset = [BitConverter]::ToInt32($bytes, 0x3c)
+          if ($peOffset -lt 64 -or $peOffset -gt ($bytes.Length - 4)) { throw 'Corrupt Windows PE header offset' }
+          if ([Text.Encoding]::ASCII.GetString($bytes, $peOffset, 4) -ne "PE`0`0") { throw 'Missing Windows PE signature' }
+          $zip = 'dist/CADTBT360_V1.017_Portable.zip'
+          if (!(Test-Path $zip) -or (Get-Item $zip).Length -lt 1048576) { throw 'Portable ZIP missing or too small' }
+          $extract = Join-Path $env:RUNNER_TEMP 'cadtbt360-portable-test'
+          Expand-Archive -Path $zip -DestinationPath $extract -Force
+          $extracted = Join-Path $extract 'CADTBT360_V1.017.exe'
+          if (!(Test-Path $extracted)) { throw 'Portable ZIP does not contain the expected EXE' }
+          if ((Get-FileHash $extracted -Algorithm SHA256).Hash -ne (Get-FileHash $portable -Algorithm SHA256).Hash) { throw 'Portable ZIP EXE does not match build output' }
+          Write-Host "PE verified: $portable ($($info.Length) bytes)"
+      - name: Publish portable SHA256 before installer stage
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $files = @('dist/CADTBT360_V1.017.exe','dist/CADTBT360_V1.017_Portable.zip')
+          $checksums = foreach ($file in $files) {
+            if (!(Test-Path $file)) { throw "Required release file missing: $file" }
+            $hash = (Get-FileHash $file -Algorithm SHA256).Hash.ToLowerInvariant()
+            "$hash  $(Split-Path $file -Leaf)"
+          }
+          Set-Content -Path 'dist/CADTBT360_V1.017_Portable_SHA256.txt' -Value $checksums -Encoding ascii
+      - name: Upload portable executable immediately after successful build
+        uses: actions/upload-artifact@v4
+        with:
+          name: CADTBT360_V1.017_Portable_Windows_x64
+          path: |
+            dist/CADTBT360_V1.017.exe
+            dist/CADTBT360_V1.017_Portable.zip
+            dist/CADTBT360_V1.017_Portable_SHA256.txt
+          if-no-files-found: error
+          retention-days: 30
+      - name: Create Windows setup EXE with Inno Setup
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (!(Test-Path $iscc)) {
+            choco install innosetup -y --no-progress
+            if ($LASTEXITCODE -ne 0) { throw 'Inno Setup installation failed' }
+          }
+          if (!(Test-Path $iscc)) { throw 'Inno Setup compiler not found' }
+          $script = @'
+          [Setup]
+          AppId={{6BCA4011-C394-4C3D-AB6D-3D8D5A0B1000}
+          AppName=CAD TBT 360
+          AppVersion=1.0.17
+          AppVerName=CAD TBT 360 V1.017
+          DefaultDirName={autopf}\CAD TBT 360
+          DefaultGroupName=CAD TBT 360
+          OutputDir=dist
+          OutputBaseFilename=CADTBT360_V1.017_Setup
+          Compression=lzma
+          SolidCompression=yes
+          ArchitecturesAllowed=x64compatible
+          ArchitecturesInstallIn64BitMode=x64compatible
+          UninstallDisplayName=CAD TBT 360 V1.017
+          [Files]
+          Source: "dist\CADTBT360_V1.017.exe"; DestDir: "{app}"; Flags: ignoreversion
+          [Icons]
+          Name: "{autoprograms}\CAD TBT 360"; Filename: "{app}\CADTBT360_V1.017.exe"
+          Name: "{autodesktop}\CAD TBT 360"; Filename: "{app}\CADTBT360_V1.017.exe"; Tasks: desktopicon
+          [Tasks]
+          Name: "desktopicon"; Description: "Tạo biểu tượng màn hình"; GroupDescription: "Biểu tượng:"
+          [Run]
+          Filename: "{app}\CADTBT360_V1.017.exe"; Description: "Mở CAD TBT 360"; Flags: nowait postinstall skipifsilent
+          '@
+          Set-Content -Path 'CADTBT360_V1.017.iss' -Value $script -Encoding UTF8
+          & $iscc 'CADTBT360_V1.017.iss'
+          if ($LASTEXITCODE -ne 0) { throw 'Inno Setup failed' }
+          if (!(Test-Path 'dist/CADTBT360_V1.017_Setup.exe')) { throw 'Setup EXE missing' }
+      - name: Smoke test Windows setup installation and uninstall
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $setup = (Resolve-Path 'dist/CADTBT360_V1.017_Setup.exe').Path
+          $installDir = Join-Path $env:RUNNER_TEMP 'CADTBT360_v1017_install_smoke'
+          & $setup '/VERYSILENT' '/SUPPRESSMSGBOXES' '/NORESTART' "/DIR=$installDir"
+          if ($LASTEXITCODE -ne 0) { throw "Installer returned exit code $LASTEXITCODE" }
+          $installed = Join-Path $installDir 'CADTBT360_V1.017.exe'
+          if (!(Test-Path $installed)) { throw 'Setup did not install versioned CAD EXE' }
+          if ((Get-FileHash $installed -Algorithm SHA256).Hash -ne (Get-FileHash 'dist/CADTBT360_V1.017.exe' -Algorithm SHA256).Hash) { throw 'Installed EXE differs from release build' }
+          $uninstaller = Join-Path $installDir 'unins000.exe'
+          if (!(Test-Path $uninstaller)) { throw 'Setup uninstaller is missing' }
+          & $uninstaller '/VERYSILENT' '/SUPPRESSMSGBOXES' '/NORESTART'
+          if ($LASTEXITCODE -ne 0) { throw "Uninstaller returned exit code $LASTEXITCODE" }
+      - name: Generate SHA256 checksums
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $files = @('dist/CADTBT360_V1.017.exe','dist/CADTBT360_V1.017_Portable.zip','dist/CADTBT360_V1.017_Setup.exe')
+          $checksums = foreach ($file in $files) {
+            if (!(Test-Path $file)) { throw "Missing required package: $file" }
+            $hash = (Get-FileHash -Path $file -Algorithm SHA256).Hash.ToLowerInvariant()
+            "$hash  $(Split-Path $file -Leaf)"
+          }
+          Set-Content -Path 'dist/CADTBT360_V1.017_SHA256.txt' -Value $checksums -Encoding ascii
+      - name: Upload Windows setup and complete SHA256 manifest
+        uses: actions/upload-artifact@v4
+        with:
+          name: CADTBT360_V1.017_Setup_Windows_x64
+          path: |
+            dist/CADTBT360_V1.017.exe
+            dist/CADTBT360_V1.017_Portable.zip
+            dist/CADTBT360_V1.017_Setup.exe
+            dist/CADTBT360_V1.017_SHA256.txt
+          if-no-files-found: error
+          retention-days: 30
