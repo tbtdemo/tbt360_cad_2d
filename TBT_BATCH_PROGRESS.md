@@ -36,6 +36,7 @@
 | 15/15 | Windows workflow kích hoạt trên nhánh active; kiểm thử targeted canvas/open/read; thử đóng gói Setup/Portable candidate sau các gates; sửa test LINE đếm model | `5d442914d5b2131c9820139467bc25357300ff92` | Bổ sung các lệnh Rust kiểm thử tập trung vào CI | Chưa có artifact hay CI Windows PASS được xác minh |
 | 16/30 | Không hủy Windows build khi có push mới; ghi BUILD_INFO commit/run/ref; xác minh lại SHA256 cả Setup + Portable; in Actions step summary | `f5d95c61637c64eb448869ca76efca7f81bac99b` | Bổ sung kiểm tra manifest/artefact trong workflow; chưa kiểm tra Windows thực | CI Windows và artifact vẫn chưa có bằng chứng PASS |
 | 17/30 | Tạm ngưng phát triển sync/conflict; giữ account permissions; sửa trạng thái hàng đợi OPEN và thêm gates LINE/CIRCLE/ESC trên Windows | `6c8a66fcecc9cdc808e2e616908662eb36d3ad5f` | 1 regression test trạng thái queued; 4 gates mục tiêu bổ sung | Windows test PASS + artifact chưa xác minh |
+| 18/30 | Tách thời gian đọc/giải mã CAD, log mỗi file theo ms và hiển thị thời gian giải mã; đồng nhất mốc Instant của worker/UI | `75952a357f31a6dbd553d6e02872cfcdad262cf1` | 1 regression test đồng hồ khi decode bắt đầu; đã bổ sung CI opening::tests ở R15 | Chưa xác minh Cargo/Windows GUI/EXE PASS |
 
 ### Trạng thái
 - Hoàn thành bằng chứng mã nguồn: **16 lượt mã nguồn (15 tối thiểu + 1 dự phòng)**.
@@ -159,3 +160,11 @@
 - Commits: `0224fa77d98b3f046bd8be3846189e0b609c3e2e`, `6c8a66fcecc9cdc808e2e616908662eb36d3ad5f`.
 - Tiến độ hoạt động = 39,4% dự kiến, so với 37,2% cũ **chỉ do thay đổi phạm vi tính (bỏ C2)**; không phải 2,2 điểm phần trăm chức năng được hoàn thành mới.
 - Trạng thái build: CI Windows và EXE Candidate chưa xác nhận có artifact. R18 ưu tiên log lỗi và khóa release gate, tiếp tục xử lý mouse/open/performance.
+
+### Lượt 18 — thống kê thời gian đọc/giải mã CAD lớn (đang ưu tiên)
+- Trong `opening.rs`, lưu mốc `read_done_ms` chính xác khi callback bắt đầu decode được gọi sau khi đọc xong thực sự; không đánh đồng 100% byte với 100% hoàn thành CAD.
+- Thêm log `CAD OPEN` ghi đường dẫn, read_ms, decode_ms, total_ms và OK/ERROR cho mỗi file, giúp xác định bottleneck đọc IO hay giải mã. UI đang giải mã hiển thị cả thời gian đọc và giây decode đã qua.
+- Dùng chung `Instant started` cho worker và `Job` để tránh lệch bộ đếm giữa hai luồng; thêm test timer.
+- Commits `6c01c27b86fd231f0665f2a3d4b42553c5b1397c`, `75952a357f31a6dbd553d6e02872cfcdad262cf1`.
+- R18 không tiếp tục phát triển đồng bộ/xung đột; vẫn giữ lại phân quyền tài khoản và kiểm tra quyền xem/sửa.
+- **18/30 lượt tối đa; 12 lượt còn lại dự phòng**. Ước lượng 8 đầu việc vẫn 39,4% chưa nghiệm thu, do chưa có kết quả Windows PASS/benchmark/EXE thực.
