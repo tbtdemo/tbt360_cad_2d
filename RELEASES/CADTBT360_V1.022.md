@@ -4,6 +4,12 @@ Branch: release/CADTBT360_V1.022
 Parent: release/CADTBT360_V1.021
 Status: SOURCE COMMITTED; Windows CI PASS and actual downloadable EXE/Setup not independently verified.
 
+## Packaging hotfix (same V1.022 branch)
+- Installer specification is now committed as `CADTBT360_V1.022.iss` at the repository root, allowing repeatable Windows Inno Setup builds.
+- Workflow no longer assembles an installer configuration through a PowerShell here-string; it validates the versioned .iss and portable EXE input before invoking ISCC.
+- GitHub Actions push paths explicitly include the .iss file, so an installer specification change triggers the packaging workflow.
+- This is a source/CI preparation change, not proof of a successful Windows installer. All acceptance gates below remain open.
+
 ## Actual code/workflow changes
 - Increment runtime UI and road takeoff Excel/report identity to CADTBT360_V1.022.
 - Require Windows resource embedding during cargo build (CADCRAFT_REQUIRE_WINRES=1), instead of tolerating failures to stamp the EXE with version/icon information.
