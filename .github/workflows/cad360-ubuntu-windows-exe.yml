@@ -104,17 +104,18 @@ jobs:
           unzip -p dist/CAD360_TBT_Source_R15_UI.zip SOURCE_CAD_R65/crates/ui-egui/src/quick.rs | grep -F 'append_preview_signature_changes_when_current_selection_changes'
           unzip -p dist/CAD360_TBT_Source_R15_UI.zip SOURCE_CAD_R65/crates/engine/src/cmd/qselect.rs | grep -F 'qselect_remove_subtracts_matching_entities_from_current_selection'
           unzip -p dist/CAD360_TBT_Source_R15_UI.zip SOURCE_CAD_R65/crates/ui-egui/src/quick.rs | grep -F 'Bỏ đối tượng phù hợp khỏi tập chọn hiện tại'
+          unzip -p dist/CAD360_TBT_Source_R15_UI.zip SOURCE_CAD_R65/crates/engine/src/cmd/modify2/tests.rs | grep -F 'let path = h(&s.execute("line", &json!({"points": [[0, 0], [10, 0]]})).unwrap());'
           for filename in CAD360_VietNam_TBT_Setup.exe CAD360_VietNam_TBT_Portable.zip CAD360_TBT_Source_R15_UI.zip; do
             test -s "dist/$filename"
           done
           file dist/CAD360_VietNam_TBT_Setup.exe | grep -F 'PE32'
           (cd dist && sha256sum CAD360_VietNam_TBT_Setup.exe CAD360_VietNam_TBT_Portable.zip CAD360_TBT_Source_R15_UI.zip > SHA256SUMS.txt)
-          printf 'Commit=%s\nRunId=%s\nWindowsBuild=Ubuntu cargo-xwin x86_64-pc-windows-msvc\nInstaller=NSIS\nGUI_VERIFIED=false\nReleaseBatch=B24-QSELECT\n' "$GITHUB_SHA" "$GITHUB_RUN_ID" > dist/BUILD_INFO.txt
+          printf 'Commit=%s\nRunId=%s\nWindowsBuild=Ubuntu cargo-xwin x86_64-pc-windows-msvc\nInstaller=NSIS\nGUI_VERIFIED=false\nReleaseBatch=B25-CAD-TEST-FIX\n' "$GITHUB_SHA" "$GITHUB_RUN_ID" > dist/BUILD_INFO.txt
           ls -lh dist/*.exe dist/*.zip dist/SHA256SUMS.txt
       - name: Upload actual Windows Setup EXE and portable bundle
         uses: actions/upload-artifact@v4
         with:
-          name: CAD360-TBT-Windows-x64-Setup-Portable-Source-B24-QSELECT
+          name: CAD360-TBT-Windows-x64-Setup-Portable-Source-B25-CAD-TEST-FIX
           path: |
             dist/CAD360_VietNam_TBT_Setup.exe
             dist/CAD360_VietNam_TBT_Portable.zip
