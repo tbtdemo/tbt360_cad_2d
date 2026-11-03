@@ -20,8 +20,10 @@ Ngày 03/11/2026; nhánh: `tbt/cad360-active-release`.
 | 04 | Render/GPU | Không cài DisplayList/GPU Mesh worker khi kết quả thuộc zoom-band hoặc vùng nhìn trước đó | `canvas::rebuild::stale_background_view_tests` |
 | 05 | Đọc CAD lớn | Retry `io::ErrorKind::Interrupted` thay vì chấm dứt OPEN, giữ nguyên direct-to-buffer | `capped_read::tests::transient_interrupted_read_retries_without_losing_geometry_bytes` |
 | 06 | FIFO/multi-file | Dispatch file đầu hàng đợi trực tiếp, không tạm drain toàn queue, giữ một decoder tại một thời điểm | `opening::tests::ten_queued_files_preserve_fifo_order_with_one_decoder_at_a_time` |
+| 07 | RAM khi chuyển tab CAD | Thu hồi ngay PrimIndex cũ trong cả install từ background và rebuild đồng bộ, không đợi hover/selection | `canvas::tests::prim_index_releases_large_old_drawing_after_switch_with_empty_selection` |
+| 08 | Tiến độ mở nhiều file/UI | Thay ID loading overlay thay đổi mỗi frame bằng ID ổn định; Việt hóa thông báo file và hàng đợi | `opening::tests::card_text_names_the_file_and_counts_queued_ones` |
 
-**Đếm: 6/15 bộ chức năng cho mốc đóng gói tiếp theo.** Một bộ có thể gồm nhiều commit; các commit CI, docs và test không được tính thêm thành bộ độc lập. Hiện còn 9 bộ chức năng cần phát triển trước mốc `build(cad360): B15`.
+**Đếm: 8/15 bộ chức năng cho mốc đóng gói tiếp theo.** Một bộ có thể gồm nhiều commit; các commit CI, docs và test không được tính thêm thành bộ độc lập. Hiện còn 7 bộ chức năng cần phát triển trước mốc `build(cad360): B15`.
 
 ## Cam kết nghiệp vụ và hạn chế nghiệm thu
 - Các thay đổi ở trên **đã được ghi trên nhánh GitHub**, chưa xác minh Rust Windows test PASS; không tự tăng phần trăm hoàn thành.
@@ -37,3 +39,11 @@ Ngày 03/11/2026; nhánh: `tbt/cad360-active-release`.
 - `3c236eb6d6a2f8632a13eeabb437eaeba0b006ac` — FIFO dispatch.
 - `6dfb6df21c591559cb5d6524f70a663d9b862c63` — ten-file FIFO test.
 - `5d9b335ca6d787a14f2da3d9dad7772bd268a6cc` và `3fc02a9cf92e7ce9e218faf802356678262a2c4c` — Windows targeted test/discovery gates.
+
+## Cập nhật tiếp — hai bộ 07–08
+- `f9fc5051489b54a064b32e5417b821b12cc2b84e`: `PrimIndex::prims` thả Vec index cũ theo list generation, kể cả khi selection trống.
+- `a6cc5ede1596c4eb8c049d8d69ae19d39edbcc49`, `b0a388f68a53bcc94376134e6b589b6df1cc442d`: thu hồi index **ngay trong hai nhánh install** thay vì đợi gọi highlight về sau.
+- `1757197f48574dc76120736f92d20f2fea7c53ab`: test chuyển từ 25.000 primitive về bản vẽ 2 primitive, không còn reserve index cũ.
+- `9a78a2592f5f95a136ff5b76a3b66131f5fb789a`: dùng `egui::Id::new("cc_opening")` thay `Id::unique`, tránh thay ID của overlay mỗi frame; hiển thị `Đang mở ...` đúng tiếng Việt, vẫn có bytes/ETA chỉ cho giai đoạn đọc.
+- `a72db470c60388d70e2ce4b413c10411706886f0`: thêm Windows CI discovery và targeted test cho giải phóng highlight index, cùng các tests loading card.
+- Chưa xác minh Rust Windows CI PASS hoặc bộ EXE có thể tải; đếm 8/15 bộ thay đổi là số công việc code, KHÔNG phải % nghiệm thu. Tám nhóm hoạt động vẫn 39,4% ước lượng chưa nghiệm thu.
