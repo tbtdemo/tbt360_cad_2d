@@ -131,6 +131,8 @@ jobs:
         run: |
           cargo test --locked -p cadcraft-ui-egui canvas::primary_gesture_tests -- --nocapture
           if ($LASTEXITCODE -ne 0) { throw "Canvas primary press/release pairing failed" }
+          cargo test --locked -p cadcraft-ui-egui canvas::click_drag_arbitration_tests -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw "Canvas drag-end/click arbitration failed" }
           cargo test --locked -p cadcraft-ui-egui canvas::point_batch_tests -- --nocapture
           if ($LASTEXITCODE -ne 0) { throw "Canvas batched-click regression failed" }
           cargo test --locked -p cadcraft-ui-egui canvas::point_release_tests -- --nocapture
