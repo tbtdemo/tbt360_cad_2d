@@ -104,6 +104,12 @@ jobs:
           path: TBT_BUILD_PREFLIGHT.txt
           if-no-files-found: warn
           retention-days: 30
+      - name: Validate BIM conflict and revision regression tests
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          cargo test --locked -p cadcraft --bin cadcraft bim_collab::tests -- --test-threads=2
+          if ($LASTEXITCODE -ne 0) { throw 'BIM collaboration regression tests failed' }
       - name: Build CAD360 native release
         run: cargo build --release --locked -p cadcraft -p cadcraft-cli
       - name: Verify native binaries
