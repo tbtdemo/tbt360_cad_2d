@@ -686,12 +686,16 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui) {
     }
     // A drag-owned selection must end as a drag, not a second idle click.
     // egui can report both clicked and drag_stopped in the same slow frame.
+    // Escape/focus loss wins over all pending point and selection dispatch.
+    let cancel_canvas_interaction = ui.input(|i| i.key_pressed(egui::Key::Escape) || !i.focused);
     let drag_window_at_frame_start = app.canvas.drag_window;
-    let cycled = pressed_primary && !drag_window_at_frame_start && !middle_down && cycle_click(app, &xf, hover_pos, raw_world.filter(|_| inside), mods.shift);
+    let point_drag_stopped = !point_prompt && resp.drag_stopped_by(egui::PointerButton::Primary);
+    let click_is_not_selection_drag = !drag_window_at_frame_start && !point_drag_stopped && !cancel_canvas_interaction;
+    let cycled = pressed_primary && click_is_not_selection_drag && !middle_down && cycle_click(app, &xf, hover_pos, raw_world.filter(|_| inside), mods.shift);
     // Clicks.
     if inside
         && pressed_primary
-        && !drag_window_at_frame_start
+        && click_is_not_selection_drag
         && !middle_down
         && !cycled
         && let Some(p) = app.canvas.cursor
