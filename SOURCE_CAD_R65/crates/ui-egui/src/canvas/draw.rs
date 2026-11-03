@@ -332,6 +332,27 @@ impl Look {
     }
 }
 
+/// Reject highlights wholly outside this tile before creating egui shapes.
+/// Infinite/ray geometry has no finite AABB and is clipped separately.
+fn highlight_geometry_intersects(kind: Kind, pts: &[Vec2], visible: &Bounds2) -> bool {
+    matches!(kind, Kind::Infinite { .. }) || (!pts.is_empty() && Bounds2::from_points(pts.iter().copied()).intersects(visible))
+}
+
+#[cfg(test)]
+mod highlight_view_culling_tests {
+    use super::*;
+
+    #[test]
+    fn offscreen_selected_geometry_does_not_need_cpu_highlight_shapes() {
+        let view = Bounds2::from_points([Vec2::new(-10.0, -10.0), Vec2::new(10.0, 10.0)]);
+        assert!(!highlight_geometry_intersects(Kind::Polyline, &[Vec2::new(100.0, 100.0), Vec2::new(200.0, 200.0)], &view));
+        assert!(!highlight_geometry_intersects(Kind::Tris, &[Vec2::new(100.0, 100.0), Vec2::new(110.0, 100.0), Vec2::new(110.0, 110.0)], &view));
+        assert!(highlight_geometry_intersects(Kind::Mask, &[Vec2::new(-1.0, -1.0), Vec2::new(1.0, -1.0), Vec2::new(1.0, 1.0)], &view));
+        assert!(highlight_geometry_intersects(Kind::Infinite { ray: false }, &[], &view));
+        assert!(!highlight_geometry_intersects(Kind::Point, &[], &view));
+    }
+}
+
 /// Draw selected/hovered entities as highlight overlays: `prims` are indices into `list` (from
 /// [`PrimIndex::prims`], [`prims_of`], or all of a [`VpHighlight`] list), redrawn in `color` as `look` says. A wipeout is always
 /// outlined, since filling it would hide the drawing under it.
@@ -347,8 +368,10 @@ pub(crate) fn draw_highlight(p: &egui::Painter, xf: &Xf, list: &DisplayList, pri
     let mut shapes = Vec::new();
     let mut fill = egui::Mesh::default();
     let fill_color = color.gamma_multiply(crate::gpu::HIGHLIGHT_FILL_ALPHA);
+    let visible = xf.world_bounds();
     for prim in prims.iter().filter_map(|&i| list.prims.get(i)) {
         let pts = list.points(prim);
+        if !highlight_geometry_intersects(prim.kind, pts, &visible) { continue; }
         match prim.kind {
             Kind::Polyline => line(pts.iter().map(|q| xf.to_screen(*q)).collect(), &mut shapes),
             Kind::Infinite { ray } => {
