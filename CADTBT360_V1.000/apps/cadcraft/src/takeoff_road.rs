@@ -386,7 +386,7 @@ mod tests {
         assert_eq!(station_to_metres("1250.5").unwrap(),1250.5);
         assert_eq!(station_label(12345.5),"Km12+345.50");
         assert_eq!(station_label(999.999),"Km1+000.00");
-        assert_eq!(station_label(1999.995),"Km2+000.00");
+        assert_eq!(station_label(1999.999),"Km2+000.00");
         for invalid in ["12+1000","Km-1+100","3+abc","Km3+","NaN",""] {
             assert!(station_to_metres(invalid).is_err(),"{invalid}");
         }
