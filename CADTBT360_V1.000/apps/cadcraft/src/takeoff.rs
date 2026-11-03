@@ -1416,14 +1416,26 @@ fn qto_road_report_lines(app: &CadApp, state: &State, config: &ExportConfig,
             EarthworkKind::Cut => (&state.road_cut_code,"Đào nền đường"),
             EarthworkKind::Fill => (&state.road_fill_code,"Đắp nền đường")
         };
-        let start=state.road_sections.iter().find(|section|(section.chainage_m-interval.start_m).abs()<1.0e-6).unwrap();
-        let end=state.road_sections.iter().find(|section|(section.chainage_m-interval.end_m).abs()<1.0e-6).unwrap();
+        let Some(start)=state.road_sections.iter().find(|section|(section.chainage_m-interval.start_m).abs()<1.0e-6) else {return Err("Không tìm thấy trắc ngang đầu tương ứng với đoạn đo bóc.".into());};
+        let Some(end)=state.road_sections.iter().find(|section|(section.chainage_m-interval.end_m).abs()<1.0e-6) else {return Err("Không tìm thấy trắc ngang cuối tương ứng với đoạn đo bóc.".into());};
         if !qto_road_interval_in_scope(start,end,interval.kind,allowed) { continue; }
         for section in [start,end] {
             if let Some(marker)=section.plan_marker_handle.as_deref() {
-                let current=cadcraft_doc::Handle::parse_hex(marker).is_some_and(|handle|
-                    app.session.doc().ok().is_some_and(|doc|doc.model.get(handle).is_some()));
-                if !current {return Err(format!("Cọc bình đồ tại {} không còn tồn tại trong bản vẽ. Hãy kiểm tra lại liên kết.",takeoff_road::station_label(section.chainage_m)));}
+                let Some(handle)=cadcraft_doc::Handle::parse_hex(marker) else {
+                    return Err(format!("Handle cọc bình đồ tại {} không hợp lệ.",takeoff_road::station_label(section.chainage_m)));
+                };
+                let Some(doc)=app.session.doc().ok() else {return Err("Không mở được bản vẽ CAD để đối chiếu cọc.".into());};
+                let Some(entity)=doc.model.get(handle) else {
+                    return Err(format!("Cọc bình đồ tại {} đã bị xóa. Hãy quét lại.",takeoff_road::station_label(section.chainage_m)));
+                };
+                if matches!(&entity.kind,EntityKind::Text(_) | EntityKind::MText(_) | EntityKind::Insert(_)) {
+                    let actual=qto_road_station_from_entity(doc,entity).map_err(|error|
+                        format!("Nhãn cọc bình đồ tại {} không hợp lệ: {error}",takeoff_road::station_label(section.chainage_m)))?;
+                    if (actual-section.chainage_m).abs()>0.001 {
+                        return Err(format!("Lý trình cọc nguồn {} đã thay đổi thành {}; không xuất Excel sai lý trình.",
+                            takeoff_road::station_label(section.chainage_m),takeoff_road::station_label(actual)));
+                    }
+                }
             }
         }
         // Validate only the two CAD shapes actually contributing to this
