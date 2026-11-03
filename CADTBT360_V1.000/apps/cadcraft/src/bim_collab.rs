@@ -1933,47 +1933,91 @@ fn can_sync_from_dashboard(state: &State) -> bool {
 
 /// Dashboard cells intentionally use real BIM session values, never mock sample counts.
 fn collaboration_metric(ui: &mut egui::Ui, title: &str, value: usize, description: &str) {
-    egui::Frame::group(ui.style()).show(ui, |ui| {
-        ui.set_min_width(148.0);
-        ui.set_max_width(192.0);
-        ui.strong(title);
-        ui.heading(value.to_string());
-        ui.small(description);
-    });
+    egui::Frame::group(ui.style())
+        .fill(egui::Color32::from_rgb(23, 39, 59))
+        .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(48, 77, 108)))
+        .show(ui, |ui| {
+            // Fill the grid cell instead of restricting a dashboard KPI to 192 px.
+            ui.set_min_width(ui.available_width().max(140.0));
+            ui.label(egui::RichText::new(title).color(egui::Color32::from_rgb(194, 214, 235)));
+            ui.heading(egui::RichText::new(value.to_string()).size(26.0).color(egui::Color32::from_rgb(91, 186, 252)));
+            ui.label(egui::RichText::new(description).small().color(egui::Color32::LIGHT_GRAY));
+        });
+}
+
+/// Show up to five KPI cards in a responsive grid. Short screens no longer
+/// accumulate a single overflowing row or a narrow column of cards.
+fn collaboration_kpi_columns(width: f32) -> usize {
+    if width >= 1050.0 { 5 } else if width >= 690.0 { 3 } else { 2 }
 }
 
 /// The CAD viewport may be narrow when docked. Keep navigation horizontal
 /// instead of wrapping labels into a tall vertical menu.
 fn collaboration_navigation(ui: &mut egui::Ui, active: &mut u8) {
-    egui::ScrollArea::horizontal().id_salt("tbt360_bim_tabs_horizontal").show(ui, |ui| {
+    let full_width = ui.available_width();
+    let columns = CollaborationTab::ALL.len();
+    if full_width >= 920.0 {
+        let button_width = ((full_width - 8.0 * (columns as f32 - 1.0)) / columns as f32).max(168.0);
         ui.horizontal(|ui| {
-            ui.spacing_mut().item_spacing.x = 6.0;
+            ui.spacing_mut().item_spacing.x = 8.0;
             for (index, section) in CollaborationTab::ALL.iter().enumerate() {
-                if ui.add_sized([174.0, 38.0], egui::Button::new(section.title()).selected(*active == index as u8)).clicked() {
+                if ui.add_sized([button_width, 44.0], egui::Button::new(section.title()).selected(*active == index as u8)).clicked() {
                     *active = index as u8;
                 }
             }
         });
-    });
+    } else {
+        egui::ScrollArea::horizontal().id_salt("tbt360_bim_tabs_horizontal").show(ui, |ui| {
+            ui.horizontal(|ui| {
+                for (index, section) in CollaborationTab::ALL.iter().enumerate() {
+                    if ui.add_sized([174.0, 40.0], egui::Button::new(section.title()).selected(*active == index as u8)).clicked() {
+                        *active = index as u8;
+                    }
+                }
+            });
+        });
+    }
 }
 
 /// KPIs remain one horizontal row at every window size.
 fn collaboration_metrics_row(ui: &mut egui::Ui, metrics: &[(&str, usize, &str)]) {
-    egui::ScrollArea::horizontal().id_salt("tbt360_bim_kpi_scroll").show(ui, |ui| {
-        ui.horizontal(|ui| {
-            for &(title, value, description) in metrics {
-                collaboration_metric(ui, title, value, description);
+    let columns = collaboration_kpi_columns(ui.available_width()).min(metrics.len().max(1));
+    for group in metrics.chunks(columns) {
+        ui.columns(columns, |cells| {
+            for (column, &(title, value, description)) in group.iter().enumerate() {
+                collaboration_metric(&mut cells[column], title, value, description);
             }
         });
+        ui.add_space(5.0);
+    }
+}
+
+/// A bounded, full-width dashboard with its own scroll container. It must not
+/// rely on the host eframe Ui's implicit page height: legacy BIM tools used to
+/// stretch the root into a several-screen-long left-aligned form.
+pub fn panel(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut State) {
+    let width = ui.available_width();
+    egui::ScrollArea::vertical().id_salt("cadtbt360_bim_main_scroll").auto_shrink([false, false]).show(ui, |ui| {
+        ui.set_min_width(width);
+        collaboration_panel_content(ui, app, state);
     });
 }
 
-pub fn panel(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut State) {
+fn collaboration_panel_content(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut State) {
     let tab_id = egui::Id::new("tbt360_bim_collaboration_active_tab");
     let mut tab = ui.ctx().data_mut(|data| data.get_temp::<u8>(tab_id).unwrap_or(0));
     let mut selected_issue = ui.ctx().data_mut(|data| data.get_temp::<u64>(egui::Id::new("tbt360_bim_selected_issue")));
-    ui.heading("PHỐI HỢP THIẾT KẾ");
-    ui.label("BIM CỘNG TÁC  •  RFI / BCF  •  Issue / Clash  •  Đồng bộ");
+    let advanced_id = egui::Id::new("cadtbt360_bim_advanced_window_open");
+    let mut advanced_open = ui.ctx().data_mut(|data| data.get_temp::<bool>(advanced_id).unwrap_or(false));
+    ui.horizontal(|ui| {
+        ui.vertical(|ui| {
+            ui.heading(egui::RichText::new("PHỐI HỢP THIẾT KẾ").color(egui::Color32::from_rgb(230, 239, 252)));
+            ui.label("BIM CỘNG TÁC  •  RFI / BCF  •  Issue / Clash  •  Đồng bộ");
+        });
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            if ui.button("⚙ Công cụ BIM nâng cao").clicked() { advanced_open = true; }
+        });
+    });
     ui.add_space(10.0);
     collaboration_navigation(ui, &mut tab);
     ui.add_space(8.0);
@@ -2085,7 +2129,7 @@ pub fn panel(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut 
             let filtered_count = state.issues.iter().filter(|issue| issue_matches_filters(issue, &search, status_filter, &priority_filter, overdue_only, &today)).count();
             ui.label(format!("Hiển thị {filtered_count}/{} Issue", state.issues.len()));
             let issue_before = state.issues.iter().map(|i| (i.id, i.priority.clone(), i.issue_type.clone(), i.assigned_to.clone(), i.due_at.clone(), i.status)).collect::<Vec<_>>();
-            egui::ScrollArea::horizontal().show(ui, |ui| {
+            egui::ScrollArea::both().id_salt("cadtbt360_issue_table_scroll").max_height(350.0).auto_shrink([false, false]).show(ui, |ui| {
                 egui::Grid::new("tbt360_collaboration_issue_grid").striped(true).min_col_width(90.0).show(ui, |ui| {
                     for heading in ["Mã", "Ưu tiên", "Loại", "Nguồn", "Ảnh hưởng / Bộ môn", "Nội dung", "Phụ trách", "Hạn xử lý", "SLA", "Trạng thái", "Tác vụ"] { ui.strong(heading); }
                     ui.end_row();
@@ -2297,11 +2341,24 @@ pub fn panel(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut 
             });
         }
     }
-    ui.separator();
-    ui.collapsing("Công cụ BIM nâng cao (tọa độ, tầng, viewport, tài khoản, cấu hình)", |ui| {
-        legacy_panel(ui, app, state);
+    // Complex legacy settings have their own resizable, scrollable workspace.
+    // They are never appended below the dashboard, which previously created
+    // a very tall page and left most of the monitor unused.
+    if advanced_open {
+        egui::Window::new("CÔNG CỤ BIM NÂNG CAO")
+            .id(egui::Id::new("cadtbt360_bim_advanced_window"))
+            .default_size([1120.0, 700.0])
+            .min_width(620.0)
+            .resizable(true)
+            .vscroll(true)
+            .open(&mut advanced_open)
+            .show(ui.ctx(), |ui| { legacy_panel(ui, app, state); });
+    }
+    ui.ctx().data_mut(|data| {
+        data.insert_temp(tab_id, tab);
+        data.insert_temp(advanced_id, advanced_open);
+        data.insert_temp(egui::Id::new("tbt360_bim_selected_issue"), selected_issue);
     });
-    ui.ctx().data_mut(|data| { data.insert_temp(tab_id, tab); data.insert_temp(egui::Id::new("tbt360_bim_selected_issue"), selected_issue); });
 }
 
 fn legacy_panel(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut State) {
@@ -3124,6 +3181,13 @@ mod tests {
         state.auth.account_id = state.current_account_id.clone();
         state.pending_changes[0].synced = true;
         assert!(!can_sync_from_dashboard(&state), "synced changes must not trigger an empty operation");
+    }
+
+    #[test]
+    fn dashboard_breakpoints_prevent_single_column_on_wide_monitors() {
+        assert_eq!(collaboration_kpi_columns(1600.0), 5);
+        assert_eq!(collaboration_kpi_columns(960.0), 3);
+        assert_eq!(collaboration_kpi_columns(540.0), 2);
     }
 
     #[test]
