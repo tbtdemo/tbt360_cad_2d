@@ -1,3 +1,24 @@
+## Sửa lỗi Windows Native regression — mốc B15 Fix (03/11/2026)
+
+**Lỗi thực tế được xác minh từ log Windows job `125889667162` run [41627300916](https://github.com/tbtdemo/tbt360_cad_2d/actions/runs/41627300916):** 83 test PASS, 5 test FAIL; đều là `Access is denied (os error 5)` khi lưu hoặc phục hồi file backup BIM workspace.
+
+- `corrupted_workspace_recovers_previous_valid_backup`
+- `repeated_workspace_saves_replace_existing_main_and_backup`
+- `safe_workspace_save_preserves_previous_file_as_backup`
+- `save_after_corrupted_main_does_not_destroy_last_valid_backup`
+- `workspace_recovery_does_not_discard_unsynced_in_memory_changes`
+
+**Nguyên nhân xác định:** `save_workspace_safely` mở `backup_temp` chỉ với `read(true)`, rồi gọi `sync_all()`; trên Windows, `FlushFileBuffers` với handle không có quyền ghi bị từ chối. Đã sửa thành `read(true).write(true)` và giữ quy trình fsync/replace/backup. Commit [81e8d61c](https://github.com/tbtdemo/tbt360_cad_2d/commit/81e8d61c3e5c2877eeb7d09821b4d21d4ad2f59e).
+
+**Đã kích hoạt đóng gói lại cùng fix:** commit [06f04db9](https://github.com/tbtdemo/tbt360_cad_2d/commit/06f04db90d47bc1d150dc1653745fda3b7f243ef) và các run:
+- [41634295540](https://github.com/tbtdemo/tbt360_cad_2d/actions/runs/41634295540): Ubuntu cross-compile Windows EXE, đang chạy lúc ghi.
+- [41634295714](https://github.com/tbtdemo/tbt360_cad_2d/actions/runs/41634295714): Windows native CI/installer, đang chạy lúc ghi.
+
+**Tỷ lệ cổng giao bản sửa lỗi:** 1/4 = **25%** đã xác minh (source fix + workflow có commit). Chưa xác minh riêng EXE build và artifact **của commit 06f04db9**, chưa có test PASS lại trên Windows hoặc GUI smoke test. Không dùng artifact commit cũ làm bằng chứng bản sửa đã build.
+
+**Bộ cài gần nhất đã xác minh build PASS trước bản sửa lỗi:** Ubuntu cross build run [41629152826](https://github.com/tbtdemo/tbt360_cad_2d/actions/runs/41629152826), commit `e8f7af28`, artifact [13227448429](https://github.com/tbtdemo/tbt360_cad_2d/actions/runs/41629152826/artifacts/13227448429). Chưa có bản sửa lỗi Windows backup nên không được gọi là release kiểm thử đạt.
+
+
 # CAD360 B15-UI — Theo dõi tiến độ có bằng chứng
 
 Cập nhật: 2026-11-03 (Asia/Bangkok). Nhánh phát triển: `tbt/cad360-active-release`.
