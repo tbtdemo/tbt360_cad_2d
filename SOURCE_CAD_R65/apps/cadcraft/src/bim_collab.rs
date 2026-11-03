@@ -1264,6 +1264,16 @@ impl State {
             "sequence": a.sequence, "account_id": a.account_id, "action": a.action, "floor_id": a.floor_id,
             "discipline": a.discipline.map(Discipline::label), "handle": a.handle.map(|h| h.hex()), "detail": a.detail, "issue_id": a.issue_id
         })).collect::<Vec<_>>();
+        let pending_changes = self.pending_changes.iter().filter(|change| !change.synced).map(|change| serde_json::json!({
+            "id": change.id,
+            "account_id": change.account_id,
+            "items": change.items.iter().map(|item| serde_json::json!({
+                "handle": item.handle.hex(),
+                "operation": match item.operation { ChangeOperation::Create => "create", ChangeOperation::Update => "update", ChangeOperation::Delete => "delete" },
+                "base_revision": item.base_revision,
+                "local_revision": item.local_revision
+            })).collect::<Vec<_>>()
+        })).collect::<Vec<_>>();
         serde_json::json!({
             "version": 2,
             "project_id": self.project_id,
@@ -1284,7 +1294,8 @@ impl State {
             "active_discipline": self.active_discipline.label(),
             "progress": progress,
             "issues": issues,
-            "audit_log": audit_log
+            "audit_log": audit_log,
+            "pending_changes": pending_changes
         })
     }
 
@@ -1457,6 +1468,44 @@ impl State {
                 issue_id: item.get("issue_id").and_then(serde_json::Value::as_u64),
             })).take(5000).collect();
             self.next_audit_sequence = self.audit_log.iter().map(|entry| entry.sequence).max().unwrap_or(0).saturating_add(1);
+        }
+
+        if let Some(entries) = value.get("pending_changes") {
+            let entries = entries.as_array().ok_or_else(|| "BIM pending_changes phải là mảng".to_string())?;
+            if entries.len() > 100_000 { return Err("Quá nhiều ChangeSet trong workspace".into()); }
+            let mut changes = Vec::with_capacity(entries.len());
+            let mut ids = std::collections::HashSet::new();
+            for entry in entries {
+                let id = entry.get("id").and_then(serde_json::Value::as_u64).filter(|id| *id > 0).ok_or_else(|| "ChangeSet thiếu ID".to_string())?;
+                if !ids.insert(id) { return Err("ChangeSet bị trùng ID".into()); }
+                let account_id = entry.get("account_id").and_then(serde_json::Value::as_str).filter(|id| !id.trim().is_empty()).ok_or_else(|| "ChangeSet thiếu tài khoản".to_string())?.to_string();
+                let items = entry.get("items").and_then(serde_json::Value::as_array).filter(|items| !items.is_empty() && items.len() <= 100_000).ok_or_else(|| "ChangeSet có danh sách đối tượng không hợp lệ".to_string())?;
+                let mut parsed_items = Vec::with_capacity(items.len());
+                let mut handles = std::collections::HashSet::new();
+                for item in items {
+                    let handle = item.get("handle").and_then(serde_json::Value::as_str).and_then(cadcraft_doc::Handle::parse_hex).ok_or_else(|| "Handle BIM không hợp lệ".to_string())?;
+                    if !handles.insert(handle) { return Err("ChangeSet có Handle trùng".into()); }
+                    let operation = match item.get("operation").and_then(serde_json::Value::as_str) {
+                        Some("create") => ChangeOperation::Create,
+                        Some("update") => ChangeOperation::Update,
+                        Some("delete") => ChangeOperation::Delete,
+                        _ => return Err("Thao tác ChangeSet không hợp lệ".into()),
+                    };
+                    let base_revision = item.get("base_revision").and_then(serde_json::Value::as_u64).ok_or_else(|| "Thiếu base_revision".to_string())?;
+                    let local_revision = item.get("local_revision").and_then(serde_json::Value::as_u64).filter(|revision| *revision > base_revision).ok_or_else(|| "local_revision không hợp lệ".to_string())?;
+                    parsed_items.push(ChangeItem { handle, operation, base_revision, local_revision });
+                }
+                changes.push(ChangeSet { id, account_id, items: parsed_items, synced: false });
+            }
+            self.next_change_set_id = changes.iter().map(|change| change.id).max().unwrap_or(0).saturating_add(1);
+            self.dirty_local_changes = changes.iter().map(|change| change.items.len()).sum();
+            self.pending_changes = changes;
+        } else if self.pending_changes.iter().any(|change| !change.synced) {
+            return Err("Workspace cũ không chứa hàng đợi ChangeSet; cần sao lưu trước khi mở".into());
+        } else {
+            self.pending_changes.clear();
+            self.dirty_local_changes = 0;
+            self.next_change_set_id = 1;
         }
         Ok(())
     }
