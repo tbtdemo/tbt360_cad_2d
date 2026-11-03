@@ -9,6 +9,16 @@ on:
       - 'installer/**'
       - '.github/workflows/cad360-ifc-portable.yml'
   workflow_dispatch:
+    inputs:
+      batch_count:
+        description: "Chỉ đóng gói sau 15-30 lượt thay đổi"
+        required: true
+        type: choice
+        options:
+          - '15'
+          - '20'
+          - '25'
+          - '30'
   pull_request:
     paths:
       - 'SOURCE_CAD_R65/apps/cadcraft/src/model3d.rs'
@@ -77,6 +87,7 @@ jobs:
         run: python3 -m unittest discover -s apps/cadcraft/tools -p "test_export_ifc_obj_mapping.py" -v
 
   portable-windows:
+    if: "${{ github.event_name == 'workflow_dispatch' && (inputs.batch_count == '15' || inputs.batch_count == '20' || inputs.batch_count == '25' || inputs.batch_count == '30') }}"
     runs-on: windows-latest
     timeout-minutes: 90
     defaults:
