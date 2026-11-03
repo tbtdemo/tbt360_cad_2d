@@ -460,12 +460,26 @@ mod native {
         /// The app is closing normally: finish writes in progress, then delete this app's autosave
         /// files and its lock file.
         pub fn shutdown(&mut self) {
+            self.shutdown_with_recovery(false);
+        }
+
+        /// If the final CAD+BIM snapshot failed while drawings remain dirty,
+        /// preserve this instance's recovery files. Finish all worker writes
+        /// before releasing its lock, making the files eligible at next startup.
+        /// A failed writer must never trigger deletion of an older valid copy.
+        pub fn shutdown_preserving_recovery(&mut self) {
+            self.shutdown_with_recovery(true);
+        }
+
+        fn shutdown_with_recovery(&mut self, preserve: bool) {
             for (_, h) in self.running.drain(..) {
                 let _ = h.join();
             }
             self.busy.clear();
-            for path in self.files() {
-                discard(&path);
+            if !preserve {
+                for path in self.files() {
+                    discard(&path);
+                }
             }
             self.docs.clear();
             let dir = savefilepath();
