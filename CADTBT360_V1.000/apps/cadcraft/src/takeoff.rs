@@ -1665,6 +1665,122 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
         ui.small("Đây là phương pháp diện tích mặt bằng × chiều cao mặt cắt có cùng tỷ lệ bản vẽ. Trắc ngang giao thông, đất đắp/đào và chuyển đổi tỷ lệ khác nhau sẽ có module tính riêng, không dùng công thức này.");
     });
 
+    egui::CollapsingHeader::new("04 — GIAO THÔNG: CỌC LÝ TRÌNH + DIỆN TÍCH TRẮC NGANG")
+        .id_salt("cadtbt360_road_qto_panel").default_open(true).show(ui, |ui| {
+        ui.label("Phương pháp diện tích trung bình hai đầu (AEA): V = (A₁ + A₂) × L / 2.");
+        ui.small("Quét/chọn đúng một đường bao kín trên bản vẽ trắc ngang, phân loại vùng ĐÀO hoặc ĐẮP, khai báo lý trình của cọc trên bình đồ. Lý trình nhập theo mét hoặc Km12+345.67. Không tự suy đoán lý trình từ tọa độ CAD.");
+        ui.horizontal_wrapped(|ui| {
+            ui.label("Lý trình");
+            ui.add(egui::TextEdit::singleline(&mut state.road_chainage).hint_text("Km0+000.00").desired_width(145.0));
+            ui.label("Tên cọc");
+            ui.add(egui::TextEdit::singleline(&mut state.road_name).hint_text("Cọc H1").desired_width(120.0));
+            if let Ok(m)=takeoff_road::station_to_metres(&state.road_chainage) {
+                ui.colored_label(egui::Color32::LIGHT_GREEN,takeoff_road::station_label(m));
+            }
+        });
+        ui.horizontal_wrapped(|ui| {
+            for (kind,label) in [(EarthworkKind::Cut,"CHỌN DIỆN TÍCH ĐÀO"),(EarthworkKind::Fill,"CHỌN DIỆN TÍCH ĐẮP")] {
+                if ui.button(label).clicked() {
+                    let candidates=selected_measurements(app).into_iter().filter(|m| m.kind==MeasureKind::Area && m.raw_value>0.0).collect::<Vec<_>>();
+                    if candidates.len()!=1 {
+                        state.import_feedback=format!("Cần quét đúng 1 vùng kín trắc ngang (hiện có {} diện tích).",candidates.len());
+                    } else {
+                        let measure=&candidates[0];
+                        let source=GeometricSource{handle:measure.source_handle.hex(),signature:geometry_signature(measure),raw_value:measure.raw_value};
+                        match kind { EarthworkKind::Cut=>state.road_cut=Some(source), EarthworkKind::Fill=>state.road_fill=Some(source) }
+                        state.import_feedback=format!("Đã lấy diện tích {} tại cọc đang khai báo: {:.3} đơn vị².",kind.label(),measure.raw_value);
+                    }
+                }
+            }
+            if ui.small_button("Xóa nguồn đào").clicked() {state.road_cut=None;}
+            if ui.small_button("Xóa nguồn đắp").clicked() {state.road_fill=None;}
+        });
+        let source_label=|source:&Option<GeometricSource>| source.as_ref()
+            .map(|value|format!("{} • {:.3} đv²",value.handle,value.raw_value)).unwrap_or_else(||"Chưa chọn".into());
+        ui.columns(2,|cols| {
+            cols[0].label(format!("DIỆN TÍCH ĐÀO: {}",source_label(&state.road_cut)));
+            cols[1].label(format!("DIỆN TÍCH ĐẮP: {}",source_label(&state.road_fill)));
+        });
+        let station=takeoff_road::station_to_metres(&state.road_chainage).ok().map(|chainage_m|RoadCrossSection {
+            chainage_m,name:state.road_name.trim().to_string(),
+            cut:state.road_cut.clone(),fill:state.road_fill.clone(),confirmed:false,
+        });
+        let valid=station.as_ref().is_some_and(|candidate|takeoff_road::validate_section(candidate).is_ok()
+            && state.road_sections.iter().all(|old|(old.chainage_m-candidate.chainage_m).abs()>1.0e-6));
+        if ui.add_enabled(valid,egui::Button::new("LƯU TRẮC NGANG VÀO DANH SÁCH CỌC")).clicked() {
+            let next=station.unwrap();
+            for source in [&next.cut,&next.fill].into_iter().flatten() {state.captured_handles.insert(source.handle.clone());}
+            state.road_sections.push(next);
+            state.road_sections.sort_by(|a,b|a.chainage_m.total_cmp(&b.chainage_m));
+            state.source_mode=QtoSourceMode::CapturedRegion;
+            state.road_cut=None;
+            state.road_fill=None;
+            state.import_feedback=format!("Đã lưu {} mặt cắt. Phải kiểm tra và xác nhận trước khi xuất.",state.road_sections.len());
+        }
+        if !valid {
+            ui.colored_label(egui::Color32::YELLOW,"Cần lý trình hợp lệ, diện tích đào/đắp từ hình học CAD và không trùng lý trình cọc đã lưu.");
+        }
+        ui.separator();
+        ui.strong(format!("TRẮC NGANG ĐÃ KHAI BÁO: {} CỌC",state.road_sections.len()));
+        let mut delete=None;
+        egui::ScrollArea::vertical().id_salt("cadtbt360_road_station_list").max_height(220.0).show(ui,|ui|{
+            egui::Grid::new("cadtbt360_road_station_grid").striped(true).show(ui,|ui|{
+                for heading in ["Duyệt","Lý trình","Tên cọc","Diện tích đào (đv²)","Diện tích đắp (đv²)","Thao tác"] {ui.strong(heading);}
+                ui.end_row();
+                for (i,section) in state.road_sections.iter_mut().enumerate(){
+                    ui.checkbox(&mut section.confirmed,"");
+                    ui.label(takeoff_road::station_label(section.chainage_m));
+                    ui.label(&section.name);
+                    ui.label(section.cut.as_ref().map(|s|format!("{:.3}",s.raw_value)).unwrap_or_else(||"-".into()));
+                    ui.label(section.fill.as_ref().map(|s|format!("{:.3}",s.raw_value)).unwrap_or_else(||"-".into()));
+                    if ui.small_button("Xóa").clicked(){delete=Some(i);}
+                    ui.end_row();
+                }
+            });
+        });
+        if let Some(i)=delete {state.road_sections.remove(i);}
+        ui.horizontal_wrapped(|ui|{
+            ui.label("Nhóm");ui.add(egui::TextEdit::singleline(&mut state.road_work_group).desired_width(120.0).hint_text("Nền đường"));
+            ui.label("Mã đào");ui.add(egui::TextEdit::singleline(&mut state.road_cut_code).desired_width(100.0).hint_text("GT.DAO"));
+            ui.label("Mã đắp");ui.add(egui::TextEdit::singleline(&mut state.road_fill_code).desired_width(100.0).hint_text("GT.DAP"));
+        });
+        if let Some(scale)=state.scale_to_m() {
+            match takeoff_road::intervals(&state.road_sections,scale,false) {
+                Ok(segments)=>{
+                    let total_cut=segments.iter().filter(|s|s.kind==EarthworkKind::Cut).map(|s|s.volume_m3).sum::<f64>();
+                    let total_fill=segments.iter().filter(|s|s.kind==EarthworkKind::Fill).map(|s|s.volume_m3).sum::<f64>();
+                    ui.horizontal_wrapped(|ui|{
+                        ui.strong(format!("Đào: {:.3} m³",total_cut));
+                        ui.separator();
+                        ui.strong(format!("Đắp: {:.3} m³",total_fill));
+                        ui.separator();
+                        ui.label(format!("{} khoảng cọc có khối lượng (dự thảo)",segments.len()));
+                    });
+                    egui::ScrollArea::both().id_salt("cadtbt360_road_interval_preview").max_height(170.0).show(ui,|ui|{
+                        egui::Grid::new("cadtbt360_road_segments").striped(true).show(ui,|ui|{
+                            for heading in ["Từ cọc","Đến cọc","Loại","L (m)","A1 (m²)","A2 (m²)","V (m³)"]{ui.strong(heading);}
+                            ui.end_row();
+                            for part in segments.iter().take(100){
+                                ui.label(takeoff_road::station_label(part.start_m));
+                                ui.label(takeoff_road::station_label(part.end_m));
+                                ui.label(part.kind.label());
+                                ui.label(format!("{:.2}",part.length_m));
+                                ui.label(format!("{:.3}",part.area_start_m2));
+                                ui.label(format!("{:.3}",part.area_end_m2));
+                                ui.label(format!("{:.3}",part.volume_m3));
+                                ui.end_row();
+                            }
+                        });
+                    });
+                },
+                Err(message)=>{if state.road_sections.len()>=2{ui.colored_label(egui::Color32::YELLOW,message);}}
+            }
+        } else {
+            ui.colored_label(egui::Color32::YELLOW,"Cần hiệu chuẩn tỷ lệ CAD sang mét trước khi tính khối lượng giao thông.");
+        }
+        ui.small("Lưu ý: chưa tự bắt cọc/nhận dạng mặt cắt từ block hoặc nội suy tại điểm chuyển đào–đắp. Khi thiếu một đầu diện tích hệ thống dừng, KHÔNG tự gán diện tích bằng 0.");
+    });
+
     ui.collapsing("CÔNG CỤ CŨ — nhập nhanh từ đối tượng đang chọn", |ui| {
     ui.horizontal(|ui| {
         if ui.button("Thêm phép đo từ CAD đang chọn").clicked() {
