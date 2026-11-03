@@ -493,6 +493,11 @@ impl State {
             "version": 4,
             "drawing_distance": self.drawing_distance,
             "real_distance_m": self.real_distance_m,
+            "qto_selection": {
+                "source_mode": format!("{:?}", self.source_mode),
+                "captured_handles": self.captured_handles,
+                "measure_types": self.selected_measure_types
+            },
             "export_config": {
                 "columns": self.export_config.columns,
                 "group_by": format!("{:?}", self.export_config.group_by),
@@ -615,6 +620,35 @@ impl State {
             config.confirmed_only = v.get("confirmed_only").and_then(serde_json::Value::as_bool).unwrap_or(true);
             config.decimals = v.get("decimals").and_then(serde_json::Value::as_u64).map(|n| n.min(6) as usize).unwrap_or(3);
         }
+        // Old QTO files default to explicit CAD selection, never the whole
+        // project. Persisted captured handles are checked for valid CAD hex IDs.
+        let mut source_mode = QtoSourceMode::default();
+        let mut captured_handles = BTreeSet::new();
+        let mut methods = [true, true, true, false];
+        if let Some(selection) = value.get("qto_selection") {
+            source_mode = match selection.get("source_mode").and_then(serde_json::Value::as_str) {
+                Some("CapturedRegion") => QtoSourceMode::CapturedRegion,
+                Some("EntireProject") => QtoSourceMode::EntireProject,
+                _ => QtoSourceMode::CurrentSelection,
+            };
+            if let Some(ids) = selection.get("captured_handles").and_then(serde_json::Value::as_array) {
+                if ids.len() <= 200_000 {
+                    captured_handles.extend(ids.iter().filter_map(serde_json::Value::as_str)
+                        .filter(|handle| cadcraft_doc::Handle::parse_hex(handle).is_some()).map(str::to_string));
+                }
+            }
+            if let Some(chosen) = selection.get("measure_types").and_then(serde_json::Value::as_array) {
+                if chosen.len() == 4 {
+                    for i in 0..4 { methods[i] = chosen[i].as_bool().unwrap_or(methods[i]); }
+                }
+            }
+        }
+        self.source_mode = source_mode;
+        self.captured_handles = captured_handles;
+        self.selected_measure_types = methods;
+        self.methods_initialized = true;
+        self.preview_key = None;
+        self.preview_measurements.clear();
         self.export_config = config;
         self.drawing_distance = drawing_distance;
         self.real_distance_m = real_distance_m;
@@ -1754,6 +1788,45 @@ mod tests {
     use super::*;
     use cadcraft_doc::geom::PolyVertex;
     use cadcraft_doc::geom::Vec2;
+
+    #[test]
+    fn qto_selection_filters_export_by_exact_cad_handles_and_does_not_default_to_entire_project() {
+        assert_eq!(QtoSourceMode::default(), QtoSourceMode::CurrentSelection);
+        let mut state = State::default();
+        let first = state.add_measurement(MeasureKind::Count, vec![], 1.0, "Layer1".into()).unwrap();
+        let second = state.add_measurement(MeasureKind::Count, vec![], 2.0, "Layer2".into()).unwrap();
+        for (id, handle) in [(first, "2A"), (second, "2B")] {
+            let record = state.records.iter_mut().find(|record| record.id == id).unwrap();
+            record.source_handle = Some(handle.into());
+            record.description = format!("Cấu kiện {handle}");
+            record.status = MeasureStatus::Confirmed;
+        }
+        let cfg = ExportConfig { project: "Dự án".into(), investor: "Chủ đầu tư".into(), ..ExportConfig::default() };
+        let mut selected = BTreeSet::new();
+        selected.insert("2A".into());
+        let report = qto_report_lines(&state, &SourceValidation::default(), &cfg, Some(&selected)).unwrap();
+        assert_eq!(report.len(), 1);
+        assert_eq!(report[0].quantity, 1.0);
+        selected.clear();
+        assert!(qto_report_lines(&state, &SourceValidation::default(), &cfg, Some(&selected)).is_err());
+        assert_eq!(qto_report_lines(&state, &SourceValidation::default(), &cfg, None).unwrap().len(), 2);
+    }
+
+    #[test]
+    fn qto_selection_saved_region_and_methods_survive_project_reload() {
+        let mut state = State::default();
+        state.source_mode = QtoSourceMode::CapturedRegion;
+        state.captured_handles.insert("2A".into());
+        state.selected_measure_types = [false, true, false, false];
+        let json = state.to_json();
+        let mut loaded = State::default();
+        loaded.load_json(&json).unwrap();
+        assert_eq!(loaded.source_mode, QtoSourceMode::CapturedRegion);
+        assert_eq!(loaded.captured_handles, BTreeSet::from(["2A".to_string()]));
+        assert_eq!(loaded.selected_measure_types, [false, true, false, false]);
+        assert!(!qto_measure_type_allowed(MeasureKind::Count, loaded.selected_measure_types));
+        assert!(qto_measure_type_allowed(MeasureKind::Area, loaded.selected_measure_types));
+    }
 
     #[test]
     fn qto_investor_excel_report_filters_excluded_and_invalid_sources() {
