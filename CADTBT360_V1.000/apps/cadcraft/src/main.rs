@@ -163,7 +163,7 @@ impl eframe::App for App {
             // Embedded at compile time so screenshots identify the executable actually running.
             // Local builds without CAD360_BUILD_SHA are explicitly labelled DEV.
             let build_sha = option_env!("CAD360_BUILD_SHA").unwrap_or("DEV");
-            ui.label(format!("CADTBT360_V1.001 · {}", build_sha.get(..8).unwrap_or(build_sha)))
+            ui.label(format!("CADTBT360_V1.002 · {}", build_sha.get(..8).unwrap_or(build_sha)))
                 .on_hover_text(format!("Mã bản dựng: {build_sha}"));
             ui.label("Tự lưu CAD+BIM: 5 phút");
             if ui.button("Lưu CAD+BIM").on_hover_text("Lưu ngay một cặp hình học DXF và metadata BIM").clicked() {
@@ -402,7 +402,7 @@ fn main() -> eframe::Result {
         // swapchains hold two frames back under vsync (`CADCRAFT_VSYNC=1` restores vsync).
         wgpu_options: eframe::egui_wgpu::WgpuConfiguration::default().with_surface_config(surface),
         viewport: egui::ViewportBuilder::default()
-            .with_title("CAD TBT 360 — V1.001")
+            .with_title("CAD TBT 360 — V1.002")
             .with_inner_size([1600.0, 1000.0])
             .with_min_inner_size([900.0, 560.0])
             .with_drag_and_drop(true)
@@ -446,7 +446,7 @@ fn main() -> eframe::Result {
         }));
     }
     eframe::run_native(
-        "CAD TBT 360 — V1.001",
+        "CAD TBT 360 — V1.002",
         options,
         Box::new(move |cc| {
             let mut app = CadApp::new(Session::empty(), services());
