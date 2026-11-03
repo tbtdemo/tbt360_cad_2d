@@ -150,6 +150,7 @@ fn sheet(config: &ExportConfig, rows: &[ReportLine]) -> (String, usize) {
     for (i, index) in selected.iter().enumerate() {
         widths.push_str(&format!("<col min=\"{}\" max=\"{}\" width=\"{}\" customWidth=\"1\"/>", i + 1, i + 1, FIELDS[*index].1));
     }
+    let merge_count = merges.len();
     let merges = merges.join("");
     let xml = format!(r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
@@ -162,7 +163,7 @@ fn sheet(config: &ExportConfig, rows: &[ReportLine]) -> (String, usize) {
 <pageMargins left="0.25" right="0.25" top="0.45" bottom="0.45" header="0.18" footer="0.18"/>
 <pageSetup paperSize="9" orientation="landscape" fitToWidth="1" fitToHeight="0"/>
 <headerFooter><oddHeader>&amp;CCAD TBT 360 — BẢNG ĐO BÓC</oddHeader><oddFooter>&amp;L{}&amp;RTrang &amp;P / &amp;N</oddFooter></headerFooter>
-</worksheet>"#, excel_row + 2, merges.len().saturating_sub(merges.replace("<mergeCell", "x").len()), xml(&config.document_number));
+</worksheet>"#, excel_row + 2, merge_count, xml(&config.document_number));
     // Merged ranges, styles and pagination are all emitted in OOXML, not CSV.
     (xml, last)
 }
@@ -172,7 +173,7 @@ fn add_totals(body: &mut String, row: &mut usize, totals: &BTreeMap<String, f64>
         for (i, field) in selected.iter().enumerate() {
             let pos = format!("{}{}", column(i), *row);
             if i == qty_idx { body.push_str(&number_cell(&pos, *value, 10)); }
-            else if i == 0 { body.push_str(&text_cell(&pos, &format!("{prefix} ({unit})"), 10)); }
+            else if i == 0 { body.push_str(&text_cell(&pos, &format!("{prefix} ({unit})"), 6)); }
             else if *field == 9 { body.push_str(&text_cell(&pos, unit, 10)); }
         }
         body.push_str("</row>");
