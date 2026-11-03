@@ -19,8 +19,8 @@ struct QsState {
     value: String,
     exclude: bool,
     append: bool,
-    /// (drawing identity, revision, applyTo, type) → info reply.
-    info_key: Option<(usize, u64, bool, String)>,
+    /// (drawing identity, revision, selected handles, applyTo, type) → info reply.
+    info_key: Option<(usize, u64, u64, bool, String)>,
     info: Value,
 }
 
@@ -55,6 +55,12 @@ fn qselect_matching_choices<'a>(choices: &'a [String], query: &str, max_results:
     (results, count)
 }
 
+/// Avoid an unintended select-all operation when the dialog has no usable filter.
+/// Filtering by object type alone remains valid.
+fn qselect_has_criteria(ty: &str, property: &str, value: &str) -> bool {
+    ty != "Multiple" || (!property.is_empty() && !value.trim().is_empty())
+}
+
 const OPERATORS: &[(&str, &str)] =
     &[("=", "= Equals"), ("!=", "<> Not Equal"), (">", "> Greater than"), ("<", "< Less than"), ("*", "* Wildcard Match")];
 
@@ -80,7 +86,17 @@ pub fn qselect_dialog(app: &mut CadApp, ctx: &egui::Context, open: &mut bool) {
     let sid = egui::Id::unique("qselect_state");
     let mut st: QsState = ctx.data_mut(|d| d.get_temp(sid)).unwrap_or_default();
     let (key, revision) = app.session.state().map(|s| (std::sync::Arc::as_ptr(&s.doc) as usize, s.revision)).unwrap_or((0, 0));
-    let want = (key, revision, st.apply_selection, st.ty.clone());
+    // A selection can change without a drawing revision. QSELECT.info must refresh
+    // in "Current selection" mode rather than showing stale property/type choices.
+    let selection_hash = if st.apply_selection {
+        use std::hash::{Hash, Hasher};
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        let selection = app.session.selection();
+        selection.len().hash(&mut hasher);
+        for handle in selection { handle.hash(&mut hasher); }
+        hasher.finish()
+    } else { 0 };
+    let want = (key, revision, selection_hash, st.apply_selection, st.ty.clone());
     if st.info_key.as_ref() != Some(&want) {
         let ty = if st.ty == "Multiple" { Value::Null } else { json!(st.ty) };
         st.info = app
@@ -202,9 +218,20 @@ pub fn qselect_dialog(app: &mut CadApp, ctx: &egui::Context, open: &mut bool) {
             ui.radio_value(&mut st.exclude, true, crate::tl!("Exclude from new selection set"));
             ui.checkbox(&mut st.append, crate::tl!("Append to current selection set"));
             ui.separator();
+            let valid_filter = qselect_has_criteria(&st.ty, &st.property, &st.value);
+            if !valid_filter { ui.colored_label(egui::Color32::YELLOW, "Chọn loại đối tượng hoặc nhập giá trị thuộc tính trước khi lọc."); }
             ui.horizontal(|ui| {
+                if ui.button("Xóa điều kiện").clicked() {
+                    st.ty = "Multiple".into();
+                    st.property = "color".into();
+                    st.operator = "=".into();
+                    st.value.clear();
+                    st.exclude = false;
+                    st.append = false;
+                    st.info_key = None;
+                }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui.button(crate::tl!("  OK  ")).clicked() {
+                    if ui.add_enabled(valid_filter, egui::Button::new(crate::tl!("  OK  "))).clicked() {
                         let mode = if st.exclude {
                             "exclude"
                         } else if st.append {
@@ -220,7 +247,7 @@ pub fn qselect_dialog(app: &mut CadApp, ctx: &egui::Context, open: &mut bool) {
                             if st.ty != "Multiple" {
                                 o.insert("type".into(), json!(st.ty));
                             }
-                            if !st.property.is_empty() && (!st.value.trim().is_empty() || st.operator == "*") {
+                            if !st.property.is_empty() && !st.value.trim().is_empty() {
                                 o.insert("property".into(), json!(st.property));
                                 o.insert("operator".into(), json!(st.operator));
                                 let v = st.value.trim();
@@ -478,6 +505,14 @@ mod qselect_filter_tests {
         assert_eq!(count, 500);
         assert_eq!(matches.len(), 100);
         assert_eq!(matches[0], "LAYER-000");
+    }
+
+    #[test]
+    fn qselect_requires_real_criteria_before_modifying_selection() {
+        assert!(!super::qselect_has_criteria("Multiple", "layer", ""));
+        assert!(!super::qselect_has_criteria("Multiple", "layer", "  "));
+        assert!(super::qselect_has_criteria("LINE", "layer", ""));
+        assert!(super::qselect_has_criteria("Multiple", "layer", "WALL"));
     }
 
     #[test]
