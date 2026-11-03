@@ -109,6 +109,15 @@ impl CadApp {
             s.shutdown();
         }
     }
+
+    /// Keep recoverable DXF files if the final paired snapshot failed. The
+    /// autosave worker is joined before removing its instance lock.
+    pub fn shutdown_autosave_preserving_recovery(&mut self) {
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Some(s) = &mut self.autosave {
+            s.shutdown_preserving_recovery();
+        }
+    }
 }
 
 /// `secs` since 1970 as `YYYY-MM-DD HH:MM` (UTC). Past chrono's year 262143 range the proleptic
