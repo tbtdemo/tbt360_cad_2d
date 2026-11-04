@@ -326,12 +326,61 @@ def main():
              "before_texts":before_texts,"after_texts":after_texts},indent=2,ensure_ascii=False),encoding="utf-8")
         (args.out/"mixed_dwg_before.json").write_text(json.dumps(mixed_before,indent=2),encoding="utf-8")
         (args.out/"mixed_dwg_after.json").write_text(json.dumps(mixed_after,indent=2),encoding="utf-8")
+        # Advanced entity scenario: create a named block with an attribute,
+        # place two references, add a hatch, and roundtrip through real DWG.
+        mcp.tool("new_drawing",{"metric":True})
+        mcp.tool("execute",{"command":"layer.new","params":{"name":"CAD360-BLOCKS","color":"green","current":True}})
+        mcp.tool("execute",{"command":"circle","params":{"center":[10,10],"radius":3}})
+        mcp.tool("execute",{"command":"attdef","params":{"tag":"MARK","prompt":"Mark","default":"BASE","at":[10,14],"height":2}})
+        block_handles=[]
+        for kind in ("Circle","AttDef"):
+            response=json.loads(mcp.tool("query_entities",{"type":kind,"limit":10})[0]["text"])
+            if response.get("count")!=1: raise RuntimeError(f"Block seed {kind} missing: {response}")
+            block_handles.append(response["entities"][0]["handle"])
+        mcp.tool("execute",{"command":"block","params":{
+            "name":"CAD360-QA-SYMBOL","base":[10,10],"handles":block_handles,"keep":"delete"}})
+        mcp.tool("execute",{"command":"insert","params":{
+            "name":"CAD360-QA-SYMBOL","at":[20,20],"rotation":0,"attribs":{"MARK":"B-01"}}})
+        mcp.tool("execute",{"command":"insert","params":{
+            "name":"CAD360-QA-SYMBOL","at":[55,20],"scale":1.5,"rotation":30,"attribs":{"MARK":"B-02"}}})
+        mcp.tool("execute",{"command":"layer.new","params":{"name":"CAD360-HATCH","color":"yellow","current":True}})
+        mcp.tool("execute",{"command":"rectang","params":{"p1":[0,0],"p2":[100,70]}})
+        mcp.tool("execute",{"command":"hatch","params":{"points":[[90,60]],"pattern":"ANSI31","scale":2.0,"angle":45}})
+        advanced_before=json.loads(mcp.tool("inspect_drawing",{"entities":False})[0]["text"])
+        advanced_expected={"Insert":2,"Polyline":1,"Hatch":1}
+        for kind,n in advanced_expected.items():
+            if advanced_before.get("counts",{}).get(kind)!=n:
+                raise RuntimeError(f"Advanced CAD did not create {kind}: {advanced_before.get('counts')}")
+        block_props=[]
+        for entry in json.loads(mcp.tool("query_entities",{"type":"Insert","limit":10})[0]["text"])["entities"]:
+            block_props.append({"layer":entry.get("layer"),"geometry":canonical_geometry(entry.get("geometry"))})
+        hatch_before=mcp_entity_snapshot(mcp,"Hatch")
+        advanced_dwg=args.out/"CAD360_BLOCK_ATTRIBUTE_HATCH.dwg"
+        mcp.tool("save",{"path":str(advanced_dwg.resolve())})
+        mcp.tool("open",{"path":str(advanced_dwg.resolve())})
+        advanced_after=json.loads(mcp.tool("inspect_drawing",{"entities":False})[0]["text"])
+        for kind,n in advanced_expected.items():
+            if advanced_after.get("counts",{}).get(kind)!=n:
+                raise RuntimeError(f"Advanced DWG lost {kind}: {advanced_after.get('counts')}")
+        reopened_blocks=[]
+        for entry in json.loads(mcp.tool("query_entities",{"type":"Insert","limit":10})[0]["text"])["entities"]:
+            reopened_blocks.append({"layer":entry.get("layer"),"geometry":canonical_geometry(entry.get("geometry"))})
+        if sorted(block_props,key=lambda x:json.dumps(x,sort_keys=True))!=sorted(reopened_blocks,key=lambda x:json.dumps(x,sort_keys=True)):
+            raise RuntimeError("DWG changed block insertion geometry/layer")
+        hatch_after=mcp_entity_snapshot(mcp,"Hatch")
+        if hatch_before!=hatch_after:
+            raise RuntimeError("DWG hatch geometry or layer changed")
+        (args.out/"ADVANCED_DWG_ROUNDTRIP.json").write_text(json.dumps({
+            "result":"PASS","counts":advanced_after.get("counts"),"blocks_before":block_props,
+            "blocks_after":reopened_blocks,"hatch_before":hatch_before,"hatch_after":hatch_after
+        },indent=2,ensure_ascii=False),encoding="utf-8")
         report={"result":"PASS","method":"real desktop MCP bridge","counts":counts,
                 "render":render_info,"window_screenshot":screen_info,"visual_comparison":visual,
                 "drawing_bytes":drawing.stat().st_size,"undo_counts":undo_counts,"redo_counts":redo_counts,
                 "extended_counts":extended_counts,"reopened_dwg_counts":dwg_counts,"dwg_bytes":dwg.stat().st_size,
                 "mixed_expected":required,"mixed_reopened_counts":after_counts,"mixed_layers":sorted(layers),
-                "property_roundtrip":"PASS","validated_entity_types":sorted(required)}
+                "property_roundtrip":"PASS","validated_entity_types":sorted(required),
+                "advanced_dwg_counts":advanced_after.get("counts"),"advanced_property_roundtrip":"PASS"}
         (args.out/"ACCEPTANCE.json").write_text(json.dumps(report,indent=2),encoding="utf-8")
         print(json.dumps(report,indent=2))
     finally:
