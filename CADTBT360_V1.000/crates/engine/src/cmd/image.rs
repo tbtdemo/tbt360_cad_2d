@@ -25,6 +25,10 @@ pub(crate) fn specs() -> Vec<CommandSpec> {
             .menu(&["Modify", "Image", "Calibrate"])
             .alias(&["ical"])
             .params("{handle: IMAGE entity handle, pixels: [[x0,y0],[x1,y1]] (top-left origin), world: [[X0,Y0],[X1,Y1]], preview?: bool}. Solves uniform scale, rotation and translation; never guesses units."),
+        CommandSpec::new("imagecalibratefit", "Fit Raster Image to Multiple Survey Control Points", run_imagecalibratefit)
+            .menu(&["Modify", "Image", "Calibrate Multi-Point"])
+            .alias(&["icalfit"])
+            .params("{handle, pixels:[[x,y],...] (top-left origin), world:[[X,Y],...], preview?:bool, maxResidual?:positive}. 3..32 control pairs; least-squares scale/rotation/translation with RMS and max residual. No perspective correction."),
         CommandSpec::new("imageclip", "Clip Image", run_imageclip)
             .menu(&["Modify", "Clip", "Image"])
             .alias(&["iclip"])
@@ -192,6 +196,88 @@ fn run_imagecalibrate(s: &mut Session, p: &Value) -> Result<Value> {
         "worldControlPoints":[[world[0].x,world[0].y],[world[1].x,world[1].y]]}))
 }
 
+
+fn calibration_points(p: &Value, name: &str, cmd: &str) -> Result<Vec<Vec2>> {
+    let list = p.get(name).and_then(Value::as_array).filter(|a| (3..=32).contains(&a.len()))
+        .ok_or_else(|| bad(cmd, format!("`{name}` requires 3..32 [x,y] points")))?;
+    list.iter().enumerate().map(|(i, value)| {
+        let a = value.as_array().filter(|a| a.len() == 2).ok_or_else(|| bad(cmd, format!("`{name}[{i}]` must be [x,y]")))?;
+        let x = a[0].as_f64().filter(|v| v.is_finite()).ok_or_else(|| bad(cmd, format!("`{name}[{i}].x` must be finite")))?;
+        let y = a[1].as_f64().filter(|v| v.is_finite()).ok_or_else(|| bad(cmd, format!("`{name}[{i}].y` must be finite")))?;
+        Ok(Vec2::new(x, y))
+    }).collect()
+}
+
+/// Least-squares similarity fit with multiple surveyed control points. Independent of pixel
+/// resolution, this is a 2D similarity fit only: perspective/affine distortion is NOT corrected.
+fn run_imagecalibratefit(s: &mut Session, p: &Value) -> Result<Value> {
+    const CMD: &str = "imagecalibratefit";
+    let h = super::curves::handle_param(p, "handle").ok_or_else(|| bad(CMD, "an IMAGE entity handle is required"))?;
+    let old = match &s.doc()?.entity(h).ok_or_else(|| bad(CMD, "image not found"))?.kind {
+        EntityKind::Image(i) => i.clone(),
+        _ => return Err(bad(CMD, "handle must refer to a raster IMAGE entity")),
+    };
+    if !old.size.x.is_finite() || !old.size.y.is_finite() || old.size.x <= 0.0 || old.size.y <= 0.0 {
+        return Err(bad(CMD, "image pixel dimensions must be finite and positive"));
+    }
+    let pixels = calibration_points(p, "pixels", CMD)?;
+    let world = calibration_points(p, "world", CMD)?;
+    if pixels.len() != world.len() { return Err(bad(CMD, "pixel and CAD control point counts must match")); }
+    if pixels.iter().any(|q| q.x < 0.0 || q.y < 0.0 || q.x > old.size.x || q.y > old.size.y) {
+        return Err(bad(CMD, "all pixel controls must lie inside the raster"));
+    }
+    let n = pixels.len() as f64;
+    let mean_pixel = pixels.iter().fold(Vec2::ZERO, |sum, q| sum + Vec2::new(q.x, old.size.y - q.y)) / n;
+    let mean_world = world.iter().fold(Vec2::ZERO, |sum, q| sum + *q) / n;
+    let mut denominator = 0.0;
+    let mut cross = 0.0;
+    let mut dot = 0.0;
+    for (pixel, target) in pixels.iter().zip(&world) {
+        let q = Vec2::new(pixel.x, old.size.y - pixel.y) - mean_pixel;
+        let w = *target - mean_world;
+        denominator += q.x * q.x + q.y * q.y;
+        dot += q.x * w.x + q.y * w.y;
+        cross += q.x * w.y - q.y * w.x;
+    }
+    if !denominator.is_finite() || denominator <= 1.0e-12 { return Err(bad(CMD, "pixel controls must not all coincide")); }
+    let a = dot / denominator;
+    let b = cross / denominator;
+    let scale = a.hypot(b);
+    if !scale.is_finite() || scale <= 1.0e-12 { return Err(bad(CMD, "CAD controls collapse or produce invalid scale")); }
+    let u = Vec2::new(a, b);
+    let v = Vec2::new(-b, a);
+    let insert = mean_world - u * mean_pixel.x - v * mean_pixel.y;
+    if [u.x,u.y,v.x,v.y,insert.x,insert.y].iter().any(|x| !x.is_finite()) {
+        return Err(bad(CMD, "calibration exceeds finite drawing coordinate limits"));
+    }
+    let residuals: Vec<f64> = pixels.iter().zip(&world).map(|(pixel, target)| {
+        let y = old.size.y - pixel.y;
+        let estimate = insert + u * pixel.x + v * y;
+        (estimate - *target).len()
+    }).collect();
+    let max_error = residuals.iter().copied().fold(0.0_f64, f64::max);
+    let rms_error = (residuals.iter().map(|e| e * e).sum::<f64>() / n).sqrt();
+    if !max_error.is_finite() || !rms_error.is_finite() { return Err(bad(CMD, "residual is not finite")); }
+    if let Some(limit) = p.get("maxResidual") {
+        let limit = limit.as_f64().filter(|x| x.is_finite() && *x > 0.0).ok_or_else(|| bad(CMD, "`maxResidual` must be positive and finite"))?;
+        if max_error > limit { return Err(bad(CMD, format!("max residual {max_error:.6} exceeds allowed {limit:.6} CAD units; image not modified"))); }
+    }
+    let preview = bool_or(p, "preview", false);
+    if !preview {
+        let mut image = old;
+        image.insert.x = insert.x;
+        image.insert.y = insert.y;
+        image.u = Vec3::new(u.x, u.y, 0.0);
+        image.v = Vec3::new(v.x, v.y, 0.0);
+        s.doc_mut()?.modify_entity(h, |e| e.kind = EntityKind::Image(image.clone()))?;
+        s.touch();
+    }
+    Ok(json!({"image":h.hex(),"preview":preview,"controlCount":pixels.len(),"drawingUnitsPerPixel":scale,
+        "rotationDegrees":b.atan2(a).to_degrees(),"insert":[insert.x,insert.y],
+        "rmsResidual":rms_error,"maxResidual":max_error,"residuals":residuals,
+        "model":"least-squares-uniform-scale-rotation-translation","perspectiveCorrected":false}))
+}
+
 fn image_handle(s: &Session, p: &Value) -> Result<Handle> {
     if let Some(h) = super::curves::handle_param(p, "handle") { return Ok(h) }
     let hs = targets(s, p)?;
@@ -314,6 +400,30 @@ mod tests {
         assert_eq!(after["worldPoints"], json!([[10.0,20.0],[30.0,20.0]]));
         assert!(s.execute("imagecalibrate", &json!({"handle":h,"pixels":[[0,0],[0,0]],"world":[[0,0],[1,1]]})).is_err());
         assert!(s.execute("imagecalibrate", &json!({"handle":h,"pixels":[[0,0],[201,0]],"world":[[0,0],[1,1]]})).is_err());
+    }
+
+    #[test]
+    fn imagecalibratefit_uses_four_controls_and_refuses_bad_residual_without_edit() {
+        let mut s = Session::new();
+        let image = s.execute("imageattach", &json!({"path":"scan.png","pixels":[200,100],"width":200,"height":100})).unwrap();
+        let h = image["handle"].as_str().unwrap();
+        let fit = json!({"handle":h, "pixels":[[0,100],[200,100],[0,0],[200,0]],
+            "world":[[10,20],[30,20],[10,30],[30,30]],"preview":true,"maxResidual":0.001});
+        let preview = s.execute("imagecalibratefit", &fit).unwrap();
+        assert_eq!(preview["controlCount"], 4);
+        assert!(preview["maxResidual"].as_f64().unwrap() < 1.0e-9);
+        assert_eq!(s.execute("imagetrace", &json!({"handle":h,"points":[[0,100],[200,100]],"preview":true})).unwrap()["worldPoints"], json!([[0.0,0.0],[200.0,0.0]]));
+        let mut approved = fit.clone();
+        approved["preview"] = json!(false);
+        s.execute("imagecalibratefit", &approved).unwrap();
+        let mapped = s.execute("imagetrace", &json!({"handle":h,"points":[[0,100],[200,100]],"preview":true})).unwrap();
+        assert!((mapped["worldPoints"][0][0].as_f64().unwrap() - 10.0).abs() < 1.0e-9);
+        assert!((mapped["worldPoints"][1][0].as_f64().unwrap() - 30.0).abs() < 1.0e-9);
+        let original = mapped["worldPoints"].clone();
+        let mut bad = approved.clone();
+        bad["world"][3] = json!([80.0,80.0]);
+        assert!(s.execute("imagecalibratefit", &bad).is_err());
+        assert_eq!(s.execute("imagetrace", &json!({"handle":h,"points":[[0,100],[200,100]],"preview":true})).unwrap()["worldPoints"], original);
     }
 
     #[test]
