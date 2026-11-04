@@ -265,14 +265,15 @@ jobs:
           if ($traceDrawing.entityCount -ne 2 -or $traceDrawing.counts.'Raster Image' -ne 1 -or $traceDrawing.counts.Polyline -ne 1) {
             throw "AI image-trace DXF must contain exactly one Raster Image and one editable Polyline, found: $($traceInfo -join [char]10)"
           }
-          # Check that the linked PNG path survived a real DXF save/reopen cycle.
-          # EntityKind::Image serializes its geometry as { "Image": { "path": ... } }.
+          # Check the linked PNG path after DXF save/reopen. EntityKind uses
+          # #[serde(tag = "type", rename_all = "camelCase")]: the IMAGE's path is
+          # directly under geometry, not geometry.Image.path.
           $imageOutput = & $installedCli run $traceFile --cmd 'entities {"type":"IMAGE"}'
           if ($LASTEXITCODE -ne 0) { throw 'Installed CLI cannot query saved IMAGE reference' }
           $imageQuery = ($imageOutput -join [char]10) | ConvertFrom-Json
           if ($imageQuery.count -ne 1 -or @($imageQuery.entities).Count -ne 1) { throw 'DXF reopened with missing or duplicated IMAGE reference' }
-          $savedImage = $imageQuery.entities[0].geometry.Image
-          if ($null -eq $savedImage -or [string]::IsNullOrWhiteSpace($savedImage.path)) { throw 'DXF lost IMAGE geometry or its source path' }
+          $savedImage = $imageQuery.entities[0].geometry
+          if ($null -eq $savedImage -or $savedImage.type -ne 'image' -or [string]::IsNullOrWhiteSpace($savedImage.path)) { throw 'DXF lost internally tagged IMAGE geometry or its source path' }
           $savedImagePath = ([string]$savedImage.path).Replace([char]92, [char]47)
           if ($savedImagePath -ne $referencePath) { throw "DXF IMAGE path changed: expected $referencePath, found $savedImagePath" }
           if (!(Test-Path $savedImagePath)) { throw "Reopened DXF references a missing PNG: $savedImagePath" }
@@ -284,11 +285,11 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Installed CLI cannot query persisted editable LWPOLYLINE' }
           $geometry = ($geometryOutput -join [char]10) | ConvertFrom-Json
           if ($geometry.count -ne 1 -or $geometry.entities.Count -ne 1) { throw 'Saved AI trace does not contain exactly one queryable Polyline' }
-          # EntityKind is a serde externally-tagged enum: geometry.LwPolyline holds
-          # the editable vertices, not geometry.vertices / geometry.type.
+          # EntityKind is internally tagged: geometry.type = 'lwPolyline' and
+          # editable vertices live directly under geometry.vertices.
           $polylineEntity = $geometry.entities[0]
-          $polyline = $polylineEntity.geometry.LwPolyline
-          if ($polylineEntity.type -ne 'Polyline' -or $null -eq $polyline) {
+          $polyline = $polylineEntity.geometry
+          if ($polylineEntity.type -ne 'Polyline' -or $null -eq $polyline -or $polyline.type -ne 'lwPolyline') {
             throw "Saved AI trace returned the wrong entity kind: $($polylineEntity | ConvertTo-Json -Depth 8 -Compress)"
           }
           $vertices = @($polyline.vertices)
