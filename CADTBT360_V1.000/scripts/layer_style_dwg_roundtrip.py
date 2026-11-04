@@ -14,8 +14,8 @@ import sys
 
 LAYER_CASES = [
     {"name":"QA-RED-025","color":"red","linetype":"Continuous","lineweight":0.25},
-    {"name":"QA-BLUE-050","color":"blue","linetype":"Continuous","lineweight":0.50},
-    {"name":"QA-GREEN-070","color":"green","linetype":"Continuous","lineweight":0.70},
+    {"name":"QA-BLUE-050","color":"blue","linetype":"DASHED","lineweight":0.50},
+    {"name":"QA-GREEN-070","color":"green","linetype":"CENTER","lineweight":0.70},
 ]
 PROPERTIES=("color","colorRgb","linetype","lineweight","on","frozen","locked","plot")
 
@@ -41,6 +41,10 @@ def main():
     a.out.mkdir(parents=True,exist_ok=True)
     target=a.out/"CAD360_LAYER_STYLE_DWG_TEST.dwg"
     cmds=[]
+    # DASHED and CENTER must be loaded in the drawing before layer.new.
+    # Without this step, the engine correctly rejects unavailable linetypes.
+    cmds.extend(["--cmd","linetype "+json.dumps({"load":"DASHED"})])
+    cmds.extend(["--cmd","linetype "+json.dumps({"load":"CENTER"})])
     for i,case in enumerate(LAYER_CASES):
         cmds.extend(["--cmd","layer.new "+json.dumps({
             "name":case["name"],"color":case["color"],
