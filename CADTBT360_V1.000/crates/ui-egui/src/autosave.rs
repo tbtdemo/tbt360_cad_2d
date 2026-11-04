@@ -152,15 +152,16 @@ fn civil_from_days(days: u64) -> (i64, u32, u32) {
 
 /// The Drawing Recovery window, while autosave files from a crash are waiting.
 pub fn show(app: &mut CadApp, ctx: &egui::Context) {
+    let confirmation_id = egui::Id::new("cad360.recovery.confirm_discard");
     if app.recovery.items.is_empty() {
+        ctx.data_mut(|d| d.remove::<String>(confirmation_id));
         return;
     }
     let t = Tokens::get();
     let mut open = None;
     let mut discard = None;
     let mut later = false;
-    let confirmation_id = egui::Id::new("cad360.recovery.confirm_discard");
-    let mut pending_discard = ctx.data(|d| d.get_temp::<usize>(confirmation_id));
+    let mut pending_discard = ctx.data(|d| d.get_temp::<String>(confirmation_id));
     crate::modal::instant(ctx, egui::Id::unique("cc_drawing_recovery")).show(ctx, |ui| {
         ui.set_width(460.0);
         ui.label(RichText::new("Drawing Recovery").strong());
@@ -175,7 +176,7 @@ pub fn show(app: &mut CadApp, ctx: &egui::Context) {
                     open = Some(i);
                 }
                 if ui.button("Discard...").on_hover_text("Requires confirmation; permanently deletes this recovery copy").clicked() {
-                    pending_discard = Some(i);
+                    pending_discard = Some(item.path.clone());
                 }
                 ui.end_row();
             }
@@ -199,8 +200,8 @@ pub fn show(app: &mut CadApp, ctx: &egui::Context) {
     }
     // Recovery files may contain the only surviving copy of unsaved drawing geometry.
     // Require explicit confirmation instead of deleting on the first click.
-    if let Some(i) = pending_discard {
-        if let Some(item) = app.recovery.items.get(i) {
+    if let Some(path) = pending_discard.as_deref() {
+        if let Some((i, item)) = app.recovery.items.iter().enumerate().find(|(_, item)| item.path == path) {
             let name = item.drawing.clone();
             let mut cancel = false;
             egui::Window::new("Delete recovery copy?")
@@ -223,8 +224,8 @@ pub fn show(app: &mut CadApp, ctx: &egui::Context) {
         }
     }
     ctx.data_mut(|d| {
-        if let Some(i) = pending_discard { d.insert_temp(confirmation_id, i); }
-        else { d.remove::<usize>(confirmation_id); }
+        if let Some(path) = pending_discard { d.insert_temp(confirmation_id, path); }
+        else { d.remove::<String>(confirmation_id); }
     });
     if let Some(i) = discard { app.discard_item(i); }
     if later {
