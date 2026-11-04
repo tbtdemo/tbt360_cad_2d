@@ -344,6 +344,28 @@ jobs:
           $portableCli = Join-Path $tmp 'CADTBT360_CLI.exe'
           $portableVersion = & $portableCli --version
           if ($LASTEXITCODE -ne 0 -or $portableVersion -notmatch '^cadcraft-cli [0-9]+[.][0-9]+[.][0-9]+') { throw "Portable CLI startup failed: $portableVersion" }
+          # Run the executable extracted from the ZIP, not the build-tree or installed
+          # CLI. Require it to create a real DXF, convert that DXF to DWG R2018,
+          # and reopen both without losing editable CAD entities.
+          $portableDxf = Join-Path $tmp 'Portable Roundtrip Test.dxf'
+          $portableDwg = Join-Path $tmp 'Portable Roundtrip Test.dwg'
+          & $portableCli sample bracket $portableDxf | Out-Host
+          if ($LASTEXITCODE -ne 0 -or !(Test-Path $portableDxf)) { throw 'Portable CLI cannot create DXF from sample' }
+          & $portableCli convert $portableDxf $portableDwg | Out-Host
+          if ($LASTEXITCODE -ne 0 -or !(Test-Path $portableDwg)) { throw 'Portable CLI cannot convert DXF to DWG' }
+          $portableDwgBytes = [System.IO.File]::ReadAllBytes($portableDwg)
+          if ($portableDwgBytes.Length -lt 64 -or [System.Text.Encoding]::ASCII.GetString($portableDwgBytes, 0, 6) -ne 'AC1032') {
+            throw 'Portable CLI did not produce an R2018 DWG'
+          }
+          $portableDxfInfo = & $portableCli info $portableDxf
+          if ($LASTEXITCODE -ne 0) { throw 'Portable CLI cannot reopen its DXF' }
+          $portableDwgInfo = & $portableCli info $portableDwg
+          if ($LASTEXITCODE -ne 0) { throw 'Portable CLI cannot reopen its DWG' }
+          $portableDxfDrawing = ($portableDxfInfo -join [char]10) | ConvertFrom-Json
+          $portableDwgDrawing = ($portableDwgInfo -join [char]10) | ConvertFrom-Json
+          if ($portableDxfDrawing.entityCount -le 0 -or $portableDwgDrawing.entityCount -ne $portableDxfDrawing.entityCount) {
+            throw "Portable DXF/DWG entity roundtrip mismatch: DXF=$($portableDxfDrawing.entityCount), DWG=$($portableDwgDrawing.entityCount)"
+          }
           $hashes = @()
           foreach ($name in @('CADTBT360_V1.025_Setup_Windows_x64.exe', 'CADTBT360_V1.025_Portable_Windows_x64.zip')) {
             $h = Get-FileHash (Join-Path 'dist/v1025' $name) -Algorithm SHA256
