@@ -90,7 +90,7 @@ jobs:
         shell: pwsh
         working-directory: CADTBT360_V1.000
         run: |
-          cargo test --locked -p cadcraft-cli --bin cadcraft-cli image_trace_entity_json_matches_windows_installer_smoke_contract -- --exact --nocapture
+          cargo test --locked -p cadcraft-cli --bin cadcraft-cli image_trace_entity_json_matches_windows_installer_smoke_contract -- --nocapture
           if ($LASTEXITCODE -ne 0) { throw 'V1.025 CLI entity JSON contract regression failed; abort Windows packaging' }
 
       - name: Require image-to-CAD and native raster regression before release packaging
