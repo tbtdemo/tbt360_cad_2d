@@ -2780,15 +2780,26 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
         let visible_count=state.records.iter().filter(|record|qto_register_matches(record,&state.search_text,state.status_filter,state.selected_measure_types,register_scope_canonical.as_ref())).count();
         // Draw one bounded page of QTO rows; selection/export operations above
         // still apply to every matching record, not just the visible page.
-        const QTO_ROWS_PER_PAGE: usize=75;
-        let page_id=egui::Id::new("cadtbt360_qto_register_page");
-        let requested_page=if filter_changed {0} else {ui.ctx().data_mut(|data|data.get_temp::<usize>(page_id).unwrap_or(0))};
-        let (mut page,total_pages,_)=qto_page_window(visible_count,requested_page,QTO_ROWS_PER_PAGE);
+        let rows_per_page_id=egui::Id::new("cadtbt360_qto_rows_per_page");
+        let mut rows_per_page=ui.ctx().data_mut(|data|data.get_temp::<usize>(rows_per_page_id).unwrap_or(75));
+        if ![25,50,75,100].contains(&rows_per_page) { rows_per_page=75; }
+        let previous_rows_per_page=rows_per_page;
         ui.horizontal_wrapped(|ui| {
             ui.small(format!("{} / {} phép đo phù hợp",visible_count,state.records.len()));
+            ui.label("Dòng/trang:");
+            egui::ComboBox::from_id_salt("cadtbt360_qto_page_size_combo").selected_text(format!("{rows_per_page}")).show_ui(ui,|ui| {
+                for size in [25,50,75,100] {ui.selectable_value(&mut rows_per_page,size,size.to_string());}
+            });
+        });
+        if rows_per_page!=previous_rows_per_page {filter_changed=true;}
+        ui.ctx().data_mut(|data|data.insert_temp(rows_per_page_id,rows_per_page));
+        let page_id=egui::Id::new("cadtbt360_qto_register_page");
+        let requested_page=if filter_changed {0} else {ui.ctx().data_mut(|data|data.get_temp::<usize>(page_id).unwrap_or(0))};
+        let (mut page,total_pages,_)=qto_page_window(visible_count,requested_page,rows_per_page);
+        ui.horizontal_wrapped(|ui| {
             if total_pages>1 {
                 if ui.add_enabled(page>0,egui::Button::new("‹ Trước")).clicked() {page-=1;}
-                ui.small(format!("Trang {} / {} • {} dòng/trang",page+1,total_pages,QTO_ROWS_PER_PAGE));
+                ui.small(format!("Trang {} / {}",page+1,total_pages));
                 if ui.add_enabled(page+1<total_pages,egui::Button::new("Sau ›")).clicked() {page+=1;}
             }
         });
@@ -2798,12 +2809,12 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
                 ui.small("Chỉ trang hiện tại:");
                 if ui.small_button("Chọn trang để xuất").on_hover_text("Chỉ chọn các phép đo trên trang đang xem; không thay đổi các trang khác.").clicked() {
                     let ids=state.records.iter().filter(|record|qto_register_matches(record,&state.search_text,state.status_filter,state.selected_measure_types,register_scope_canonical.as_ref()))
-                        .skip(page*QTO_ROWS_PER_PAGE).take(QTO_ROWS_PER_PAGE).map(|record|record.id).collect::<Vec<_>>();
+                        .skip(page*rows_per_page).take(rows_per_page).map(|record|record.id).collect::<Vec<_>>();
                     for id in ids { state.export_omitted_ids.remove(&id); }
                 }
                 if ui.small_button("Bỏ chọn trang").on_hover_text("Chỉ bỏ chọn các phép đo trên trang đang xem; không thay đổi các trang khác.").clicked() {
                     let ids=state.records.iter().filter(|record|qto_register_matches(record,&state.search_text,state.status_filter,state.selected_measure_types,register_scope_canonical.as_ref()))
-                        .skip(page*QTO_ROWS_PER_PAGE).take(QTO_ROWS_PER_PAGE).map(|record|record.id).collect::<Vec<_>>();
+                        .skip(page*rows_per_page).take(rows_per_page).map(|record|record.id).collect::<Vec<_>>();
                     for id in ids { state.export_omitted_ids.insert(id); }
                 }
             });
@@ -2817,7 +2828,7 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
                 for h in ["Xuất", "ID","Handle nguồn","Nguồn","Tầng","Bộ môn","Owner","Loại","Layer","Nhóm","Mã CT","Diễn giải","Giá trị","Trạng thái","Thao tác"] { ui.strong(h); }
                 ui.end_row();
                 for record in state.records.iter().filter(|record|qto_register_matches(record,&state.search_text,state.status_filter,state.selected_measure_types,register_scope_canonical.as_ref()))
-                    .skip(qto_page_window(visible_count,page,QTO_ROWS_PER_PAGE).2).take(QTO_ROWS_PER_PAGE) {
+                    .skip(qto_page_window(visible_count,page,rows_per_page).2).take(rows_per_page) {
                     let value = match record.kind {
                         MeasureKind::Area => record.raw_value * af,
                         MeasureKind::Length | MeasureKind::Perimeter => record.raw_value * lf,
@@ -4011,6 +4022,9 @@ mod tests {
         assert_eq!(qto_page_window(75,0,75),(0,1,0));
         assert_eq!(qto_page_window(76,1,75),(1,2,75));
         assert_eq!(qto_page_window(230,3,75),(3,4,225));
+        assert_eq!(qto_page_window(230,0,25),(0,10,0));
+        assert_eq!(qto_page_window(230,4,50),(4,5,200));
+        assert_eq!(qto_page_window(230,2,100),(2,3,200));
         assert_eq!(qto_page_window(76,500,75),(1,2,75));
         assert_eq!(qto_page_window(230,2,0),(0,0,0));
         assert_eq!(qto_page_window(usize::MAX,usize::MAX,75).1,1+(usize::MAX-1)/75);
