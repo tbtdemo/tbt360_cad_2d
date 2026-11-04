@@ -58,7 +58,10 @@ jobs:
         run: |
           $imageTests = @(cargo test --locked -p cadcraft-engine --lib image -- --list 2>&1)
           if ($LASTEXITCODE -ne 0) { $imageTests | Out-Host; throw 'V1.025 image test discovery failed' }
-          $namedTests = @($imageTests | Where-Object { $_ -match '^.*image.*: test
+          $namedTests = @($imageTests | Where-Object { $_ -match ': test$' })
+          if ($namedTests.Count -lt 4) { $imageTests | Out-Host; throw "V1.025 image test discovery unexpectedly found only $($namedTests.Count) tests" }
+          cargo test --locked -p cadcraft-engine --lib image -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'V1.025 IMAGE engine regression failed' }
           cargo test --locked -p cadcraft-mcp --lib agent_traces_an_image_into_editable_cad_via_mcp -- --nocapture
           if ($LASTEXITCODE -ne 0) { throw 'V1.025 AI image MCP trace failed' }
           cargo test --locked -p cadcraft-mcp --lib agent_projects_tilted_photo_into_editable_cad_without_warping_image -- --nocapture
