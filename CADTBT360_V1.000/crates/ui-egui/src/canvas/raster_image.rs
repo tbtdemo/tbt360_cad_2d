@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use cadcraft_doc::EntityKind;
 use cadcraft_engine::Session;
 use cadcraft_geom::Vec2;
-use egui::{Color32, Context, Id, Mesh, Painter, Pos2, Shape, TextureHandle, TextureOptions};
+use egui::{Color32, Context, Id, Mesh, Painter, Shape, TextureHandle, TextureOptions};
 
 use super::Xf;
 
@@ -41,16 +41,85 @@ fn read_texture(ctx: &Context, path: &Path) -> Option<TextureHandle> {
     Some(ctx.load_texture(format!("cad360-raster:{}", path.display()), color, TextureOptions::LINEAR))
 }
 
-fn textured_quad(texture: &TextureHandle, corners: [Pos2; 4]) -> Shape {
-    let mut mesh = Mesh::with_texture(texture.id());
-    for (pos, uv) in corners.into_iter().zip([
-        egui::pos2(0.0, 0.0), egui::pos2(1.0, 0.0),
-        egui::pos2(1.0, 1.0), egui::pos2(0.0, 1.0),
-    ]) {
-        mesh.vertices.push(egui::epaint::Vertex { pos, uv, color: Color32::WHITE });
+/// Return pixel-space clip vertices, top-left origin and y-down. A 2-point clip
+/// is the opposite corners of a rectangle; a longer clip is a polygon.
+fn clip_vertices(image: &cadcraft_doc::Image) -> Option<Vec<Vec2>> {
+    let w = image.size.x;
+    let h = image.size.y;
+    let points = if !image.clipping || (image.display & 4) == 0 || image.clip.is_empty() {
+        vec![Vec2::new(0.0, 0.0), Vec2::new(w, 0.0), Vec2::new(w, h), Vec2::new(0.0, h)]
+    } else if image.clip.len() == 2 {
+        let a = image.clip[0];
+        let b = image.clip[1];
+        vec![Vec2::new(a.x.min(b.x), a.y.min(b.y)), Vec2::new(a.x.max(b.x), a.y.min(b.y)),
+             Vec2::new(a.x.max(b.x), a.y.max(b.y)), Vec2::new(a.x.min(b.x), a.y.max(b.y))]
+    } else {
+        image.clip.clone()
+    };
+    if !(3..=128).contains(&points.len()) { return None; }
+    if points.iter().any(|p| !p.x.is_finite() || !p.y.is_finite() || p.x < 0.0 || p.y < 0.0 || p.x > w || p.y > h) { return None; }
+    Some(points)
+}
+
+fn cross(a: Vec2, b: Vec2, c: Vec2) -> f64 {
+    let u = b - a;
+    let v = c - a;
+    u.x * v.y - u.y * v.x
+}
+
+fn triangulate_polygon(points: &[Vec2]) -> Option<Vec<u32>> {
+    if points.len() < 3 || points.len() > 128 { return None; }
+    let signed_area: f64 = (0..points.len()).map(|i| {
+        let a = points[i];
+        let b = points[(i + 1) % points.len()];
+        a.x * b.y - b.x * a.y
+    }).sum();
+    if !signed_area.is_finite() || signed_area.abs() <= 1.0e-10 { return None; }
+    let winding = signed_area.signum();
+    let mut indices: Vec<usize> = (0..points.len()).collect();
+    let mut output = Vec::with_capacity((points.len() - 2) * 3);
+    while indices.len() > 3 {
+        let mut found = false;
+        for i in 0..indices.len() {
+            let a = indices[(i + indices.len() - 1) % indices.len()];
+            let b = indices[i];
+            let c = indices[(i + 1) % indices.len()];
+            if cross(points[a], points[b], points[c]) * winding <= 1.0e-10 { continue; }
+            let contains_other = indices.iter().any(|&j| {
+                if j == a || j == b || j == c { return false; }
+                let p = points[j];
+                let e0 = cross(points[a], points[b], p) * winding;
+                let e1 = cross(points[b], points[c], p) * winding;
+                let e2 = cross(points[c], points[a], p) * winding;
+                e0 >= -1.0e-10 && e1 >= -1.0e-10 && e2 >= -1.0e-10
+            });
+            if contains_other { continue; }
+            output.extend([a as u32, b as u32, c as u32]);
+            indices.remove(i);
+            found = true;
+            break;
+        }
+        if !found { return None; }
     }
-    mesh.indices.extend_from_slice(&[0, 1, 2, 0, 2, 3]);
-    Shape::mesh(mesh)
+    output.extend(indices.into_iter().map(|i| i as u32));
+    Some(output)
+}
+
+fn textured_clipped_image(texture: &TextureHandle, xf: &Xf, image: &cadcraft_doc::Image) -> Option<Shape> {
+    let pixels = clip_vertices(image)?;
+    let triangles = triangulate_polygon(&pixels)?;
+    let mut mesh = Mesh::with_texture(texture.id());
+    for pixel in pixels {
+        let world = image.insert.xy() + image.u.xy() * pixel.x + image.v.xy() * (image.size.y - pixel.y);
+        if !world.x.is_finite() || !world.y.is_finite() { return None; }
+        mesh.vertices.push(egui::epaint::Vertex {
+            pos: xf.to_screen(world),
+            uv: egui::pos2((pixel.x / image.size.x) as f32, (pixel.y / image.size.y) as f32),
+            color: Color32::WHITE,
+        });
+    }
+    mesh.indices = triangles;
+    Some(Shape::mesh(mesh))
 }
 
 /// Draw up to four local PNG/JPEG raster images under CAD vectors. Failed/missing/oversized
@@ -77,11 +146,12 @@ pub(super) fn draw(painter: &Painter, xf: &Xf, session: &Session, ctx: &Context)
         if !cadcraft_geom::Bounds2::from_points(corners).intersects(&xf.world_bounds()) { continue; }
         let Some(path) = safe_path(&img.path, &state.title) else { continue; };
         if !cache.textures.contains_key(&path) {
+            if cache.textures.len() >= 12 { cache.textures.clear(); }
             cache.textures.insert(path.clone(), read_texture(ctx, &path));
             changed = true;
         }
         let Some(texture) = cache.textures.get(&path).and_then(Option::as_ref) else { continue; };
-        painter.add(textured_quad(texture, corners.map(|p: Vec2| xf.to_screen(p))));
+        if let Some(shape) = textured_clipped_image(texture, xf, img) { painter.add(shape); }
     }
     if changed { ctx.data_mut(|d| d.insert_temp(id, cache)); }
 }
@@ -112,6 +182,33 @@ mod tests {
         handle.set_len(MAX_FILE_BYTES + 1).unwrap();
         assert!(read_texture(&egui::Context::default(), &file).is_none());
         let _ = std::fs::remove_file(file);
+    }
+    #[test]
+    fn rectangle_clip_is_converted_to_four_pixel_vertices() {
+        let mut image = cadcraft_doc::Image::default();
+        image.size = Vec2::new(200.0, 100.0);
+        image.clipping = true;
+        image.clip = vec![Vec2::new(150.0, 80.0), Vec2::new(50.0, 20.0)];
+        assert_eq!(clip_vertices(&image).unwrap(), vec![Vec2::new(50.0, 20.0), Vec2::new(150.0, 20.0), Vec2::new(150.0, 80.0), Vec2::new(50.0, 80.0)]);
+    }
+    #[test]
+    fn concave_polygon_clip_generates_no_pixels_outside_boundary() {
+        let polygon = vec![Vec2::new(0.0,0.0),Vec2::new(100.0,0.0),Vec2::new(100.0,40.0),
+            Vec2::new(40.0,40.0),Vec2::new(40.0,100.0),Vec2::new(0.0,100.0)];
+        let triangles = triangulate_polygon(&polygon).expect("valid concave boundary must triangulate");
+        assert_eq!(triangles.len(), 12);
+        let area: f64 = triangles.chunks_exact(3).map(|tri| {
+            cross(polygon[tri[0] as usize], polygon[tri[1] as usize], polygon[tri[2] as usize]).abs() / 2.0
+        }).sum();
+        assert!((area - 6400.0).abs() < 1.0e-6);
+    }
+    #[test]
+    fn image_clip_rejects_points_outside_raster() {
+        let mut image = cadcraft_doc::Image::default();
+        image.size = Vec2::new(200.0,100.0);
+        image.clipping = true;
+        image.clip = vec![Vec2::new(-1.0, 0.0),Vec2::new(150.0, 50.0)];
+        assert!(clip_vertices(&image).is_none());
     }
     #[test]
     fn image_quad_keeps_top_left_uv_orientation() {
