@@ -69,6 +69,21 @@ fn cross(a: Vec2, b: Vec2, c: Vec2) -> f64 {
 
 fn triangulate_polygon(points: &[Vec2]) -> Option<Vec<u32>> {
     if points.len() < 3 || points.len() > 128 { return None; }
+    // Refuse self-crossing boundaries: ear clipping otherwise may fill regions outside IMAGECLIP.
+    for i in 0..points.len() {
+        let a = points[i];
+        let b = points[(i + 1) % points.len()];
+        for j in (i + 1)..points.len() {
+            if (i + 1) % points.len() == j || (j + 1) % points.len() == i { continue; }
+            let c = points[j];
+            let d = points[(j + 1) % points.len()];
+            let o1 = cross(a, b, c);
+            let o2 = cross(a, b, d);
+            let o3 = cross(c, d, a);
+            let o4 = cross(c, d, b);
+            if o1 * o2 < -1.0e-12 && o3 * o4 < -1.0e-12 { return None; }
+        }
+    }
     let signed_area: f64 = (0..points.len()).map(|i| {
         let a = points[i];
         let b = points[(i + 1) % points.len()];
@@ -201,6 +216,11 @@ mod tests {
             cross(polygon[tri[0] as usize], polygon[tri[1] as usize], polygon[tri[2] as usize]).abs() / 2.0
         }).sum();
         assert!((area - 6400.0).abs() < 1.0e-6);
+    }
+    #[test]
+    fn self_crossing_clip_is_rejected_to_prevent_incorrect_raster_fill() {
+        let crossed = vec![Vec2::new(0.0,0.0),Vec2::new(100.0,100.0),Vec2::new(0.0,100.0),Vec2::new(100.0,0.0)];
+        assert!(triangulate_polygon(&crossed).is_none());
     }
     #[test]
     fn image_clip_rejects_points_outside_raster() {
