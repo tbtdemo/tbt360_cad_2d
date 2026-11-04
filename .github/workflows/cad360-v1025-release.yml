@@ -19,7 +19,8 @@ permissions:
 
 concurrency:
   group: cad360-v1025-release-${{ github.ref }}
-  cancel-in-progress: false
+  # New source supersedes any previous non-releasable installer candidate.
+  cancel-in-progress: true
 
 jobs:
   windows-package:
