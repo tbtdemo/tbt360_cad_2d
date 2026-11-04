@@ -10,13 +10,15 @@ Status: Rust source implemented; Windows acceptance pending. This is an AI-agent
 {"command":"imageattach","params":{"path":"survey/site.png","at":[10,20],"pixels":[2000,1000],"width":100,"height":50}}
 ```
 
-2. Copy the returned IMAGE handle. A user or external vision model supplies points in image pixel coordinates (origin top-left, X right, Y down):
+2. Copy the returned IMAGE handle. A user or external vision model supplies points in image pixel coordinates (origin top-left, X right, Y down). First preview without changing the DWG:
 
 ```json
-{"command":"imagetrace","params":{"handle":"IMAGE_HANDLE","points":[[0,1000],[2000,1000],[2000,0]],"closed":false}}
+{"command":"imagetrace","params":{"handle":"IMAGE_HANDLE","points":[[0,1000],[2000,1000],[2000,0]],"closed":false,"preview":true}}
 ```
 
-3. A real editable LWPOLYLINE is added to the current CAD drawing; use `query_entities`/`render` to inspect it. The command supports rotated/scaled images, up to 2,048 points, and rejects nonfinite/out-of-range points without adding geometry.
+3. Check `worldPoints` in the preview response; it must have `handle: null` and must not change the drawing. After user approval, repeat with `"preview": false` or use the dedicated MCP tool `trace_image` with the same input points.
+
+4. A real editable LWPOLYLINE is then added to the current CAD drawing; use `query_entities`/`render` to inspect it. The command supports rotated/scaled images, up to 2,048 points, and rejects nonfinite/out-of-range points without adding geometry.
 
 ## Important limits
 
