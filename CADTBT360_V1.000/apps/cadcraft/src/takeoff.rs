@@ -1777,7 +1777,7 @@ fn qto_road_report_lines(app: &CadApp, state: &State, config: &ExportConfig,
 fn qto_record_in_scope(record: &MeasurementRecord, allowed: Option<&BTreeSet<String>>) -> bool {
     match allowed {
         None => true,
-        Some(handles) => record.source_handle.as_ref().is_some_and(|handle| handles.contains(handle)),
+        Some(handles) => record.source_handle.as_ref().is_some_and(|handle| qto_scope_contains_handle(handles,handle)),
     }
 }
 
@@ -3765,6 +3765,20 @@ mod tests {
         assert!(lwpoly_metrics(&vertices, false).is_none());
     }
 
+    #[test]
+    fn ordinary_qto_record_uses_numeric_handle_identity_for_scope() {
+        let mut state=State::default();
+        let id=state.add_measurement(MeasureKind::Count,Vec::new(),1.0,"TEST".into()).unwrap();
+        let record=state.records.iter_mut().find(|r|r.id==id).unwrap();
+        record.source_handle=Some("002A".into());
+        let mut selected=BTreeSet::new();
+        selected.insert("2a".into());
+        assert!(qto_record_in_scope(record,Some(&selected)));
+        selected.clear();
+        selected.insert("2B".into());
+        assert!(!qto_record_in_scope(record,Some(&selected)));
+        assert!(qto_record_in_scope(record,None));
+    }
     #[test]
     fn captured_region_scope_accepts_equivalent_hex_handle_spellings() {
         let mut handles=BTreeSet::new();
