@@ -170,7 +170,7 @@ fn v1025_repeated_roundtrips_keep_xref_links_and_layer_linetype() {
     for cycle in 0..3 {
         d = roundtrip(&d);
         let site = d.block("SITE").expect("xref block remains");
-        assert_eq!(site.xref_path.as_deref(), Some("..\\\\shared\\\\site.dwg"), "cycle {cycle}");
+        assert_eq!(site.xref_path.as_deref(), Some(r"..\shared\site.dwg"), "cycle {cycle}");
         assert!(site.entities.is_empty(), "xref contents must not be embedded at cycle {cycle}");
         assert!(!d.blocks.contains_key("SITE|Tree"), "dependent block must not be materialized");
         let walls = d.layer("SITE|Walls").expect("dependent layer preserved");
