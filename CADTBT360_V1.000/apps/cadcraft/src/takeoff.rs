@@ -1254,10 +1254,9 @@ fn qto_road_source_in_scope(source: &GeometricSource, allowed: Option<&BTreeSet<
     allowed.is_none_or(|handles| handles.contains(&source.handle))
 }
 fn qto_road_interval_in_scope(left: &RoadCrossSection, right: &RoadCrossSection, kind: EarthworkKind, allowed: Option<&BTreeSet<String>>) -> bool {
-    let get=|section: &RoadCrossSection| match kind {
-        EarthworkKind::Cut => section.cut.as_ref(), EarthworkKind::Fill => section.fill.as_ref()
-    };
-    get(left).zip(get(right)).is_some_and(|(a,b)| qto_road_source_in_scope(a,allowed) && qto_road_source_in_scope(b,allowed))
+    let start = match kind { EarthworkKind::Cut => left.cut.as_ref(), EarthworkKind::Fill => left.fill.as_ref() };
+    let end = match kind { EarthworkKind::Cut => right.cut.as_ref(), EarthworkKind::Fill => right.fill.as_ref() };
+    start.zip(end).is_some_and(|(a, b)| qto_road_source_in_scope(a, allowed) && qto_road_source_in_scope(b, allowed))
 }
 fn qto_road_report_lines(app: &CadApp, state: &State, config: &ExportConfig,
     allowed: Option<&BTreeSet<String>>) -> Result<Vec<ReportLine>,String> {
