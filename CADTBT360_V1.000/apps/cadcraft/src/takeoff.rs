@@ -1825,6 +1825,17 @@ fn qto_register_selection_counts(records: &[MeasurementRecord], omitted: &BTreeS
     }
     (chosen,ignored)
 }
+/// Exactly the records on the visible register page. Used by both page-only
+/// Excel selection actions; global filtering and XLSX generation stay independent
+/// of the current page and its size.
+fn qto_register_page_ids(records: &[MeasurementRecord], search: &str, status_filter: u8, kinds: [bool;4],
+    scope: Option<&BTreeSet<String>>, page: usize, rows_per_page: usize) -> Vec<u64> {
+    if rows_per_page==0 {return Vec::new();}
+    let matching=records.iter().filter(|record|qto_register_matches(record,search,status_filter,kinds,scope)).count();
+    let (_,_,start)=qto_page_window(matching,page,rows_per_page);
+    records.iter().filter(|record|qto_register_matches(record,search,status_filter,kinds,scope))
+        .skip(start).take(rows_per_page).map(|record|record.id).collect()
+}
 /// Clamp QTO pagination safely after filtering, deleting or editing records.
 /// Page indices are zero-based; return (page, total pages, row start).
 fn qto_page_window(matching_rows: usize, requested_page: usize, rows_per_page: usize) -> (usize,usize,usize) {
@@ -2808,13 +2819,11 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
             ui.horizontal_wrapped(|ui| {
                 ui.small("Chỉ trang hiện tại:");
                 if ui.small_button("Chọn trang để xuất").on_hover_text("Chỉ chọn các phép đo trên trang đang xem; không thay đổi các trang khác.").clicked() {
-                    let ids=state.records.iter().filter(|record|qto_register_matches(record,&state.search_text,state.status_filter,state.selected_measure_types,register_scope_canonical.as_ref()))
-                        .skip(page*rows_per_page).take(rows_per_page).map(|record|record.id).collect::<Vec<_>>();
+                    let ids=qto_register_page_ids(&state.records,&state.search_text,state.status_filter,state.selected_measure_types,register_scope_canonical.as_ref(),page,rows_per_page);
                     for id in ids { state.export_omitted_ids.remove(&id); }
                 }
                 if ui.small_button("Bỏ chọn trang").on_hover_text("Chỉ bỏ chọn các phép đo trên trang đang xem; không thay đổi các trang khác.").clicked() {
-                    let ids=state.records.iter().filter(|record|qto_register_matches(record,&state.search_text,state.status_filter,state.selected_measure_types,register_scope_canonical.as_ref()))
-                        .skip(page*rows_per_page).take(rows_per_page).map(|record|record.id).collect::<Vec<_>>();
+                    let ids=qto_register_page_ids(&state.records,&state.search_text,state.status_filter,state.selected_measure_types,register_scope_canonical.as_ref(),page,rows_per_page);
                     for id in ids { state.export_omitted_ids.insert(id); }
                 }
             });
@@ -4014,6 +4023,24 @@ mod tests {
         let selected=qto_register_selection_counts(&state.records,&state.export_omitted_ids,"LAYER_A",0,kinds,None);
         assert_eq!(selected,(1,0));
         assert_eq!(qto_register_selection_counts(&state.records,&state.export_omitted_ids,"none",0,kinds,None),(0,0));
+    }
+    #[test]
+    fn qto_page_selection_never_touches_other_pages_or_filtered_kinds() {
+        let mut state=State::default();
+        let ids=(0..230).map(|_|state.add_measurement(MeasureKind::Count,Vec::new(),1.0,"TEST".into()).unwrap()).collect::<Vec<_>>();
+        let count_kinds=[false,false,false,true];
+        assert_eq!(qto_register_page_ids(&state.records,"",0,count_kinds,None,0,75),ids[..75]);
+        assert_eq!(qto_register_page_ids(&state.records,"",0,count_kinds,None,3,75),ids[225..]);
+        assert_eq!(qto_register_page_ids(&state.records,"",0,count_kinds,None,1,100),ids[100..200]);
+        assert_eq!(qto_register_page_ids(&state.records,"",0,count_kinds,None,999,100),ids[200..]);
+        assert!(qto_register_page_ids(&state.records,"",0,count_kinds,None,0,0).is_empty());
+        assert!(qto_register_page_ids(&state.records,"",0,[true,true,true,false],None,0,75).is_empty());
+        let mut omitted=ids.iter().copied().collect::<BTreeSet<_>>();
+        for id in qto_register_page_ids(&state.records,"",0,count_kinds,None,1,75) {omitted.remove(&id);}
+        assert_eq!(omitted.len(),155);
+        assert!(ids[..75].iter().all(|id|omitted.contains(id)));
+        assert!(ids[75..150].iter().all(|id|!omitted.contains(id)));
+        assert!(ids[150..].iter().all(|id|omitted.contains(id)));
     }
     #[test]
     fn qto_page_window_handles_empty_partial_last_and_outdated_page() {
