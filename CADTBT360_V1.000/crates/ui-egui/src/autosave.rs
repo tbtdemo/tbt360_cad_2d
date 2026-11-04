@@ -159,6 +159,8 @@ pub fn show(app: &mut CadApp, ctx: &egui::Context) {
     let mut open = None;
     let mut discard = None;
     let mut later = false;
+    let confirmation_id = egui::Id::new("cad360.recovery.confirm_discard");
+    let mut pending_discard = ctx.data(|d| d.get_temp::<usize>(confirmation_id));
     crate::modal::instant(ctx, egui::Id::unique("cc_drawing_recovery")).show(ctx, |ui| {
         ui.set_width(460.0);
         ui.label(RichText::new("Drawing Recovery").strong());
@@ -172,8 +174,8 @@ pub fn show(app: &mut CadApp, ctx: &egui::Context) {
                 if ui.button("Open").clicked() {
                     open = Some(i);
                 }
-                if ui.button("Discard").clicked() {
-                    discard = Some(i);
+                if ui.button("Discard...").on_hover_text("Requires confirmation; permanently deletes this recovery copy").clicked() {
+                    pending_discard = Some(i);
                 }
                 ui.end_row();
             }
@@ -195,9 +197,36 @@ pub fn show(app: &mut CadApp, ctx: &egui::Context) {
     {
         app.set_status(e);
     }
-    if let Some(i) = discard {
-        app.discard_item(i);
+    // Recovery files may contain the only surviving copy of unsaved drawing geometry.
+    // Require explicit confirmation instead of deleting on the first click.
+    if let Some(i) = pending_discard {
+        if let Some(item) = app.recovery.items.get(i) {
+            let name = item.drawing.clone();
+            let mut cancel = false;
+            egui::Window::new("Delete recovery copy?")
+                .id(egui::Id::new("cad360.recovery.delete_confirmation"))
+                .collapsible(false)
+                .resizable(false)
+                .anchor(egui::Align2::CENTER_CENTER, vec2(0.0, 0.0))
+                .show(ctx, |ui| {
+                    ui.set_width(370.0);
+                    ui.label(format!("Drawing: {name}"));
+                    ui.label("This may be the only copy of unsaved work. Deletion cannot be undone.");
+                    ui.horizontal(|ui| {
+                        if ui.button("Keep recovery").clicked() { cancel = true; }
+                        if ui.button("Delete permanently").clicked() { discard = Some(i); }
+                    });
+                });
+            if cancel || discard.is_some() { pending_discard = None; }
+        } else {
+            pending_discard = None;
+        }
     }
+    ctx.data_mut(|d| {
+        if let Some(i) = pending_discard { d.insert_temp(confirmation_id, i); }
+        else { d.remove::<usize>(confirmation_id); }
+    });
+    if let Some(i) = discard { app.discard_item(i); }
     if later {
         app.recovery.items.clear();
     }
