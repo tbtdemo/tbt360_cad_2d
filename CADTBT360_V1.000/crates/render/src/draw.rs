@@ -499,13 +499,26 @@ fn entity_parts(b: &mut Builder, ctx: &Ctx, e: &Entity) {
             }
         }
         EntityKind::Image(i) => {
-            let o = i.insert.xy();
-            let u = i.u.xy() * i.size.x;
-            let v = i.v.xy() * i.size.y;
-            // The native canvas displays real raster pixels beneath this frame.
-            // Diagonal placeholder strokes would obscure both the photo and AI-traced CAD geometry.
-            // In headless renderers without pixels, the outline still identifies the raster extent.
-            b.polyline(ctx, rgb, lw, &[o, o + u, o + u + v, o + v, o]);
+            // IMAGECLIP is defined in source pixels, Y down from top left.
+            // Follow the same clipped boundary as the native image texture, not the entire image box.
+            // Never draw diagonal placeholder strokes over AI-traced geometry.
+            let outline = if i.clipping && (i.display & 4) != 0 && i.clip.len() >= 2 {
+                if i.clip.len() == 2 {
+                    let a = i.clip[0];
+                    let z = i.clip[1];
+                    let (x0, x1) = (a.x.min(z.x), a.x.max(z.x));
+                    let (y0, y1) = (a.y.min(z.y), a.y.max(z.y));
+                    vec![Vec2::new(x0, y0), Vec2::new(x1, y0), Vec2::new(x1, y1), Vec2::new(x0, y1)]
+                } else { i.clip.clone() }
+            } else {
+                vec![Vec2::new(0.0, 0.0), Vec2::new(i.size.x, 0.0),
+                     Vec2::new(i.size.x, i.size.y), Vec2::new(0.0, i.size.y)]
+            };
+            if outline.len() >= 3 && outline.iter().all(|p| p.x.is_finite() && p.y.is_finite()) {
+                let mut world: Vec<Vec2> = outline.iter().map(|p| i.insert.xy() + i.u.xy() * p.x + i.v.xy() * (i.size.y - p.y)).collect();
+                world.push(world[0]);
+                b.polyline(ctx, rgb, lw, &world);
+            }
         }
         EntityKind::Table(t) => table(b, ctx, t, rgb, lw),
         EntityKind::Tolerance(t) => tolerance::draw(b, ctx, e, t, lw, tol),
