@@ -20,10 +20,11 @@ permissions:
   contents: write  # only for publishing verified prerelease binaries; checkout persists no credentials
 
 concurrency:
-  group: cad360-v1025-release-${{ github.ref }}
-  # Finish each package attempt so Setup/Portable artifacts and failure logs can be audited.
-  # Rapid source commits must not repeatedly cancel the expensive Windows release compile.
-  cancel-in-progress: false
+  # Prioritize the newest source commit for automatic push builds. Keep manual
+  # workflow_dispatch builds in their own queue so a later push never cancels a
+  # deliberately requested installer build and its diagnostic artifacts.
+  group: cad360-v1025-release-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: ${{ github.event_name == 'push' }}
 
 jobs:
   windows-package:
