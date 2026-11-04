@@ -203,7 +203,7 @@ jobs:
             $bitmap.Save($referenceFile, [System.Drawing.Imaging.ImageFormat]::Png)
           } finally { $bitmap.Dispose() }
           if (!(Test-Path $referenceFile) -or (Get-Item $referenceFile).Length -le 0) { throw 'Cannot generate real PNG fixture for IMAGE trace smoke' }
-          $referencePath = $referenceFile.Replace('\\', '/')
+          $referencePath = $referenceFile.Replace([char]92, [char]47)
           $attachJson = @{ path = $referencePath; pixels = @(200, 100); width = 20; height = 10 } | ConvertTo-Json -Compress
           $traceFile = Join-Path $env:RUNNER_TEMP 'CADTBT360_V1025_AI_ImageTrace_Smoke.dxf'
           & $installedCli run --metric --cmd "imageattach $attachJson" --cmd 'imagetrace {"handle":"{last}","points":[[0,100],[200,100],[200,0]]}' --save $traceFile | Out-Host
