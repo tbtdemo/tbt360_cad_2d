@@ -1980,8 +1980,8 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
         state.methods_initialized = true;
     }
     let groups = if state.source_mode == QtoSourceMode::EntireProject { quantities(app) } else { BTreeMap::new() };
-    ui.heading("Đo bóc khối lượng — CAD native");
-    ui.label("Số liệu trực tiếp từ bản vẽ CAD đang mở; thay đổi ngay sau khi vẽ, sửa, Undo hoặc Redo.");
+    ui.heading("ĐO BÓC KHỐI LƯỢNG");
+    ui.small("Đo trực tiếp từ bản vẽ • kiểm soát nguồn CAD • xuất hồ sơ");
     let review_count = state.records.iter().filter(|r| r.status == MeasureStatus::Review).count();
     let confirmed_count = state.records.iter().filter(|r| r.status == MeasureStatus::Confirmed).count();
     let excluded_count = state.records.iter().filter(|r| r.status == MeasureStatus::Excluded).count();
@@ -1992,10 +1992,20 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
         ui.group(|ui| { ui.label(format!("Đã loại: {excluded_count}")); });
         ui.group(|ui| { ui.label(format!("Có thể hoàn tác: {}", state.undo.len())); });
     });
-    if review_count > 0 { ui.colored_label(egui::Color32::YELLOW, format!("Còn {review_count} phép đo chưa xác nhận; không tính vào khối lượng nghiệm thu.")); }
+    if review_count > 0 { ui.small(format!("{} phép đo cần rà soát trước khi nghiệm thu.",review_count)); }
     ui.separator();
+    let tab_id=egui::Id::new("cadtbt360_qto_professional_tab_v1");
+    let mut active_tab=ui.ctx().data_mut(|data|data.get_temp::<usize>(tab_id).unwrap_or(0).min(3));
+    ui.horizontal_wrapped(|ui| {
+        for (index,label) in ["Đo bóc cơ bản","Thể tích 2 nguồn","Giao thông","Bảng kết quả & Excel"].iter().enumerate() {
+            if ui.selectable_label(active_tab==index,*label).clicked() {active_tab=index;}
+        }
+    });
+    ui.ctx().data_mut(|data|data.insert_temp(tab_id,active_tab));
+    ui.add_space(8.0);
 
-    ui.group(|ui| {
+    egui::CollapsingHeader::new("Thiết lập tỷ lệ bản vẽ")
+        .id_salt("cadtbt360_qto_scale_settings").default_open(false).show(ui,|ui| {
         ui.strong("Hiệu chỉnh tỷ lệ");
         ui.horizontal(|ui| {
             ui.label("Khoảng cách trên bản vẽ:");
@@ -2020,8 +2030,9 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
     let af = lf * lf;
     if !af.is_finite() { ui.colored_label(egui::Color32::RED, "Tỷ lệ diện tích vượt phạm vi tính toán. Không sử dụng kết quả diện tích để nghiệm thu."); }
 
+    if active_tab==0 {
     ui.group(|ui| {
-        ui.strong("01 — CHỌN PHẠM VI TRỰC TIẾP TRÊN BẢN VẼ");
+        ui.strong("Chọn phạm vi đo");
         ui.label("Rê chuột và quét cửa sổ (trái → phải chọn nằm trong; phải → trái chọn cắt qua) ở vùng CAD bên trái. Đối tượng được chọn xuất hiện ngay trong bảng xem trước; KHÔNG tự lấy toàn dự án.");
         ui.horizontal_wrapped(|ui| {
             ui.label("Phạm vi bóc:");
@@ -2085,8 +2096,10 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
         ui.small("Tiếp theo: ghép diện tích mặt bằng + chiều cao mặt cắt thành thể tích; đo đường theo lý trình cọc + diện tích trắc ngang. Không suy diễn hình học khi chưa khai báo đủ nguồn.");
     });
 
+    }
+    if active_tab==1 {
     ui.group(|ui| {
-        ui.strong("03 — ĐO THỂ TÍCH HAI BƯỚC: MẶT BẰNG + MẶT CẮT");
+        ui.strong("Thể tích mặt bằng × mặt cắt");
         ui.small("Bước 1: quét đúng 1 đường bao kín trên mặt bằng (AREA). Bước 2: quét đúng 1 LINE thẳng đứng trên mặt cắt (HEIGHT). Hai hình học nguồn được kiểm tra lại trước khi xuất Excel.");
         ui.horizontal_wrapped(|ui| {
             if ui.button("1. LẤY DIỆN TÍCH MẶT BẰNG").clicked() {
@@ -2174,7 +2187,9 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
         ui.small("Đây là phương pháp diện tích mặt bằng × chiều cao mặt cắt có cùng tỷ lệ bản vẽ. Trắc ngang giao thông, đất đắp/đào và chuyển đổi tỷ lệ khác nhau sẽ có module tính riêng, không dùng công thức này.");
     });
 
-    egui::CollapsingHeader::new("04 — GIAO THÔNG: CỌC LÝ TRÌNH + DIỆN TÍCH TRẮC NGANG")
+    }
+    if active_tab==2 {
+    egui::CollapsingHeader::new("Đo bóc giao thông • Cọc & trắc ngang")
         .id_salt("cadtbt360_road_qto_panel").default_open(true).show(ui, |ui| {
         ui.label("Phương pháp diện tích trung bình hai đầu (AEA): V = (A₁ + A₂) × L / 2.");
         ui.small("Quét/chọn đúng một đường bao kín trên bản vẽ trắc ngang, phân loại vùng ĐÀO hoặc ĐẮP, khai báo lý trình của cọc trên bình đồ. Lý trình nhập theo mét hoặc Km12+345.67. Không tự suy đoán lý trình từ tọa độ CAD.");
@@ -2421,7 +2436,9 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
         ui.small("Điểm chuyển đào–đắp tính gần đúng theo diện tích đầu/cuối và chỉ để đối chiếu. Không tự xuất khối lượng nội suy; phải có trắc ngang thực tế khi nghiệm thu.");
     });
 
-    ui.collapsing("CÔNG CỤ CŨ — nhập nhanh từ đối tượng đang chọn", |ui| {
+    }
+    if active_tab==0 {
+    ui.collapsing("Công cụ nhập nhanh & đo nâng cao", |ui| {
     ui.horizontal(|ui| {
         if ui.button("Thêm phép đo từ CAD đang chọn").clicked() {
             let measurements=selected_measurements(app);
@@ -2509,12 +2526,14 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
         ui.small("Bảng tổng hợp Layer toàn bản vẽ đã được ẩn. Dùng bảng xem trước phía trên và danh sách phép đo trong phạm vi chọn; muốn thống kê toàn bộ phải chủ động đổi Phạm vi bóc.");
     }
 
+    }
     let source_validation=validate_sources(app,state);
+    if active_tab==3 {
     // Keep investor-ready Excel settings discoverable near the top of QTO,
     // not buried beneath large measurement and summary tables.
     ui.separator();
-    egui::CollapsingHeader::new("XUẤT EXCEL CHỦ ĐẦU TƯ • Cấu hình cột / nhóm / đơn vị / trang in").id_salt("cadtbt360_qto_excel_settings").default_open(false).show(ui, |ui| {
-        ui.strong("BÁO CÁO ĐO BÓC KHỐI LƯỢNG — CADTBT360_V1.023");
+    egui::CollapsingHeader::new("Cấu hình báo cáo Excel • Cột, nhóm, đơn vị, khổ in").id_salt("cadtbt360_qto_excel_settings").default_open(true).show(ui, |ui| {
+        ui.strong("Thiết lập hồ sơ xuất Excel");
         ui.small("Tạo XLSX có tiêu đề, nhóm công việc, tổng theo đơn vị, bảng kẻ chuẩn, A4 ngang, tiêu đề lặp mỗi trang và ô ký duyệt.");
         ui.horizontal_wrapped(|ui| {
             ui.label("Tên dự án");
@@ -2646,7 +2665,7 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
     ui.horizontal(|ui| {
         if ui.button("Hoàn tác phép đo").clicked() { let _ = state.undo_measurement_change(); }
         if ui.button("Làm lại phép đo").clicked() { let _ = state.redo_measurement_change(); }
-        ui.label(format!("{} record đo • {} audit", state.records.len(), state.audit.len()));
+        ui.small(format!("{} phép đo • {} thay đổi", state.records.len(), state.audit.len()));
     });
 
     if !state.records.is_empty() {
@@ -2769,7 +2788,7 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
     }
 
     ui.separator();
-    ui.strong("Tổng hợp theo BIM Scope");
+    ui.strong("Tổng hợp theo tầng và bộ môn");
     if !source_validation.invalid_record_ids.is_empty() {
         ui.colored_label(egui::Color32::YELLOW,format!("{} record liên kết nguồn không hợp lệ đang bị loại khỏi khối lượng BIM xác nhận.",source_validation.invalid_record_ids.len()));
     }
@@ -2798,7 +2817,7 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
     });
 
     ui.separator();
-    ui.strong("Tổng hợp nghiệp vụ đã xác nhận");
+    ui.strong("Tổng hợp khối lượng đã xác nhận");
     ui.label("Chỉ record trạng thái Đã xác nhận được cộng vào khối lượng; Review và Loại vẫn hiển thị để kiểm soát.");
     let business_groups = business_quantities_validated(state,lf,af,&source_validation.invalid_record_ids);
     egui::ScrollArea::horizontal().show(ui, |ui| {
@@ -2860,6 +2879,7 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
             }
         }
     });
+    } // Bảng kết quả & Excel
 }
 
 pub fn panel(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Scope) {
