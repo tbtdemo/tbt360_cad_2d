@@ -454,15 +454,16 @@ fn run_imageadjust(s: &mut Session, p: &Value) -> Result<Value> {
     let EntityKind::Image(old_i) = &old.kind else { return Err(bad("imageadjust", "selected object is not an image")); };
     let mut next = old_i.clone();
     for (key, dst) in [("brightness", &mut next.brightness), ("contrast", &mut next.contrast), ("fade", &mut next.fade)] {
-        if let Some(n) = p.get(key).and_then(Value::as_u64) {
-            if n > 100 { return Err(bad("imageadjust", format!("`{key}` must be 0..100"))); }
+        if let Some(value) = p.get(key) {
+            let n = value.as_u64().filter(|n| *n <= 100).ok_or_else(|| bad("imageadjust", format!("`{key}` must be an integer from 0 to 100")))?;
             *dst = n as u8;
         }
     }
-    if let Some(on) = p.get("transparency").and_then(Value::as_bool) {
+    if let Some(value) = p.get("transparency") {
+        let on = value.as_bool().ok_or_else(|| bad("imageadjust", "`transparency` must be true or false"))?;
         if on { next.display |= 8; } else { next.display &= !8; }
     }
-    let visible = p.get("visible").and_then(Value::as_bool);
+    let visible = p.get("visible").map(|v| v.as_bool().ok_or_else(|| bad("imageadjust", "`visible` must be true or false"))).transpose()?;
     s.doc_mut()?.modify_entity(h, |e| {
         e.kind = EntityKind::Image(next.clone());
         if let Some(v) = visible { e.common.visible = v; }
@@ -643,6 +644,10 @@ mod tests {
         let a = s.execute("imageadjust", &json!({"handle": h, "brightness": 70, "contrast": 60, "fade": 15, "transparency": true})).unwrap();
         assert_eq!(a["brightness"], 70);
         assert_eq!(a["transparency"], true);
+        assert!(s.execute("imageadjust", &json!({"handle":h,"brightness":"very bright"})).is_err());
+        assert!(s.execute("imageadjust", &json!({"handle":h,"contrast":101})).is_err());
+        assert!(s.execute("imageadjust", &json!({"handle":h,"fade":0.5})).is_err());
+        assert!(s.execute("imageadjust", &json!({"handle":h,"visible":"yes"})).is_err());
         let t = s.execute("imagetransform", &json!({"handle": a["handle"], "at":[5.0,6.0], "width":25.0, "height":10.0, "rotation":30.0})).unwrap();
         assert_eq!(t["width"], 25.0);
         assert_eq!(t["height"], 10.0);
