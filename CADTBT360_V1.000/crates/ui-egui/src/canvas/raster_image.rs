@@ -13,6 +13,7 @@ use super::Xf;
 const MAX_IMAGES: usize = 4;
 const MAX_FILE_BYTES: u64 = 16 * 1024 * 1024;
 const MAX_PIXELS: u64 = 16_777_216;
+const MAX_TEXTURE_SIDE: u32 = 2048;
 const CACHE_ID: &str = "cad360-native-raster-textures-v1025";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -56,13 +57,28 @@ fn safe_path(path: &str, drawing_name: &str) -> Option<PathBuf> {
     Some(parent.unwrap_or_else(|| Path::new(".")).join(candidate))
 }
 
+/// Keep GPU textures bounded independently of the source IMAGE pixel dimensions.
+/// IMAGE calibration, clipping UVs and tracing always keep the source-size coordinate space.
+fn texture_dimensions(width: u32, height: u32) -> [u32; 2] {
+    if width <= MAX_TEXTURE_SIDE && height <= MAX_TEXTURE_SIDE { return [width, height]; }
+    let longest = width.max(height);
+    let scaled = |v: u32| -> u32 { ((u64::from(v) * u64::from(MAX_TEXTURE_SIDE) + u64::from(longest) / 2) / u64::from(longest)).max(1) as u32 };
+    [scaled(width), scaled(height)]
+}
+
 fn read_texture(ctx: &Context, path: &Path, adjust: RasterAdjust) -> Option<TextureHandle> {
     let metadata = std::fs::metadata(path).ok()?;
     if !metadata.is_file() || metadata.len() == 0 || metadata.len() > MAX_FILE_BYTES { return None; }
     let (width, height) = image::image_dimensions(path).ok()?;
     if width == 0 || height == 0 || u64::from(width) * u64::from(height) > MAX_PIXELS { return None; }
     let bytes = std::fs::read(path).ok()?;
-    let mut raster = image::load_from_memory(&bytes).ok()?.to_rgba8();
+    let original = image::load_from_memory(&bytes).ok()?.to_rgba8();
+    let [target_w, target_h] = texture_dimensions(original.width(), original.height());
+    let mut raster = if original.width() == target_w && original.height() == target_h {
+        original
+    } else {
+        image::imageops::resize(&original, target_w, target_h, image::imageops::FilterType::Triangle)
+    };
     let size = [raster.width() as usize, raster.height() as usize];
     for rgba in raster.pixels_mut() { rgba.0 = adjust_pixel(rgba.0, adjust); }
     let color = egui::ColorImage::from_rgba_unmultiplied(size, raster.as_raw());
@@ -219,6 +235,13 @@ fn defaults() -> RasterAdjust {
         assert_eq!(adjust_pixel([0, 70, 200, 40], faded), [255, 255, 255, 40]);
         let opaque = RasterAdjust { transparency: false, ..normal };
         assert_eq!(adjust_pixel([3, 4, 5, 0], opaque)[3], 255);
+    }
+    #[test]
+    fn large_png_texture_is_bounded_without_changing_source_pixel_coordinates() {
+        assert_eq!(texture_dimensions(1000, 500), [1000, 500]);
+        assert_eq!(texture_dimensions(4000, 2000), [2048, 1024]);
+        assert_eq!(texture_dimensions(100, 4000), [51, 2048]);
+        assert_eq!(texture_dimensions(1, 4000), [1, 2048]);
     }
     #[test]
     fn per_image_adjustments_are_part_of_texture_cache_key() {
