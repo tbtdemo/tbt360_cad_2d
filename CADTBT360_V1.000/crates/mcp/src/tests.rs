@@ -23,6 +23,29 @@ fn tool(s: &mut Server, name: &str, args: Value) -> Value {
 
 
 #[test]
+fn agent_fits_four_survey_controls_before_drawing_on_image() {
+    let mut s = Server::new(Box::new(Headless::default()));
+    let image = tool(&mut s, "execute", json!({"command":"imageattach","params":{"path":"survey.png","pixels":[200,100],"width":200,"height":100}}));
+    let mut args = json!({"handle":image["handle"],"pixels":[[0,100],[200,100],[0,0],[200,0]],
+        "world":[[10,20],[30,20],[10,30],[30,30]],"maxResidual":0.001,"preview":true});
+    let preview = tool(&mut s, "fit_image_controls", args.clone());
+    assert_eq!(preview["preview"], true);
+    assert_eq!(preview["controlCount"], 4);
+    assert!(preview["maxResidual"].as_f64().unwrap() < 1.0e-9);
+    let before = tool(&mut s, "trace_image", json!({"handle":image["handle"],"points":[[0,100],[200,100]],"preview":true}));
+    assert_eq!(before["worldPoints"], json!([[0.0,0.0],[200.0,0.0]]));
+    args["preview"] = json!(false);
+    tool(&mut s, "fit_image_controls", args.clone());
+    let traced = tool(&mut s, "trace_image", json!({"handle":image["handle"],"points":[[0,100],[200,100]],"preview":false}));
+    assert!((traced["worldPoints"][0][0].as_f64().unwrap() - 10.0).abs() < 1.0e-9);
+    assert!((traced["worldPoints"][1][0].as_f64().unwrap() - 30.0).abs() < 1.0e-9);
+    assert_eq!(tool(&mut s, "query_entities", json!({"type":"Polyline"}))["count"], 1);
+    args["world"][3] = json!([95.0,85.0]);
+    let refused = call(&mut s, 5, "tools/call", json!({"name":"fit_image_controls","arguments":args}));
+    assert_eq!(refused["result"]["isError"], true, "agent must not replace a calibrated image with bad survey points");
+}
+
+#[test]
 fn agent_calibrates_image_before_tracing_using_two_control_points() {
     let mut s = Server::new(Box::new(Headless::default()));
     let image = tool(&mut s, "execute", json!({"command":"imageattach","params":{"path":"survey.png","at":[0,0],"pixels":[200,100],"width":200,"height":100}}));
