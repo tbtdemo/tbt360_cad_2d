@@ -207,8 +207,6 @@ pub(super) fn draw(painter: &Painter, xf: &Xf, session: &Session, ctx: &Context)
     for entity in space.iter() {
         if !entity.common.visible || state.doc.layer(&entity.common.layer).is_some_and(|layer| !layer.visible()) { continue; }
         let EntityKind::Image(img) = &entity.kind else { continue; };
-        if visited >= MAX_IMAGES { break; }
-        visited += 1;
         if (img.display & 1) == 0 || img.path.is_empty() || !img.size.x.is_finite() || !img.size.y.is_finite() || img.size.x <= 0.0 || img.size.y <= 0.0 { continue; }
         let o = img.insert.xy();
         let u = img.u.xy() * img.size.x;
@@ -217,6 +215,9 @@ pub(super) fn draw(painter: &Painter, xf: &Xf, session: &Session, ctx: &Context)
         if corners.iter().any(|p| !p.x.is_finite() || !p.y.is_finite()) { continue; }
         if !cadcraft_geom::Bounds2::from_points(corners).intersects(&xf.world_bounds()) { continue; }
         let Some(path) = safe_path(&img.path, state.path.as_deref().unwrap_or(&state.title)) else { continue; };
+        // Off-screen, disabled and unsafe-path images must not consume the four visible image slots.
+        if visited >= MAX_IMAGES { break; }
+        visited += 1;
         let adjust = RasterAdjust::from_image(img);
         let key = (path.clone(), adjust);
         let now = Instant::now();
