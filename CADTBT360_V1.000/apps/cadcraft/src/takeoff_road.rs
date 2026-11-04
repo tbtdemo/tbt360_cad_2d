@@ -156,6 +156,8 @@ pub struct RoadTransitionEstimate {
 }
 pub fn estimate_cut_fill_transition(left: &RoadCrossSection, right: &RoadCrossSection, drawing_unit_to_m: f64) -> Option<RoadTransitionEstimate> {
     if !drawing_unit_to_m.is_finite() || drawing_unit_to_m<=0.0 || !left.chainage_m.is_finite() || !right.chainage_m.is_finite() || right.chainage_m<=left.chainage_m {return None;}
+    // Do not propose a transition from malformed CAD source evidence.
+    if validate_section(left).is_err() || validate_section(right).is_err() {return None;}
     let scale_area=drawing_unit_to_m.powi(2);
     let (cut,fill)=if left.cut.is_some() && right.fill.is_some() && left.fill_zero_confirmed && right.cut_zero_confirmed && left.fill.is_none() && right.cut.is_none() {
         (left.cut.as_ref()?.raw_value*scale_area,right.fill.as_ref()?.raw_value*scale_area)
@@ -590,6 +592,34 @@ mod tests {
         assert!((published[1].volume_m3-100.0).abs()<1e-8);
         assert!(estimate_cut_fill_transition(&left,&right,0.0).is_none());
         right.cut_zero_confirmed=false;
+        assert!(estimate_cut_fill_transition(&left,&right,1.0).is_none());
+    }
+    #[test]
+    fn reverse_fill_to_cut_estimate_is_symmetric_and_keeps_surveyed_volume_unchanged() {
+        let mut left=section(1000.0,None,Some(source("1B",10.0)));
+        let mut right=section(1020.0,Some(source("2A",20.0)),None);
+        left.cut_zero_confirmed=true;
+        right.fill_zero_confirmed=true;
+        let estimated=estimate_cut_fill_transition(&left,&right,1.0).unwrap();
+        assert!((estimated.chainage_m-(1000.0+20.0/3.0)).abs()<1e-8);
+        assert!((estimated.cut_estimate_m3-400.0/3.0).abs()<1e-8);
+        assert!((estimated.fill_estimate_m3-100.0/3.0).abs()<1e-8);
+        let published=intervals(&[left.clone(),right.clone()],1.0,true).unwrap();
+        assert_eq!(published.len(),2);
+        assert!((published.iter().map(|x|x.volume_m3).sum::<f64>()-300.0).abs()<1e-8);
+        left.cut=Some(source("3C",5.0));
+        assert!(estimate_cut_fill_transition(&left,&right,1.0).is_none());
+    }
+    #[test]
+    fn transition_estimate_requires_valid_cad_area_evidence() {
+        let mut left=section(1000.0,Some(source("1A",20.0)),None);
+        let mut right=section(1020.0,None,Some(source("2B",10.0)));
+        left.fill_zero_confirmed=true;
+        right.cut_zero_confirmed=true;
+        left.cut.as_mut().unwrap().signature.clear();
+        assert!(estimate_cut_fill_transition(&left,&right,1.0).is_none());
+        left.cut.as_mut().unwrap().signature="Area:20".to_string();
+        right.fill.as_mut().unwrap().raw_value=f64::INFINITY;
         assert!(estimate_cut_fill_transition(&left,&right,1.0).is_none());
     }
     #[test]
