@@ -7,6 +7,7 @@ on:
       - 'CADTBT360_V1.000/crates/ui-egui/src/autosave.rs'
       - 'CADTBT360_V1.000/crates/engine/src/autosave.rs'
       - 'CADTBT360_V1.000/crates/engine/tests/autosave.rs'
+      - 'CADTBT360_V1.000/crates/engine/src/cmd/image.rs'
       - '.github/workflows/cad360-v1025-desktop-reliability.yml'
   push:
     branches:
@@ -15,6 +16,7 @@ on:
       - 'CADTBT360_V1.000/crates/ui-egui/src/autosave.rs'
       - 'CADTBT360_V1.000/crates/engine/src/autosave.rs'
       - 'CADTBT360_V1.000/crates/engine/tests/autosave.rs'
+      - 'CADTBT360_V1.000/crates/engine/src/cmd/image.rs'
       - '.github/workflows/cad360-v1025-desktop-reliability.yml'
 
 permissions:
@@ -40,6 +42,10 @@ jobs:
         run: |
           cargo test --locked -p cadcraft-engine --test autosave -- --nocapture
           if ($LASTEXITCODE -ne 0) { throw 'Engine autosave and recovery regression failure' }
+      - name: Verify AI-compatible raster tracing draws real CAD geometry
+        run: |
+          cargo test --locked -p cadcraft-engine --lib imagetrace_maps_image_pixels_into_editable_cad_geometry -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'Image pixel-to-CAD vector tracing failed' }
       - name: Compile UI and run Drawing Recovery unit tests
         run: |
           cargo test --locked -p cadcraft-ui-egui --lib autosave::tests -- --nocapture
