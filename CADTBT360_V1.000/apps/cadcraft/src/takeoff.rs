@@ -2781,6 +2781,21 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
             }
         });
         ui.ctx().data_mut(|data|data.insert_temp(page_id,page));
+        if visible_count>0 {
+            ui.horizontal_wrapped(|ui| {
+                ui.small("Chỉ trang hiện tại:");
+                if ui.small_button("Chọn trang để xuất").on_hover_text("Chỉ chọn các phép đo trên trang đang xem; không thay đổi các trang khác.").clicked() {
+                    let ids=state.records.iter().filter(|record|qto_register_matches(record,&state.search_text,state.status_filter,state.selected_measure_types,register_scope_canonical.as_ref()))
+                        .skip(page*QTO_ROWS_PER_PAGE).take(QTO_ROWS_PER_PAGE).map(|record|record.id).collect::<Vec<_>>();
+                    for id in ids { state.export_omitted_ids.remove(&id); }
+                }
+                if ui.small_button("Bỏ chọn trang").on_hover_text("Chỉ bỏ chọn các phép đo trên trang đang xem; không thay đổi các trang khác.").clicked() {
+                    let ids=state.records.iter().filter(|record|qto_register_matches(record,&state.search_text,state.status_filter,state.selected_measure_types,register_scope_canonical.as_ref()))
+                        .skip(page*QTO_ROWS_PER_PAGE).take(QTO_ROWS_PER_PAGE).map(|record|record.id).collect::<Vec<_>>();
+                    for id in ids { state.export_omitted_ids.insert(id); }
+                }
+            });
+        }
         if visible_count==0 {
             ui.label(egui::RichText::new("Chưa có phép đo phù hợp. Chọn phạm vi hoặc thay đổi bộ lọc để xem dữ liệu.").color(egui::Color32::GRAY));
         }
