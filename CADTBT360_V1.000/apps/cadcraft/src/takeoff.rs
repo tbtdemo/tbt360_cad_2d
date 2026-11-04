@@ -2542,11 +2542,12 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
                 takeoff_road::intervals(&scoped,scale,state.export_config.confirmed_only).ok()
                     .map(|parts|parts.into_iter().filter(|part|takeoff_road::within_range(part,range)).collect::<Vec<_>>())
             }));
-        let road_count=road_preview.as_ref().map(|parts|parts.iter().filter(|part|allowed_handles.as_ref()
-            .is_none_or(|handles|(part.source_start.is_empty() || qto_scope_contains_handle(handles,&part.source_start))
-                && (part.source_end.is_empty() || qto_scope_contains_handle(handles,&part.source_end)))).count()).unwrap_or(0);
+        // The preview is publish-ready only if the actual XLSX road exporter
+        // validates current plan markers, CAD geometry, work codes and scope.
+        let road_export_check=road_preview.as_ref().map(|_|qto_road_report_lines(app,state,&state.export_config,allowed_handles.as_ref()));
+        let road_count=road_export_check.as_ref().and_then(|result|result.as_ref().ok()).map(Vec::len).unwrap_or(0);
         ui.label(format!("Sẵn sàng xem xét: {count} phép đo 2D + {volume_count} thể tích hai nguồn + {road_count} khoảng cọc đào/đắp, {} cột.",state.export_config.selected().len()));
-        if let Some(parts)=road_preview.as_ref() {
+        if let (Some(parts),Some(Ok(_)))=(road_preview.as_ref(),road_export_check.as_ref()) {
             let scoped=parts.iter().filter(|part|allowed_handles.as_ref().is_none_or(|handles|
                 (part.source_start.is_empty() || qto_scope_contains_handle(handles,&part.source_start))
                 && (part.source_end.is_empty() || qto_scope_contains_handle(handles,&part.source_end)))).cloned().collect::<Vec<_>>();
@@ -2562,7 +2563,9 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
                 }
             }
         }
-        if state.road_sections.len() >= 2 && road_preview.is_none() {
+        if let Some(Err(error))=road_export_check.as_ref() {
+            ui.colored_label(egui::Color32::YELLOW,format!("Đào–đắp chưa đủ điều kiện xuất: {error}"));
+        } else if state.road_sections.len() >= 2 && road_preview.is_none() {
             ui.colored_label(egui::Color32::YELLOW,"Dữ liệu đào–đắp chưa sẵn sàng: kiểm tra tỷ lệ, cọc đầu/cuối, trắc ngang xác nhận, lý trình và handle cọc trùng. Không sử dụng tổng xem trước để phát hành.");
         }
         if !state.export_config.confirmed_only {
