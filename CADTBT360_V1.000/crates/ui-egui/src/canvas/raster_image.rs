@@ -43,6 +43,13 @@ impl CacheEntry {
     fn should_retry(&self, now: Instant) -> bool {
         self.texture.is_none() && now >= self.retry_after
     }
+
+    // Avoid rewriting egui temporary data on every repaint during continuous pan/zoom.
+    fn touch(&mut self, now: Instant) -> bool {
+        if now.duration_since(self.last_used) < Duration::from_secs(1) { return false; }
+        self.last_used = now;
+        true
+    }
 }
 
 #[derive(Clone, Default)]
@@ -239,8 +246,7 @@ pub(super) fn draw(painter: &Painter, xf: &Xf, session: &Session, ctx: &Context)
             changed = true;
         }
         let Some(entry) = cache.textures.get_mut(&key) else { continue; };
-        entry.last_used = now;
-        changed = true;
+        if entry.touch(now) { changed = true; }
         let Some(texture) = entry.texture.as_ref() else { continue; };
         if let Some(shape) = textured_clipped_image(texture, xf, img) {
             painter.add(shape);
@@ -283,6 +289,16 @@ fn defaults() -> RasterAdjust {
         assert!(layer.visible());
         layer.frozen = true;
         assert!(!drawing.layer("0").unwrap().visible());
+    }
+    #[test]
+    fn texture_access_does_not_rewrite_cache_on_each_repaint() {
+        let now = Instant::now();
+        let mut entry = CacheEntry { texture: None, retry_after: now + Duration::from_secs(5), last_used: now };
+        assert!(!entry.touch(now));
+        assert!(!entry.touch(now + Duration::from_millis(999)));
+        assert!(entry.touch(now + Duration::from_secs(1)));
+        assert!(!entry.touch(now + Duration::from_millis(1500)));
+        assert!(entry.touch(now + Duration::from_secs(2)));
     }
     #[test]
     fn cache_entry_tracks_last_access_for_selective_eviction() {
