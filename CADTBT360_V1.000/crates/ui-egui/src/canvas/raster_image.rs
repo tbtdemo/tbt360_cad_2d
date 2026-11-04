@@ -2,6 +2,7 @@
 //! Rendering of raster pixels is intentionally separate from DWG/IMAGE metadata round-tripping.
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
 
 use cadcraft_doc::EntityKind;
 use cadcraft_engine::Session;
@@ -30,9 +31,21 @@ impl RasterAdjust {
     }
 }
 
+#[derive(Clone)]
+struct CacheEntry {
+    texture: Option<TextureHandle>,
+    retry_after: Instant,
+}
+
+impl CacheEntry {
+    fn should_retry(&self, now: Instant) -> bool {
+        self.texture.is_none() && now >= self.retry_after
+    }
+}
+
 #[derive(Clone, Default)]
 struct Cache {
-    textures: HashMap<(PathBuf, RasterAdjust), Option<TextureHandle>>,
+    textures: HashMap<(PathBuf, RasterAdjust), CacheEntry>,
 }
 
 /// Apply CAD IMAGEADJUST controls without changing the linked reference file.
@@ -206,12 +219,16 @@ pub(super) fn draw(painter: &Painter, xf: &Xf, session: &Session, ctx: &Context)
         let Some(path) = safe_path(&img.path, &state.title) else { continue; };
         let adjust = RasterAdjust::from_image(img);
         let key = (path.clone(), adjust);
-        if !cache.textures.contains_key(&key) {
+        let now = Instant::now();
+        if cache.textures.get(&key).is_none_or(|entry| entry.should_retry(now)) {
             if cache.textures.len() >= 12 { cache.textures.clear(); }
-            cache.textures.insert(key.clone(), read_texture(ctx, &path, adjust));
+            cache.textures.insert(key.clone(), CacheEntry {
+                texture: read_texture(ctx, &path, adjust),
+                retry_after: now + Duration::from_secs(5),
+            });
             changed = true;
         }
-        let Some(texture) = cache.textures.get(&key).and_then(Option::as_ref) else { continue; };
+        let Some(texture) = cache.textures.get(&key).and_then(|entry| entry.texture.as_ref()) else { continue; };
         if let Some(shape) = textured_clipped_image(texture, xf, img) { painter.add(shape); }
     }
     if changed { ctx.data_mut(|d| d.insert_temp(id, cache)); }
@@ -242,6 +259,14 @@ fn defaults() -> RasterAdjust {
         assert_eq!(texture_dimensions(4000, 2000), [2048, 1024]);
         assert_eq!(texture_dimensions(100, 4000), [51, 2048]);
         assert_eq!(texture_dimensions(1, 4000), [1, 2048]);
+    }
+    #[test]
+    fn missing_image_can_retry_after_file_becomes_available() {
+        let now = Instant::now();
+        let entry = CacheEntry { texture: None, retry_after: now + Duration::from_secs(5) };
+        assert!(!entry.should_retry(now));
+        assert!(!entry.should_retry(now + Duration::from_secs(4)));
+        assert!(entry.should_retry(now + Duration::from_secs(5)));
     }
     #[test]
     fn per_image_adjustments_are_part_of_texture_cache_key() {
