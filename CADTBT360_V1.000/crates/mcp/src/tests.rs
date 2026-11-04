@@ -21,6 +21,26 @@ fn tool(s: &mut Server, name: &str, args: Value) -> Value {
     if c["type"] == "text" { serde_json::from_str(c["text"].as_str().unwrap()).unwrap_or(Value::Null) } else { c.clone() }
 }
 
+
+#[test]
+fn agent_traces_an_image_into_editable_cad_via_mcp() {
+    let mut s = Server::new(Box::new(Headless::default()));
+    let tools = call(&mut s, 1, "tools/list", json!({}));
+    assert!(tools["result"]["tools"].as_array().unwrap().iter().any(|t| t["name"] == "trace_image"));
+    let image = tool(&mut s, "execute", json!({"command":"imageattach","params":{"path":"survey.png","at":[10,20],"pixels":[200,100],"width":20,"height":10}}));
+    let traced = tool(&mut s, "trace_image", json!({"handle":image["handle"],"points":[[0,100],[200,100],[200,0]],"closed":true}));
+    assert_eq!(traced["vertices"], 3);
+    assert_eq!(traced["closed"], true);
+    let entities = tool(&mut s, "query_entities", json!({"type":"LwPolyline"}));
+    assert_eq!(entities["count"], 1, "MCP tracing must create actual editable CAD geometry: {entities}");
+    let wrong = call(&mut s, 2, "tools/call", json!({"name":"trace_image","arguments":{"handle":image["handle"],"points":[[0,0]]}}));
+    assert_eq!(wrong["error"]["code"], -32602, "MCP schema must reject a single point");
+    let bad = call(&mut s, 3, "tools/call", json!({"name":"trace_image","arguments":{"handle":image["handle"],"points":[[0,0],[201,20]]}}));
+    assert_eq!(bad["result"]["isError"], true, "Out-of-bounds points must not create geometry");
+    let again = tool(&mut s, "query_entities", json!({"type":"LwPolyline"}));
+    assert_eq!(again["count"], 1);
+}
+
 /// The MCP handshake works: `initialize` names the server, the `initialized` notification is
 /// accepted, `tools/list` offers the command line, and an unknown method is -32601.
 #[test]
