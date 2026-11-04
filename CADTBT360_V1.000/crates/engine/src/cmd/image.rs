@@ -286,6 +286,25 @@ fn run_imagecalibratefit(s: &mut Session, p: &Value) -> Result<Value> {
 fn image_homography_coefficients(pixels: &[Vec2], world: &[Vec2], width: f64, height: f64) -> Result<([f64; 8], Vec2, f64)> {
     const CMD: &str = "imageprojecttrace";
     if pixels.len() != 4 || world.len() != 4 { return Err(bad(CMD, "exactly four pixel and world controls required")); }
+    // Four controls must follow the quadrilateral perimeter (clockwise or counterclockwise).
+    // A crossed or concave set can fold the drawing and turn finite pixel lines into invalid CAD.
+    let is_convex = |points: &[Vec2]| {
+        let mut winding = 0.0_f64;
+        let scale = points.iter().map(|p| (*p - points[0]).len()).fold(0.0_f64, f64::max);
+        if !scale.is_finite() || scale <= 1.0e-12 { return false; }
+        for i in 0..4 {
+            let a = points[(i + 1) % 4] - points[i];
+            let b = points[(i + 2) % 4] - points[(i + 1) % 4];
+            let cross = (a.x * b.y - a.y * b.x) / (scale * scale);
+            if !cross.is_finite() || cross.abs() <= 1.0e-9 { return false; }
+            if i != 0 && cross.signum() != winding { return false; }
+            winding = cross.signum();
+        }
+        true
+    };
+    if !is_convex(pixels) || !is_convex(world) {
+        return Err(bad(CMD, "the four pixel and CAD controls must form non-crossed convex quadrilaterals in matching perimeter order"));
+    }
     // Normalize both domains so pivoting remains stable for large projected CAD coordinates.
     let offset = world[0];
     let world_scale = world.iter().map(|q| (*q - offset).len()).fold(0.0_f64, f64::max);
@@ -527,6 +546,8 @@ mod tests {
         assert_eq!(s.execute("entities", &json!({"type":"Polyline"})).unwrap()["count"], 1);
         let original_image = s.execute("imagetrace", &json!({"handle":h,"points":[[0,100],[200,100]],"preview":true})).unwrap();
         assert_eq!(original_image["worldPoints"], json!([[0.0,0.0],[200.0,0.0]]));
+        data["pixels"] = json!([[0,0],[0,100],[200,0],[200,100]]);
+        assert!(s.execute("imageprojecttrace", &data).is_err(), "crossed quadrilateral must not fold the vector drawing");
         data["pixels"] = json!([[0,0],[0,0],[200,100],[0,100]]);
         assert!(s.execute("imageprojecttrace", &data).is_err());
         assert_eq!(s.execute("entities", &json!({"type":"Polyline"})).unwrap()["count"], 1);
