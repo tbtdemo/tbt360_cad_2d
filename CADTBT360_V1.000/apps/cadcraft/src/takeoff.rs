@@ -2703,10 +2703,12 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
     });
 
     if !state.records.is_empty() {
-        ui.strong("Phép đo nghiệp vụ");
+        egui::CollapsingHeader::new(format!("Danh sách phép đo • {} bản ghi",state.records.len()))
+            .id_salt("cadtbt360_qto_register").default_open(true).show(ui,|ui| {
+        ui.small("Tìm kiếm, chọn dòng xuất, rà soát và chỉnh sửa phép đo.");
         ui.horizontal_wrapped(|ui| {
-            ui.label("Tìm theo Layer / Mã CT / Diễn giải / Handle:");
-            ui.text_edit_singleline(&mut state.search_text);
+            ui.label("Tìm kiếm");
+            ui.add(egui::TextEdit::singleline(&mut state.search_text).hint_text("Layer, mã công tác, diễn giải hoặc handle").desired_width(220.0));
             ui.label("Trạng thái:");
             ui.selectable_value(&mut state.status_filter, 0, "Tất cả");
             ui.selectable_value(&mut state.status_filter, 1, "Cần rà soát");
@@ -2819,9 +2821,11 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
                 if ui.button("Đóng sửa").clicked() { state.selected_record_id=None; }
             });
         });
+        });
     }
 
     ui.separator();
+    ui.collapsing("Tổng hợp theo tầng & bộ môn",|ui| {
     ui.strong("Tổng hợp theo tầng và bộ môn");
     if !source_validation.invalid_record_ids.is_empty() {
         ui.colored_label(egui::Color32::YELLOW,format!("{} record liên kết nguồn không hợp lệ đang bị loại khỏi khối lượng BIM xác nhận.",source_validation.invalid_record_ids.len()));
@@ -2849,11 +2853,12 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
             }
         });
     });
+    });
 
     ui.separator();
-    ui.strong("Tổng hợp khối lượng đã xác nhận");
-    ui.label("Chỉ record trạng thái Đã xác nhận được cộng vào khối lượng; Review và Loại vẫn hiển thị để kiểm soát.");
     let business_groups = business_quantities_validated(state,lf,af,&source_validation.invalid_record_ids);
+    ui.collapsing("Tổng hợp theo nhóm công việc & Layer",|ui| {
+    ui.small("Chỉ phép đo đã xác nhận được cộng vào khối lượng nghiệm thu.");
     egui::ScrollArea::horizontal().show(ui, |ui| {
         egui::Grid::new("native_qto_business_summary").striped(true).show(ui, |ui| {
             for h in ["Nhóm công việc","Mã công tác","Layer","Review","Đã xác nhận","Loại","Chiều dài","Chu vi","Diện tích","Số lượng"] { ui.strong(h); }
@@ -2873,10 +2878,12 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
             }
         });
     });
+    });
 
 
     ui.separator();
-    ui.horizontal(|ui| {
+    ui.collapsing("Công cụ CSV & dữ liệu chi tiết",|ui| {
+    ui.horizontal_wrapped(|ui| {
         if ui.button("Sao chép CSV tổng hợp nghiệp vụ").clicked() {
             let mut csv = String::from("work_group,work_code,layer,review_records,confirmed_records,excluded_records,length,perimeter,area,count,length_unit,area_unit\n");
             for ((work_group, work_code, layer), q) in &business_groups {
@@ -2912,6 +2919,7 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
                 }
             }
         }
+    });
     });
     } // Bảng kết quả & Excel
 }
