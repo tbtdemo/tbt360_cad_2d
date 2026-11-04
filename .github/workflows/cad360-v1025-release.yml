@@ -138,8 +138,12 @@ jobs:
         shell: pwsh
         working-directory: CADTBT360_V1.000
         run: |
-          cargo build --release --locked -p cadcraft -p cadcraft-cli
-          if ($LASTEXITCODE -ne 0) { throw 'Windows release build failed' }
+          $ErrorActionPreference = 'Continue'
+          New-Item -ItemType Directory -Force '../dist/v1025/diagnostics' | Out-Null
+          # Check and release builds differ: capture compiler/linker output from the
+          # actual Windows x64 EXE build rather than only saving preflight logs.
+          cargo build --release --locked -p cadcraft -p cadcraft-cli 2>&1 | Out-String -Stream | Tee-Object -FilePath '../dist/v1025/diagnostics/CARGO_RELEASE_BUILD.log' | Out-Host
+          if ($LASTEXITCODE -ne 0) { throw 'Windows release build failed; inspect CARGO_RELEASE_BUILD.log in failure diagnostics' }
           foreach ($exe in @('target/release/cadcraft.exe', 'target/release/cadcraft-cli.exe')) {
             if (!(Test-Path $exe)) { throw "Missing freshly built binary: $exe" }
           }
@@ -158,8 +162,10 @@ jobs:
         id: package
         shell: pwsh
         run: |
-          & 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe' /Qp installer/CADTBT360_V1.025_Windows.iss
-          if ($LASTEXITCODE -ne 0) { throw 'V1.025 Inno Setup failed' }
+          $ErrorActionPreference = 'Continue'
+          New-Item -ItemType Directory -Force dist/v1025/diagnostics | Out-Null
+          & 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe' /Qp installer/CADTBT360_V1.025_Windows.iss 2>&1 | Out-String -Stream | Tee-Object -FilePath dist/v1025/diagnostics/INNO_SETUP_BUILD.log | Out-Host
+          if ($LASTEXITCODE -ne 0) { throw 'V1.025 Inno Setup failed; inspect INNO_SETUP_BUILD.log in failure diagnostics' }
           $setup = 'dist/v1025/CADTBT360_V1.025_Setup_Windows_x64.exe'
           if (!(Test-Path $setup)) { throw 'V1.025 Setup output missing' }
           New-Item -ItemType Directory -Force dist/v1025/portable | Out-Null
