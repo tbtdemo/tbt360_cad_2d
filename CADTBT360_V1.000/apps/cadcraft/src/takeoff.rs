@@ -1237,10 +1237,10 @@ fn qto_road_find_marker_entity<'a>(doc: &'a cadcraft_doc::Drawing, handle: cadcr
     Ok(found)
 }
 
-fn qto_road_inspect_marker_entity(doc: &cadcraft_doc::Drawing, entity: &cadcraft_doc::Entity, markers: &mut Vec<takeoff_road::RoadPlanMarker>, skipped: &mut usize, handles: &mut BTreeSet<String>) {
+fn qto_road_inspect_marker_entity(doc: &cadcraft_doc::Drawing, entity: &cadcraft_doc::Entity, markers: &mut Vec<takeoff_road::RoadPlanMarker>, skipped: &mut usize, handles: &mut BTreeSet<String>, collisions: &mut BTreeSet<String>) {
     if !matches!(&entity.kind,EntityKind::Text(_) | EntityKind::MText(_) | EntityKind::Insert(_)) {return;}
     let key=qto_station_handle_key(&entity.handle.hex());
-    if !handles.insert(key) {*skipped+=1;return;}
+    if !handles.insert(key.clone()) {collisions.insert(key);*skipped+=1;return;}
     match qto_road_station_from_entity(doc,entity) {
         Ok(chainage_m)=>markers.push(takeoff_road::RoadPlanMarker{chainage_m,handle:entity.handle.hex()}),
         Err(_)=>*skipped+=1,
@@ -1250,19 +1250,25 @@ fn qto_road_scan_drawing_markers(doc: &cadcraft_doc::Drawing, selected: &[cadcra
     let mut markers=Vec::new();
     let mut skipped=0usize;
     let mut handles=BTreeSet::<String>::new();
+    let mut collisions=BTreeSet::<String>::new();
     if all_model {
-        for entity in doc.model.iter() {qto_road_inspect_marker_entity(doc,entity,&mut markers,&mut skipped,&mut handles);}
+        for entity in doc.model.iter() {qto_road_inspect_marker_entity(doc,entity,&mut markers,&mut skipped,&mut handles,&mut collisions);}
         if include_layouts {
             for layout in &doc.layouts {
-                for entity in layout.entities.iter() {qto_road_inspect_marker_entity(doc,entity,&mut markers,&mut skipped,&mut handles);}
+                for entity in layout.entities.iter() {qto_road_inspect_marker_entity(doc,entity,&mut markers,&mut skipped,&mut handles,&mut collisions);}
             }
         }
     } else {
         for &handle in selected {
-            if let Some(entity)=doc.model.get(handle) {qto_road_inspect_marker_entity(doc,entity,&mut markers,&mut skipped,&mut handles);}
+            if let Some(entity)=doc.model.get(handle) {qto_road_inspect_marker_entity(doc,entity,&mut markers,&mut skipped,&mut handles,&mut collisions);}
             else {skipped+=1;}
         }
     }
+    // If a CAD handle appears in more than one space, both candidate labels
+    // are ambiguous: do not automatically attach even the first occurrence.
+    let original_len=markers.len();
+    markers.retain(|marker|!collisions.contains(&qto_station_handle_key(&marker.handle)));
+    skipped+=original_len-markers.len();
     (markers,skipped)
 }
 
@@ -1379,8 +1385,8 @@ mod road_station_matching_tests {
         doc.layouts.push(paper);
         assert!(qto_road_find_marker_entity(&doc,cadcraft_doc::Handle(0x11)).is_err());
         let (markers,skipped)=qto_road_scan_drawing_markers(&doc,&[],true,true);
-        assert_eq!(markers.len(),1);
-        assert_eq!(skipped,1);
+        assert!(markers.is_empty());
+        assert_eq!(skipped,2);
     }
     #[test]
     fn selected_scan_counts_missing_handles_without_mutable_capture_conflict() {
