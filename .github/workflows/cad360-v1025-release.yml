@@ -233,9 +233,15 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Installed CLI cannot query persisted editable LWPOLYLINE' }
           $geometry = ($geometryOutput -join [char]10) | ConvertFrom-Json
           if ($geometry.count -ne 1 -or $geometry.entities.Count -ne 1) { throw 'Saved AI trace does not contain exactly one queryable Polyline' }
-          $polyline = $geometry.entities[0].geometry
+          # EntityKind is a serde externally-tagged enum: geometry.LwPolyline holds
+          # the editable vertices, not geometry.vertices / geometry.type.
+          $polylineEntity = $geometry.entities[0]
+          $polyline = $polylineEntity.geometry.LwPolyline
+          if ($polylineEntity.type -ne 'Polyline' -or $null -eq $polyline) {
+            throw "Saved AI trace returned the wrong entity kind: $($polylineEntity | ConvertTo-Json -Depth 8 -Compress)"
+          }
           $vertices = @($polyline.vertices)
-          if ($vertices.Count -ne 3 -or $polyline.type -ne 'lwPolyline' -or $polyline.closed -ne $false) {
+          if ($vertices.Count -ne 3 -or $polyline.closed -ne $false) {
             throw "Saved AI trace must be one open editable three-vertex LWPOLYLINE, got $($polyline | ConvertTo-Json -Depth 8 -Compress)"
           }
           $expected = @(
