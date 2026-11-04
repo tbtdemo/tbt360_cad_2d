@@ -233,6 +233,9 @@ def main():
         if reopened.returncode!=0:
             raise RuntimeError(f"CAD DWG re-open failed: {reopened.stderr[:700]}")
         dwg_details=json.loads(reopened.stdout)
+        dwg_counts=dwg_details.get("counts",{})
+        if dwg_counts.get("Line")!=12 or dwg_counts.get("Circle")!=26:
+            raise RuntimeError(f"DWG roundtrip changed CAD geometry counts: {dwg_counts}")
         (args.out/"reopened_dwg_inspection.json").write_text(
             json.dumps(dwg_details,indent=2,ensure_ascii=False),encoding="utf-8")
         # Check actual DWG roundtrip counts, not just existence of the file.
@@ -241,7 +244,7 @@ def main():
         report={"result":"PASS","method":"real desktop MCP bridge","counts":counts,
                 "render":render_info,"window_screenshot":screen_info,"visual_comparison":visual,
                 "drawing_bytes":drawing.stat().st_size,"undo_counts":undo_counts,"redo_counts":redo_counts,
-                "extended_counts":extended_counts,"dwg_bytes":dwg.stat().st_size}
+                "extended_counts":extended_counts,"reopened_dwg_counts":dwg_counts,"dwg_bytes":dwg.stat().st_size}
         (args.out/"ACCEPTANCE.json").write_text(json.dumps(report,indent=2),encoding="utf-8")
         print(json.dumps(report,indent=2))
     finally:
