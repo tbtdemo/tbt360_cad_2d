@@ -255,11 +255,12 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-      - name: Save failed build diagnostics for V1.025
-        if: ${{ failure() }}
+      - name: Save failed or cancelled build diagnostics for V1.025
+        if: ${{ failure() || cancelled() }}
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force dist/v1025/diagnostics | Out-Null
+          Write-Host 'Preparing diagnostic artifact for failed or cancelled Windows release'
           $lines = @(
             'Release=CADTBT360_V1.025',
             "SourceCommit=$env:GITHUB_SHA",
@@ -284,8 +285,8 @@ jobs:
           "### CAD 360 V1.025 - failed Windows release" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           ($lines -join "`n") | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
 
-      - name: Upload V1.025 diagnostics on failed build
-        if: ${{ failure() }}
+      - name: Upload V1.025 diagnostics on failed or cancelled build
+        if: ${{ failure() || cancelled() }}
         uses: actions/upload-artifact@v4
         with:
           name: CADTBT360_V1.025_Windows_x64_Failure_Diagnostics
