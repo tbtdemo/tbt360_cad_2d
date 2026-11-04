@@ -273,7 +273,7 @@ def main():
             raise RuntimeError(f"DWG lost CAD360 layers: {mixed_after.get('layers')}")
         (args.out/"mixed_dwg_before.json").write_text(json.dumps(mixed_before,indent=2),encoding="utf-8")
         (args.out/"mixed_dwg_after.json").write_text(json.dumps(mixed_after,indent=2),encoding="utf-8")
-                report={"result":"PASS","method":"real desktop MCP bridge","counts":counts,
+        report={"result":"PASS","method":"real desktop MCP bridge","counts":counts,
                 "render":render_info,"window_screenshot":screen_info,"visual_comparison":visual,
                 "drawing_bytes":drawing.stat().st_size,"undo_counts":undo_counts,"redo_counts":redo_counts,
                 "extended_counts":extended_counts,"reopened_dwg_counts":dwg_counts,"dwg_bytes":dwg.stat().st_size,
