@@ -71,6 +71,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'V1.025 IMAGE renderer frame failed' }
           cargo test --locked -p cadcraft-render --lib raster_imageclip_frame_matches_rectangle_and_concave_pixel_boundary -- --nocapture
           if ($LASTEXITCODE -ne 0) { throw 'V1.025 IMAGECLIP frame mismatch failed' }
+          cargo test --locked -p cadcraft-render --lib raster_image_display_off_omits_entire_frame -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'V1.025 IMAGE visibility regression failed' }
 
       - name: Verify Xref and DWG regression on release source
         shell: pwsh
