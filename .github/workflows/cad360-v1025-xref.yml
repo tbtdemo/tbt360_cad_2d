@@ -1,0 +1,58 @@
+name: CAD 360 V1.025 - Xref regression
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'CADTBT360_V1.000/crates/io/**'
+      - '.github/workflows/cad360-v1025-xref.yml'
+  push:
+    branches:
+      - 'feature/CADTBT360_V1.025_xref-regression'
+    paths:
+      - 'CADTBT360_V1.000/crates/io/**'
+      - '.github/workflows/cad360-v1025-xref.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cad360-v1025-xref-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  xref-regression:
+    name: Xref DXF regression (Windows x64)
+    runs-on: windows-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: CADTBT360_V1.000
+        shell: pwsh
+    steps:
+      - name: Checkout exact source
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+      - name: Assert compiler minimum version
+        run: |
+          rustc --version
+          cargo --version
+          $current = [version](([regex]::Match((rustc --version), 'rustc (\d+\.\d+\.\d+)')).Groups[1].Value)
+          if ($current -lt [version]'1.95.0') { throw "Rust 1.95 or newer required: $current" }
+      - name: Cache build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: CADTBT360_V1.000
+          key: cad360-v1025-xref
+      - name: Run all Xref roundtrip unit tests
+        run: cargo test --locked -p cadcraft-io --test it xref_roundtrip -- --nocapture
+      - name: Assert all V1.025 regressions are executed
+        run: |
+          $testNames = (cargo test --locked -p cadcraft-io --test it -- --list | Out-String)
+          if ($LASTEXITCODE -ne 0) { throw 'Unable to enumerate tests' }
+          foreach ($test in @('v1025_repeated_roundtrips_keep_xref_links_and_layer_linetype', 'v1025_overlay_semantics_survive_repeated_save_open')) {
+            if (-not $testNames.Contains($test)) { throw "Missing V1.025 regression test: $test" }
+          }
