@@ -20,6 +20,8 @@ mod grid;
 mod grips;
 mod list;
 mod pick;
+#[cfg(not(target_arch = "wasm32"))]
+mod raster_image;
 mod viewport;
 mod widgets;
 
@@ -1049,6 +1051,9 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui) {
         draw_vp_content(&mut app.canvas.vp, gpu, &clipped, &f, &xf_paper, bg, app.session.settings.lwdisplay);
         masked = gpu && f.outline.is_some();
     }
+    // Native reference pixels go underneath the vector CAD display list.
+    #[cfg(not(target_arch = "wasm32"))]
+    raster_image::draw(&painter, &xf_paper, &app.session, ui.ctx());
     let active_tile_index = tiles.iter().position(|(_, tile)| tile.active).unwrap_or(0);
     let active_filter = app.tile_render_filters.get(active_tile_index).filter(|f| f.enabled).cloned();
     if let Some(filter) = active_filter {
