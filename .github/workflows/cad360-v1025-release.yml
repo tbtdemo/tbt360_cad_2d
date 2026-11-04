@@ -50,12 +50,16 @@ jobs:
         shell: pwsh
         working-directory: CADTBT360_V1.000
         run: |
-          cargo check --locked -p cadcraft --bin cadcraft
-          if ($LASTEXITCODE -ne 0) { throw 'V1.025 GUI binary compile failed; abort release' }
-          cargo check --locked -p cadcraft-cli
-          if ($LASTEXITCODE -ne 0) { throw 'V1.025 CLI compile failed; abort release' }
-          cargo check --locked -p cadcraft-mcp
-          if ($LASTEXITCODE -ne 0) { throw 'V1.025 MCP compile failed; abort release' }
+          $ErrorActionPreference = 'Continue'
+          New-Item -ItemType Directory -Force '../dist/v1025/diagnostics' | Out-Null
+          # Tee stderr as text and preserve the actual Cargo exit code. These logs are
+          # uploaded with CI_FAILURE.txt if the expensive Rust build fails or is cancelled.
+          cargo check --locked -p cadcraft --bin cadcraft 2>&1 | Out-String -Stream | Tee-Object -FilePath '../dist/v1025/diagnostics/CARGO_CHECK_GUI.log' | Out-Host
+          if ($LASTEXITCODE -ne 0) { throw 'V1.025 GUI binary compile failed; inspect CARGO_CHECK_GUI.log' }
+          cargo check --locked -p cadcraft-cli 2>&1 | Out-String -Stream | Tee-Object -FilePath '../dist/v1025/diagnostics/CARGO_CHECK_CLI.log' | Out-Host
+          if ($LASTEXITCODE -ne 0) { throw 'V1.025 CLI compile failed; inspect CARGO_CHECK_CLI.log' }
+          cargo check --locked -p cadcraft-mcp 2>&1 | Out-String -Stream | Tee-Object -FilePath '../dist/v1025/diagnostics/CARGO_CHECK_MCP.log' | Out-Host
+          if ($LASTEXITCODE -ne 0) { throw 'V1.025 MCP compile failed; inspect CARGO_CHECK_MCP.log' }
 
       - name: Verify required named regression tests exist before running them
         id: discover
