@@ -142,13 +142,21 @@ fn read_stable_texture(ctx: &Context, path: &Path, adjust: RasterAdjust) -> Opti
     (before == after).then_some(texture)
 }
 
+fn raster_dimensions_allowed(width: u32, height: u32) -> bool {
+    width > 0 && height > 0 && u64::from(width) * u64::from(height) <= MAX_PIXELS
+}
+
 fn read_texture(ctx: &Context, path: &Path, adjust: RasterAdjust) -> Option<TextureHandle> {
     let metadata = std::fs::metadata(path).ok()?;
     if !metadata.is_file() || metadata.len() == 0 || metadata.len() > MAX_FILE_BYTES { return None; }
     let (width, height) = image::image_dimensions(path).ok()?;
-    if width == 0 || height == 0 || u64::from(width) * u64::from(height) > MAX_PIXELS { return None; }
+    if !raster_dimensions_allowed(width, height) { return None; }
     let bytes = std::fs::read(path).ok()?;
-    let original = image::load_from_memory(&bytes).ok()?.to_rgba8();
+    // The source may have been replaced after image_dimensions(path) returned.
+    // Recheck decoded dimensions before allocating the RGBA texture buffer.
+    let decoded = image::load_from_memory(&bytes).ok()?;
+    if !raster_dimensions_allowed(decoded.width(), decoded.height()) { return None; }
+    let original = decoded.to_rgba8();
     let [target_w, target_h] = texture_dimensions(original.width(), original.height());
     let mut raster = if original.width() == target_w && original.height() == target_h {
         original
@@ -342,6 +350,14 @@ fn defaults() -> RasterAdjust {
         assert_eq!(adjust_pixel([0, 70, 200, 40], faded), [255, 255, 255, 40]);
         let opaque = RasterAdjust { transparency: false, ..normal };
         assert_eq!(adjust_pixel([3, 4, 5, 0], opaque)[3], 255);
+    }
+    #[test]
+    fn raster_pixel_limit_is_checked_against_decoded_image_dimensions() {
+        assert!(raster_dimensions_allowed(2048, 2048));
+        assert!(raster_dimensions_allowed(4096, 4096));
+        assert!(!raster_dimensions_allowed(4096, 4097));
+        assert!(!raster_dimensions_allowed(0, 100));
+        assert!(!raster_dimensions_allowed(u32::MAX, u32::MAX));
     }
     #[test]
     fn large_png_texture_is_bounded_without_changing_source_pixel_coordinates() {
