@@ -50,6 +50,7 @@ jobs:
           $cli=(Resolve-Path 'target/debug/cadcraft-cli.exe').Path
           New-Item -ItemType Directory -Force -Path 'agent-proof' | Out-Null
           $out=(Resolve-Path 'agent-proof').Path
+          Copy-Item $cli (Join-Path $out 'cadcraft-cli.exe')
           $dxf=Join-Path $out 'CAD360_AI_AGENT_DRAWING.dxf'
           $png=Join-Path $out 'CAD360_AI_AGENT_RENDER.png'
           $cmds=@('run','--metric','--cmd','line {"points":[[0,0],[100,0]]}','--cmd','line {"points":[[100,0],[100,60]]}','--cmd','line {"points":[[100,60],[0,60]]}','--cmd','line {"points":[[0,60],[0,0]]}','--cmd','circle {"center":[10,10],"radius":4}','--cmd','circle {"center":[90,50],"radius":4}','--save',$dxf,'--export',$png,'--view','extents')
