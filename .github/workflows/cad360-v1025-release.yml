@@ -380,7 +380,24 @@ jobs:
           $notes = "CAD 360 Viet Nam V1.025 Windows x64 - verified automated build `nSource commit: $env:GITHUB_SHA`nRun: $env:GITHUB_RUN_ID`nSetup install/uninstall, CLI DXF/DWG roundtrips, real-PNG IMAGE attachment with supplied trace vertices, and Portable hashes checked. GUI manual acceptance and automatic AI tracing are not verified."
           gh release create $tag @assets --title "CAD 360 Viet Nam V1.025 - Build $env:GITHUB_RUN_NUMBER" --target $env:GITHUB_SHA --prerelease --notes $notes
           if ($LASTEXITCODE -ne 0) { throw "Failed to publish verified Windows prerelease $tag" }
-          Write-Host "Published verified Windows artifacts under GitHub release tag $tag"
+          # Verify what GitHub actually accepted, not just the local files and
+          # gh upload exit code. Every release asset must exist with the same
+          # nonzero byte length; the tag must identify the build's exact SHA.
+          $releaseJson = gh release view $tag --json tagName,targetCommitish,isPrerelease,assets
+          if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace(($releaseJson -join ''))) { throw "Cannot verify newly published Windows release $tag" }
+          $published = ($releaseJson -join [char]10) | ConvertFrom-Json
+          if ($published.tagName -ne $tag -or $published.targetCommitish -ne $env:GITHUB_SHA -or $published.isPrerelease -ne $true) {
+            throw "GitHub release identity does not match expected tag, exact source commit and prerelease status: $tag"
+          }
+          foreach ($asset in $assets) {
+            $name = Split-Path $asset -Leaf
+            $expectedSize = (Get-Item $asset).Length
+            $match = @($published.assets | Where-Object { $_.name -eq $name })
+            if ($expectedSize -le 0 -or $match.Count -ne 1 -or [long]$match[0].size -ne $expectedSize) {
+              throw "GitHub release $tag is missing or has an invalid uploaded asset: $name (expected $expectedSize bytes)"
+            }
+          }
+          Write-Host "Verified GitHub prerelease $tag with all $($assets.Count) assets, matching sizes and source commit"
           "GitHub prerelease: https://github.com/$env:GITHUB_REPOSITORY/releases/tag/$tag" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
 
       - name: Save failed or cancelled build diagnostics for V1.025
