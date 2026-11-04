@@ -69,5 +69,6 @@ jobs:
         with:
           name: CADTBT360_V1.024_MCP_DWG_Layer_Acceptance_Evidence
           path: .v1024-proof/
-          if-no-files-found: warn
+          include-hidden-files: true
+          if-no-files-found: error
           retention-days: 30
