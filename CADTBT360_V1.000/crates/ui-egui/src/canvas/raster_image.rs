@@ -52,6 +52,7 @@ struct CacheEntry {
     source_stamp: Option<FileStamp>,
     next_stat: Instant,
     reload_pending: bool,
+    missing_since: Option<Instant>,
 }
 
 impl CacheEntry {
@@ -59,10 +60,21 @@ impl CacheEntry {
         (self.texture.is_none() || self.reload_pending) && now >= self.retry_after
     }
 
-    fn refresh_texture(&mut self, replacement: Option<TextureHandle>, now: Instant) {
-        // An invalid/partially written image must not replace the last valid pixels.
-        if let Some(texture) = replacement { self.texture = Some(texture); self.reload_pending = false; }
-        else { self.reload_pending = true; }
+    fn refresh_texture(&mut self, replacement: Option<TextureHandle>, source_exists: bool, now: Instant) {
+        // Keep the last valid pixels while an editor rewrites a file, but do not
+        // show stale pixels forever if the linked raster has been removed.
+        if let Some(texture) = replacement {
+            self.texture = Some(texture);
+            self.reload_pending = false;
+            self.missing_since = None;
+        } else {
+            self.reload_pending = true;
+            if source_exists { self.missing_since = None; }
+            else {
+                let since = *self.missing_since.get_or_insert(now);
+                if now.duration_since(since) >= Duration::from_secs(5) { self.texture = None; }
+            }
+        }
         self.retry_after = now + Duration::from_secs(5);
     }
 
@@ -270,7 +282,7 @@ pub(super) fn draw(painter: &Painter, xf: &Xf, session: &Session, ctx: &Context)
             // last valid pixels on screen until the replacement image can be decoded.
             let new_texture = read_texture(ctx, &path, adjust);
             if let Some(entry) = cache.textures.get_mut(&key) {
-                entry.refresh_texture(new_texture, now);
+                entry.refresh_texture(new_texture, file_stamp(&path).is_some(), now);
                 entry.source_stamp = file_stamp(&path);
                 entry.next_stat = now + Duration::from_secs(2);
                 entry.last_used = now;
@@ -287,6 +299,7 @@ pub(super) fn draw(painter: &Painter, xf: &Xf, session: &Session, ctx: &Context)
                     last_used: now,
                     source_stamp: file_stamp(&path),
                     next_stat: now + Duration::from_secs(2),
+                    missing_since: None,
                 });
             }
             changed = true;
@@ -339,7 +352,7 @@ fn defaults() -> RasterAdjust {
     #[test]
     fn texture_access_does_not_rewrite_cache_on_each_repaint() {
         let now = Instant::now();
-        let mut entry = CacheEntry { texture: None, retry_after: now + Duration::from_secs(5), last_used: now, source_stamp: None, next_stat: now + Duration::from_secs(2), reload_pending: false };
+        let mut entry = CacheEntry { texture: None, retry_after: now + Duration::from_secs(5), last_used: now, source_stamp: None, next_stat: now + Duration::from_secs(2), reload_pending: false, missing_since: None };
         assert!(!entry.touch(now));
         assert!(!entry.touch(now + Duration::from_millis(999)));
         assert!(entry.touch(now + Duration::from_secs(1)));
@@ -351,7 +364,7 @@ fn defaults() -> RasterAdjust {
         let now = Instant::now();
         let file = std::env::temp_dir().join(format!("cad360-raster-reload-{}.png", std::process::id()));
         std::fs::write(&file, [1u8, 2, 3]).unwrap();
-        let mut entry = CacheEntry { texture: None, retry_after: now + Duration::from_secs(5), last_used: now, source_stamp: file_stamp(&file), next_stat: now + Duration::from_secs(2), reload_pending: false };
+        let mut entry = CacheEntry { texture: None, retry_after: now + Duration::from_secs(5), last_used: now, source_stamp: file_stamp(&file), next_stat: now + Duration::from_secs(2), reload_pending: false, missing_since: None };
         assert_eq!(entry.source_changed(&file, now + Duration::from_secs(1)), (false, false));
         assert_eq!(entry.source_changed(&file, now + Duration::from_secs(2)), (false, true));
         std::fs::write(&file, [1u8, 2, 3, 4, 5]).unwrap();
@@ -364,8 +377,8 @@ fn defaults() -> RasterAdjust {
     #[test]
     fn cache_entry_tracks_last_access_for_selective_eviction() {
         let now = Instant::now();
-        let older = CacheEntry { texture: None, retry_after: now + Duration::from_secs(5), last_used: now, source_stamp: None, next_stat: now + Duration::from_secs(2), reload_pending: false };
-        let recent = CacheEntry { texture: None, retry_after: now + Duration::from_secs(5), last_used: now + Duration::from_secs(1), source_stamp: None, next_stat: now + Duration::from_secs(2), reload_pending: false };
+        let older = CacheEntry { texture: None, retry_after: now + Duration::from_secs(5), last_used: now, source_stamp: None, next_stat: now + Duration::from_secs(2), reload_pending: false, missing_since: None };
+        let recent = CacheEntry { texture: None, retry_after: now + Duration::from_secs(5), last_used: now + Duration::from_secs(1), source_stamp: None, next_stat: now + Duration::from_secs(2), reload_pending: false, missing_since: None };
         let mut cache = Cache::default();
         cache.textures.insert((PathBuf::from("older.png"), defaults()), older);
         cache.textures.insert((PathBuf::from("recent.png"), defaults()), recent);
@@ -375,20 +388,37 @@ fn defaults() -> RasterAdjust {
         assert!(cache.textures.contains_key(&(PathBuf::from("recent.png"), defaults())));
     }
     #[test]
+    fn deleted_raster_image_releases_stale_pixels_after_grace_period() {
+        let now = Instant::now();
+        let context = Context::default();
+        let texture = context.load_texture("cad360-raster-test-removed", egui::ColorImage::from_rgba_unmultiplied([1, 1], &[1, 2, 3, 255]), TextureOptions::LINEAR);
+        let mut entry = CacheEntry { texture: Some(texture), retry_after: now, last_used: now, source_stamp: None, next_stat: now + Duration::from_secs(2), reload_pending: false, missing_since: None };
+        entry.refresh_texture(None, false, now);
+        assert!(entry.texture.is_some(), "temporary file disappearance keeps pixels briefly");
+        entry.refresh_texture(None, false, now + Duration::from_secs(5));
+        assert!(entry.texture.is_none(), "deleted reference must not display stale pixels forever");
+        assert!(entry.reload_pending);
+        let replacement = context.load_texture("cad360-raster-test-restored", egui::ColorImage::from_rgba_unmultiplied([1, 1], &[4, 5, 6, 255]), TextureOptions::LINEAR);
+        entry.refresh_texture(Some(replacement), true, now + Duration::from_secs(10));
+        assert!(entry.texture.is_some());
+        assert!(entry.missing_since.is_none());
+        assert!(!entry.reload_pending);
+    }
+    #[test]
     fn failed_external_image_rewrite_keeps_last_valid_texture_and_retries() {
         let now = Instant::now();
         let context = Context::default();
         let texture = context.load_texture("cad360-raster-test-reload", egui::ColorImage::from_rgba_unmultiplied([1, 1], &[10, 20, 30, 255]), TextureOptions::LINEAR);
         let original_id = texture.id();
-        let mut entry = CacheEntry { texture: Some(texture), retry_after: now, last_used: now, source_stamp: None, next_stat: now + Duration::from_secs(2), reload_pending: false };
-        entry.refresh_texture(None, now);
+        let mut entry = CacheEntry { texture: Some(texture), retry_after: now, last_used: now, source_stamp: None, next_stat: now + Duration::from_secs(2), reload_pending: false, missing_since: None };
+        entry.refresh_texture(None, true, now);
         assert_eq!(entry.texture.as_ref().unwrap().id(), original_id);
         assert!(entry.reload_pending);
         assert!(!entry.should_retry(now + Duration::from_secs(4)));
         assert!(entry.should_retry(now + Duration::from_secs(5)));
         let replacement = context.load_texture("cad360-raster-test-recovered", egui::ColorImage::from_rgba_unmultiplied([1, 1], &[50, 60, 70, 255]), TextureOptions::LINEAR);
         let replacement_id = replacement.id();
-        entry.refresh_texture(Some(replacement), now + Duration::from_secs(5));
+        entry.refresh_texture(Some(replacement), true, now + Duration::from_secs(5));
         assert_eq!(entry.texture.as_ref().unwrap().id(), replacement_id);
         assert!(!entry.reload_pending);
         assert!(!entry.should_retry(now + Duration::from_secs(11)));
@@ -396,7 +426,7 @@ fn defaults() -> RasterAdjust {
     #[test]
     fn missing_image_can_retry_after_file_becomes_available() {
         let now = Instant::now();
-        let entry = CacheEntry { texture: None, retry_after: now + Duration::from_secs(5), last_used: now, source_stamp: None, next_stat: now + Duration::from_secs(2), reload_pending: false };
+        let entry = CacheEntry { texture: None, retry_after: now + Duration::from_secs(5), last_used: now, source_stamp: None, next_stat: now + Duration::from_secs(2), reload_pending: false, missing_since: None };
         assert!(!entry.should_retry(now));
         assert!(!entry.should_retry(now + Duration::from_secs(4)));
         assert!(entry.should_retry(now + Duration::from_secs(5)));
