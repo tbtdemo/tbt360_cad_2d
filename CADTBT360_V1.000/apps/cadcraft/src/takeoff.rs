@@ -1417,6 +1417,53 @@ mod road_station_matching_tests {
         assert!(!qto_road_is_cross_section_entity(&doc,cadcraft_doc::Handle(0xC1)));
     }
     #[test]
+    fn paper_layout_closed_polyline_region_and_hatch_produce_measured_area() {
+        use cadcraft_doc::geom::{PolyVertex,Vec2};
+        let rect=|w:f64,h:f64|vec![
+            PolyVertex::new(Vec2::new(0.0,0.0)),PolyVertex::new(Vec2::new(w,0.0)),
+            PolyVertex::new(Vec2::new(w,h)),PolyVertex::new(Vec2::new(0.0,h))
+        ];
+        let poly=cadcraft_doc::LwPolyline{vertices:rect(4.0,3.0),closed:true,const_width:0.0,elevation:0.0,plinegen:false};
+        let region=cadcraft_doc::Region::from_loop(rect(4.0,3.0));
+        let hatch=cadcraft_doc::Hatch{
+            pattern:"SOLID".into(),solid:true,
+            loops:vec![cadcraft_doc::HatchLoop{vertices:rect(5.0,3.0),outer:true,sources:Vec::new()},
+                cadcraft_doc::HatchLoop{vertices:vec![
+                    PolyVertex::new(Vec2::new(1.0,1.0)),PolyVertex::new(Vec2::new(2.0,1.0)),
+                    PolyVertex::new(Vec2::new(2.0,2.0)),PolyVertex::new(Vec2::new(1.0,2.0))
+                ],outer:false,sources:Vec::new()}],
+            scale:1.0,angle:0.0,associative:false,style:0,elevation:0.0,gradient:None,
+            origin:Vec2::new(0.0,0.0),background:None,pattern_lines:Vec::new(),
+        };
+        let mut doc=cadcraft_doc::Drawing::new_metric();
+        let mut layout=cadcraft_doc::Layout::new("Trắc ngang thực đo",1);
+        layout.entities.push(cadcraft_doc::Entity::new(cadcraft_doc::Handle(0xD1),EntityKind::LwPolyline(poly)));
+        layout.entities.push(cadcraft_doc::Entity::new(cadcraft_doc::Handle(0xD2),EntityKind::Region(region)));
+        layout.entities.push(cadcraft_doc::Entity::new(cadcraft_doc::Handle(0xD3),EntityKind::Hatch(hatch)));
+        doc.layouts.push(layout);
+        for (handle,area) in [(0xD1,12.0),(0xD2,12.0),(0xD3,14.0)] {
+            let handle=cadcraft_doc::Handle(handle);
+            assert!(qto_road_is_cross_section_entity(&doc,handle));
+            let values=measurements_for_handle_in_drawing(&doc,handle);
+            let actual=values.iter().find(|m|m.kind==MeasureKind::Area).expect("Missing Paper Layout area");
+            assert!((actual.raw_value-area).abs()<1e-8,"Wrong CAD geometry area for {}",handle.hex());
+        }
+    }
+    #[test]
+    fn paper_layout_open_polyline_is_not_a_cross_section_area() {
+        use cadcraft_doc::geom::{PolyVertex,Vec2};
+        let poly=cadcraft_doc::LwPolyline{
+            vertices:vec![PolyVertex::new(Vec2::new(0.0,0.0)),PolyVertex::new(Vec2::new(3.0,0.0)),PolyVertex::new(Vec2::new(3.0,2.0))],
+            closed:false,const_width:0.0,elevation:0.0,plinegen:false
+        };
+        let mut doc=cadcraft_doc::Drawing::new_metric();
+        let mut layout=cadcraft_doc::Layout::new("Trắc ngang",1);
+        layout.entities.push(cadcraft_doc::Entity::new(cadcraft_doc::Handle(0xD4),EntityKind::LwPolyline(poly)));
+        doc.layouts.push(layout);
+        assert!(!qto_road_is_cross_section_entity(&doc,cadcraft_doc::Handle(0xD4)));
+        assert!(!measurements_for_handle_in_drawing(&doc,cadcraft_doc::Handle(0xD4)).iter().any(|m|m.kind==MeasureKind::Area));
+    }
+    #[test]
     fn selected_paper_space_geometry_is_measurable_without_model_copy() {
         let mut doc=cadcraft_doc::Drawing::new_metric();
         let mut layout=cadcraft_doc::Layout::new("Trac ngang",1);
