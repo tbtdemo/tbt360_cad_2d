@@ -84,3 +84,15 @@ Initial safeguards: at most four visible IMAGE entities processed per view, file
 The native raster compositor reads `IMAGECLIP` pixel coordinates (top-left origin, Y downward). Two opposite clip corners form a rectangle; 3–128 vertices form a polygon. Concave polygons are triangulated before being painted, so outside pixels are hidden without rasterizing an entirely new image. Self-crossing and out-of-bounds boundaries are rejected by validation, and the engine rejects invalid new rectangular clips before changing the drawing. The renderer maps every clip vertex to both image UV and its transformed CAD position, so the image stays aligned to traced polylines even after rotation or two-point/multi-point calibration.
 
 Limits: the clip is only shown in the native canvas compositor, not yet guaranteed in PDF/PNG exports. Clipping does not rectify photographic perspective, and an external AI still must supply detected image points. All new IMAGECLIP integration tests must pass on Windows before release readiness.
+
+## Adjust reference-image visibility while AI traces (V1.025 source)
+
+The native PNG/JPEG compositor now applies the IMAGE entity's `brightness` (0–100), `contrast` (0–100), `fade` (0–100), and `transparency` flag to decoded pixels without changing the original linked file. Brightness 50 / contrast 50 / fade 0 preserve the original RGB, and higher fade blends toward white so CAD vectors remain legible. Transparent PNG alpha is preserved when transparency is enabled; when disabled, pixels become opaque. Cache keys include these controls so changing them refreshes the displayed texture.
+
+A CAD/MCP command to brighten and fade an image while digitizing:
+
+```json
+{"command":"imageadjust","params":{"handle":"IMAGE_HANDLE","brightness":60,"contrast":65,"fade":35,"transparency":true,"visible":true}}
+```
+
+Invalid types and out-of-range values are rejected. IMAGE display-off flags also hide the native texture. The limits remain: no automatic AI Vision/OCR recognition, no image pixels in exported PNG/PDF, and no guaranteed Windows Setup EXE until current CI and installer tests pass.
