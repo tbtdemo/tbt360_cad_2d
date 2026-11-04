@@ -155,3 +155,107 @@ fn objects_in_a_read_xref_block_are_ignored() {
     assert_eq!(site.xref_path.as_deref(), Some("site.dxf"));
     assert!(site.entities.is_empty());
 }
+
+
+/// V1.025 regression: repeatedly saving a host must not materialize an attached Xref.
+/// The dependent layer's linetype must remain resolvable after reopening.
+#[test]
+fn v1025_repeated_roundtrips_keep_xref_links_and_layer_linetype() {
+    let mut d = host();
+    let walls = d.layer_mut("SITE|Walls").expect("xref layer");
+    walls.linetype = "SITE|Dashed".into();
+    walls.color = Color::Index(3);
+    walls.frozen = true;
+
+    for cycle in 0..3 {
+        d = roundtrip(&d);
+        let site = d.block("SITE").expect("xref block remains");
+        assert_eq!(site.xref_path.as_deref(), Some(r"..\shared\site.dwg"), "cycle {cycle}");
+        assert!(site.entities.is_empty(), "xref contents must not be embedded at cycle {cycle}");
+        assert!(!d.blocks.contains_key("SITE|Tree"), "dependent block must not be materialized");
+        let walls = d.layer("SITE|Walls").expect("dependent layer preserved");
+        assert_eq!(walls.color, Color::Index(3));
+        assert!(walls.frozen);
+        assert_eq!(walls.linetype, "SITE|Dashed");
+        assert!(d.linetype("SITE|Dashed").is_some(), "dependent linetype must be retained to resolve layer reference");
+        assert_eq!(d.model.iter().filter(|e| matches!(e.kind, EntityKind::Insert(_))).count(), 2);
+    }
+}
+
+/// V1.025 regression: an overlay remains an overlay, never promoted to an attached
+/// nested reference, even when the host is saved more than once.
+#[test]
+fn v1025_overlay_semantics_survive_repeated_save_open() {
+    let mut d = host();
+    for _ in 0..3 {
+        d = roundtrip(&d);
+        let overlay = d.block("PLAN").expect("overlay");
+        assert_eq!(overlay.xref_path.as_deref(), Some("plan.dxf"));
+        assert!(overlay.xref_overlay);
+        assert!(overlay.entities.is_empty());
+        let records = block_records(&write_dxf(&d));
+        assert_eq!(records.iter().find(|r| r.0 == "PLAN").map(|r| r.1 & 12), Some(12));
+    }
+}
+
+
+/// V1.025: Native R2018 DWG bridge must preserve external-reference block flags,
+/// saved paths, and the host-side placement rather than embedding referenced geometry.
+#[test]
+fn v1025_dwg_r2018_xref_links_survive_save_open() {
+    let d = host();
+    let bytes = cadcraft_io::write_with(&d, "xref-host.dwg", &cadcraft_io::SaveOptions { version: Some(cadcraft_io::Version::R2018), binary: false }).expect("write real DWG");
+    assert_eq!(cadcraft_dwg::version(&bytes).as_deref(), Some("AC1032"));
+    let reopened = cadcraft_io::read(&bytes, "xref-host.dwg").expect("read real DWG");
+    let attached = reopened.block("SITE").expect("attached xref");
+    assert_eq!(attached.xref_path.as_deref(), Some(r"..\shared\site.dwg"));
+    assert!(!attached.xref_overlay);
+    assert!(attached.entities.is_empty(), "xref geometry must stay external");
+    let overlay = reopened.block("PLAN").expect("overlay xref");
+    assert_eq!(overlay.xref_path.as_deref(), Some("plan.dxf"));
+    assert!(overlay.xref_overlay, "overlay cannot silently become an attachment");
+    assert!(overlay.entities.is_empty());
+    assert_eq!(reopened.model.iter().filter(|e| matches!(e.kind, EntityKind::Insert(_))).count(), 2);
+}
+
+/// V1.025: Host-managed Xref layers must remain available after a DWG R2018
+/// bridge roundtrip, even when the referenced drawing is not present locally.
+#[test]
+fn v1025_dwg_r2018_xref_layer_override_survives() {
+    let mut d = host();
+    let layer = d.layer_mut("SITE|Walls").expect("xref dependent layer");
+    layer.color = Color::Index(252);
+    layer.frozen = true;
+    let bytes = cadcraft_io::write_with(&d, "xref-layer.dwg", &cadcraft_io::SaveOptions { version: Some(cadcraft_io::Version::R2018), binary: false }).expect("write DWG");
+    let reopened = cadcraft_io::read(&bytes, "xref-layer.dwg").expect("read DWG");
+    let layer = reopened.layer("SITE|Walls").expect("host layer override retained");
+    assert_eq!(layer.color, Color::Index(252));
+    assert!(layer.frozen);
+}
+
+
+/// A native autosave .sv$ uses DXF content and must reopen with the complete
+/// drawing instead of degrading to an entity-count-only snapshot.
+#[test]
+fn v1025_autosave_sv_dollar_restores_geometry_and_xref() {
+    let mut source = host();
+    source.add(&Space::Model, Common { layer: "Doors".into(), ..Common::default() },
+        EntityKind::Line(Line { a: Vec3::new(123.0, 456.0, 0.0), b: Vec3::new(130.0, 462.0, 0.0) }))
+        .expect("drawing geometry");
+    let mut snapshot = cadcraft_io::write(&source, "drawing.dxf").expect("create autosave DXF payload");
+    for cycle in 0..3 {
+        let recovered = cadcraft_io::read(&snapshot, "Drawing1_123-abc_77.sv$").expect("recover .sv$ content");
+        assert_eq!(recovered.model.len(), 3, "lost geometry during snapshot cycle {cycle}");
+        assert!(recovered.block("SITE").is_some_and(|b| b.xref_path.as_deref() == Some(r"..\shared\site.dwg") && b.entities.is_empty()));
+        assert!(recovered.block("PLAN").is_some_and(|b| b.xref_overlay && b.xref_path.as_deref() == Some("plan.dxf")));
+        assert!(recovered.layer("SITE|Walls").is_some());
+        let lines: Vec<_> = recovered.model.iter().filter_map(|e| match &e.kind {
+            EntityKind::Line(line) if e.common.layer == "Doors" => Some(line),
+            _ => None,
+        }).collect();
+        assert_eq!(lines.len(), 1, "recover must retain the actual CAD line");
+        assert_eq!(lines[0].a, Vec3::new(123.0, 456.0, 0.0));
+        assert_eq!(lines[0].b, Vec3::new(130.0, 462.0, 0.0));
+        snapshot = cadcraft_io::write(&recovered, "drawing.dxf").expect("resave recovered geometry");
+    }
+}

@@ -1,0 +1,56 @@
+name: CAD 360 V1.025 - Desktop Reliability
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'CADTBT360_V1.000/crates/ui-egui/src/autosave.rs'
+      - 'CADTBT360_V1.000/crates/engine/src/autosave.rs'
+      - 'CADTBT360_V1.000/crates/engine/tests/autosave.rs'
+      - 'CADTBT360_V1.000/crates/engine/src/cmd/image.rs'
+      - '.github/workflows/cad360-v1025-desktop-reliability.yml'
+  push:
+    branches:
+      - feature/CADTBT360_V1.025_xref-regression
+    paths:
+      - 'CADTBT360_V1.000/crates/ui-egui/src/autosave.rs'
+      - 'CADTBT360_V1.000/crates/engine/src/autosave.rs'
+      - 'CADTBT360_V1.000/crates/engine/tests/autosave.rs'
+      - 'CADTBT360_V1.000/crates/engine/src/cmd/image.rs'
+      - '.github/workflows/cad360-v1025-desktop-reliability.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  recovery-ui:
+    name: Build and regression test desktop recovery UI
+    runs-on: windows-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: CADTBT360_V1.000
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: CADTBT360_V1.000
+          key: cad360-v1025-desktop
+      - name: Validate scheduled autosave, crash recovery and newest-first ordering
+        run: |
+          cargo test --locked -p cadcraft-engine --test autosave -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'Engine autosave and recovery regression failure' }
+      - name: Verify AI-compatible raster tracing draws real CAD geometry
+        run: |
+          cargo test --locked -p cadcraft-engine --lib imagetrace_maps_image_pixels_into_editable_cad_geometry -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'Image pixel-to-CAD vector tracing failed' }
+      - name: Compile UI and run Drawing Recovery unit tests
+        run: |
+          cargo test --locked -p cadcraft-ui-egui --lib autosave::tests -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'Desktop autosave recovery tests failed' }
+      - name: Compile Windows CAD desktop executable
+        run: |
+          cargo check --locked -p cadcraft --bin cadcraft
+          if ($LASTEXITCODE -ne 0) { throw 'Desktop CAD compile failed' }

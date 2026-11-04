@@ -150,15 +150,23 @@ fn civil_from_days(days: u64) -> (i64, u32, u32) {
     }
 }
 
+/// Resolve a confirmation to the original recovery file, even when list indices shift.
+fn recovery_file_index(items: &[Recoverable], path: &str) -> Option<usize> {
+    items.iter().position(|item| item.path == path)
+}
+
 /// The Drawing Recovery window, while autosave files from a crash are waiting.
 pub fn show(app: &mut CadApp, ctx: &egui::Context) {
+    let confirmation_id = egui::Id::new("cad360.recovery.confirm_discard");
     if app.recovery.items.is_empty() {
+        ctx.data_mut(|d| d.remove::<String>(confirmation_id));
         return;
     }
     let t = Tokens::get();
     let mut open = None;
     let mut discard = None;
     let mut later = false;
+    let mut pending_discard = ctx.data(|d| d.get_temp::<String>(confirmation_id));
     crate::modal::instant(ctx, egui::Id::unique("cc_drawing_recovery")).show(ctx, |ui| {
         ui.set_width(460.0);
         ui.label(RichText::new("Drawing Recovery").strong());
@@ -172,8 +180,8 @@ pub fn show(app: &mut CadApp, ctx: &egui::Context) {
                 if ui.button("Open").clicked() {
                     open = Some(i);
                 }
-                if ui.button("Discard").clicked() {
-                    discard = Some(i);
+                if ui.button("Discard...").on_hover_text("Requires confirmation; permanently deletes this recovery copy").clicked() {
+                    pending_discard = Some(item.path.clone());
                 }
                 ui.end_row();
             }
@@ -195,9 +203,37 @@ pub fn show(app: &mut CadApp, ctx: &egui::Context) {
     {
         app.set_status(e);
     }
-    if let Some(i) = discard {
-        app.discard_item(i);
+    // Recovery files may contain the only surviving copy of unsaved drawing geometry.
+    // Require explicit confirmation instead of deleting on the first click.
+    if let Some(path) = pending_discard.as_deref() {
+        if let Some(i) = recovery_file_index(&app.recovery.items, path) {
+            let item = &app.recovery.items[i];
+            let name = item.drawing.clone();
+            let mut cancel = false;
+            egui::Window::new("Delete recovery copy?")
+                .id(egui::Id::new("cad360.recovery.delete_confirmation"))
+                .collapsible(false)
+                .resizable(false)
+                .anchor(egui::Align2::CENTER_CENTER, vec2(0.0, 0.0))
+                .show(ctx, |ui| {
+                    ui.set_width(370.0);
+                    ui.label(format!("Drawing: {name}"));
+                    ui.label("This may be the only copy of unsaved work. Deletion cannot be undone.");
+                    ui.horizontal(|ui| {
+                        if ui.button("Keep recovery").clicked() { cancel = true; }
+                        if ui.button("Delete permanently").clicked() { discard = Some(i); }
+                    });
+                });
+            if cancel || discard.is_some() { pending_discard = None; }
+        } else {
+            pending_discard = None;
+        }
     }
+    ctx.data_mut(|d| {
+        if let Some(path) = pending_discard { d.insert_temp(confirmation_id, path); }
+        else { d.remove::<String>(confirmation_id); }
+    });
+    if let Some(i) = discard { app.discard_item(i); }
     if later {
         app.recovery.items.clear();
     }
@@ -250,6 +286,20 @@ pub fn gpu_notice(app: &mut CadApp, ctx: &egui::Context) {
 
 #[cfg(test)]
 mod tests {
+    use cadcraft_engine::autosave::Recoverable;
+
+    #[test]
+    fn recovery_confirmation_targets_path_after_list_reordering() {
+        let a = Recoverable { path: "a.sv$".into(), drawing: "A".into(), modified: 1, bytes: 100 };
+        let b = Recoverable { path: "b.sv$".into(), drawing: "B".into(), modified: 2, bytes: 200 };
+        let mut files = vec![a, b];
+        let selected = files[1].path.clone();
+        assert_eq!(super::recovery_file_index(&files, &selected), Some(1));
+        files.remove(0);
+        assert_eq!(super::recovery_file_index(&files, &selected), Some(0));
+        assert_eq!(super::recovery_file_index(&files, "a.sv$"), None);
+    }
+
     #[test]
     fn utc_dates() {
         assert_eq!(super::utc(0), "1970-01-01 00:00");

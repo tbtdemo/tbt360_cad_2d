@@ -4,8 +4,8 @@
 //! and edit that metadata without pretending to decode or render raster pixels in the engine.
 //! The renderer continues to show the image frame until a host-side bitmap renderer is wired in.
 
-use cadcraft_doc::{EntityKind, Handle, Image};
-use cadcraft_geom::{Vec2, Vec3};
+use cadcraft_doc::{EntityKind, Handle, Image, LwPolyline};
+use cadcraft_geom::{PolyVertex, Vec2, Vec3};
 use serde_json::{Value, json};
 
 use super::{CommandSpec, bad, bool_or, f64_or, point_param, str_param, targets};
@@ -17,6 +17,10 @@ pub(crate) fn specs() -> Vec<CommandSpec> {
             .menu(&["Insert", "Attach Image..."])
             .alias(&["ima", "image"])
             .params("{path, at?: [x,y], width?: number, height?: number, pixels?: [w,h], rotation?: degrees, brightness?: 0..100, contrast?: 0..100, fade?: 0..100} → {handle, path, bounds}"),
+        CommandSpec::new("imagetrace", "Trace CAD Geometry on Raster Image", run_imagetrace)
+            .menu(&["Draw", "Image", "Trace Vector on Image"])
+            .alias(&["itrace"])
+            .params("{handle: image entity handle, points: [[pixelX,pixelY],...] (origin at image top-left), closed?: bool} → {handle, image, vertices, closed}. Creates editable CAD polyline; no automatic AI recognition."),
         CommandSpec::new("imageclip", "Clip Image", run_imageclip)
             .menu(&["Modify", "Clip", "Image"])
             .alias(&["iclip"])
@@ -78,6 +82,38 @@ fn run_imageattach(s: &mut Session, p: &Value) -> Result<Value> {
     }
     let h = s.add_entity(EntityKind::Image(i.clone()))?;
     Ok(image_json(h, &i))
+}
+
+
+fn run_imagetrace(s: &mut Session, p: &Value) -> Result<Value> {
+    let image_handle = super::curves::handle_param(p, "handle").ok_or_else(|| bad("imagetrace", "an IMAGE entity `handle` is required"))?;
+    let image = match &s.doc()?.entity(image_handle).ok_or_else(|| bad("imagetrace", "image not found"))?.kind {
+        EntityKind::Image(image) => image.clone(),
+        _ => return Err(bad("imagetrace", "handle must refer to a raster IMAGE entity")),
+    };
+    if !image.size.x.is_finite() || !image.size.y.is_finite() || image.size.x <= 0.0 || image.size.y <= 0.0 {
+        return Err(bad("imagetrace", "image pixel dimensions must be positive and finite"));
+    }
+    let points = p.get("points").and_then(Value::as_array).ok_or_else(|| bad("imagetrace", "points must be an array of [pixelX,pixelY]"))?;
+    if !(2..=2048).contains(&points.len()) { return Err(bad("imagetrace", "points must contain between 2 and 2048 positions")); }
+    let mut vertices = Vec::with_capacity(points.len());
+    for (index, point) in points.iter().enumerate() {
+        let xy = point.as_array().filter(|a| a.len() == 2).ok_or_else(|| bad("imagetrace", format!("point {index} must be [x,y]")))?;
+        let x = xy[0].as_f64().ok_or_else(|| bad("imagetrace", format!("point {index} x must be finite")))?;
+        let y = xy[1].as_f64().ok_or_else(|| bad("imagetrace", format!("point {index} y must be finite")))?;
+        if !x.is_finite() || !y.is_finite() || x < 0.0 || y < 0.0 || x > image.size.x || y > image.size.y {
+            return Err(bad("imagetrace", format!("point {index} must be within the image's pixel bounds")));
+        }
+        // Image insertion is its bottom-left CAD corner; supplied pixel coordinates start top-left.
+        let world = image.insert.xy() + image.u.xy() * x + image.v.xy() * (image.size.y - y);
+        if !world.x.is_finite() || !world.y.is_finite() { return Err(bad("imagetrace", "image coordinate transform overflowed")); }
+        vertices.push(PolyVertex::new(world));
+    }
+    let closed = bool_or(p, "closed", false);
+    let count = vertices.len();
+    let polyline = LwPolyline { vertices, closed, const_width: 0.0, elevation: image.insert.z, plinegen: false };
+    let handle = s.add_entity(EntityKind::LwPolyline(polyline))?;
+    Ok(json!({"handle":handle.hex(), "image":image_handle.hex(), "vertices":count, "closed":closed, "units":"drawing", "origin":"image-top-left", "recognition":"manual-or-agent-supplied"}))
 }
 
 fn image_handle(s: &Session, p: &Value) -> Result<Handle> {
@@ -184,6 +220,23 @@ fn run_imagetransform(s: &mut Session, p: &Value) -> Result<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn imagetrace_maps_image_pixels_into_editable_cad_geometry() {
+        let mut s = Session::new();
+        let image = s.execute("imageattach", &json!({"path":"site.png","at":[10.0,20.0],"pixels":[200.0,100.0],"width":20.0,"height":10.0})).unwrap();
+        let traced = s.execute("imagetrace", &json!({"handle":image["handle"],"points":[[0.0,100.0],[200.0,100.0],[200.0,0.0]],"closed":false})).unwrap();
+        assert_eq!(traced["vertices"], 3);
+        let handle = Handle::parse_hex(traced["handle"].as_str().unwrap()).unwrap();
+        let entity = s.doc().unwrap().entity(handle).unwrap();
+        let EntityKind::LwPolyline(polyline) = &entity.kind else { panic!("trace must be editable CAD polyline") };
+        assert_eq!(polyline.vertices[0].p, Vec2::new(10.0,20.0));
+        assert_eq!(polyline.vertices[1].p, Vec2::new(30.0,20.0));
+        assert_eq!(polyline.vertices[2].p, Vec2::new(30.0,30.0));
+        assert!(s.execute("imagetrace", &json!({"handle":image["handle"],"points":[[0.0,0.0],[201.0,100.0]]})).is_err());
+        assert!(s.execute("imagetrace", &json!({"handle":image["handle"],"points":[[0.0,0.0]]})).is_err());
+        assert!(s.execute("imagetrace", &json!({"handle":traced["handle"],"points":[[0.0,0.0],[1.0,1.0]]})).is_err());
+    }
 
     #[test]
     fn imageattach_and_imageclip_keep_dxf_metadata() {
