@@ -8,6 +8,11 @@ on:
       - 'CADTBT360_V1.000/apps/cadcraft/src/takeoff.rs'
       - 'CADTBT360_V1.000/apps/cadcraft/src/takeoff_road.rs'
   workflow_dispatch:
+# Keep only the newest Windows release candidate for this feature branch.
+# Superseded candidates must not compete for runner/cache resources.
+concurrency:
+  group: cadtbt360-road-qto-rc-${{ github.ref }}
+  cancel-in-progress: true
 permissions:
   contents: read
 jobs:
