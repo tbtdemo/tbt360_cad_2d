@@ -31,6 +31,14 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 120
     steps:
+      - name: Require V1.025 feature branch for manual Windows release
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        shell: pwsh
+        run: |
+          if ($env:GITHUB_REF -ne 'refs/heads/feature/CADTBT360_V1.025_xref-regression') {
+            throw "CAD 360 V1.025 release must use feature/CADTBT360_V1.025_xref-regression, not $env:GITHUB_REF. In Run workflow, select the feature branch before starting."
+          }
+
       - name: Checkout exact commit
         uses: actions/checkout@v4
         with:
