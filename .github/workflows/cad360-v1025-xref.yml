@@ -22,7 +22,7 @@ concurrency:
 
 jobs:
   xref-regression:
-    name: Xref DXF regression (Windows x64)
+    name: Xref DXF and native DWG R2018 (Windows x64)
     runs-on: windows-latest
     timeout-minutes: 45
     defaults:
@@ -47,12 +47,12 @@ jobs:
         with:
           workspaces: CADTBT360_V1.000
           key: cad360-v1025-xref
-      - name: Run all Xref roundtrip unit tests
+      - name: Run all DXF and R2018 DWG Xref tests
         run: cargo test --locked -p cadcraft-io --test it xref_roundtrip -- --nocapture
       - name: Assert all V1.025 regressions are executed
         run: |
           $testNames = (cargo test --locked -p cadcraft-io --test it -- --list | Out-String)
           if ($LASTEXITCODE -ne 0) { throw 'Unable to enumerate tests' }
-          foreach ($test in @('v1025_repeated_roundtrips_keep_xref_links_and_layer_linetype', 'v1025_overlay_semantics_survive_repeated_save_open')) {
+          foreach ($test in @('v1025_repeated_roundtrips_keep_xref_links_and_layer_linetype', 'v1025_overlay_semantics_survive_repeated_save_open', 'v1025_dwg_r2018_xref_links_survive_save_open', 'v1025_dwg_r2018_xref_layer_override_survives')) {
             if (-not $testNames.Contains($test)) { throw "Missing V1.025 regression test: $test" }
           }
