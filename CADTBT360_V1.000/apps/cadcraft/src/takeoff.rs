@@ -1407,6 +1407,16 @@ mod road_station_matching_tests {
         assert_eq!(skipped,2);
     }
     #[test]
+    fn duplicate_geometry_handle_across_spaces_cannot_be_measured() {
+        let mut doc=cadcraft_doc::Drawing::new_metric();
+        doc.model.push(cadcraft_doc::Entity::new(cadcraft_doc::Handle(0xC1),EntityKind::Circle(cadcraft_doc::Circle{center:Default::default(),radius:1.0})));
+        let mut layout=cadcraft_doc::Layout::new("Trac ngang",1);
+        layout.entities.push(cadcraft_doc::Entity::new(cadcraft_doc::Handle(0xC1),EntityKind::Circle(cadcraft_doc::Circle{center:Default::default(),radius:4.0})));
+        doc.layouts.push(layout);
+        assert!(measurements_for_handle_in_drawing(&doc,cadcraft_doc::Handle(0xC1)).is_empty());
+        assert!(!qto_road_is_cross_section_entity(&doc,cadcraft_doc::Handle(0xC1)));
+    }
+    #[test]
     fn selected_paper_space_geometry_is_measurable_without_model_copy() {
         let mut doc=cadcraft_doc::Drawing::new_metric();
         let mut layout=cadcraft_doc::Layout::new("Trac ngang",1);
