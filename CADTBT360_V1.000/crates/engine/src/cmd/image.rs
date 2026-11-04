@@ -411,7 +411,8 @@ fn image_handle(s: &Session, p: &Value) -> Result<Handle> {
 fn run_imageclip(s: &mut Session, p: &Value) -> Result<Value> {
     let h = image_handle(s, p)?;
     let old = s.doc()?.entity(h).ok_or_else(|| bad("imageclip", "image not found"))?;
-    if !matches!(&old.kind, EntityKind::Image(_)) { return Err(bad("imageclip", "selected object is not an image")) }
+    let EntityKind::Image(image) = &old.kind else { return Err(bad("imageclip", "selected object is not an image")); };
+    let size = image.size;
     let delete = bool_or(p, "delete", false);
     let points = if delete { Vec::new() } else {
         let a = p.get("points").and_then(Value::as_array).ok_or_else(|| bad("imageclip", "`points` is required unless `delete` is true"))?;
@@ -422,7 +423,13 @@ fn run_imageclip(s: &mut Session, p: &Value) -> Result<Value> {
             if !x.is_finite() || !y.is_finite() { return Err(bad("imageclip", "clip points must be finite")) }
             out.push(Vec2::new(x, y));
         }
-        if out.len() < 2 { return Err(bad("imageclip", "at least two clip points are required")) }
+        if !(2..=128).contains(&out.len()) { return Err(bad("imageclip", "image clip requires 2..128 points")); }
+        if out.iter().any(|q| q.x < 0.0 || q.y < 0.0 || q.x > size.x || q.y > size.y) {
+            return Err(bad("imageclip", "clip points must remain inside the raster pixel dimensions"));
+        }
+        if out.len() == 2 && ((out[0].x - out[1].x).abs() <= f64::EPSILON || (out[0].y - out[1].y).abs() <= f64::EPSILON) {
+            return Err(bad("imageclip", "rectangular clip must have nonzero width and height"));
+        }
         out
     };
     s.doc_mut()?.modify_entity(h, |e| {
@@ -629,6 +636,8 @@ mod tests {
         assert_eq!(r["pixels"], json!([2000.0, 1000.0]));
         let c = s.execute("imageclip", &json!({"handle": h, "points": [[0.0, 0.0], [2000.0, 0.0], [2000.0, 1000.0], [0.0, 1000.0]]})).unwrap();
         assert_eq!(c["clipping"], true);
+        assert!(s.execute("imageclip", &json!({"handle": h, "points": [[-1.0,0.0],[100.0,100.0]]})).is_err());
+        assert!(s.execute("imageclip", &json!({"handle": h, "points": [[0.0,0.0],[0.0,100.0]]})).is_err());
         let d = s.execute("imageclip", &json!({"handle": c["handle"], "delete": true})).unwrap();
         assert_eq!(d["clipping"], false);
         let a = s.execute("imageadjust", &json!({"handle": h, "brightness": 70, "contrast": 60, "fade": 15, "transparency": true})).unwrap();
