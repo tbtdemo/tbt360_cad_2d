@@ -17,7 +17,7 @@ on:
       - '.github/workflows/cad360-v1025-desktop-reliability.yml'
 
 permissions:
-  contents: read
+  contents: write  # only for publishing verified prerelease binaries; checkout persists no credentials
 
 concurrency:
   group: cad360-v1025-release-${{ github.ref }}
@@ -264,6 +264,25 @@ jobs:
             dist/v1025/SHA256SUMS.txt
           if-no-files-found: error
           retention-days: 30
+
+      - name: Publish verified Setup and Portable to GitHub prereleases
+        if: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/feature/CADTBT360_V1.025_xref-regression' }}
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $tag = "CADTBT360_V1.025_B$env:GITHUB_RUN_NUMBER"
+          $assets = @(
+            'dist/v1025/CADTBT360_V1.025_Setup_Windows_x64.exe',
+            'dist/v1025/CADTBT360_V1.025_Portable_Windows_x64.zip',
+            'dist/v1025/BUILD_INFO.txt',
+            'dist/v1025/SHA256SUMS.txt'
+          )
+          foreach ($asset in $assets) { if (!(Test-Path $asset)) { throw "Verified release asset missing: $asset" } }
+          $notes = "CAD 360 Viet Nam V1.025 Windows x64 - verified automated build `nSource commit: $env:GITHUB_SHA`nRun: $env:GITHUB_RUN_ID`nSetup install/uninstall, CLI DXF/DWG roundtrips, AI IMAGE trace and Portable hashes checked. GUI manual acceptance is not verified."
+          gh release create $tag @assets --title "CAD 360 Viet Nam V1.025 - Build $env:GITHUB_RUN_NUMBER" --target $env:GITHUB_SHA --prerelease --notes $notes
+          if ($LASTEXITCODE -ne 0) { throw "Failed to publish verified Windows prerelease $tag" }
+          Write-Host "Published verified Windows artifacts under GitHub release tag $tag"
 
       - name: Save failed or cancelled build diagnostics for V1.025
         if: ${{ failure() || cancelled() }}
