@@ -62,7 +62,7 @@ impl PlanSectionVolume {
     pub fn read(value: &serde_json::Value) -> Option<Self> {
         let plan=GeometricSource::read(value.get("plan")?)?;
         let section=GeometricSource::read(value.get("section")?)?;
-        if plan.handle == section.handle { return None; }
+        if cadcraft_doc::Handle::parse_hex(&plan.handle) == cadcraft_doc::Handle::parse_hex(&section.handle) { return None; }
         Some(Self{
             plan, section,
             work_group:value.get("work_group").and_then(serde_json::Value::as_str).unwrap_or("").chars().take(250).collect(),
@@ -90,6 +90,15 @@ mod tests {
         assert!((centimetres - 84_000_000.0).abs() < 1e-6);
         assert!(volume(24.0, f64::NAN, 1.0).is_err());
         assert!(volume(24.0, 3.0, 0.0).is_err());
+    }
+    #[test]
+    fn composite_rejects_same_cad_entity_with_padded_or_lowercase_handle() {
+        let plan=GeometricSource{handle:"2A".into(),signature:"Area|24".into(),raw_value:24.0};
+        let section=GeometricSource{handle:"0002a".into(),signature:"Height|3".into(),raw_value:3.0};
+        let saved=serde_json::json!({"plan":plan.json(),"section":section.json(),"confirmed":true});
+        assert!(PlanSectionVolume::read(&saved).is_none());
+        let different=GeometricSource{handle:"2B".into(),signature:"Height|3".into(),raw_value:3.0};
+        assert!(PlanSectionVolume::read(&serde_json::json!({"plan":plan.json(),"section":different.json()})).is_some());
     }
     #[test]
     fn evidence_roundtrip_defaults_to_unconfirmed_not_fake_approved() {
