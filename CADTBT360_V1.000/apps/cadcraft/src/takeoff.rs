@@ -1640,11 +1640,16 @@ fn qto_volume_source_current(app: &CadApp, source: &GeometricSource, kind: Measu
         raw.is_some_and(|value| (value - source.raw_value).abs() < 1.0e-8 * value.abs().max(1.0))
     })
 }
+/// Membership in a captured CAD region must compare the numeric entity identity,
+/// not the textual spelling of a hex handle (e.g. 2A == 0002a).
+fn qto_scope_contains_handle(handles: &BTreeSet<String>, target: &str) -> bool {
+    handles.iter().any(|candidate|takeoff_composite::same_cad_entity(candidate,target))
+}
 fn qto_volume_report_lines(app: &CadApp, state: &State, config: &ExportConfig, allowed: Option<&BTreeSet<String>>) -> Result<Vec<ReportLine>, String> {
     let mut out = Vec::new();
     for (index, item) in state.volume_records.iter().enumerate() {
         if config.confirmed_only && !item.confirmed { continue; }
-        if !allowed.is_none_or(|handles| handles.contains(&item.plan.handle) && handles.contains(&item.section.handle)) { continue; }
+        if !allowed.is_none_or(|handles| qto_scope_contains_handle(handles,&item.plan.handle) && qto_scope_contains_handle(handles,&item.section.handle)) { continue; }
         if !qto_volume_source_current(app, &item.plan, MeasureKind::Area)
             || !qto_volume_source_current(app, &item.section, MeasureKind::Length) {
             return Err(format!("Thể tích ghép #{} có nguồn CAD đã thay đổi hoặc không còn tồn tại. Phải quét lại mặt bằng/mặt cắt.", index + 1));
@@ -1689,7 +1694,7 @@ fn qto_road_interval_in_scope(left: &RoadCrossSection, right: &RoadCrossSection,
             EarthworkKind::Cut => (section.cut.as_ref(),section.cut_zero_confirmed),
             EarthworkKind::Fill => (section.fill.as_ref(),section.fill_zero_confirmed)
         };
-        if let Some(source)=source {return allowed.is_none_or(|handles|handles.contains(&source.handle));}
+        if let Some(source)=source {return allowed.is_none_or(|handles|qto_scope_contains_handle(handles,&source.handle));}
         zero
     };
     permitted(left) && permitted(right)
@@ -2527,14 +2532,14 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
         let allowed_handles = qto_allowed_handles(app, state);
         let count = state.records.iter().filter(|r| qto_record_in_scope(r, allowed_handles.as_ref()) && !state.export_omitted_ids.contains(&r.id) && qto_measure_type_allowed(r.kind, state.selected_measure_types) && r.status != MeasureStatus::Excluded && !source_validation.invalid_record_ids.contains(&r.id) && qto_record_exportable(r, &source_validation, lf, af, state.export_config.confirmed_only)).count();
         let volume_count = state.volume_records.iter().filter(|volume| (!state.export_config.confirmed_only || volume.confirmed)
-            && allowed_handles.as_ref().is_none_or(|handles| handles.contains(&volume.plan.handle) && handles.contains(&volume.section.handle))).count();
+            && allowed_handles.as_ref().is_none_or(|handles| qto_scope_contains_handle(handles,&volume.plan.handle) && qto_scope_contains_handle(handles,&volume.section.handle))).count();
         let road_preview=state.scale_to_m().and_then(|scale| takeoff_road::parse_range(&state.road_range_start,&state.road_range_end).ok()
             .and_then(|range|takeoff_road::intervals(&state.road_sections.iter().filter(|section|range.is_none_or(|(from,to)|
                 section.chainage_m>=from-1.0e-6 && section.chainage_m<=to+1.0e-6)).cloned().collect::<Vec<_>>(),scale,state.export_config.confirmed_only).ok()
                 .map(|parts|parts.into_iter().filter(|part|takeoff_road::within_range(part,range)).collect::<Vec<_>>())));
         let road_count=road_preview.as_ref().map(|parts|parts.iter().filter(|part|allowed_handles.as_ref()
-            .is_none_or(|handles|(part.source_start.is_empty() || handles.contains(&part.source_start))
-                && (part.source_end.is_empty() || handles.contains(&part.source_end)))).count()).unwrap_or(0);
+            .is_none_or(|handles|(part.source_start.is_empty() || qto_scope_contains_handle(handles,&part.source_start))
+                && (part.source_end.is_empty() || qto_scope_contains_handle(handles,&part.source_end)))).count()).unwrap_or(0);
         ui.label(format!("Sẵn sàng xem xét: {count} phép đo 2D + {volume_count} thể tích hai nguồn + {road_count} khoảng cọc đào/đắp, {} cột.",state.export_config.selected().len()));
         if state.road_sections.len() >= 2 && road_preview.is_none() {
             ui.colored_label(egui::Color32::YELLOW,"Dữ liệu trắc ngang chưa hợp lệ hoặc chưa hiệu chuẩn. Không phát hành Excel giao thông khi chưa khắc phục lỗi.");
@@ -3760,6 +3765,15 @@ mod tests {
         assert!(lwpoly_metrics(&vertices, false).is_none());
     }
 
+    #[test]
+    fn captured_region_scope_accepts_equivalent_hex_handle_spellings() {
+        let mut handles=BTreeSet::new();
+        handles.insert("0002a".to_string());
+        assert!(qto_scope_contains_handle(&handles,"2A"));
+        assert!(qto_scope_contains_handle(&handles,"00002a"));
+        assert!(!qto_scope_contains_handle(&handles,"2B"));
+        assert!(!qto_scope_contains_handle(&handles,"INVALID"));
+    }
     #[test]
     fn invalid_geometry_is_rejected() {
         assert!(bulge_edge((0.0, 0.0), (f64::NAN, 0.0), 0.0).is_none());
