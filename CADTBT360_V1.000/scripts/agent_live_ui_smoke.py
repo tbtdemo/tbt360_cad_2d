@@ -354,6 +354,26 @@ def main():
         block_props=[]
         for entry in json.loads(mcp.tool("query_entities",{"type":"Block Reference","limit":10})[0]["text"])["entities"]:
             block_props.append({"layer":entry.get("layer"),"geometry":canonical_geometry(entry.get("geometry"))})
+        # Require both distinct attribute values in the serialized block references,
+        # not just two INSERT handles and their positions.
+        def mark_values(entries):
+            found=[]
+            def walk(node):
+                if isinstance(node,dict):
+                    if str(node.get("tag","")).upper()=="MARK":
+                        val=node.get("text",node.get("value"))
+                        if isinstance(val,dict):
+                            val=val.get("value",val.get("text"))
+                        if isinstance(val,str): found.append(val)
+                    for child in node.values(): walk(child)
+                elif isinstance(node,list):
+                    for child in node: walk(child)
+            for entry in entries: walk(entry["geometry"])
+            return sorted(found)
+        expected_marks=["B-01","B-02"]
+        before_marks=mark_values(block_props)
+        if before_marks!=expected_marks:
+            raise RuntimeError(f"Block MARK attribute values missing before DWG: {before_marks}; block geometries: {str(block_props)[:1300]}")
         hatch_before=mcp_entity_snapshot(mcp,"Hatch")
         advanced_dwg=args.out/"CAD360_BLOCK_ATTRIBUTE_HATCH.dwg"
         mcp.tool("save",{"path":str(advanced_dwg.resolve())})
@@ -365,6 +385,9 @@ def main():
         reopened_blocks=[]
         for entry in json.loads(mcp.tool("query_entities",{"type":"Block Reference","limit":10})[0]["text"])["entities"]:
             reopened_blocks.append({"layer":entry.get("layer"),"geometry":canonical_geometry(entry.get("geometry"))})
+        after_marks=mark_values(reopened_blocks)
+        if after_marks!=expected_marks or after_marks!=before_marks:
+            raise RuntimeError(f"DWG changed MARK attribute values: before={before_marks} after={after_marks}")
         if sorted(block_props,key=lambda x:json.dumps(x,sort_keys=True))!=sorted(reopened_blocks,key=lambda x:json.dumps(x,sort_keys=True)):
             raise RuntimeError("DWG changed block insertion geometry/layer")
         hatch_after=mcp_entity_snapshot(mcp,"Hatch")
@@ -385,7 +408,8 @@ def main():
                 json.dumps({"before":expected_hatch,"after":actual_hatch},ensure_ascii=False)[:3800])
         (args.out/"ADVANCED_DWG_ROUNDTRIP.json").write_text(json.dumps({
             "result":"PASS","counts":advanced_after.get("counts"),"blocks_before":block_props,
-            "blocks_after":reopened_blocks,"hatch_before":hatch_before,"hatch_after":hatch_after
+            "blocks_after":reopened_blocks,"block_marks_before":before_marks,"block_marks_after":after_marks,
+            "hatch_before":hatch_before,"hatch_after":hatch_after
         },indent=2,ensure_ascii=False),encoding="utf-8")
         report={"result":"PASS","method":"real desktop MCP bridge","counts":counts,
                 "render":render_info,"window_screenshot":screen_info,"visual_comparison":visual,
@@ -394,7 +418,8 @@ def main():
                 "mixed_expected":required,"mixed_reopened_counts":after_counts,"mixed_layers":sorted(layers),
                 "property_roundtrip":"PASS","validated_entity_types":sorted(required),
                 "advanced_dwg_counts":advanced_after.get("counts"),"advanced_property_roundtrip":"PASS",
-                "hatch_pattern_expansion_lines":len(added_pattern_lines)}
+                "hatch_pattern_expansion_lines":len(added_pattern_lines),
+                "block_attribute_values_before":before_marks,"block_attribute_values_after":after_marks}
         (args.out/"ACCEPTANCE.json").write_text(json.dumps(report,indent=2),encoding="utf-8")
         print(json.dumps(report,indent=2))
     finally:
