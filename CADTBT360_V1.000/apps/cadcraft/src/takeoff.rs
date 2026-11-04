@@ -1270,8 +1270,10 @@ fn qto_road_scan_drawing_markers(doc: &cadcraft_doc::Drawing, selected: &[cadcra
         }
     } else {
         for &handle in selected {
-            if let Some(entity)=doc.model.get(handle) {qto_road_inspect_marker_entity(doc,entity,&mut markers,&mut skipped,&mut handles,&mut collisions);}
-            else {skipped+=1;}
+            match qto_road_find_marker_entity(doc,handle) {
+                Ok(Some(entity))=>qto_road_inspect_marker_entity(doc,entity,&mut markers,&mut skipped,&mut handles,&mut collisions),
+                Ok(None) | Err(_)=>skipped+=1,
+            }
         }
     }
     // If a CAD handle appears in more than one space, both candidate labels
@@ -1402,6 +1404,29 @@ mod road_station_matching_tests {
         let (markers,skipped)=qto_road_scan_drawing_markers(&doc,&[],true,true,None);
         assert!(markers.is_empty());
         assert_eq!(skipped,2);
+    }
+    #[test]
+    fn scans_selected_paper_layout_handle_and_does_not_assume_model_space() {
+        let mut doc=cadcraft_doc::Drawing::new_metric();
+        let mut layout=cadcraft_doc::Layout::new("Trac ngang",1);
+        layout.entities.push(marker_text(0xB1,"Km2+040"));
+        doc.layouts.push(layout);
+        let (markers,skipped)=qto_road_scan_drawing_markers(&doc,&[cadcraft_doc::Handle(0xB1)],false,false,None);
+        assert_eq!(skipped,0);
+        assert_eq!(markers.len(),1);
+        assert_eq!(markers[0].handle,"B1");
+        assert!((markers[0].chainage_m-2040.0).abs()<1e-6);
+    }
+    #[test]
+    fn selected_duplicate_handle_across_spaces_is_rejected() {
+        let mut doc=cadcraft_doc::Drawing::new_metric();
+        doc.model.push(marker_text(0xB1,"Km1+000"));
+        let mut layout=cadcraft_doc::Layout::new("Trac ngang",1);
+        layout.entities.push(marker_text(0xB1,"Km1+020"));
+        doc.layouts.push(layout);
+        let (markers,skipped)=qto_road_scan_drawing_markers(&doc,&[cadcraft_doc::Handle(0xB1)],false,false,None);
+        assert!(markers.is_empty());
+        assert_eq!(skipped,1);
     }
     #[test]
     fn repeated_handle_between_two_selected_paper_layouts_rejects_both_candidates() {
