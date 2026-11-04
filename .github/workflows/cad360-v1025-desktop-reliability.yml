@@ -65,6 +65,8 @@ jobs:
           cargo test --locked -p cadcraft-mcp --lib agent_fits_four_survey_controls_before_drawing_on_image -- --nocapture
           if ($LASTEXITCODE -ne 0) { throw 'MCP multi-control fitting regression failed' }
           cargo test --locked -p cadcraft-mcp --lib agent_projects_tilted_photo_into_editable_cad_without_warping_image -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'MCP AI perspective drafting regression failed' }
+          cargo test --locked -p cadcraft-mcp --lib ai_perspective_trace_remains_editable_after_dxf_save_reopen -- --nocapture
           if ($LASTEXITCODE -ne 0) { throw 'MCP raster image tracing regression failed' }
       - name: Compile UI and run Drawing Recovery unit tests
         run: |
