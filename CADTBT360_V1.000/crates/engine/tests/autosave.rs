@@ -168,6 +168,37 @@ fn recovery_offers_files_of_apps_that_stopped() {
 }
 
 
+
+#[test]
+fn recovery_skips_empty_files_and_preserves_valid_drawing() {
+    let dir = temp_dir("empty-snapshots");
+    let empty = dir.join("Empty.dwg_123-a_10.sv$");
+    let valid = dir.join("Valid.dwg_123-a_11.sv$");
+    std::fs::write(&empty, b"").unwrap();
+    std::fs::write(&valid, b"0\nEOF\n").unwrap();
+    let candidates = autosave::recoverable(&dir, "999-b");
+    assert_eq!(candidates.len(), 1, "{candidates:?}");
+    assert_eq!(candidates[0].drawing, "Valid.dwg");
+    assert_eq!(candidates[0].bytes, 6);
+    assert!(empty.exists(), "recovery scan must never delete an empty file without consent");
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[cfg(unix)]
+#[test]
+fn recovery_does_not_follow_symlinked_drawing_outside_autosave_folder() {
+    use std::os::unix::fs::symlink;
+    let dir = temp_dir("symlink-snapshots");
+    let external = std::env::temp_dir().join(format!("cadcraft-external-recovery-{}", std::process::id()));
+    std::fs::write(&external, b"external private drawing").unwrap();
+    let forged = dir.join("Forged.dwg_123-a_11.sv$");
+    symlink(&external, &forged).unwrap();
+    assert!(autosave::recoverable(&dir, "999-b").is_empty());
+    assert_eq!(std::fs::read(&external).unwrap(), b"external private drawing");
+    let _ = std::fs::remove_file(external);
+    let _ = std::fs::remove_dir_all(dir);
+}
+
 #[test]
 fn recovered_drawings_show_most_recent_snapshot_first() {
     let dir = temp_dir("newest-first");
