@@ -1396,6 +1396,20 @@ mod road_station_matching_tests {
         assert_eq!(skipped,2);
     }
     #[test]
+    fn repeated_handle_between_two_selected_paper_layouts_rejects_both_candidates() {
+        let mut doc=cadcraft_doc::Drawing::new_metric();
+        let mut paper_a=cadcraft_doc::Layout::new("Trắc ngang A",1);
+        paper_a.entities.push(marker_text(0xAC,"Km1+020"));
+        let mut paper_b=cadcraft_doc::Layout::new("Trắc ngang B",2);
+        paper_b.entities.push(marker_text(0xAC,"Km1+040"));
+        doc.layouts.push(paper_a);
+        doc.layouts.push(paper_b);
+        let (markers,skipped)=qto_road_scan_drawing_markers(&doc,&[],true,true,None);
+        assert!(markers.is_empty());
+        assert_eq!(skipped,2);
+        assert!(qto_road_find_marker_entity(&doc,cadcraft_doc::Handle(0xAC)).is_err());
+    }
+    #[test]
     fn selected_scan_counts_missing_handles_without_mutable_capture_conflict() {
         let mut doc=cadcraft_doc::Drawing::new_metric();
         doc.model.push(marker_text(0x11,"Km1+000"));
