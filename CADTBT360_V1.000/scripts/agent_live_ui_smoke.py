@@ -373,7 +373,7 @@ def main():
             "block_before":block_props,"block_after":reopened_blocks
         },indent=2,ensure_ascii=False),encoding="utf-8")
         if hatch_before!=hatch_after:
-            raise RuntimeError("DWG hatch geometry or layer changed; see ADVANCED_HATCH_DIAGNOSTIC.json")
+            raise RuntimeError("DWG hatch geometry or layer changed: "+json.dumps({"before":hatch_before,"after":hatch_after},ensure_ascii=False)[:3800])
         (args.out/"ADVANCED_DWG_ROUNDTRIP.json").write_text(json.dumps({
             "result":"PASS","counts":advanced_after.get("counts"),"blocks_before":block_props,
             "blocks_after":reopened_blocks,"hatch_before":hatch_before,"hatch_after":hatch_after
