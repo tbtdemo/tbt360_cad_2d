@@ -96,3 +96,9 @@ A CAD/MCP command to brighten and fade an image while digitizing:
 ```
 
 Invalid types and out-of-range values are rejected. IMAGE display-off flags also hide the native texture. The limits remain: no automatic AI Vision/OCR recognition, no image pixels in exported PNG/PDF, and no guaranteed Windows Setup EXE until current CI and installer tests pass.
+
+## Clean IMAGE frame while AI traces (V1.025)
+
+The vector renderer's default IMAGE placeholder previously drew two diagonal crossing lines over every reference image. This has been reduced to the rectangular IMAGE outline so the native bitmap is no longer obscured by an X, while other CAD geometry and the AI-traced polyline remain editable. The CPU-only and PNG plot paths still render the outline if they do not have access to the bitmap. The `cadcraft-render` regression `raster_image_reference_draws_only_outer_frame_without_obscuring_draft` and the Windows Desktop Reliability workflow now assert this behavior.
+
+This is a rendering correction, not automatic computer vision. Full-quality export with raster pixels embedded, native screenshot proof and verified Setup EXE are outstanding release gates.
