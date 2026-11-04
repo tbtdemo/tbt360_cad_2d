@@ -5,12 +5,16 @@ on:
   pull_request:
     paths:
       - 'CADTBT360_V1.000/crates/ui-egui/src/autosave.rs'
+      - 'CADTBT360_V1.000/crates/engine/src/autosave.rs'
+      - 'CADTBT360_V1.000/crates/engine/tests/autosave.rs'
       - '.github/workflows/cad360-v1025-desktop-reliability.yml'
   push:
     branches:
       - feature/CADTBT360_V1.025_xref-regression
     paths:
       - 'CADTBT360_V1.000/crates/ui-egui/src/autosave.rs'
+      - 'CADTBT360_V1.000/crates/engine/src/autosave.rs'
+      - 'CADTBT360_V1.000/crates/engine/tests/autosave.rs'
       - '.github/workflows/cad360-v1025-desktop-reliability.yml'
 
 permissions:
@@ -32,6 +36,10 @@ jobs:
         with:
           workspaces: CADTBT360_V1.000
           key: cad360-v1025-desktop
+      - name: Validate scheduled autosave, crash recovery and newest-first ordering
+        run: |
+          cargo test --locked -p cadcraft-engine --test autosave -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'Engine autosave and recovery regression failure' }
       - name: Compile UI and run Drawing Recovery unit tests
         run: |
           cargo test --locked -p cadcraft-ui-egui --lib autosave::tests -- --nocapture
