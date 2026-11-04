@@ -1241,6 +1241,7 @@ fn qto_road_find_marker_entity<'a>(doc: &'a cadcraft_doc::Drawing, handle: cadcr
 fn qto_road_inspect_marker_entity(doc: &cadcraft_doc::Drawing, entity: &cadcraft_doc::Entity, markers: &mut Vec<takeoff_road::RoadPlanMarker>, skipped: &mut usize, handles: &mut BTreeSet<String>, collisions: &mut BTreeSet<String>) {
     if !matches!(&entity.kind,EntityKind::Text(_) | EntityKind::MText(_) | EntityKind::Insert(_)) {return;}
     let key=qto_station_handle_key(&entity.handle.hex());
+    if collisions.contains(&key) {*skipped+=1;return;}
     if !handles.insert(key.clone()) {collisions.insert(key);*skipped+=1;return;}
     match qto_road_station_from_entity(doc,entity) {
         Ok(chainage_m)=>markers.push(takeoff_road::RoadPlanMarker{chainage_m,handle:entity.handle.hex()}),
@@ -1252,6 +1253,13 @@ fn qto_road_scan_drawing_markers(doc: &cadcraft_doc::Drawing, selected: &[cadcra
     let mut skipped=0usize;
     let mut handles=BTreeSet::<String>::new();
     let mut collisions=BTreeSet::<String>::new();
+    // Check ALL spaces even when the user scans only selected Layouts:
+    // a handle duplicated in an unselected Layout is still unsafe evidence.
+    let mut global_handles=BTreeSet::<String>::new();
+    for entity in doc.model.iter().chain(doc.layouts.iter().flat_map(|layout|layout.entities.iter())) {
+        let key=qto_station_handle_key(&entity.handle.hex());
+        if !global_handles.insert(key.clone()) {collisions.insert(key);}
+    }
     if all_model {
         for entity in doc.model.iter() {qto_road_inspect_marker_entity(doc,entity,&mut markers,&mut skipped,&mut handles,&mut collisions);}
         if include_layouts {
@@ -1408,6 +1416,20 @@ mod road_station_matching_tests {
         assert!(markers.is_empty());
         assert_eq!(skipped,2);
         assert!(qto_road_find_marker_entity(&doc,cadcraft_doc::Handle(0xAC)).is_err());
+    }
+    #[test]
+    fn filtered_layout_does_not_hide_marker_handle_collision_elsewhere() {
+        let mut doc=cadcraft_doc::Drawing::new_metric();
+        let mut selected_layout=cadcraft_doc::Layout::new("Layout A",1);
+        selected_layout.entities.push(marker_text(0xAC,"Km1+020"));
+        let mut other_layout=cadcraft_doc::Layout::new("Layout B",2);
+        other_layout.entities.push(marker_text(0xAC,"Km1+040"));
+        doc.layouts.push(selected_layout);
+        doc.layouts.push(other_layout);
+        let selected=BTreeSet::from(["Layout A".to_string()]);
+        let (markers,skipped)=qto_road_scan_drawing_markers(&doc,&[],true,true,Some(&selected));
+        assert!(markers.is_empty());
+        assert_eq!(skipped,1);
     }
     #[test]
     fn selected_scan_counts_missing_handles_without_mutable_capture_conflict() {
