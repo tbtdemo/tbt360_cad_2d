@@ -1,0 +1,74 @@
+name: CAD360 Agent MCP CLI DXF PNG Windows Proof
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/CADTBT360_road-qto-parallel-v1023
+    paths:
+      - 'CADTBT360_V1.000/apps/cadcraft-cli/**'
+      - 'CADTBT360_V1.000/crates/mcp/**'
+      - 'CADTBT360_V1.000/docs/agent-windows-step-by-step.md'
+      - '.github/workflows/cadtbt360-agent-mcp-cli-render-windows.yml'
+permissions:
+  contents: read
+concurrency:
+  group: cad360-agent-proof-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  agent-render:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.95.0'
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: CADTBT360_V1.000
+          key: cad360-agent-cli-mcp-windows-proof
+      - name: Compile and validate MCP agent tools on Windows
+        working-directory: CADTBT360_V1.000
+        run: |
+          cargo test --locked -p cadcraft-mcp --lib
+          if ($LASTEXITCODE -ne 0) {exit $LASTEXITCODE}
+      - name: Verify real CLI commands, DXF roundtrip and PNG render
+        working-directory: CADTBT360_V1.000
+        run: |
+          cargo test --locked -p cadcraft-cli --test it agent_render -- --nocapture
+          if ($LASTEXITCODE -ne 0) {exit $LASTEXITCODE}
+          cargo test --locked -p cadcraft-cli --test it mcp_connect -- --nocapture
+          if ($LASTEXITCODE -ne 0) {exit $LASTEXITCODE}
+      - name: Build CLI executable and generate downloadable CAD render evidence
+        working-directory: CADTBT360_V1.000
+        run: |
+          $ErrorActionPreference='Stop'
+          cargo build --locked -p cadcraft-cli
+          if ($LASTEXITCODE -ne 0) {exit $LASTEXITCODE}
+          $cli=(Resolve-Path 'target/debug/cadcraft-cli.exe').Path
+          New-Item -ItemType Directory -Force -Path 'agent-proof' | Out-Null
+          $out=(Resolve-Path 'agent-proof').Path
+          $dxf=Join-Path $out 'CAD360_AI_AGENT_DRAWING.dxf'
+          $png=Join-Path $out 'CAD360_AI_AGENT_RENDER.png'
+          $cmds=@('run','--metric','--cmd','line {"points":[[0,0],[100,0]]}','--cmd','line {"points":[[100,0],[100,60]]}','--cmd','line {"points":[[100,60],[0,60]]}','--cmd','line {"points":[[0,60],[0,0]]}','--cmd','circle {"center":[10,10],"radius":4}','--cmd','circle {"center":[90,50],"radius":4}','--save',$dxf,'--export',$png,'--view','extents')
+          & $cli @cmds
+          if ($LASTEXITCODE -ne 0) {throw 'CLI drawing or render failed'}
+          $bytes=[IO.File]::ReadAllBytes($png)
+          if ($bytes.Length -le 2048 -or [Convert]::ToHexString($bytes[0..7]) -ne '89504E470D0A1A0A') {throw 'Missing or invalid PNG'}
+          if ((Get-Item $dxf).Length -le 1024) {throw 'DXF missing or too small'}
+          & $cli info $dxf | Out-File (Join-Path $out 'CAD360_AI_AGENT_INSPECT.json') -Encoding utf8
+          if ($LASTEXITCODE -ne 0) {throw 'DXF reopen failed'}
+          foreach ($f in @($dxf,$png)) {
+            "$((Get-FileHash $f -Algorithm SHA256).Hash.ToLowerInvariant())  $(Split-Path $f -Leaf)" | Out-File (Join-Path $out 'SHA256.txt') -Append -Encoding ascii
+          }
+          "Commit: $env:GITHUB_SHA" | Out-File (Join-Path $out 'README.txt') -Encoding utf8
+          "This PNG is a real CLI-rendered CAD drawing, NOT a screenshot of the desktop window." | Out-File (Join-Path $out 'README.txt') -Append -Encoding utf8
+      - name: Upload real DXF and PNG drawing proof
+        uses: actions/upload-artifact@v4
+        with:
+          name: CAD360_Agent_CLI_MCP_Windows_DXF_PNG_Proof
+          path: CADTBT360_V1.000/agent-proof/
+          retention-days: 30
+          if-no-files-found: error
