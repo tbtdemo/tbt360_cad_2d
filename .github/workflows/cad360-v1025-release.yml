@@ -155,7 +155,9 @@ jobs:
           $traceInfo = & $installedCli info $traceFile
           if ($LASTEXITCODE -ne 0) { throw 'Installed CLI cannot reopen AI-traced DXF' }
           $traceDrawing = ($traceInfo -join [char]10) | ConvertFrom-Json
-          if ($traceDrawing.entityCount -lt 2) { throw 'AI image-trace DXF lost its source IMAGE or editable CAD polyline' }
+          if ($traceDrawing.entityCount -ne 2 -or $traceDrawing.counts.'Raster Image' -ne 1 -or $traceDrawing.counts.Polyline -ne 1) {
+            throw "AI image-trace DXF must contain exactly one Raster Image and one editable Polyline, found: $($traceInfo -join [char]10)"
+          }
           if (-not (Select-String -Path (Join-Path $dest 'BUILD_INFO.txt') -Pattern 'Release=CADTBT360_V1.025' -Quiet)) { throw 'Incorrect release metadata' }
           $uninstaller = Join-Path $dest 'unins000.exe'
           if (!(Test-Path $uninstaller)) { throw 'Missing Inno Setup uninstaller' }
