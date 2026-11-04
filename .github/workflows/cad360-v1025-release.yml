@@ -192,8 +192,21 @@ jobs:
           $dwgInfo = ($dwgInfoLines -join [char]10) | ConvertFrom-Json
           if ($dwgInfo.counts.Line -ne 2) { throw "DWG roundtrip lost CAD geometry: $($dwgInfoLines -join [char]10)" }
 
+          # Use a real PNG source. A fabricated 'reference.png' string would only test
+          # IMAGE metadata, not the installed application's ability to link an image file.
+          Add-Type -AssemblyName System.Drawing
+          $referenceFile = Join-Path $env:RUNNER_TEMP 'CADTBT360_V1025_TraceReference.png'
+          $bitmap = [System.Drawing.Bitmap]::new(200, 100)
+          try {
+            $bitmap.SetPixel(0, 0, [System.Drawing.Color]::Red)
+            $bitmap.SetPixel(199, 99, [System.Drawing.Color]::Blue)
+            $bitmap.Save($referenceFile, [System.Drawing.Imaging.ImageFormat]::Png)
+          } finally { $bitmap.Dispose() }
+          if (!(Test-Path $referenceFile) -or (Get-Item $referenceFile).Length -le 0) { throw 'Cannot generate real PNG fixture for IMAGE trace smoke' }
+          $referencePath = $referenceFile.Replace('\\', '/')
+          $attachJson = @{ path = $referencePath; pixels = @(200, 100); width = 20; height = 10 } | ConvertTo-Json -Compress
           $traceFile = Join-Path $env:RUNNER_TEMP 'CADTBT360_V1025_AI_ImageTrace_Smoke.dxf'
-          & $installedCli run --metric --cmd 'imageattach {"path":"reference.png","pixels":[200,100],"width":20,"height":10}' --cmd 'imagetrace {"handle":"{last}","points":[[0,100],[200,100],[200,0]]}' --save $traceFile | Out-Host
+          & $installedCli run --metric --cmd "imageattach $attachJson" --cmd 'imagetrace {"handle":"{last}","points":[[0,100],[200,100],[200,0]]}' --save $traceFile | Out-Host
           if ($LASTEXITCODE -ne 0 -or !(Test-Path $traceFile)) { throw 'Installed CLI cannot produce AI-traced DXF with IMAGE and LWPOLYLINE' }
           $traceInfo = & $installedCli info $traceFile
           if ($LASTEXITCODE -ne 0) { throw 'Installed CLI cannot reopen AI-traced DXF' }
@@ -279,7 +292,7 @@ jobs:
             'dist/v1025/SHA256SUMS.txt'
           )
           foreach ($asset in $assets) { if (!(Test-Path $asset)) { throw "Verified release asset missing: $asset" } }
-          $notes = "CAD 360 Viet Nam V1.025 Windows x64 - verified automated build `nSource commit: $env:GITHUB_SHA`nRun: $env:GITHUB_RUN_ID`nSetup install/uninstall, CLI DXF/DWG roundtrips, AI IMAGE trace and Portable hashes checked. GUI manual acceptance is not verified."
+          $notes = "CAD 360 Viet Nam V1.025 Windows x64 - verified automated build `nSource commit: $env:GITHUB_SHA`nRun: $env:GITHUB_RUN_ID`nSetup install/uninstall, CLI DXF/DWG roundtrips, real-PNG IMAGE attachment with supplied trace vertices, and Portable hashes checked. GUI manual acceptance and automatic AI tracing are not verified."
           gh release create $tag @assets --title "CAD 360 Viet Nam V1.025 - Build $env:GITHUB_RUN_NUMBER" --target $env:GITHUB_SHA --prerelease --notes $notes
           if ($LASTEXITCODE -ne 0) { throw "Failed to publish verified Windows prerelease $tag" }
           Write-Host "Published verified Windows artifacts under GitHub release tag $tag"
