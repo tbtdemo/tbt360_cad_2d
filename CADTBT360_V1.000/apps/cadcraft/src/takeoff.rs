@@ -1108,10 +1108,13 @@ fn measurements_for_entity(drawing:&cadcraft_doc::Drawing,entity:&cadcraft_doc::
     out
 }
 
+fn measurements_for_handle_in_drawing(drawing:&cadcraft_doc::Drawing,handle:cadcraft_doc::Handle)->Vec<PendingMeasurement>{
+    let Ok(Some(entity))=qto_road_find_marker_entity(drawing,handle) else {return Vec::new();};
+    measurements_for_entity(drawing,entity,handle)
+}
 fn measurements_for_handle(app:&CadApp,handle:cadcraft_doc::Handle)->Vec<PendingMeasurement>{
     let Ok(drawing)=app.session.doc() else{return Vec::new();};
-    let Some(entity)=drawing.model.get(handle) else{return Vec::new();};
-    measurements_for_entity(drawing,entity.as_ref(),handle)
+    measurements_for_handle_in_drawing(drawing,handle)
 }
 
 fn collect_nested_source_paths(d:&cadcraft_doc::Drawing,current:&cadcraft_doc::Entity,path:&SourcePath,depth:usize,out:&mut Vec<SourcePath>) {
@@ -1404,6 +1407,16 @@ mod road_station_matching_tests {
         assert_eq!(skipped,2);
     }
     #[test]
+    fn selected_paper_space_geometry_is_measurable_without_model_copy() {
+        let mut doc=cadcraft_doc::Drawing::new_metric();
+        let mut layout=cadcraft_doc::Layout::new("Trac ngang",1);
+        layout.entities.push(cadcraft_doc::Entity::new(cadcraft_doc::Handle(0xC1),EntityKind::Circle(cadcraft_doc::Circle{center:Default::default(),radius:2.0})));
+        doc.layouts.push(layout);
+        let measurements=measurements_for_handle_in_drawing(&doc,cadcraft_doc::Handle(0xC1));
+        assert!(measurements.iter().any(|m|m.kind==MeasureKind::Area && (m.raw_value-std::f64::consts::PI*4.0).abs()<1e-8));
+        assert!(!qto_road_is_cross_section_entity(&doc,cadcraft_doc::Handle(0xC1)),"Circle is not acceptable as surveyed road section boundary");
+    }
+    #[test]
     fn scans_selected_paper_layout_handle_and_does_not_assume_model_space() {
         let mut doc=cadcraft_doc::Drawing::new_metric();
         let mut layout=cadcraft_doc::Layout::new("Trac ngang",1);
@@ -1586,13 +1599,15 @@ fn qto_volume_report_lines(app: &CadApp, state: &State, config: &ExportConfig, a
 
 /// Road cut/fill cross sections must be delineated by a genuine closed
 /// boundary, hatch or region. A circle's area is not a road section.
+fn qto_road_is_cross_section_entity(doc:&cadcraft_doc::Drawing,handle:cadcraft_doc::Handle)->bool {
+    qto_road_find_marker_entity(doc,handle).ok().flatten().is_some_and(|entity|match &entity.kind {
+        EntityKind::LwPolyline(poly) => poly.closed,
+        EntityKind::Hatch(_) | EntityKind::Region(_) => true,
+        _ => false,
+    })
+}
 fn qto_is_road_cross_section_boundary(app: &CadApp, handle: cadcraft_doc::Handle) -> bool {
-    app.session.doc().ok()
-        .and_then(|doc| doc.model.get(handle).map(|entity|match &entity.kind {
-            EntityKind::LwPolyline(poly) => poly.closed,
-            EntityKind::Hatch(_) | EntityKind::Region(_) => true,
-            _ => false,
-        })).unwrap_or(false)
+    app.session.doc().ok().is_some_and(|doc|qto_road_is_cross_section_entity(doc,handle))
 }
 fn qto_road_interval_in_scope(left: &RoadCrossSection, right: &RoadCrossSection, kind: EarthworkKind, allowed: Option<&BTreeSet<String>>) -> bool {
     let permitted=|section: &RoadCrossSection| {
