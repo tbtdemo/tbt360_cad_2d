@@ -2738,7 +2738,21 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
         });
         let visible_count=state.records.iter().filter(|record|measurement_matches_filter(record,&state.search_text,state.status_filter)
             && qto_record_in_scope(record,register_scope.as_ref()) && qto_measure_type_allowed(record.kind,state.selected_measure_types)).count();
-        ui.small(format!("Đang hiển thị {visible_count}/{} phép đo trong phạm vi và bộ lọc hiện tại.",state.records.len()));
+        // Draw one bounded page of QTO rows; selection/export operations above
+        // still apply to every matching record, not just the visible page.
+        const QTO_ROWS_PER_PAGE: usize=75;
+        let total_pages=visible_count.saturating_add(QTO_ROWS_PER_PAGE-1)/QTO_ROWS_PER_PAGE;
+        let page_id=egui::Id::new("cadtbt360_qto_register_page");
+        let mut page=ui.ctx().data_mut(|data|data.get_temp::<usize>(page_id).unwrap_or(0)).min(total_pages.saturating_sub(1));
+        ui.horizontal_wrapped(|ui| {
+            ui.small(format!("{} / {} phép đo phù hợp",visible_count,state.records.len()));
+            if total_pages>1 {
+                if ui.add_enabled(page>0,egui::Button::new("‹ Trước")).clicked() {page-=1;}
+                ui.small(format!("Trang {} / {} • {} dòng/trang",page+1,total_pages,QTO_ROWS_PER_PAGE));
+                if ui.add_enabled(page+1<total_pages,egui::Button::new("Sau ›")).clicked() {page+=1;}
+            }
+        });
+        ui.ctx().data_mut(|data|data.insert_temp(page_id,page));
         if visible_count==0 {
             ui.label(egui::RichText::new("Chưa có phép đo phù hợp. Chọn phạm vi hoặc thay đổi bộ lọc để xem dữ liệu.").color(egui::Color32::GRAY));
         }
@@ -2747,8 +2761,9 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
             egui::Grid::new("native_qto_measurements").striped(true).show(ui, |ui| {
                 for h in ["Xuất", "ID","Handle nguồn","Nguồn","Tầng","Bộ môn","Owner","Loại","Layer","Nhóm","Mã CT","Diễn giải","Giá trị","Trạng thái","Thao tác"] { ui.strong(h); }
                 ui.end_row();
-                for record in &state.records {
-                    if !measurement_matches_filter(record, &state.search_text, state.status_filter) || !qto_record_in_scope(record, register_scope.as_ref()) || !qto_measure_type_allowed(record.kind, state.selected_measure_types) { continue; }
+                for record in state.records.iter().filter(|record|measurement_matches_filter(record,&state.search_text,state.status_filter)
+                    && qto_record_in_scope(record,register_scope.as_ref()) && qto_measure_type_allowed(record.kind,state.selected_measure_types))
+                    .skip(page*QTO_ROWS_PER_PAGE).take(QTO_ROWS_PER_PAGE) {
                     let value = match record.kind {
                         MeasureKind::Area => record.raw_value * af,
                         MeasureKind::Length | MeasureKind::Perimeter => record.raw_value * lf,
