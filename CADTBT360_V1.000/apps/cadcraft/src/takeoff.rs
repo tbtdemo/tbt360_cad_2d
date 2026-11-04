@@ -2003,6 +2003,12 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
     });
     ui.ctx().data_mut(|data|data.insert_temp(tab_id,active_tab));
     ui.add_space(8.0);
+    if !state.import_feedback.is_empty() {
+        ui.label(egui::RichText::new(&state.import_feedback).color(egui::Color32::LIGHT_BLUE));
+    }
+    if !state.file_feedback.is_empty() {
+        ui.small(&state.file_feedback);
+    }
 
     egui::CollapsingHeader::new("Thiết lập tỷ lệ bản vẽ")
         .id_salt("cadtbt360_qto_scale_settings").default_open(false).show(ui,|ui| {
@@ -2475,7 +2481,7 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
         ui.label(format!("Đang chọn {} đối tượng CAD", app.session.selection().len()));
     });
     }); // Công cụ nhập nhanh cũ
-    if !state.import_feedback.is_empty() { ui.label(&state.import_feedback); }
+
 
     ui.horizontal(|ui| {
         if ui.button("Lưu dự án đo bóc").clicked() {
@@ -2498,7 +2504,7 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
         }
     });
 
-    if !state.file_feedback.is_empty() { ui.label(&state.file_feedback); }
+
 
     ui.separator();
     if state.source_mode == QtoSourceMode::EntireProject {
@@ -2630,7 +2636,7 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
                 Err(error) => state.file_feedback = format!("Chưa đủ điều kiện xuất báo cáo: {error}"),
             }
         }
-        if !state.file_feedback.is_empty() { ui.label(&state.file_feedback); }
+    
     });
 
 
