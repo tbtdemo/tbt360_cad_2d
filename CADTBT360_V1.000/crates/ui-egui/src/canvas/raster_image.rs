@@ -14,6 +14,7 @@ use super::Xf;
 const MAX_IMAGES: usize = 4;
 const MAX_CACHED_TEXTURES: usize = 12;
 const MAX_FILE_BYTES: u64 = 16 * 1024 * 1024;
+const MAX_DECODE_ALLOC_BYTES: u64 = 128 * 1024 * 1024;
 const MAX_PIXELS: u64 = 16_777_216;
 const MAX_TEXTURE_SIDE: u32 = 2048;
 const CACHE_ID: &str = "cad360-native-raster-textures-v1025";
@@ -154,7 +155,14 @@ fn read_texture(ctx: &Context, path: &Path, adjust: RasterAdjust) -> Option<Text
     let bytes = std::fs::read(path).ok()?;
     // The source may have been replaced after image_dimensions(path) returned.
     // Recheck decoded dimensions before allocating the RGBA texture buffer.
-    let decoded = image::load_from_memory(&bytes).ok()?;
+    // Enforce a decoder allocation budget before decoding the pixel buffer, not merely
+    // after load_from_memory has already allocated it. image::Limits::max_alloc is a
+    // best-effort decoder limit; retain dimension and file-byte checks as well.
+    let mut reader = image::ImageReader::new(std::io::Cursor::new(&bytes)).with_guessed_format().ok()?;
+    let mut limits = image::Limits::default();
+    limits.max_alloc = Some(MAX_DECODE_ALLOC_BYTES);
+    reader.limits(limits);
+    let decoded = reader.decode().ok()?;
     if !raster_dimensions_allowed(decoded.width(), decoded.height()) { return None; }
     let original = decoded.to_rgba8();
     let [target_w, target_h] = texture_dimensions(original.width(), original.height());
@@ -350,6 +358,11 @@ fn defaults() -> RasterAdjust {
         assert_eq!(adjust_pixel([0, 70, 200, 40], faded), [255, 255, 255, 40]);
         let opaque = RasterAdjust { transparency: false, ..normal };
         assert_eq!(adjust_pixel([3, 4, 5, 0], opaque)[3], 255);
+    }
+    #[test]
+    fn raster_decoder_has_bounded_allocation_budget() {
+        assert!(MAX_DECODE_ALLOC_BYTES >= MAX_PIXELS * 4);
+        assert!(MAX_DECODE_ALLOC_BYTES < 512 * 1024 * 1024);
     }
     #[test]
     fn raster_pixel_limit_is_checked_against_decoded_image_dimensions() {
