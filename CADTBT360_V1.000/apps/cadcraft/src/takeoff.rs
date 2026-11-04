@@ -1418,6 +1418,32 @@ mod road_station_matching_tests {
         assert!(markers.iter().any(|marker|(marker.chainage_m-1020.0).abs()<1e-6));
     }
     #[test]
+    #[ignore = "Cần hai bản vẽ công trình DWG/DXF tương ứng và các lý trình chuẩn do kỹ sư xác nhận"]
+    fn actual_dwg_dxf_station_fixture_acceptance() {
+        let dxf_path=std::env::var("CADTBT360_ROAD_DXF_FIXTURE").expect("Cần đặt CADTBT360_ROAD_DXF_FIXTURE trỏ đến bản vẽ DXF thực");
+        let dwg_path=std::env::var("CADTBT360_ROAD_DWG_FIXTURE").expect("Cần đặt CADTBT360_ROAD_DWG_FIXTURE trỏ đến cùng bản vẽ định dạng DWG");
+        let expected=std::env::var("CADTBT360_ROAD_EXPECTED_STATIONS").expect("Nhập các lý trình chuẩn cách nhau bằng dấu ; trong CADTBT360_ROAD_EXPECTED_STATIONS");
+        let expected=expected.split(';').map(takeoff_road::station_to_metres).collect::<Result<Vec<_>,_>>().expect("Lý trình đối chiếu không hợp lệ");
+        assert!(!expected.is_empty(),"Phải có ít nhất một lý trình chuẩn từ bản vẽ thực");
+        let mut actual=Vec::new();
+        for (name,path) in [("DXF",dxf_path),("DWG",dwg_path)] {
+            let bytes=std::fs::read(&path).unwrap_or_else(|e|panic!("Không đọc được {name} tại {path}: {e}"));
+            let drawing=cadcraft_io::read(&bytes,&path).unwrap_or_else(|e|panic!("Không đọc được bản vẽ {name}: {e}"));
+            let (markers,skipped)=qto_road_scan_drawing_markers(&drawing,&[],true,true,None);
+            let mut stations=markers.iter().map(|m|m.chainage_m).collect::<Vec<_>>();
+            stations.sort_by(f64::total_cmp);
+            assert!(!stations.is_empty(),"{name} không tìm được nhãn cọc hợp lệ; bỏ qua {skipped} đối tượng");
+            for expected_m in &expected {
+                assert!(stations.iter().any(|s|(s-expected_m).abs()<=0.001),"{name} thiếu lý trình {}",takeoff_road::station_label(*expected_m));
+            }
+            actual.push(stations);
+        }
+        assert_eq!(actual[0].len(),actual[1].len(),"DWG/DXF chênh lệch số lượng nhãn cọc; cần kiểm tra dữ liệu gốc");
+        for (a,b) in actual[0].iter().zip(&actual[1]) {
+            assert!((a-b).abs()<=0.001,"DWG/DXF chênh lệch lý trình cọc: {a} và {b}");
+        }
+    }
+    #[test]
     fn zero_padded_hex_marker_is_considered_the_same_entity() {
         let mut sections=vec![section(100.0,Some("AA")),section(120.0,None)];
         let markers=vec![takeoff_road::RoadPlanMarker{chainage_m:120.0,handle:"0AA".into()}];
