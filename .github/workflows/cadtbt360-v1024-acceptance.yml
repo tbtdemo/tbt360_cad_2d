@@ -5,6 +5,7 @@ on:
     branches:
       - feature/CADTBT360_road-qto-parallel-v1023
     paths:
+      - '.github/workflows/cadtbt360-v1024-acceptance.yml'
       - 'CADTBT360_V1.000/scripts/layer_style_dwg_roundtrip.py'
       - 'CADTBT360_V1.000/scripts/agent_live_ui_smoke.py'
 permissions:
