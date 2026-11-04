@@ -1954,8 +1954,13 @@ fn qto_report_lines(state: &State, source_validation: &SourceValidation, config:
         return Err("Nhập đầy đủ tên dự án và Chủ đầu tư trước khi xuất báo cáo.".into());
     }
     let length_scale = config.unit_scale();
+    // Calibration applies only to linear/area records that can actually be
+    // exported. Disabled methods, manually omitted rows and invalid-source
+    // records must not block a count-only Excel report.
     let needs_calibration = state.records.iter().any(|r| qto_record_in_scope(r, allowed)
-        && !state.export_omitted_ids.contains(&r.id) && r.status != MeasureStatus::Excluded
+        && !state.export_omitted_ids.contains(&r.id)
+        && (!state.methods_initialized || qto_measure_type_allowed(r.kind,state.selected_measure_types))
+        && r.status != MeasureStatus::Excluded && !source_validation.invalid_record_ids.contains(&r.id)
         && r.kind != MeasureKind::Count && (!config.confirmed_only || r.status == MeasureStatus::Confirmed));
     let base = state.scale_to_m();
     if needs_calibration && base.is_none() { return Err("Phải hiệu chuẩn tỷ lệ bản vẽ sang mét trước khi xuất khối lượng chiều dài/diện tích.".into()); }
@@ -3086,6 +3091,32 @@ mod tests {
         assert_eq!(qto_report_lines(&state, &SourceValidation::default(), &cfg, None).unwrap().len(), 2);
     }
 
+    #[test]
+    fn qto_count_only_export_does_not_require_scale_for_disabled_length() {
+        let mut state=State::default();
+        let count_id=state.add_measurement(MeasureKind::Count,vec![],3.0,"Cấu kiện".into()).unwrap();
+        let length_id=state.add_measurement(MeasureKind::Length,vec![],10.0,"Chiều dài".into()).unwrap();
+        for record in &mut state.records {
+            record.status=MeasureStatus::Confirmed;
+            record.description="Đã kiểm tra".into();
+        }
+        assert!(state.scale_to_m().is_none());
+        let cfg=ExportConfig {project:"Dự án".into(),investor:"Chủ đầu tư".into(),..ExportConfig::default()};
+        state.methods_initialized=true;
+        state.selected_measure_types=[false,false,false,true];
+        let rows=qto_report_lines(&state,&SourceValidation::default(),&cfg,None).unwrap();
+        assert_eq!(rows.len(),1);
+        assert_eq!(rows[0].quantity,3.0);
+        state.selected_measure_types=[true,false,false,true];
+        assert!(qto_report_lines(&state,&SourceValidation::default(),&cfg,None).is_err());
+        state.export_omitted_ids.insert(length_id);
+        assert_eq!(qto_report_lines(&state,&SourceValidation::default(),&cfg,None).unwrap().len(),1);
+        state.export_omitted_ids.remove(&length_id);
+        state.selected_measure_types=[false,false,false,true];
+        let mut only_count=BTreeSet::new();
+        only_count.insert(count_id);
+        assert_eq!(only_count.len(),1);
+    }
     #[test]
     fn qto_excel_respects_manual_row_checkboxes_independently_from_cad_scope() {
         let mut state = State::default();
