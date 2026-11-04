@@ -7,12 +7,10 @@ use cadcraft_doc::{Common, Drawing, EntityKind, Line, Space};
 use cadcraft_geom::Vec3;
 use cadcraft_io::{SaveOptions, Version, read, write_with};
 
-#[test]
-fn v1025_large_dwg_r2018_preserves_entities() {
-    const COUNT: usize = 10_000;
+fn verify_dwg_roundtrip(count: usize) {
     let started = Instant::now();
     let mut drawing = Drawing::new_metric();
-    for i in 0..COUNT {
+    for i in 0..count {
         let x = (i % 250) as f64 * 10.0;
         let y = (i / 250) as f64 * 10.0;
         drawing.add(&Space::Model, Common::default(), EntityKind::Line(Line {
@@ -20,7 +18,7 @@ fn v1025_large_dwg_r2018_preserves_entities() {
             b: Vec3::new(x + 5.0, y + 2.0, 0.0),
         })).expect("add line");
     }
-    assert_eq!(drawing.model.len(), COUNT);
+    assert_eq!(drawing.model.len(), count);
     let generate_ms = started.elapsed().as_millis();
 
     let write_started = Instant::now();
@@ -32,7 +30,7 @@ fn v1025_large_dwg_r2018_preserves_entities() {
     let reopen_started = Instant::now();
     let reopened = read(&dwg, "v1025-large.dwg").expect("reopen R2018 DWG");
     let read_ms = reopen_started.elapsed().as_millis();
-    assert_eq!(reopened.model.len(), COUNT, "DWG bridge silently lost or duplicated geometry");
+    assert_eq!(reopened.model.len(), count, "DWG bridge silently lost or duplicated geometry");
 
     let mut total_lines = 0usize;
     let mut sum_start_x = 0.0f64;
@@ -49,10 +47,25 @@ fn v1025_large_dwg_r2018_preserves_entities() {
             kind => panic!("unexpected entity type in large DWG: {kind:?}"),
         }
     }
-    assert_eq!(total_lines, COUNT);
-    let expected_sum_x: f64 = (0..COUNT).map(|i| (i % 250) as f64 * 10.0).sum();
-    let expected_sum_y: f64 = (0..COUNT).map(|i| (i / 250) as f64 * 10.0).sum();
+    assert_eq!(total_lines, count);
+    let expected_sum_x: f64 = (0..count).map(|i| (i % 250) as f64 * 10.0).sum();
+    let expected_sum_y: f64 = (0..count).map(|i| (i / 250) as f64 * 10.0).sum();
     assert!((sum_start_x - expected_sum_x).abs() < 1e-4);
     assert!((sum_start_y - expected_sum_y).abs() < 1e-4);
-    eprintln!("V1.025 large DWG: entities={COUNT} bytes={} generate_ms={generate_ms} write_ms={write_ms} read_ms={read_ms}", dwg.len());
+    eprintln!("V1.025 large DWG: entities={} bytes={} generate_ms={generate_ms} write_ms={write_ms} read_ms={read_ms}", count, dwg.len());
+}
+
+#[test]
+fn v1025_large_dwg_r2018_preserves_entities() {
+    verify_dwg_roundtrip(10_000);
+}
+
+#[test]
+fn v1025_medium_dwg_r2018_50000_entities() {
+    verify_dwg_roundtrip(50_000);
+}
+
+#[test]
+fn v1025_stress_dwg_r2018_100000_entities() {
+    verify_dwg_roundtrip(100_000);
 }
