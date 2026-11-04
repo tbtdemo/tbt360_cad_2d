@@ -20,11 +20,13 @@ permissions:
   contents: write  # only for publishing verified prerelease binaries; checkout persists no credentials
 
 concurrency:
-  # Prioritize the newest source commit for automatic push builds. Keep manual
-  # workflow_dispatch builds in their own queue so a later push never cancels a
-  # deliberately requested installer build and its diagnostic artifacts.
+  # Windows release builds take long enough that cancelling the running compile
+  # on every push can starve Setup/Portable production indefinitely. GitHub
+  # automatically replaces an older PENDING run with the newest queued push,
+  # while the single RUNNING build is allowed to complete.
+  # Keep manual dispatches separate from automatic push builds.
   group: cad360-v1025-release-${{ github.ref }}-${{ github.event_name }}
-  cancel-in-progress: ${{ github.event_name == 'push' }}
+  cancel-in-progress: false
 
 jobs:
   windows-package:
