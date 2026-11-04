@@ -2790,6 +2790,7 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
                 _ => {}
             }
         }
+        });
     }
 
     if let Some(id) = state.selected_record_id {
@@ -2820,7 +2821,6 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
                 }
                 if ui.button("Đóng sửa").clicked() { state.selected_record_id=None; }
             });
-        });
         });
     }
 
