@@ -886,14 +886,17 @@ mod tests {
         assert_eq!(traced["vertices"], 3);
         let images = s.execute("entities", &json!({"type": "IMAGE"})).expect("query IMAGE entities");
         assert_eq!(images["count"], 1);
-        assert_eq!(images["entities"][0]["geometry"]["Image"]["path"], reference);
+        let image_geometry = &images["entities"][0]["geometry"];
+        assert_eq!(image_geometry["type"], "image");
+        assert_eq!(image_geometry["path"], reference);
         let outlines = s.execute("entities", &json!({"type": "LWPOLYLINE"})).expect("query LWPOLYLINE entities");
         assert_eq!(outlines["count"], 1);
         let line = &outlines["entities"][0];
         assert_eq!(line["type"], "Polyline");
-        let poly = &line["geometry"]["LwPolyline"];
+        let poly = &line["geometry"];
+        assert_eq!(poly["type"], "lwPolyline");
         assert_eq!(poly["closed"], false);
-        let verts = poly["vertices"].as_array().expect("externally tagged LwPolyline.vertices");
+        let verts = poly["vertices"].as_array().expect("internally tagged LwPolyline.vertices");
         assert_eq!(verts.len(), 3);
         for (actual, expected) in verts.iter().zip([[0.0, 0.0], [20.0, 0.0], [20.0, 10.0]]) {
             let p = &actual["p"];
