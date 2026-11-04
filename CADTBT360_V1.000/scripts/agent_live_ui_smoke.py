@@ -241,10 +241,43 @@ def main():
         # Check actual DWG roundtrip counts, not just existence of the file.
         # The CLI info output can nest entity totals: inspect both the parsed structure
         # and source text to retain a diagnostic when the output schema differs.
-        report={"result":"PASS","method":"real desktop MCP bridge","counts":counts,
+        # Independent mixed-entity DWG scenario: test real layer assignments,
+        # arcs, polylines, TEXT and MTEXT without relying on synthetic file samples.
+        mcp.tool("new_drawing",{"metric":True})
+        mcp.tool("execute",{"command":"layer.new","params":{"name":"CAD360-WALLS","color":"red","current":True}})
+        mcp.tool("execute",{"command":"rectang","params":{"p1":[0,0],"p2":[140,90]}})
+        mcp.tool("execute",{"command":"arc","params":{"p1":[10,10],"p2":[30,30],"p3":[50,10]}})
+        mcp.tool("execute",{"command":"layer.new","params":{"name":"CAD360-ANNOTATION","color":"blue","current":True}})
+        mcp.tool("execute",{"command":"text","params":{"at":[10,95],"height":3,"text":"CAD360 MIXED DRAWING"}})
+        mcp.tool("execute",{"command":"mtext","params":{"at":[10,110],"height":2.5,"width":120,"text":"CAD360\\PAGENT QA"}})
+        mcp.tool("execute",{"command":"circle","params":{"center":[120,60],"radius":8}})
+        mixed_before=json.loads(mcp.tool("inspect_drawing",{"entities":False})[0]["text"])
+        before_counts=mixed_before.get("counts",{})
+        required={"Polyline":1,"Arc":1,"Text":1,"MText":1,"Circle":1}
+        for kind,expected in required.items():
+            if before_counts.get(kind)!=expected:
+                raise RuntimeError(f"Mixed CAD command did not produce {kind}: {before_counts}")
+        mixed_dwg=args.out/"CAD360_AGENT_MIXED_ENTITIES.dwg"
+        mcp.tool("save",{"path":str(mixed_dwg.resolve())})
+        mixed_reopen=subprocess.run([str(args.cli),"info",str(mixed_dwg)],
+                                 capture_output=True,text=True,timeout=45)
+        if mixed_reopen.returncode:
+            raise RuntimeError(f"Mixed CAD DWG could not reopen: {mixed_reopen.stderr[:600]}")
+        mixed_after=json.loads(mixed_reopen.stdout)
+        after_counts=mixed_after.get("counts",{})
+        for kind,expected in required.items():
+            if after_counts.get(kind)!=expected:
+                raise RuntimeError(f"Mixed CAD DWG roundtrip lost {kind}: {after_counts}")
+        layers={str(layer.get("name","")) for layer in mixed_after.get("layers",[]) if isinstance(layer,dict)}
+        if not {"CAD360-WALLS","CAD360-ANNOTATION"}.issubset(layers):
+            raise RuntimeError(f"DWG lost CAD360 layers: {mixed_after.get('layers')}")
+        (args.out/"mixed_dwg_before.json").write_text(json.dumps(mixed_before,indent=2),encoding="utf-8")
+        (args.out/"mixed_dwg_after.json").write_text(json.dumps(mixed_after,indent=2),encoding="utf-8")
+                report={"result":"PASS","method":"real desktop MCP bridge","counts":counts,
                 "render":render_info,"window_screenshot":screen_info,"visual_comparison":visual,
                 "drawing_bytes":drawing.stat().st_size,"undo_counts":undo_counts,"redo_counts":redo_counts,
-                "extended_counts":extended_counts,"reopened_dwg_counts":dwg_counts,"dwg_bytes":dwg.stat().st_size}
+                "extended_counts":extended_counts,"reopened_dwg_counts":dwg_counts,"dwg_bytes":dwg.stat().st_size,
+                "mixed_expected":required,"mixed_reopened_counts":after_counts,"mixed_layers":sorted(layers)}
         (args.out/"ACCEPTANCE.json").write_text(json.dumps(report,indent=2),encoding="utf-8")
         print(json.dumps(report,indent=2))
     finally:
