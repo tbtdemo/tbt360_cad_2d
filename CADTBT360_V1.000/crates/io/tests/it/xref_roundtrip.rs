@@ -155,3 +155,45 @@ fn objects_in_a_read_xref_block_are_ignored() {
     assert_eq!(site.xref_path.as_deref(), Some("site.dxf"));
     assert!(site.entities.is_empty());
 }
+
+
+/// V1.025 regression: repeatedly saving a host must not materialize an attached Xref.
+/// The dependent layer's linetype must remain resolvable after reopening.
+#[test]
+fn v1025_repeated_roundtrips_keep_xref_links_and_layer_linetype() {
+    let mut d = host();
+    let walls = d.layer_mut("SITE|Walls").expect("xref layer");
+    walls.linetype = "SITE|Dashed".into();
+    walls.color = Color::Index(3);
+    walls.frozen = true;
+
+    for cycle in 0..3 {
+        d = roundtrip(&d);
+        let site = d.block("SITE").expect("xref block remains");
+        assert_eq!(site.xref_path.as_deref(), Some("..\\\\shared\\\\site.dwg"), "cycle {cycle}");
+        assert!(site.entities.is_empty(), "xref contents must not be embedded at cycle {cycle}");
+        assert!(!d.blocks.contains_key("SITE|Tree"), "dependent block must not be materialized");
+        let walls = d.layer("SITE|Walls").expect("dependent layer preserved");
+        assert_eq!(walls.color, Color::Index(3));
+        assert!(walls.frozen);
+        assert_eq!(walls.linetype, "SITE|Dashed");
+        assert!(d.linetype("SITE|Dashed").is_some(), "dependent linetype must be retained to resolve layer reference");
+        assert_eq!(d.model.iter().filter(|e| matches!(e.kind, EntityKind::Insert(_))).count(), 2);
+    }
+}
+
+/// V1.025 regression: an overlay remains an overlay, never promoted to an attached
+/// nested reference, even when the host is saved more than once.
+#[test]
+fn v1025_overlay_semantics_survive_repeated_save_open() {
+    let mut d = host();
+    for _ in 0..3 {
+        d = roundtrip(&d);
+        let overlay = d.block("PLAN").expect("overlay");
+        assert_eq!(overlay.xref_path.as_deref(), Some("plan.dxf"));
+        assert!(overlay.xref_overlay);
+        assert!(overlay.entities.is_empty());
+        let records = block_records(&write_dxf(&d));
+        assert_eq!(records.iter().find(|r| r.0 == "PLAN").map(|r| r.1 & 12), Some(12));
+    }
+}
