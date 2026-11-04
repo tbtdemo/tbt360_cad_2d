@@ -32,7 +32,6 @@ impl RasterAdjust {
     }
 }
 
-#[derive(Clone)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct FileStamp {
     len: u64,
@@ -45,6 +44,7 @@ fn file_stamp(path: &Path) -> Option<FileStamp> {
     Some(FileStamp { len: metadata.len(), modified: metadata.modified().ok() })
 }
 
+#[derive(Clone)]
 struct CacheEntry {
     texture: Option<TextureHandle>,
     retry_after: Instant,
