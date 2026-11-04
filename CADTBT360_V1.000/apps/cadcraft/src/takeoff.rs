@@ -2108,7 +2108,7 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
             ui.label("Mã CT"); ui.add(egui::TextEdit::singleline(&mut state.volume_work_code).desired_width(125.0));
             ui.label("Diễn giải"); ui.add(egui::TextEdit::singleline(&mut state.volume_description).desired_width(200.0));
         });
-        let ready=state.volume_plan.as_ref().zip(state.volume_section.as_ref()).filter(|(plan,section)| plan.handle!=section.handle)
+        let ready=state.volume_plan.as_ref().zip(state.volume_section.as_ref()).filter(|(plan,section)| !takeoff_composite::same_cad_entity(&plan.handle,&section.handle))
             .and_then(|(plan,section)|state.scale_to_m().and_then(|scale|takeoff_composite::volume(plan.raw_value,section.raw_value,scale).ok()));
         if let Some(value)=ready { ui.colored_label(egui::Color32::LIGHT_GREEN,format!("Thể tích dự kiến: {value:.3} m³ = S mặt bằng × H mặt cắt (chưa xác nhận).")); }
         else { ui.colored_label(egui::Color32::YELLOW,"Cần hai nguồn hình học độc lập và tỷ lệ bản vẽ hợp lệ trước khi tính thể tích."); }
@@ -2117,7 +2117,7 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
             let section=state.volume_section.clone().unwrap();
             if !qto_volume_source_current(app,&plan,MeasureKind::Area) || !qto_volume_source_current(app,&section,MeasureKind::Length) {
                 state.import_feedback="Một trong hai nguồn CAD đã thay đổi; cần quét và khai báo lại.".into();
-            } else if state.volume_records.iter().any(|r|r.plan.handle==plan.handle && r.section.handle==section.handle) {
+            } else if state.volume_records.iter().any(|r|takeoff_composite::same_cad_entity(&r.plan.handle,&plan.handle) && takeoff_composite::same_cad_entity(&r.section.handle,&section.handle)) {
                 state.import_feedback="Cặp mặt bằng/mặt cắt này đã được đo bóc, không ghi trùng.".into();
             } else {
                 state.captured_handles.insert(plan.handle.clone());
