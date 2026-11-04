@@ -1237,34 +1237,33 @@ fn qto_road_find_marker_entity<'a>(doc: &'a cadcraft_doc::Drawing, handle: cadcr
     Ok(found)
 }
 
+fn qto_road_inspect_marker_entity(doc: &cadcraft_doc::Drawing, entity: &cadcraft_doc::Entity, markers: &mut Vec<takeoff_road::RoadPlanMarker>, skipped: &mut usize, handles: &mut BTreeSet<String>) {
+    if !matches!(&entity.kind,EntityKind::Text(_) | EntityKind::MText(_) | EntityKind::Insert(_)) {return;}
+    let key=qto_station_handle_key(&entity.handle.hex());
+    if !handles.insert(key) {*skipped+=1;return;}
+    match qto_road_station_from_entity(doc,entity) {
+        Ok(chainage_m)=>markers.push(takeoff_road::RoadPlanMarker{chainage_m,handle:entity.handle.hex()}),
+        Err(_)=>*skipped+=1,
+    }
+}
 fn qto_road_scan_drawing_markers(doc: &cadcraft_doc::Drawing, selected: &[cadcraft_doc::Handle], all_model: bool, include_layouts: bool) -> (Vec<takeoff_road::RoadPlanMarker>,usize) {
     let mut markers=Vec::new();
     let mut skipped=0usize;
-    let mut missing_selected=0usize;
     let mut handles=BTreeSet::<String>::new();
-    let mut inspect=|entity: &cadcraft_doc::Entity| {
-        if !matches!(&entity.kind,EntityKind::Text(_) | EntityKind::MText(_) | EntityKind::Insert(_)) {return;}
-        let key=qto_station_handle_key(&entity.handle.hex());
-        if !handles.insert(key) {skipped+=1;return;}
-        match qto_road_station_from_entity(doc,entity) {
-            Ok(chainage_m)=>markers.push(takeoff_road::RoadPlanMarker{chainage_m,handle:entity.handle.hex()}),
-            Err(_)=>skipped+=1,
-        }
-    };
     if all_model {
-        for entity in doc.model.iter() {inspect(entity);}
+        for entity in doc.model.iter() {qto_road_inspect_marker_entity(doc,entity,&mut markers,&mut skipped,&mut handles);}
         if include_layouts {
             for layout in &doc.layouts {
-                for entity in layout.entities.iter() {inspect(entity);}
+                for entity in layout.entities.iter() {qto_road_inspect_marker_entity(doc,entity,&mut markers,&mut skipped,&mut handles);}
             }
         }
     } else {
         for &handle in selected {
-            if let Some(entity)=doc.model.get(handle) {inspect(entity);}
-            else {missing_selected+=1;}
+            if let Some(entity)=doc.model.get(handle) {qto_road_inspect_marker_entity(doc,entity,&mut markers,&mut skipped,&mut handles);}
+            else {skipped+=1;}
         }
     }
-    (markers,skipped+missing_selected)
+    (markers,skipped)
 }
 
 fn qto_road_scan_markers(app: &CadApp, all_model: bool, include_layouts: bool) -> (Vec<takeoff_road::RoadPlanMarker>,usize) {
