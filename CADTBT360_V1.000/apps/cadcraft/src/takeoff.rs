@@ -1808,6 +1808,12 @@ fn qto_record_in_canonical_scope(record: &MeasurementRecord, allowed: Option<&BT
             .is_some_and(|handle|handles.contains(&handle.hex())),
     }
 }
+/// One predicate for paged rows, visible counters and batch Excel selection.
+fn qto_register_matches(record: &MeasurementRecord, search: &str, status_filter: u8, kinds: [bool;4], scope: Option<&BTreeSet<String>>) -> bool {
+    measurement_matches_filter(record,search,status_filter)
+        && qto_record_in_canonical_scope(record,scope)
+        && qto_measure_type_allowed(record.kind,kinds)
+}
 fn qto_record_in_scope(record: &MeasurementRecord, allowed: Option<&BTreeSet<String>>) -> bool {
     match allowed {
         None => true,
@@ -2720,14 +2726,14 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
         egui::CollapsingHeader::new(format!("Danh sách phép đo • {} bản ghi",state.records.len()))
             .id_salt("cadtbt360_qto_register").default_open(true).show(ui,|ui| {
         ui.small("Tìm kiếm, chọn dòng xuất, rà soát và chỉnh sửa phép đo.");
+        let mut filter_changed=false;
         ui.horizontal_wrapped(|ui| {
             ui.label("Tìm kiếm");
-            ui.add(egui::TextEdit::singleline(&mut state.search_text).hint_text("Layer, mã công tác, diễn giải hoặc handle").desired_width(220.0));
+            filter_changed|=ui.add(egui::TextEdit::singleline(&mut state.search_text).hint_text("Layer, mã công tác, diễn giải hoặc handle").desired_width(220.0)).changed();
             ui.label("Trạng thái:");
-            ui.selectable_value(&mut state.status_filter, 0, "Tất cả");
-            ui.selectable_value(&mut state.status_filter, 1, "Cần rà soát");
-            ui.selectable_value(&mut state.status_filter, 2, "Đã xác nhận");
-            ui.selectable_value(&mut state.status_filter, 3, "Đã loại");
+            for (index,label) in ["Tất cả","Cần rà soát","Đã xác nhận","Đã loại"].iter().enumerate() {
+                filter_changed|=ui.selectable_value(&mut state.status_filter,index as u8,*label).changed();
+            }
         });
         let mut action: Option<(u64, u8)> = None;
         // Reuse the same scoped handle set across all rows. Rebuilding the
@@ -2737,28 +2743,27 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
         ui.horizontal_wrapped(|ui| {
             if ui.button("Chọn tất cả phép đo đang lọc để xuất").clicked() {
                 for record in &state.records {
-                    if measurement_matches_filter(record, &state.search_text, state.status_filter) && qto_record_in_canonical_scope(record, register_scope_canonical.as_ref()) {
+                    if qto_register_matches(record,&state.search_text,state.status_filter,state.selected_measure_types,register_scope_canonical.as_ref()) {
                         state.export_omitted_ids.remove(&record.id);
                     }
                 }
             }
             if ui.button("Bỏ chọn phép đo đang lọc").clicked() {
                 for record in &state.records {
-                    if measurement_matches_filter(record, &state.search_text, state.status_filter) && qto_record_in_canonical_scope(record, register_scope_canonical.as_ref()) {
+                    if qto_register_matches(record,&state.search_text,state.status_filter,state.selected_measure_types,register_scope_canonical.as_ref()) {
                         state.export_omitted_ids.insert(record.id);
                     }
                 }
             }
             ui.label(format!("Đã bỏ chọn {} phép đo khỏi Excel.", state.export_omitted_ids.len()));
         });
-        let visible_count=state.records.iter().filter(|record|measurement_matches_filter(record,&state.search_text,state.status_filter)
-            && qto_record_in_canonical_scope(record,register_scope_canonical.as_ref()) && qto_measure_type_allowed(record.kind,state.selected_measure_types)).count();
+        let visible_count=state.records.iter().filter(|record|qto_register_matches(record,&state.search_text,state.status_filter,state.selected_measure_types,register_scope_canonical.as_ref())).count();
         // Draw one bounded page of QTO rows; selection/export operations above
         // still apply to every matching record, not just the visible page.
         const QTO_ROWS_PER_PAGE: usize=75;
         let total_pages=visible_count.saturating_add(QTO_ROWS_PER_PAGE-1)/QTO_ROWS_PER_PAGE;
         let page_id=egui::Id::new("cadtbt360_qto_register_page");
-        let mut page=ui.ctx().data_mut(|data|data.get_temp::<usize>(page_id).unwrap_or(0)).min(total_pages.saturating_sub(1));
+        let mut page=if filter_changed {0} else {ui.ctx().data_mut(|data|data.get_temp::<usize>(page_id).unwrap_or(0)).min(total_pages.saturating_sub(1))};
         ui.horizontal_wrapped(|ui| {
             ui.small(format!("{} / {} phép đo phù hợp",visible_count,state.records.len()));
             if total_pages>1 {
@@ -2776,8 +2781,7 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
             egui::Grid::new("native_qto_measurements").striped(true).show(ui, |ui| {
                 for h in ["Xuất", "ID","Handle nguồn","Nguồn","Tầng","Bộ môn","Owner","Loại","Layer","Nhóm","Mã CT","Diễn giải","Giá trị","Trạng thái","Thao tác"] { ui.strong(h); }
                 ui.end_row();
-                for record in state.records.iter().filter(|record|measurement_matches_filter(record,&state.search_text,state.status_filter)
-                    && qto_record_in_canonical_scope(record,register_scope_canonical.as_ref()) && qto_measure_type_allowed(record.kind,state.selected_measure_types))
+                for record in state.records.iter().filter(|record|qto_register_matches(record,&state.search_text,state.status_filter,state.selected_measure_types,register_scope_canonical.as_ref()))
                     .skip(page*QTO_ROWS_PER_PAGE).take(QTO_ROWS_PER_PAGE) {
                     let value = match record.kind {
                         MeasureKind::Area => record.raw_value * af,
@@ -3927,6 +3931,16 @@ mod tests {
         assert!(lwpoly_metrics(&vertices, false).is_none());
     }
 
+    #[test]
+    fn qto_register_bulk_selection_respects_visible_measure_types() {
+        let mut state=State::default();
+        let id=state.add_measurement(MeasureKind::Count,Vec::new(),1.0,"LAYER".into()).unwrap();
+        let record=state.records.iter().find(|r|r.id==id).unwrap();
+        assert!(!qto_register_matches(record,"",0,[true,true,true,false],None));
+        assert!(qto_register_matches(record,"LAYER",0,[false,false,false,true],None));
+        assert!(!qto_register_matches(record,"NO MATCH",0,[false,false,false,true],None));
+        assert!(!qto_register_matches(record,"",2,[false,false,false,true],None));
+    }
     #[test]
     fn canonical_qto_scope_matches_padding_case_and_excludes_invalid_handles() {
         let mut selected=BTreeSet::new();
