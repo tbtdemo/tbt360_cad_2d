@@ -18,7 +18,7 @@ permissions:
 
 concurrency:
   group: cad360-v1025-xref-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   xref-regression:
@@ -49,10 +49,12 @@ jobs:
           key: cad360-v1025-xref
       - name: Run all DXF and R2018 DWG Xref tests
         run: cargo test --locked -p cadcraft-io --test it xref_roundtrip -- --nocapture
+      - name: Verify 10,000-entity native DWG integrity and record timings
+        run: cargo test --locked -p cadcraft-io --test it large_dwg_v1025 -- --nocapture
       - name: Assert all V1.025 regressions are executed
         run: |
           $testNames = (cargo test --locked -p cadcraft-io --test it -- --list | Out-String)
           if ($LASTEXITCODE -ne 0) { throw 'Unable to enumerate tests' }
-          foreach ($test in @('v1025_repeated_roundtrips_keep_xref_links_and_layer_linetype', 'v1025_overlay_semantics_survive_repeated_save_open', 'v1025_dwg_r2018_xref_links_survive_save_open', 'v1025_dwg_r2018_xref_layer_override_survives')) {
+          foreach ($test in @('v1025_repeated_roundtrips_keep_xref_links_and_layer_linetype', 'v1025_overlay_semantics_survive_repeated_save_open', 'v1025_dwg_r2018_xref_links_survive_save_open', 'v1025_dwg_r2018_xref_layer_override_survives', 'v1025_large_dwg_r2018_preserves_entities')) {
             if (-not $testNames.Contains($test)) { throw "Missing V1.025 regression test: $test" }
           }
