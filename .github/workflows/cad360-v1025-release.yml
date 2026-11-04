@@ -2,6 +2,11 @@ name: CAD 360 V1.025 - Windows Setup Portable
 
 on:
   workflow_dispatch:
+  pull_request:
+    paths:
+      - 'installer/CADTBT360_V1.025_Windows.iss'
+      - '.github/workflows/cad360-v1025-release.yml'
+      - 'CADTBT360_V1.000/**'
   push:
     branches:
       - feature/CADTBT360_V1.025_xref-regression
