@@ -1794,6 +1794,20 @@ fn qto_road_export_totals(rows: &[ReportLine]) -> Result<(f64,f64),String> {
     }
     Ok((cut,fill))
 }
+/// Canonicalize selected CAD identities once per UI frame. Comparing one
+/// hexadecimal Handle against every selected textual handle for each row
+/// makes large QTO registers quadratic in the size of the CAD selection.
+fn qto_canonical_scope(allowed: Option<&BTreeSet<String>>) -> Option<BTreeSet<String>> {
+    allowed.map(|handles|handles.iter().filter_map(|handle|cadcraft_doc::Handle::parse_hex(handle).map(|id|id.hex())).collect())
+}
+fn qto_record_in_canonical_scope(record: &MeasurementRecord, allowed: Option<&BTreeSet<String>>) -> bool {
+    match allowed {
+        None => true,
+        Some(handles) => record.source_handle.as_deref()
+            .and_then(cadcraft_doc::Handle::parse_hex)
+            .is_some_and(|handle|handles.contains(&handle.hex())),
+    }
+}
 fn qto_record_in_scope(record: &MeasurementRecord, allowed: Option<&BTreeSet<String>>) -> bool {
     match allowed {
         None => true,
@@ -2719,17 +2733,18 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
         // Reuse the same scoped handle set across all rows. Rebuilding the
         // selection per record made large QTO registers disproportionately slow.
         let register_scope = qto_allowed_handles(app, state);
+        let register_scope_canonical=qto_canonical_scope(register_scope.as_ref());
         ui.horizontal_wrapped(|ui| {
             if ui.button("Chọn tất cả phép đo đang lọc để xuất").clicked() {
                 for record in &state.records {
-                    if measurement_matches_filter(record, &state.search_text, state.status_filter) && qto_record_in_scope(record, register_scope.as_ref()) {
+                    if measurement_matches_filter(record, &state.search_text, state.status_filter) && qto_record_in_canonical_scope(record, register_scope_canonical.as_ref()) {
                         state.export_omitted_ids.remove(&record.id);
                     }
                 }
             }
             if ui.button("Bỏ chọn phép đo đang lọc").clicked() {
                 for record in &state.records {
-                    if measurement_matches_filter(record, &state.search_text, state.status_filter) && qto_record_in_scope(record, register_scope.as_ref()) {
+                    if measurement_matches_filter(record, &state.search_text, state.status_filter) && qto_record_in_canonical_scope(record, register_scope_canonical.as_ref()) {
                         state.export_omitted_ids.insert(record.id);
                     }
                 }
@@ -2737,7 +2752,7 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
             ui.label(format!("Đã bỏ chọn {} phép đo khỏi Excel.", state.export_omitted_ids.len()));
         });
         let visible_count=state.records.iter().filter(|record|measurement_matches_filter(record,&state.search_text,state.status_filter)
-            && qto_record_in_scope(record,register_scope.as_ref()) && qto_measure_type_allowed(record.kind,state.selected_measure_types)).count();
+            && qto_record_in_canonical_scope(record,register_scope_canonical.as_ref()) && qto_measure_type_allowed(record.kind,state.selected_measure_types)).count();
         // Draw one bounded page of QTO rows; selection/export operations above
         // still apply to every matching record, not just the visible page.
         const QTO_ROWS_PER_PAGE: usize=75;
@@ -2762,7 +2777,7 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
                 for h in ["Xuất", "ID","Handle nguồn","Nguồn","Tầng","Bộ môn","Owner","Loại","Layer","Nhóm","Mã CT","Diễn giải","Giá trị","Trạng thái","Thao tác"] { ui.strong(h); }
                 ui.end_row();
                 for record in state.records.iter().filter(|record|measurement_matches_filter(record,&state.search_text,state.status_filter)
-                    && qto_record_in_scope(record,register_scope.as_ref()) && qto_measure_type_allowed(record.kind,state.selected_measure_types))
+                    && qto_record_in_canonical_scope(record,register_scope_canonical.as_ref()) && qto_measure_type_allowed(record.kind,state.selected_measure_types))
                     .skip(page*QTO_ROWS_PER_PAGE).take(QTO_ROWS_PER_PAGE) {
                     let value = match record.kind {
                         MeasureKind::Area => record.raw_value * af,
@@ -3912,6 +3927,24 @@ mod tests {
         assert!(lwpoly_metrics(&vertices, false).is_none());
     }
 
+    #[test]
+    fn canonical_qto_scope_matches_padding_case_and_excludes_invalid_handles() {
+        let mut selected=BTreeSet::new();
+        selected.insert("0002a".to_string());
+        selected.insert("not-hex".to_string());
+        let canonical=qto_canonical_scope(Some(&selected)).unwrap();
+        assert_eq!(canonical.len(),1);
+        let mut state=State::default();
+        let id=state.add_measurement(MeasureKind::Count,Vec::new(),1.0,"LAYER".into()).unwrap();
+        let record=state.records.iter_mut().find(|r|r.id==id).unwrap();
+        record.source_handle=Some("2A".into());
+        assert!(qto_record_in_canonical_scope(record,Some(&canonical)));
+        record.source_handle=Some("2B".into());
+        assert!(!qto_record_in_canonical_scope(record,Some(&canonical)));
+        record.source_handle=Some("invalid".into());
+        assert!(!qto_record_in_canonical_scope(record,Some(&canonical)));
+        assert!(qto_record_in_canonical_scope(record,None));
+    }
     #[test]
     fn ordinary_qto_record_uses_numeric_handle_identity_for_scope() {
         let mut state=State::default();
