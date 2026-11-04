@@ -201,6 +201,23 @@ jobs:
           $instGui = (Get-FileHash (Join-Path $dest 'CADTBT360.exe') -Algorithm SHA256).Hash
           $instCli = (Get-FileHash (Join-Path $dest 'CADTBT360_CLI.exe') -Algorithm SHA256).Hash
           if ($srcGui -ne $instGui -or $srcCli -ne $instCli) { throw 'Installed binaries do not match current source build' }
+          # SHA identity alone cannot detect a package built for the wrong CPU or a
+          # GUI shipped as a console executable. Inspect PE headers in the actual
+          # installed EXEs; portable files are independently hash-matched to these.
+          function Assert-WindowsPE([string]$path, [int]$expectedSubsystem) {
+            $data = [System.IO.File]::ReadAllBytes($path)
+            if ($data.Length -lt 512 -or $data[0] -ne 77 -or $data[1] -ne 90) { throw "Invalid Windows MZ executable: $path" }
+            $offset = [System.BitConverter]::ToInt32($data, 60)
+            if ($offset -lt 64 -or $offset + 94 -gt $data.Length) { throw "Invalid Windows PE header offset: $path" }
+            if ([System.Text.Encoding]::ASCII.GetString($data, $offset, 4) -ne "PE`0`0") { throw "Missing Windows PE signature: $path" }
+            $machine = [System.BitConverter]::ToUInt16($data, $offset + 4)
+            $magic = [System.BitConverter]::ToUInt16($data, $offset + 24)
+            $subsystem = [System.BitConverter]::ToUInt16($data, $offset + 92)
+            if ($machine -ne 0x8664 -or $magic -ne 0x20b) { throw "Expected native x64 PE32+ executable: $path (machine=$machine, magic=$magic)" }
+            if ($subsystem -ne $expectedSubsystem) { throw "Wrong Windows subsystem in $path : expected $expectedSubsystem, got $subsystem" }
+          }
+          Assert-WindowsPE (Join-Path $dest 'CADTBT360.exe') 2
+          Assert-WindowsPE (Join-Path $dest 'CADTBT360_CLI.exe') 3
           $installedCli = Join-Path $dest 'CADTBT360_CLI.exe'
           $cliVersion = & $installedCli --version
           if ($LASTEXITCODE -ne 0 -or $cliVersion -notmatch '^cadcraft-cli [0-9]+[.][0-9]+[.][0-9]+') { throw "Installed CLI smoke test failed: $cliVersion" }
