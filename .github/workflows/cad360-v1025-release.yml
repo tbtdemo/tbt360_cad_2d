@@ -142,6 +142,11 @@ jobs:
           if ($LASTEXITCODE -ne 0 -or $cliVersion -notmatch '^cadcraft-cli [0-9]+[.][0-9]+[.][0-9]+') { throw "Installed CLI smoke test failed: $cliVersion" }
           $imageCommands = & $installedCli commands image
           if ($LASTEXITCODE -ne 0 -or ($imageCommands -join [char]10) -notmatch 'imageattach') { throw 'Installed CLI does not expose IMAGEATTACH command' }
+          $roundTripFile = Join-Path $env:RUNNER_TEMP 'CADTBT360_V1025_Installed_Smoke.dxf'
+          & $installedCli sample floorplan $roundTripFile | Out-Host
+          if ($LASTEXITCODE -ne 0 -or !(Test-Path $roundTripFile)) { throw 'Installed CLI cannot create an editable DXF drawing' }
+          $roundTripInfo = & $installedCli info $roundTripFile
+          if ($LASTEXITCODE -ne 0 -or !($roundTripInfo -join [char]10).Contains('entities')) { throw 'Installed CLI cannot reopen generated DXF drawing' }
           if (-not (Select-String -Path (Join-Path $dest 'BUILD_INFO.txt') -Pattern 'Release=CADTBT360_V1.025' -Quiet)) { throw 'Incorrect release metadata' }
           $uninstaller = Join-Path $dest 'unins000.exe'
           if (!(Test-Path $uninstaller)) { throw 'Missing Inno Setup uninstaller' }
