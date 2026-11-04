@@ -56,7 +56,11 @@ def main():
     run(a.cli,["run","--metric",*cmds,"--save",str(target)])
     if target.stat().st_size<1024: raise RuntimeError("DWG unexpectedly small")
     after=json.loads(run(a.cli,["info",str(target)]))
-    actual=layer_map(after)
+    # CLI info calls drawing.inspect, whose lightweight layer summary deliberately
+    # omits colorRgb and lineweight. Query the full 'layer' command on the
+    # separately reopened DWG; this is the authoritative layer property schema.
+    detailed=json.loads(run(a.cli,["run",str(target),"--cmd","layer {}"]))
+    actual=layer_map(detailed)
     if set(actual)!={x["name"] for x in LAYER_CASES}:
         raise RuntimeError(f"Layer names lost: {actual}")
     for case in LAYER_CASES:
