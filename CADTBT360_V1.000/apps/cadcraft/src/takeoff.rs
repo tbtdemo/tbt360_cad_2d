@@ -1774,6 +1774,26 @@ fn qto_road_report_lines(app: &CadApp, state: &State, config: &ExportConfig,
     Ok(out)
 }
 
+/// Summarize precisely the rows accepted by the road XLSX exporter, in its
+/// configured output cubic unit. Do not infer published totals from raw previews.
+fn qto_road_export_totals(rows: &[ReportLine]) -> Result<(f64,f64),String> {
+    let mut cut=0.0_f64;
+    let mut fill=0.0_f64;
+    for row in rows {
+        if !row.quantity.is_finite() || row.quantity<0.0 {
+            return Err("Dòng Excel đào–đắp có khối lượng không hợp lệ.".into());
+        }
+        match row.fields[7].as_str() {
+            "Đào nền đường" => cut+=row.quantity,
+            "Đắp nền đường" => fill+=row.quantity,
+            _ => return Err("Dòng Excel giao thông có loại đào/đắp không xác định.".into()),
+        }
+        if !cut.is_finite() || !fill.is_finite() {
+            return Err("Tổng khối lượng Excel đào–đắp vượt phạm vi tính toán.".into());
+        }
+    }
+    Ok((cut,fill))
+}
 fn qto_record_in_scope(record: &MeasurementRecord, allowed: Option<&BTreeSet<String>>) -> bool {
     match allowed {
         None => true,
@@ -2557,7 +2577,14 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
                         let to_display_unit=state.export_config.unit_scale().powi(3);
                         ui.strong(format!("TỔNG HỢP ĐÀO–ĐẮP THEO PHẠM VI: Đào {:.3} m³ ({} khoảng), Đắp {:.3} m³ ({} khoảng); chênh lệch đào − đắp {:.3} m³.",
                             totals.cut_m3,totals.cut_intervals,totals.fill_m3,totals.fill_intervals,totals.cut_m3-totals.fill_m3));
-                        ui.small(format!("Đây là tổng dự kiến từ các đoạn đang chọn, chưa đối chiếu hiện trạng CAD hoặc điều kiện phát hành; hệ số đổi sang đơn vị xuất: {:.6}.",to_display_unit));
+                        if let Some(Ok(rows))=road_export_check.as_ref() {
+                            match qto_road_export_totals(rows) {
+                                Ok((cut_export,fill_export)) => ui.small(format!("SỐ LIỆU TRONG EXCEL: Đào {:.3} {}³, Đắp {:.3} {}³, chênh lệch {:.3} {}³ ({} dòng đã kiểm tra).",
+                                    cut_export,state.export_config.length_unit,fill_export,state.export_config.length_unit,cut_export-fill_export,state.export_config.length_unit,rows.len())),
+                                Err(error) => ui.colored_label(egui::Color32::YELLOW,error),
+                            };
+                        }
+                        ui.small(format!("Số liệu xem trước theo m³; hệ số quy đổi sang đơn vị xuất: {:.6}.",to_display_unit));
                     },
                     Err(error) => { ui.colored_label(egui::Color32::YELLOW,error); },
                 }
@@ -2845,6 +2872,18 @@ mod tests {
     use cadcraft_doc::geom::PolyVertex;
     use cadcraft_doc::geom::Vec2;
 
+    #[test]
+    fn road_export_totals_use_actual_accepted_excel_rows_and_units() {
+        let make=|kind:&str,quantity:f64| ReportLine {group:"Nền đường".into(),fields:[
+            String::new(),String::new(),String::new(),String::new(),String::new(),String::new(),
+            "Giao thông".into(),kind.into(),String::new(),"cm³".into(),String::new(),String::new()
+        ],quantity,unit:"cm³".into()};
+        let totals=qto_road_export_totals(&[make("Đào nền đường",900_000_000.0),make("Đắp nền đường",220_000_000.0)]).unwrap();
+        assert_eq!(totals,(900_000_000.0,220_000_000.0));
+        assert!(qto_road_export_totals(&[make("Đào nền đường",f64::NAN)]).is_err());
+        assert!(qto_road_export_totals(&[make("Không xác định",1.0)]).is_err());
+        assert_eq!(qto_road_export_totals(&[]).unwrap(),(0.0,0.0));
+    }
     #[test]
     fn qto_selection_filters_export_by_exact_cad_handles_and_does_not_default_to_entire_project() {
         assert_eq!(QtoSourceMode::default(), QtoSourceMode::CurrentSelection);
