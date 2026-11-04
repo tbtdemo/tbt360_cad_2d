@@ -15,9 +15,36 @@ const MAX_FILE_BYTES: u64 = 16 * 1024 * 1024;
 const MAX_PIXELS: u64 = 16_777_216;
 const CACHE_ID: &str = "cad360-native-raster-textures-v1025";
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+struct RasterAdjust {
+    brightness: u8,
+    contrast: u8,
+    fade: u8,
+    transparency: bool,
+}
+
+impl RasterAdjust {
+    fn from_image(image: &cadcraft_doc::Image) -> Self {
+        Self { brightness: image.brightness, contrast: image.contrast, fade: image.fade, transparency: image.display & 8 != 0 }
+    }
+}
+
 #[derive(Clone, Default)]
 struct Cache {
-    textures: HashMap<PathBuf, Option<TextureHandle>>,
+    textures: HashMap<(PathBuf, RasterAdjust), Option<TextureHandle>>,
+}
+
+/// Apply CAD IMAGEADJUST controls without changing the linked reference file.
+/// Defaults of 50/50/0 preserve the source RGB image. Fade blends toward white.
+fn adjust_pixel(pixel: [u8; 4], adjust: RasterAdjust) -> [u8; 4] {
+    let contrast = (f32::from(adjust.contrast) / 50.0).clamp(0.0, 2.0);
+    let brightness = (f32::from(adjust.brightness) - 50.0) * 2.55;
+    let fade = (f32::from(adjust.fade) / 100.0).clamp(0.0, 1.0);
+    let channel = |value: u8| -> u8 {
+        let adjusted = ((f32::from(value) - 127.5) * contrast + 127.5 + brightness).clamp(0.0, 255.0);
+        (adjusted * (1.0 - fade) + 255.0 * fade).round().clamp(0.0, 255.0) as u8
+    };
+    [channel(pixel[0]), channel(pixel[1]), channel(pixel[2]), if adjust.transparency { pixel[3] } else { 255 }]
 }
 
 fn safe_path(path: &str, drawing_name: &str) -> Option<PathBuf> {
@@ -29,14 +56,15 @@ fn safe_path(path: &str, drawing_name: &str) -> Option<PathBuf> {
     Some(parent.unwrap_or_else(|| Path::new(".")).join(candidate))
 }
 
-fn read_texture(ctx: &Context, path: &Path) -> Option<TextureHandle> {
+fn read_texture(ctx: &Context, path: &Path, adjust: RasterAdjust) -> Option<TextureHandle> {
     let metadata = std::fs::metadata(path).ok()?;
     if !metadata.is_file() || metadata.len() == 0 || metadata.len() > MAX_FILE_BYTES { return None; }
     let (width, height) = image::image_dimensions(path).ok()?;
     if width == 0 || height == 0 || u64::from(width) * u64::from(height) > MAX_PIXELS { return None; }
     let bytes = std::fs::read(path).ok()?;
-    let raster = image::load_from_memory(&bytes).ok()?.to_rgba8();
+    let mut raster = image::load_from_memory(&bytes).ok()?.to_rgba8();
     let size = [raster.width() as usize, raster.height() as usize];
+    for rgba in raster.pixels_mut() { rgba.0 = adjust_pixel(rgba.0, adjust); }
     let color = egui::ColorImage::from_rgba_unmultiplied(size, raster.as_raw());
     Some(ctx.load_texture(format!("cad360-raster:{}", path.display()), color, TextureOptions::LINEAR))
 }
@@ -160,12 +188,14 @@ pub(super) fn draw(painter: &Painter, xf: &Xf, session: &Session, ctx: &Context)
         if corners.iter().any(|p| !p.x.is_finite() || !p.y.is_finite()) { continue; }
         if !cadcraft_geom::Bounds2::from_points(corners).intersects(&xf.world_bounds()) { continue; }
         let Some(path) = safe_path(&img.path, &state.title) else { continue; };
-        if !cache.textures.contains_key(&path) {
+        let adjust = RasterAdjust::from_image(img);
+        let key = (path.clone(), adjust);
+        if !cache.textures.contains_key(&key) {
             if cache.textures.len() >= 12 { cache.textures.clear(); }
-            cache.textures.insert(path.clone(), read_texture(ctx, &path));
+            cache.textures.insert(key.clone(), read_texture(ctx, &path, adjust));
             changed = true;
         }
-        let Some(texture) = cache.textures.get(&path).and_then(Option::as_ref) else { continue; };
+        let Some(texture) = cache.textures.get(&key).and_then(Option::as_ref) else { continue; };
         if let Some(shape) = textured_clipped_image(texture, xf, img) { painter.add(shape); }
     }
     if changed { ctx.data_mut(|d| d.insert_temp(id, cache)); }
@@ -174,7 +204,29 @@ pub(super) fn draw(painter: &Painter, xf: &Xf, session: &Session, ctx: &Context)
 #[cfg(test)]
 mod tests {
     use super::*;
+fn defaults() -> RasterAdjust {
+        RasterAdjust { brightness: 50, contrast: 50, fade: 0, transparency: true }
+    }
     #[test]
+    fn brightness_contrast_fade_and_transparency_adjust_raster_pixels() {
+        let normal = defaults();
+        assert_eq!(adjust_pixel([32, 128, 220, 127], normal), [32, 128, 220, 127]);
+        let dark = RasterAdjust { brightness: 0, ..normal };
+        assert!(adjust_pixel([128, 128, 128, 255], dark)[0] < 128);
+        let bright = RasterAdjust { brightness: 100, ..normal };
+        assert!(adjust_pixel([128, 128, 128, 255], bright)[0] > 128);
+        let faded = RasterAdjust { fade: 100, ..normal };
+        assert_eq!(adjust_pixel([0, 70, 200, 40], faded), [255, 255, 255, 40]);
+        let opaque = RasterAdjust { transparency: false, ..normal };
+        assert_eq!(adjust_pixel([3, 4, 5, 0], opaque)[3], 255);
+    }
+    #[test]
+    fn per_image_adjustments_are_part_of_texture_cache_key() {
+        let key_a = (PathBuf::from("image.png"), defaults());
+        let key_b = (PathBuf::from("image.png"), RasterAdjust { fade: 50, ..defaults() });
+        assert_ne!(key_a, key_b);
+    }
+        #[test]
     fn local_paths_are_resolved_and_unc_network_paths_are_rejected() {
         assert_eq!(safe_path("ref/site.png", "project/drawing.dxf"), Some(PathBuf::from("project/ref/site.png")));
         assert!(safe_path("//server/share.png", "project/drawing.dxf").is_none());
@@ -186,7 +238,7 @@ mod tests {
         let img = image::RgbaImage::from_pixel(2, 2, image::Rgba([24, 128, 236, 255]));
         img.save(&file).unwrap();
         let context = egui::Context::default();
-        let texture = read_texture(&context, &file).expect("valid local PNG must load as real pixels");
+        let texture = read_texture(&context, &file, defaults()).expect("valid local PNG must load as real pixels");
         assert_eq!(texture.size(), [2, 2]);
         let _ = std::fs::remove_file(file);
     }
@@ -195,7 +247,7 @@ mod tests {
         let file = std::env::temp_dir().join(format!("cad360-raster-large-{}.png", std::process::id()));
         let handle = std::fs::File::create(&file).unwrap();
         handle.set_len(MAX_FILE_BYTES + 1).unwrap();
-        assert!(read_texture(&egui::Context::default(), &file).is_none());
+        assert!(read_texture(&egui::Context::default(), &file, defaults()).is_none());
         let _ = std::fs::remove_file(file);
     }
     #[test]
