@@ -64,6 +64,7 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $required = @(
+            @{ Package='cadcraft-cli'; Target='bin'; Test='image_trace_entity_json_matches_windows_installer_smoke_contract' },
             @{ Package='cadcraft-mcp'; Target='lib'; Test='agent_traces_an_image_into_editable_cad_via_mcp' },
             @{ Package='cadcraft-mcp'; Target='lib'; Test='agent_projects_tilted_photo_into_editable_cad_without_warping_image' },
             @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_perspective_trace_remains_editable_after_dxf_save_reopen' },
@@ -76,12 +77,21 @@ jobs:
           )
           foreach ($case in $required) {
             if ($case.Target -eq 'lib') { $listing = @(cargo test --locked -p $case.Package --lib $case.Test -- --list 2>&1) }
+            elseif ($case.Target -eq 'bin') { $listing = @(cargo test --locked -p $case.Package --bin cadcraft-cli $case.Test -- --list 2>&1) }
             else { $listing = @(cargo test --locked -p $case.Package --test it $case.Test -- --list 2>&1) }
             if ($LASTEXITCODE -ne 0) { $listing | Out-Host; throw "Cannot discover tests for $($case.Package): $($case.Test)" }
             $matched = @($listing | Where-Object { $_ -like '*: test' })
             if ($matched.Count -eq 0) { $listing | Out-Host; throw "No tests found for $($case.Package): $($case.Test)" }
             Write-Host "Verified $($matched.Count) regression tests in $($case.Package): $($case.Test)"
           }
+
+      - name: Validate installed CLI image-trace JSON contract at source
+        id: cli_contract
+        shell: pwsh
+        working-directory: CADTBT360_V1.000
+        run: |
+          cargo test --locked -p cadcraft-cli --bin cadcraft-cli image_trace_entity_json_matches_windows_installer_smoke_contract -- --exact --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'V1.025 CLI entity JSON contract regression failed; abort Windows packaging' }
 
       - name: Require image-to-CAD and native raster regression before release packaging
         id: ai_tests
@@ -333,6 +343,7 @@ jobs:
             "RunnerOS=$env:RUNNER_OS",
             'Preflight=${{ steps.preflight.outcome }}',
             'TestDiscovery=${{ steps.discover.outcome }}',
+            'CliJsonContract=${{ steps.cli_contract.outcome }}',
             'ImageMCPTests=${{ steps.ai_tests.outcome }}',
             'XrefDWGTests=${{ steps.cad_tests.outcome }}',
             'ReleaseBuild=${{ steps.release_build.outcome }}',
