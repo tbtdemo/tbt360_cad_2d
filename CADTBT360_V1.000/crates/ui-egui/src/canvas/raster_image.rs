@@ -215,9 +215,9 @@ pub(super) fn draw(painter: &Painter, xf: &Xf, session: &Session, ctx: &Context)
         if corners.iter().any(|p| !p.x.is_finite() || !p.y.is_finite()) { continue; }
         if !cadcraft_geom::Bounds2::from_points(corners).intersects(&xf.world_bounds()) { continue; }
         let Some(path) = safe_path(&img.path, state.path.as_deref().unwrap_or(&state.title)) else { continue; };
-        // Off-screen, disabled and unsafe-path images must not consume the four visible image slots.
+        // Only successfully painted raster pixels count toward the visible-image budget.
+        // Missing files and invalid IMAGECLIP polygons must not hide later valid images.
         if visited >= MAX_IMAGES { break; }
-        visited += 1;
         let adjust = RasterAdjust::from_image(img);
         let key = (path.clone(), adjust);
         let now = Instant::now();
@@ -230,7 +230,10 @@ pub(super) fn draw(painter: &Painter, xf: &Xf, session: &Session, ctx: &Context)
             changed = true;
         }
         let Some(texture) = cache.textures.get(&key).and_then(|entry| entry.texture.as_ref()) else { continue; };
-        if let Some(shape) = textured_clipped_image(texture, xf, img) { painter.add(shape); }
+        if let Some(shape) = textured_clipped_image(texture, xf, img) {
+            painter.add(shape);
+            visited += 1;
+        }
     }
     if changed { ctx.data_mut(|d| d.insert_temp(id, cache)); }
 }
