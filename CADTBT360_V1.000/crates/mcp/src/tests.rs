@@ -28,6 +28,11 @@ fn agent_traces_an_image_into_editable_cad_via_mcp() {
     let tools = call(&mut s, 1, "tools/list", json!({}));
     assert!(tools["result"]["tools"].as_array().unwrap().iter().any(|t| t["name"] == "trace_image"));
     let image = tool(&mut s, "execute", json!({"command":"imageattach","params":{"path":"survey.png","at":[10,20],"pixels":[200,100],"width":20,"height":10}}));
+    let preview = tool(&mut s, "trace_image", json!({"handle":image["handle"],"points":[[0,100],[200,100],[200,0]],"closed":true,"preview":true}));
+    assert_eq!(preview["preview"], true);
+    assert_eq!(preview["handle"], Value::Null);
+    assert_eq!(preview["worldPoints"], json!([[10.0,20.0],[30.0,20.0],[30.0,30.0]]));
+    assert_eq!(tool(&mut s, "query_entities", json!({"type":"Polyline"}))["count"], 0, "AI preview must not alter the DWG");
     let traced = tool(&mut s, "trace_image", json!({"handle":image["handle"],"points":[[0,100],[200,100],[200,0]],"closed":true}));
     assert_eq!(traced["vertices"], 3);
     assert_eq!(traced["closed"], true);
