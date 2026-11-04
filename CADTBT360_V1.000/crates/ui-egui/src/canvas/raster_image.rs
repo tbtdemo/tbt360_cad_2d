@@ -329,7 +329,7 @@ fn defaults() -> RasterAdjust {
     #[test]
     fn changed_source_file_invalidates_texture_only_after_stat_interval() {
         let now = Instant::now();
-        let file = std::env::temp_dir().join(format!("cad360-raster-reload-{}-{}.png", std::process::id(), std::thread::current().name().unwrap_or("test")));
+        let file = std::env::temp_dir().join(format!("cad360-raster-reload-{}.png", std::process::id()));
         std::fs::write(&file, [1u8, 2, 3]).unwrap();
         let mut entry = CacheEntry { texture: None, retry_after: now + Duration::from_secs(5), last_used: now, source_stamp: file_stamp(&file), next_stat: now + Duration::from_secs(2) };
         assert!(!entry.source_changed(&file, now + Duration::from_secs(1)));
