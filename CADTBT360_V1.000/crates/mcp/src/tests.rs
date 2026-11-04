@@ -23,6 +23,29 @@ fn tool(s: &mut Server, name: &str, args: Value) -> Value {
 
 
 #[test]
+fn agent_projects_tilted_photo_into_editable_cad_without_warping_image() {
+    let mut server = Server::new(Box::new(Headless::default()));
+    let img = tool(&mut server, "execute", json!({"command":"imageattach","params":{"path":"photo.png","pixels":[200,100],"width":200,"height":100}}));
+    let mut args = json!({"handle":img["handle"],"pixels":[[0,0],[200,0],[200,100],[0,100]],
+        "world":[[10,20],[40,15],[35,45],[5,40]],"points":[[0,0],[200,0],[200,100],[0,100]],
+        "closed":true,"preview":true});
+    let preview = tool(&mut server, "trace_perspective_image", args.clone());
+    assert_eq!(preview["preview"], true);
+    assert_eq!(preview["handle"], Value::Null);
+    assert_eq!(preview["rasterRectified"], false);
+    assert!(preview["maxControlError"].as_f64().unwrap() < 1.0e-7);
+    assert_eq!(tool(&mut server, "query_entities", json!({"type":"Polyline"}))["count"], 0);
+    args["preview"] = json!(false);
+    let applied = tool(&mut server, "trace_perspective_image", args.clone());
+    assert!(applied["handle"].is_string());
+    assert_eq!(tool(&mut server, "query_entities", json!({"type":"Polyline"}))["count"], 1);
+    args["pixels"] = json!([[0,0],[0,0],[200,100],[0,100]]);
+    let bad = call(&mut server, 20, "tools/call", json!({"name":"trace_perspective_image","arguments":args}));
+    assert_eq!(bad["result"]["isError"], true);
+    assert_eq!(tool(&mut server, "query_entities", json!({"type":"Polyline"}))["count"], 1);
+}
+
+#[test]
 fn agent_fits_four_survey_controls_before_drawing_on_image() {
     let mut s = Server::new(Box::new(Headless::default()));
     let image = tool(&mut s, "execute", json!({"command":"imageattach","params":{"path":"survey.png","pixels":[200,100],"width":200,"height":100}}));
