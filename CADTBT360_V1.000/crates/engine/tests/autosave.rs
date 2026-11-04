@@ -176,8 +176,8 @@ fn recovered_drawings_show_most_recent_snapshot_first() {
     std::fs::write(&older, b"old recovery").unwrap();
     std::fs::write(&latest, b"new recovery").unwrap();
     let now = SystemTime::now();
-    std::fs::File::open(&older).unwrap().set_modified(now - Duration::from_secs(360)).unwrap();
-    std::fs::File::open(&latest).unwrap().set_modified(now - Duration::from_secs(30)).unwrap();
+    std::fs::OpenOptions::new().write(true).open(&older).unwrap().set_modified(now - Duration::from_secs(360)).unwrap();
+    std::fs::OpenOptions::new().write(true).open(&latest).unwrap().set_modified(now - Duration::from_secs(30)).unwrap();
     let found = autosave::recoverable(&dir, "999-c");
     assert_eq!(found.len(), 2, "{found:?}");
     assert_eq!(found[0].drawing, "Latest.dwg");
