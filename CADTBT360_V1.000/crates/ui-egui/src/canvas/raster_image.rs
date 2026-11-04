@@ -216,7 +216,7 @@ pub(super) fn draw(painter: &Painter, xf: &Xf, session: &Session, ctx: &Context)
         let corners = [o + v, o + u + v, o + u, o];
         if corners.iter().any(|p| !p.x.is_finite() || !p.y.is_finite()) { continue; }
         if !cadcraft_geom::Bounds2::from_points(corners).intersects(&xf.world_bounds()) { continue; }
-        let Some(path) = safe_path(&img.path, &state.title) else { continue; };
+        let Some(path) = safe_path(&img.path, state.path.as_deref().unwrap_or(&state.title)) else { continue; };
         let adjust = RasterAdjust::from_image(img);
         let key = (path.clone(), adjust);
         let now = Instant::now();
@@ -277,6 +277,7 @@ fn defaults() -> RasterAdjust {
         #[test]
     fn local_paths_are_resolved_and_unc_network_paths_are_rejected() {
         assert_eq!(safe_path("ref/site.png", "project/drawing.dxf"), Some(PathBuf::from("project/ref/site.png")));
+        assert_eq!(safe_path("images/site.png", "C:/projects/site/plan.dwg"), Some(PathBuf::from("C:/projects/site/images/site.png")));
         assert!(safe_path("//server/share.png", "project/drawing.dxf").is_none());
         assert!(safe_path("", "project/drawing.dxf").is_none());
     }
