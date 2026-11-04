@@ -37,3 +37,19 @@ Before asking the agent to trace a scanned drawing, supply two known survey/cont
 ```
 
 Call MCP tool `calibrate_image` with this input. Check the computed `insert`, `rotationDegrees` and `drawingUnitsPerPixel`. After confirming the control points, repeat with `preview:false`, then use `trace_image` as above. This computes a 2D similarity (uniform scale + rotation + translation) and preserves pixel-defined clipping. It does **not** compensate for photographic perspective distortion, lens calibration, georeferencing datum changes, or image recognition; those remain separate features.
+
+## Least-squares calibration with 3-32 survey controls (V1.025)
+
+For a scanned drawing with three or more known points, use the MCP tool `fit_image_controls` or the CAD command `imagecalibratefit`:
+
+```json
+{
+  "handle": "IMAGE_HANDLE",
+  "pixels": [[0,1000],[2000,1000],[0,0],[2000,0]],
+  "world": [[100,200],[120,200],[100,210],[120,210]],
+  "maxResidual": 0.02,
+  "preview": true
+}
+```
+
+The response provides `controlCount`, `drawingUnitsPerPixel`, `rotationDegrees`, `insert`, `rmsResidual`, `maxResidual` and per-point `residuals`. All residual distances are expressed in **CAD drawing units**, not pixels. Review and correct inconsistent control points before invoking the same tool with `preview:false`. If the maximum residual exceeds the configured threshold, the command fails without changing the IMAGE. The method is a least-squares **uniform-scale/rotation/translation** fit, not a projective warp or lens-distortion correction. Perspective photographs and crumpled plans need separate rectification before precise digitization. Validation and Windows CI for this new code are pending.
