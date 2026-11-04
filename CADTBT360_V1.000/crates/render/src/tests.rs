@@ -17,6 +17,24 @@ fn sample() -> Drawing {
 }
 
 #[test]
+fn raster_image_reference_draws_only_outer_frame_without_obscuring_draft() {
+    let mut d = Drawing::new_imperial();
+    let image = cadcraft_doc::Image {
+        insert: Vec3::new(10.0, 20.0, 0.0),
+        u: Vec3::new(0.1, 0.0, 0.0),
+        v: Vec3::new(0.0, 0.1, 0.0),
+        size: Vec2::new(200.0, 100.0),
+        path: "reference.png".into(),
+        ..Default::default()
+    };
+    d.add(&Space::Model, Common::default(), EntityKind::Image(image)).unwrap();
+    let list = build(&d, &Space::Model, &Options::default());
+    let lines: Vec<&DPrim> = list.prims.iter().filter(|prim| prim.kind == Kind::Polyline).collect();
+    assert_eq!(lines.len(), 1, "raster IMAGE must no longer have diagonal placeholder strokes");
+    assert_eq!(list.points(lines[0]), &[Vec2::new(10.0, 20.0), Vec2::new(30.0, 20.0), Vec2::new(30.0, 30.0), Vec2::new(10.0, 30.0), Vec2::new(10.0, 20.0)]);
+}
+
+#[test]
 fn builds_lines_and_circles() {
     let d = sample();
     let l = build(&d, &Space::Model, &Options { tolerance: 0.01, ..Default::default() });
