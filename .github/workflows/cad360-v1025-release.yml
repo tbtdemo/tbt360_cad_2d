@@ -149,6 +149,13 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Installed CLI cannot reopen generated DXF drawing' }
           $drawingInfo = ($roundTripInfo -join [char]10) | ConvertFrom-Json
           if ($null -eq $drawingInfo.entityCount -or $drawingInfo.entityCount -le 0) { throw 'Installed CLI reopened DXF without CAD entities' }
+          $traceFile = Join-Path $env:RUNNER_TEMP 'CADTBT360_V1025_AI_ImageTrace_Smoke.dxf'
+          & $installedCli run --metric --cmd 'imageattach {"path":"reference.png","pixels":[200,100],"width":20,"height":10}' --cmd 'imagetrace {"handle":"{last}","points":[[0,100],[200,100],[200,0]]}' --save $traceFile | Out-Host
+          if ($LASTEXITCODE -ne 0 -or !(Test-Path $traceFile)) { throw 'Installed CLI cannot produce AI-traced DXF with IMAGE and LWPOLYLINE' }
+          $traceInfo = & $installedCli info $traceFile
+          if ($LASTEXITCODE -ne 0) { throw 'Installed CLI cannot reopen AI-traced DXF' }
+          $traceDrawing = ($traceInfo -join [char]10) | ConvertFrom-Json
+          if ($traceDrawing.entityCount -lt 2) { throw 'AI image-trace DXF lost its source IMAGE or editable CAD polyline' }
           if (-not (Select-String -Path (Join-Path $dest 'BUILD_INFO.txt') -Pattern 'Release=CADTBT360_V1.025' -Quiet)) { throw 'Incorrect release metadata' }
           $uninstaller = Join-Path $dest 'unins000.exe'
           if (!(Test-Path $uninstaller)) { throw 'Missing Inno Setup uninstaller' }
