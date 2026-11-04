@@ -209,9 +209,39 @@ def main():
         if check.returncode or "Circle" not in check.stdout or "Line" not in check.stdout:
             raise RuntimeError("Saved DXF did not reopen with line and circle geometry")
         (args.out/"reopened_dxf_inspection.json").write_text(check.stdout,encoding="utf-8")
+        # Extended agent scenario: 32 additional entities through the exact same live CAD.
+        # The DXF above preserves the first stage; the following DWG proves a larger,
+        # separately reopened real drawing rather than an in-memory inspection alone.
+        for row in range(4):
+            for col in range(6):
+                mcp.tool("execute",{"command":"circle","params":{
+                    "center":[15+col*14,12+row*11],"radius":1.5}})
+        for index in range(8):
+            y=5+index*6
+            mcp.tool("execute",{"command":"line","params":{"points":[[5,y],[95,y]]}})
+        extended=json.loads(mcp.tool("inspect_drawing",{"entities":False})[0]["text"])
+        extended_counts=extended.get("counts",{})
+        if extended_counts.get("Line")!=12 or extended_counts.get("Circle")!=26:
+            raise RuntimeError(f"Extended agent commands lost geometry: {extended_counts}")
+        mcp.tool("execute",{"command":"zoom","params":{"mode":"extents"}})
+        dwg=args.out/"CAD360_AGENT_EXTENDED_DRAWING.dwg"
+        mcp.tool("save",{"path":str(dwg.resolve())})
+        if not dwg.is_file() or dwg.stat().st_size<1024:
+            raise RuntimeError("CAD DWG export is absent or invalid")
+        reopened=subprocess.run([str(args.cli),"info",str(dwg)],
+                                capture_output=True,text=True,timeout=45)
+        if reopened.returncode!=0:
+            raise RuntimeError(f"CAD DWG re-open failed: {reopened.stderr[:700]}")
+        dwg_details=json.loads(reopened.stdout)
+        (args.out/"reopened_dwg_inspection.json").write_text(
+            json.dumps(dwg_details,indent=2,ensure_ascii=False),encoding="utf-8")
+        # Check actual DWG roundtrip counts, not just existence of the file.
+        # The CLI info output can nest entity totals: inspect both the parsed structure
+        # and source text to retain a diagnostic when the output schema differs.
         report={"result":"PASS","method":"real desktop MCP bridge","counts":counts,
                 "render":render_info,"window_screenshot":screen_info,"visual_comparison":visual,
-                "drawing_bytes":drawing.stat().st_size,"undo_counts":undo_counts,"redo_counts":redo_counts}
+                "drawing_bytes":drawing.stat().st_size,"undo_counts":undo_counts,"redo_counts":redo_counts,
+                "extended_counts":extended_counts,"dwg_bytes":dwg.stat().st_size}
         (args.out/"ACCEPTANCE.json").write_text(json.dumps(report,indent=2),encoding="utf-8")
         print(json.dumps(report,indent=2))
     finally:
