@@ -23,6 +23,26 @@ fn tool(s: &mut Server, name: &str, args: Value) -> Value {
 
 
 #[test]
+fn agent_calibrates_image_before_tracing_using_two_control_points() {
+    let mut s = Server::new(Box::new(Headless::default()));
+    let image = tool(&mut s, "execute", json!({"command":"imageattach","params":{"path":"survey.png","at":[0,0],"pixels":[200,100],"width":200,"height":100}}));
+    let points = json!({"handle":image["handle"],"pixels":[[0,100],[200,100]],"world":[[10,20],[30,20]],"preview":true});
+    let preview = tool(&mut s, "calibrate_image", points.clone());
+    assert_eq!(preview["preview"], true);
+    let before = tool(&mut s, "trace_image", json!({"handle":image["handle"],"points":[[0,100],[200,100]],"preview":true}));
+    assert_eq!(before["worldPoints"], json!([[0.0,0.0],[200.0,0.0]]));
+    let mut approved = points.clone();
+    approved["preview"] = json!(false);
+    let calibration = tool(&mut s, "calibrate_image", approved);
+    assert_eq!(calibration["preview"], false);
+    let trace = tool(&mut s, "trace_image", json!({"handle":image["handle"],"points":[[0,100],[200,100]],"preview":false}));
+    assert_eq!(trace["worldPoints"], json!([[10.0,20.0],[30.0,20.0]]));
+    assert_eq!(tool(&mut s, "query_entities", json!({"type":"Polyline"}))["count"], 1);
+    let wrong = call(&mut s, 2, "tools/call", json!({"name":"calibrate_image","arguments":{"handle":image["handle"],"pixels":[[0,0]],"world":[[0,0],[10,0]]}}));
+    assert_eq!(wrong["error"]["code"], -32602);
+}
+
+#[test]
 fn agent_traces_an_image_into_editable_cad_via_mcp() {
     let mut s = Server::new(Box::new(Headless::default()));
     let tools = call(&mut s, 1, "tools/list", json!({}));
