@@ -46,6 +46,7 @@ jobs:
           key: cad360-v1025-release
 
       - name: Preflight Windows GUI and CLI compilation before expensive tests
+        id: preflight
         shell: pwsh
         working-directory: CADTBT360_V1.000
         run: |
@@ -57,6 +58,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'V1.025 MCP compile failed; abort release' }
 
       - name: Verify required named regression tests exist before running them
+        id: discover
         shell: pwsh
         working-directory: CADTBT360_V1.000
         run: |
@@ -82,6 +84,7 @@ jobs:
           }
 
       - name: Require image-to-CAD and native raster regression before release packaging
+        id: ai_tests
         shell: pwsh
         working-directory: CADTBT360_V1.000
         run: |
@@ -107,6 +110,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'V1.025 IMAGE visibility regression failed' }
 
       - name: Verify Xref and DWG regression on release source
+        id: cad_tests
         shell: pwsh
         working-directory: CADTBT360_V1.000
         run: |
@@ -116,6 +120,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Large DWG regression failure' }
 
       - name: Build native Windows GUI and CLI (not copied from old release)
+        id: release_build
         shell: pwsh
         working-directory: CADTBT360_V1.000
         run: |
@@ -126,6 +131,7 @@ jobs:
           }
 
       - name: Install Inno Setup and create version metadata
+        id: prepare_installer
         shell: pwsh
         run: |
           $iscc = 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe'
@@ -135,6 +141,7 @@ jobs:
           @('Release=CADTBT360_V1.025', "SourceCommit=$env:GITHUB_SHA", 'Architecture=windows-x64', 'NativeBuild=true', 'GUIAcceptance=NOT_VERIFIED') | Set-Content dist/v1025/BUILD_INFO.txt -Encoding utf8
 
       - name: Package new Setup and Portable
+        id: package
         shell: pwsh
         run: |
           & 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe' /Qp installer/CADTBT360_V1.025_Windows.iss
@@ -148,6 +155,7 @@ jobs:
           Compress-Archive -Path dist/v1025/portable/* -DestinationPath dist/v1025/CADTBT360_V1.025_Portable_Windows_x64.zip -Force
 
       - name: Smoke test installed application, uninstall and binary identity
+        id: installed_smoke
         shell: pwsh
         run: |
           $setup = (Resolve-Path 'dist/v1025/CADTBT360_V1.025_Setup_Windows_x64.exe').Path
@@ -211,6 +219,7 @@ jobs:
           if (Test-Path (Join-Path $dest 'CADTBT360.exe')) { throw 'Uninstaller left main executable behind' }
 
       - name: Verify portable archive, create SHA256 checksums
+        id: portable_smoke
         shell: pwsh
         run: |
           $zip = 'dist/v1025/CADTBT360_V1.025_Portable_Windows_x64.zip'
@@ -244,4 +253,42 @@ jobs:
             dist/v1025/BUILD_INFO.txt
             dist/v1025/SHA256SUMS.txt
           if-no-files-found: error
+          retention-days: 30
+
+      - name: Save failed build diagnostics for V1.025
+        if: ${{ failure() }}
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist/v1025/diagnostics | Out-Null
+          $lines = @(
+            'Release=CADTBT360_V1.025',
+            "SourceCommit=$env:GITHUB_SHA",
+            "RunId=$env:GITHUB_RUN_ID",
+            "RunAttempt=$env:GITHUB_RUN_ATTEMPT",
+            "RunnerOS=$env:RUNNER_OS",
+            'Preflight=${{ steps.preflight.outcome }}',
+            'TestDiscovery=${{ steps.discover.outcome }}',
+            'ImageMCPTests=${{ steps.ai_tests.outcome }}',
+            'XrefDWGTests=${{ steps.cad_tests.outcome }}',
+            'ReleaseBuild=${{ steps.release_build.outcome }}',
+            'InstallerPrepare=${{ steps.prepare_installer.outcome }}',
+            'Package=${{ steps.package.outcome }}',
+            'InstalledSmoke=${{ steps.installed_smoke.outcome }}',
+            'PortableSmoke=${{ steps.portable_smoke.outcome }}'
+          )
+          $lines | Set-Content dist/v1025/diagnostics/CI_FAILURE.txt -Encoding utf8
+          rustc --version 2>&1 | Out-File dist/v1025/diagnostics/RUST_VERSION.txt -Encoding utf8
+          cargo --version 2>&1 | Out-File dist/v1025/diagnostics/CARGO_VERSION.txt -Encoding utf8
+          Get-ChildItem dist/v1025 -File -ErrorAction SilentlyContinue | Select-Object Name,Length,LastWriteTimeUtc | Format-Table -AutoSize | Out-String | Set-Content dist/v1025/diagnostics/DIST_FILES.txt -Encoding utf8
+          $lines | ForEach-Object { Write-Host $_ }
+          "### CAD 360 V1.025 - failed Windows release" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          ($lines -join "`n") | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+
+      - name: Upload V1.025 diagnostics on failed build
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: CADTBT360_V1.025_Windows_x64_Failure_Diagnostics
+          path: dist/v1025/diagnostics/
+          if-no-files-found: warn
           retention-days: 30
