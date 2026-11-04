@@ -1,0 +1,62 @@
+name: CAD360 Agent MCP Live Windows UI Screenshot Acceptance
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/CADTBT360_road-qto-parallel-v1023
+    paths:
+      - 'CADTBT360_V1.000/scripts/agent_live_ui_smoke.py'
+      - '.github/workflows/cadtbt360-agent-live-ui-windows.yml'
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: cad360-live-ui-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  live-desktop-mcp:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Checkout smoke code
+        uses: actions/checkout@v4
+      - name: Download already validated integrated CAD + CLI release
+        uses: actions/download-artifact@v4
+        with:
+          name: CADTBT360_RoadQTO_RC_Setup_Windows_x64
+          path: .live-ui-bin
+          run-id: 41791185215
+          github-token: ${{ github.token }}
+      - name: Verify downloaded Windows executables and source metadata
+        run: |
+          $ErrorActionPreference='Stop'
+          $cad='.live-ui-bin/CADTBT360_V1.023_RoadQTO_RC.exe'
+          $cli='.live-ui-bin/cadcraft-cli.exe'
+          if (!(Test-Path $cad) -or !(Test-Path $cli)) {throw 'Installed-release artifact lacks CAD or CLI'}
+          $bytes=[IO.File]::ReadAllBytes((Resolve-Path $cad).Path)
+          if ([Text.Encoding]::ASCII.GetString($bytes,0,2) -ne 'MZ') {throw 'Invalid Windows CAD EXE'}
+          & $cli --version
+          if ($LASTEXITCODE -ne 0) {throw 'CLI fails --version'}
+          New-Item -ItemType Directory -Force 'live-ui-proof' | Out-Null
+          'Binary release commit: c451f938a9a265a34a5ec1d4abbed62114e1d383' | Set-Content live-ui-proof/BUILD_PROVENANCE.txt
+          "Acceptance test commit: $env:GITHUB_SHA" | Add-Content live-ui-proof/BUILD_PROVENANCE.txt
+      - name: Run real desktop via MCP and capture real UI screenshot
+        run: |
+          $ErrorActionPreference='Stop'
+          python --version
+          $cad=(Resolve-Path '.live-ui-bin/CADTBT360_V1.023_RoadQTO_RC.exe').Path
+          $cli=(Resolve-Path '.live-ui-bin/cadcraft-cli.exe').Path
+          $out=(Resolve-Path 'live-ui-proof').Path
+          python CADTBT360_V1.000/scripts/agent_live_ui_smoke.py --cad $cad --cli $cli --out $out
+          if ($LASTEXITCODE -ne 0) {throw 'Real Windows UI MCP acceptance failed: see job logs and proof output'}
+      - name: Publish real screenshot, render, DXF and verdict (including failure evidence)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: CAD360_MCP_Live_Windows_UI_Acceptance_Evidence
+          path: live-ui-proof/
+          retention-days: 30
+          if-no-files-found: warn
