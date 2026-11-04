@@ -444,9 +444,41 @@ def main():
         (args.out/"DIMENSION_ROUNDTRIP_DIAGNOSTIC.json").write_text(json.dumps({
             "before":dim_snapshot_before,"after":dim_snapshot_after,
         },indent=2,ensure_ascii=False),encoding="utf-8")
-        if dim_snapshot_before!=dim_snapshot_after:
-            raise RuntimeError("DWG Dimension geometry/style mismatch: "+
-                json.dumps({"before":dim_snapshot_before,"after":dim_snapshot_after},ensure_ascii=False)[:4000])
+        # DWG export materializes anonymous *D blocks, textMid and measurement.
+        # These are computed on save; the original defining geometry/style/text
+        # must remain bit-for-bit equivalent after float normalization.
+        def dim_kind(item):
+            kind=item["geometry"].get("kind")
+            return "linear" if isinstance(kind,dict) and "linear" in kind else str(kind)
+        before_map={dim_kind(item):item for item in dim_snapshot_before}
+        after_map={dim_kind(item):item for item in dim_snapshot_after}
+        if set(before_map)!={"linear","aligned","radius"} or set(after_map)!=set(before_map):
+            raise RuntimeError(f"DWG changed dimension types: {list(before_map)} -> {list(after_map)}")
+        computed={}
+        for kind,prior in before_map.items():
+            after=after_map[kind]
+            prior_core=dict(prior["geometry"])
+            after_core=dict(after["geometry"])
+            for field in ("block","measurement","textMid"):
+                prior_core.pop(field,None)
+                after_core.pop(field,None)
+            if prior["layer"]!=after["layer"] or prior_core!=after_core:
+                raise RuntimeError(f"DWG Dimension original geometry/style changed ({kind}): "+
+                                   json.dumps({"before":prior_core,"after":after_core},ensure_ascii=False)[:2500])
+            expected=10.0 if kind=="radius" else 100.0
+            measurement=after["geometry"].get("measurement")
+            block_ref=after["geometry"].get("block")
+            text_mid=after["geometry"].get("textMid")
+            if not isinstance(measurement,(float,int)) or abs(measurement-expected)>0.00001:
+                raise RuntimeError(f"DWG computed wrong {kind} measurement: {measurement}, expected {expected}")
+            if not isinstance(block_ref,str) or not block_ref.startswith("*D"):
+                raise RuntimeError(f"DWG failed to materialize {kind} dimension render block: {block_ref}")
+            if not isinstance(text_mid,dict) or not all(k in text_mid for k in ("x","y")):
+                raise RuntimeError(f"DWG failed to compute dimension text placement: {text_mid}")
+            computed[kind]={"measurement":measurement,"render_block":block_ref,"textMid":text_mid}
+        (args.out/"DIMENSION_ROUNDTRIP_DIAGNOSTIC.json").write_text(json.dumps({
+            "result":"PASS","computed":computed,"before":dim_snapshot_before,"after":dim_snapshot_after
+        },indent=2,ensure_ascii=False),encoding="utf-8")
         report={"result":"PASS","method":"real desktop MCP bridge","counts":counts,
                 "render":render_info,"window_screenshot":screen_info,"visual_comparison":visual,
                 "drawing_bytes":drawing.stat().st_size,"undo_counts":undo_counts,"redo_counts":redo_counts,
@@ -456,7 +488,8 @@ def main():
                 "advanced_dwg_counts":advanced_after.get("counts"),"advanced_property_roundtrip":"PASS",
                 "hatch_pattern_expansion_lines":len(added_pattern_lines),
                 "block_attribute_values_before":before_marks,"block_attribute_values_after":after_marks,
-                "dimension_roundtrip":"PASS","dimension_count":dim_after["count"]}
+                "dimension_roundtrip":"PASS","dimension_count":dim_after["count"],
+                "dimension_computed":computed}
         (args.out/"ACCEPTANCE.json").write_text(json.dumps(report,indent=2),encoding="utf-8")
         print(json.dumps(report,indent=2))
     finally:
