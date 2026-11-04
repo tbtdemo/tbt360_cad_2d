@@ -281,7 +281,7 @@ mod native {
     }
 
     /// The autosave files in `dir` left behind by apps that are no longer running (never those of
-    /// `own`, this app's instance), oldest first.
+    /// `own`, this app's instance), most recently modified first.
     pub fn recoverable(dir: &Path, own: &str) -> Vec<Recoverable> {
         let Ok(entries) = std::fs::read_dir(dir) else { return Vec::new() };
         let mut alive: HashMap<String, bool> = HashMap::new();
@@ -299,7 +299,7 @@ mod native {
             let modified = meta.modified().ok().and_then(|m| m.duration_since(SystemTime::UNIX_EPOCH).ok()).map(|d| d.as_secs()).unwrap_or(0);
             out.push(Recoverable { path: e.path().to_string_lossy().to_string(), drawing: title.to_string(), modified, bytes: meta.len() });
         }
-        out.sort_by(|a, b| a.modified.cmp(&b.modified).then_with(|| a.path.cmp(&b.path)));
+        out.sort_by(|a, b| b.modified.cmp(&a.modified).then_with(|| a.path.cmp(&b.path)));
         out
     }
 
