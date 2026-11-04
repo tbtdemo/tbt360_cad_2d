@@ -1240,6 +1240,7 @@ fn qto_road_find_marker_entity<'a>(doc: &'a cadcraft_doc::Drawing, handle: cadcr
 fn qto_road_scan_drawing_markers(doc: &cadcraft_doc::Drawing, selected: &[cadcraft_doc::Handle], all_model: bool, include_layouts: bool) -> (Vec<takeoff_road::RoadPlanMarker>,usize) {
     let mut markers=Vec::new();
     let mut skipped=0usize;
+    let mut missing_selected=0usize;
     let mut handles=BTreeSet::<String>::new();
     let mut inspect=|entity: &cadcraft_doc::Entity| {
         if !matches!(&entity.kind,EntityKind::Text(_) | EntityKind::MText(_) | EntityKind::Insert(_)) {return;}
@@ -1260,10 +1261,10 @@ fn qto_road_scan_drawing_markers(doc: &cadcraft_doc::Drawing, selected: &[cadcra
     } else {
         for &handle in selected {
             if let Some(entity)=doc.model.get(handle) {inspect(entity);}
-            else {skipped+=1;}
+            else {missing_selected+=1;}
         }
     }
-    (markers,skipped)
+    (markers,skipped+missing_selected)
 }
 
 fn qto_road_scan_markers(app: &CadApp, all_model: bool, include_layouts: bool) -> (Vec<takeoff_road::RoadPlanMarker>,usize) {
@@ -1380,6 +1381,15 @@ mod road_station_matching_tests {
         assert!(qto_road_find_marker_entity(&doc,cadcraft_doc::Handle(0x11)).is_err());
         let (markers,skipped)=qto_road_scan_drawing_markers(&doc,&[],true,true);
         assert_eq!(markers.len(),1);
+        assert_eq!(skipped,1);
+    }
+    #[test]
+    fn selected_scan_counts_missing_handles_without_mutable_capture_conflict() {
+        let mut doc=cadcraft_doc::Drawing::new_metric();
+        doc.model.push(marker_text(0x11,"Km1+000"));
+        let (markers,skipped)=qto_road_scan_drawing_markers(&doc,&[cadcraft_doc::Handle(0x11),cadcraft_doc::Handle(0x99)],false,false);
+        assert_eq!(markers.len(),1);
+        assert_eq!(markers[0].chainage_m,1000.0);
         assert_eq!(skipped,1);
     }
     #[test]
