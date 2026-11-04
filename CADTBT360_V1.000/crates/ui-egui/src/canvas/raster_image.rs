@@ -12,6 +12,7 @@ use egui::{Color32, Context, Id, Mesh, Painter, Shape, TextureHandle, TextureOpt
 use super::Xf;
 
 const MAX_IMAGES: usize = 4;
+const MAX_CACHED_TEXTURES: usize = 12;
 const MAX_FILE_BYTES: u64 = 16 * 1024 * 1024;
 const MAX_PIXELS: u64 = 16_777_216;
 const MAX_TEXTURE_SIDE: u32 = 2048;
@@ -35,6 +36,7 @@ impl RasterAdjust {
 struct CacheEntry {
     texture: Option<TextureHandle>,
     retry_after: Instant,
+    last_used: Instant,
 }
 
 impl CacheEntry {
@@ -222,14 +224,24 @@ pub(super) fn draw(painter: &Painter, xf: &Xf, session: &Session, ctx: &Context)
         let key = (path.clone(), adjust);
         let now = Instant::now();
         if cache.textures.get(&key).is_none_or(|entry| entry.should_retry(now)) {
-            if cache.textures.len() >= 12 { cache.textures.clear(); }
+            if cache.textures.len() >= MAX_CACHED_TEXTURES && !cache.textures.contains_key(&key) {
+                // Evict only the least recently used entry; clearing all images on overflow
+                // caused repeat disk reads and brief texture dropouts during pan/zoom.
+                if let Some(oldest) = cache.textures.iter().min_by_key(|(_, entry)| entry.last_used).map(|(key, _)| key.clone()) {
+                    cache.textures.remove(&oldest);
+                }
+            }
             cache.textures.insert(key.clone(), CacheEntry {
                 texture: read_texture(ctx, &path, adjust),
                 retry_after: now + Duration::from_secs(5),
+                last_used: now,
             });
             changed = true;
         }
-        let Some(texture) = cache.textures.get(&key).and_then(|entry| entry.texture.as_ref()) else { continue; };
+        let Some(entry) = cache.textures.get_mut(&key) else { continue; };
+        entry.last_used = now;
+        changed = true;
+        let Some(texture) = entry.texture.as_ref() else { continue; };
         if let Some(shape) = textured_clipped_image(texture, xf, img) {
             painter.add(shape);
             visited += 1;
@@ -273,9 +285,22 @@ fn defaults() -> RasterAdjust {
         assert!(!drawing.layer("0").unwrap().visible());
     }
     #[test]
+    fn cache_entry_tracks_last_access_for_selective_eviction() {
+        let now = Instant::now();
+        let older = CacheEntry { texture: None, retry_after: now + Duration::from_secs(5), last_used: now };
+        let recent = CacheEntry { texture: None, retry_after: now + Duration::from_secs(5), last_used: now + Duration::from_secs(1) };
+        let mut cache = Cache::default();
+        cache.textures.insert((PathBuf::from("older.png"), defaults()), older);
+        cache.textures.insert((PathBuf::from("recent.png"), defaults()), recent);
+        let oldest = cache.textures.iter().min_by_key(|(_, entry)| entry.last_used).map(|(key, _)| key.clone()).unwrap();
+        cache.textures.remove(&oldest);
+        assert!(!cache.textures.contains_key(&(PathBuf::from("older.png"), defaults())));
+        assert!(cache.textures.contains_key(&(PathBuf::from("recent.png"), defaults())));
+    }
+    #[test]
     fn missing_image_can_retry_after_file_becomes_available() {
         let now = Instant::now();
-        let entry = CacheEntry { texture: None, retry_after: now + Duration::from_secs(5) };
+        let entry = CacheEntry { texture: None, retry_after: now + Duration::from_secs(5), last_used: now };
         assert!(!entry.should_retry(now));
         assert!(!entry.should_retry(now + Duration::from_secs(4)));
         assert!(entry.should_retry(now + Duration::from_secs(5)));
