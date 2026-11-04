@@ -8,6 +8,11 @@ on:
       - 'CADTBT360_V1.000/apps/cadcraft/src/takeoff.rs'
       - 'CADTBT360_V1.000/apps/cadcraft/src/takeoff_road.rs'
       - '.github/workflows/cadtbt360-road-qto-feature-tests.yml'
+# Keep only the most recent push test for this development branch.
+# Prevent costly overlapping Windows Rust compilation across multiple commits.
+concurrency:
+  group: cadtbt360-road-qto-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   road-qto-regression:
     runs-on: windows-latest
