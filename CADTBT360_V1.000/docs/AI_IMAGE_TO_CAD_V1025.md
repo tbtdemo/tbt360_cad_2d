@@ -53,3 +53,20 @@ For a scanned drawing with three or more known points, use the MCP tool `fit_ima
 ```
 
 The response provides `controlCount`, `drawingUnitsPerPixel`, `rotationDegrees`, `insert`, `rmsResidual`, `maxResidual` and per-point `residuals`. All residual distances are expressed in **CAD drawing units**, not pixels. Review and correct inconsistent control points before invoking the same tool with `preview:false`. If the maximum residual exceeds the configured threshold, the command fails without changing the IMAGE. The method is a least-squares **uniform-scale/rotation/translation** fit, not a projective warp or lens-distortion correction. Perspective photographs and crumpled plans need separate rectification before precise digitization. Validation and Windows CI for this new code are pending.
+
+## Four-point perspective mapping for traced vectors
+
+Use `trace_perspective_image` via MCP (or `imageprojecttrace` in the CAD engine) when an external vision agent identifies geometry in a photographed drawing taken at an angle. Specify **four matched pixel coordinates** and their known CAD world coordinates, preferably distributed across the photograph; then supply the polygon vertices to map.
+
+```json
+{
+  "handle": "IMAGE_HANDLE",
+  "pixels": [[0,0],[200,0],[200,100],[0,100]],
+  "world": [[10,20],[40,15],[35,45],[5,40]],
+  "points": [[0,0],[200,0],[200,100],[0,100]],
+  "closed": true,
+  "preview": true
+}
+```
+
+The command computes a homography, returns `worldPoints` and `maxControlError` without changing the drawing in preview mode. After inspecting the calculated points, set `preview:false` to create a standard editable CAD LWPOLYLINE. Singular, coincident or near-collinear controls and out-of-bounds traced pixel coordinates are rejected. The existing raster IMAGE entity is **not moved or resampled**; image display, perspective bitmap rectification, OCR and automatic object detection remain separate outstanding tasks. Image location and real survey dimensions still require independent field verification.
