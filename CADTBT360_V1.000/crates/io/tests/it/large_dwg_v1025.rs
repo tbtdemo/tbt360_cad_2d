@@ -3,7 +3,8 @@
 
 use std::time::Instant;
 
-use cadcraft_doc::{Common, Drawing, EntityKind, Line, Space};
+use cadcraft_color::Color;
+use cadcraft_doc::{Circle, Common, Drawing, EntityKind, Layer, Line, Space};
 use cadcraft_geom::Vec3;
 use cadcraft_io::{SaveOptions, Version, read, write_with};
 
@@ -68,4 +69,50 @@ fn v1025_medium_dwg_r2018_50000_entities() {
 #[test]
 fn v1025_stress_dwg_r2018_100000_entities() {
     verify_dwg_roundtrip(100_000);
+}
+
+#[test]
+fn v1025_mixed_dwg_r2018_20000_entities_and_layers() {
+    const COUNT: usize = 20_000;
+    let started = Instant::now();
+    let mut drawing = Drawing::new_metric();
+    drawing.layers.push(Layer { name: "ROAD-LINES".into(), color: Color::Index(1), ..Layer::default() });
+    drawing.layers.push(Layer { name: "ROAD-CIRCLES".into(), color: Color::Index(5), ..Layer::default() });
+    for i in 0..COUNT {
+        let x = (i % 200) as f64 * 5.0;
+        let y = (i / 200) as f64 * 5.0;
+        let (layer, kind) = if i % 2 == 0 {
+            ("ROAD-LINES", EntityKind::Line(Line { a: Vec3::new(x, y, 0.0), b: Vec3::new(x + 2.0, y + 1.0, 0.0) }))
+        } else {
+            ("ROAD-CIRCLES", EntityKind::Circle(Circle { center: Vec3::new(x, y, 0.0), radius: 2.5 }))
+        };
+        drawing.add(&Space::Model, Common { layer: layer.into(), ..Common::default() }, kind).expect("create mixed entity");
+    }
+    let dwg = write_with(&drawing, "v1025-mixed.dwg", &SaveOptions { version: Some(Version::R2018), binary: false }).expect("write mixed DWG");
+    let saved_at = started.elapsed().as_millis();
+    let reopened = read(&dwg, "v1025-mixed.dwg").expect("reopen mixed DWG");
+    let finished_at = started.elapsed().as_millis();
+    assert_eq!(reopened.model.len(), COUNT);
+    assert_eq!(reopened.layer("ROAD-LINES").expect("line layer").color, Color::Index(1));
+    assert_eq!(reopened.layer("ROAD-CIRCLES").expect("circle layer").color, Color::Index(5));
+    let mut line_count = 0usize;
+    let mut circle_count = 0usize;
+    for e in reopened.model.iter() {
+        match &e.kind {
+            EntityKind::Line(line) => {
+                assert_eq!(e.common.layer, "ROAD-LINES");
+                assert!((line.b.x - line.a.x - 2.0).abs() < 1e-7);
+                assert!((line.b.y - line.a.y - 1.0).abs() < 1e-7);
+                line_count += 1;
+            }
+            EntityKind::Circle(circle) => {
+                assert_eq!(e.common.layer, "ROAD-CIRCLES");
+                assert!((circle.radius - 2.5).abs() < 1e-7);
+                circle_count += 1;
+            }
+            kind => panic!("mixed DWG changed entity kind: {kind:?}"),
+        }
+    }
+    assert_eq!((line_count, circle_count), (10_000, 10_000));
+    eprintln!("V1.025 mixed DWG: entities={COUNT} bytes={} save_elapsed_ms={saved_at} total_elapsed_ms={finished_at}", dwg.len());
 }
