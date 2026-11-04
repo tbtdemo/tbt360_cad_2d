@@ -182,6 +182,16 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Installed CLI cannot reopen generated DXF drawing' }
           $drawingInfo = ($roundTripInfo -join [char]10) | ConvertFrom-Json
           if ($null -eq $drawingInfo.entityCount -or $drawingInfo.entityCount -le 0) { throw 'Installed CLI reopened DXF without CAD entities' }
+          $dwgFile = Join-Path $env:RUNNER_TEMP 'CADTBT360_V1025_Installed_Interop.dwg'
+          & $installedCli run --metric --cmd 'line {"points":[[0,0],[12,3],[25,8]]}' --save $dwgFile | Out-Host
+          if ($LASTEXITCODE -ne 0 -or !(Test-Path $dwgFile)) { throw 'Installed CLI cannot write an editable DWG drawing' }
+          $dwgBytes = [System.IO.File]::ReadAllBytes($dwgFile)
+          if ($dwgBytes.Length -lt 64 -or [System.Text.Encoding]::ASCII.GetString($dwgBytes, 0, 6) -ne 'AC1032') { throw 'Installed CLI did not produce an R2018 DWG (AC1032)' }
+          $dwgInfoLines = & $installedCli info $dwgFile
+          if ($LASTEXITCODE -ne 0) { throw 'Installed CLI cannot reopen exported DWG' }
+          $dwgInfo = ($dwgInfoLines -join [char]10) | ConvertFrom-Json
+          if ($dwgInfo.counts.Line -ne 2) { throw "DWG roundtrip lost CAD geometry: $($dwgInfoLines -join [char]10)" }
+
           $traceFile = Join-Path $env:RUNNER_TEMP 'CADTBT360_V1025_AI_ImageTrace_Smoke.dxf'
           & $installedCli run --metric --cmd 'imageattach {"path":"reference.png","pixels":[200,100],"width":20,"height":10}' --cmd 'imagetrace {"handle":"{last}","points":[[0,100],[200,100],[200,0]]}' --save $traceFile | Out-Host
           if ($LASTEXITCODE -ne 0 -or !(Test-Path $traceFile)) { throw 'Installed CLI cannot produce AI-traced DXF with IMAGE and LWPOLYLINE' }
