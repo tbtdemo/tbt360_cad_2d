@@ -2,7 +2,7 @@ name: CADTBT360 V1.024 Road QTO Release Candidate Windows EXE
 on:
   push:
     branches:
-      - feature/CADTBT360_road-qto-parallel-v1024
+      - feature/CADTBT360_road-qto-parallel-v1023
     paths:
       - '.github/workflows/cadtbt360-v1024-rc-windows.yml'
       - 'CADTBT360_V1.024.iss'
