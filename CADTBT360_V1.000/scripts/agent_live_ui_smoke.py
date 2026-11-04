@@ -411,6 +411,42 @@ def main():
             "blocks_after":reopened_blocks,"block_marks_before":before_marks,"block_marks_after":after_marks,
             "hatch_before":hatch_before,"hatch_after":hatch_after
         },indent=2,ensure_ascii=False),encoding="utf-8")
+        # Dimension/DimStyle DWG roundtrip: validate dimension geometry, displayed
+        # override text and style references, not merely file size or entity count.
+        mcp.tool("new_drawing",{"metric":True})
+        mcp.tool("execute",{"command":"layer.new","params":{
+            "name":"CAD360-DIMENSIONS","color":"cyan","current":True}})
+        mcp.tool("execute",{"command":"dimlinear","params":{
+            "p1":[0,0],"p2":[100,0],"at":[50,-15],"text":"100 mm"}})
+        mcp.tool("execute",{"command":"dimaligned","params":{
+            "p1":[0,0],"p2":[60,80],"at":[-10,45]}})
+        mcp.tool("execute",{"command":"dimradius","params":{
+            "center":[115,45],"point":[125,45]}})
+        dim_before=json.loads(mcp.tool("query_entities",{"type":"Dimension","limit":30})[0]["text"])
+        if dim_before.get("count")!=3: raise RuntimeError(f"CAD created wrong Dimension count: {dim_before}")
+        def dim_fingerprint(entities):
+            fields=[]
+            for ent in entities:
+                geometry=canonical_geometry(ent.get("geometry"))
+                if not isinstance(geometry,dict) or not geometry:
+                    raise RuntimeError(f"Dimension geometry missing: {ent}")
+                if ent.get("layer")!="CAD360-DIMENSIONS":
+                    raise RuntimeError(f"Dimension lost its assigned layer: {ent}")
+                fields.append({"layer":ent["layer"],"geometry":geometry})
+            return sorted(fields,key=lambda x:json.dumps(x,sort_keys=True))
+        dim_snapshot_before=dim_fingerprint(dim_before["entities"])
+        dim_file=args.out/"CAD360_DIMENSION_DIMSTYLE_ROUNDTRIP.dwg"
+        mcp.tool("save",{"path":str(dim_file.resolve())})
+        mcp.tool("open",{"path":str(dim_file.resolve())})
+        dim_after=json.loads(mcp.tool("query_entities",{"type":"Dimension","limit":30})[0]["text"])
+        if dim_after.get("count")!=3: raise RuntimeError(f"DWG lost dimensions: {dim_after}")
+        dim_snapshot_after=dim_fingerprint(dim_after["entities"])
+        (args.out/"DIMENSION_ROUNDTRIP_DIAGNOSTIC.json").write_text(json.dumps({
+            "before":dim_snapshot_before,"after":dim_snapshot_after,
+        },indent=2,ensure_ascii=False),encoding="utf-8")
+        if dim_snapshot_before!=dim_snapshot_after:
+            raise RuntimeError("DWG Dimension geometry/style mismatch: "+
+                json.dumps({"before":dim_snapshot_before,"after":dim_snapshot_after},ensure_ascii=False)[:4000])
         report={"result":"PASS","method":"real desktop MCP bridge","counts":counts,
                 "render":render_info,"window_screenshot":screen_info,"visual_comparison":visual,
                 "drawing_bytes":drawing.stat().st_size,"undo_counts":undo_counts,"redo_counts":redo_counts,
@@ -419,7 +455,8 @@ def main():
                 "property_roundtrip":"PASS","validated_entity_types":sorted(required),
                 "advanced_dwg_counts":advanced_after.get("counts"),"advanced_property_roundtrip":"PASS",
                 "hatch_pattern_expansion_lines":len(added_pattern_lines),
-                "block_attribute_values_before":before_marks,"block_attribute_values_after":after_marks}
+                "block_attribute_values_before":before_marks,"block_attribute_values_after":after_marks,
+                "dimension_roundtrip":"PASS","dimension_count":dim_after["count"]}
         (args.out/"ACCEPTANCE.json").write_text(json.dumps(report,indent=2),encoding="utf-8")
         print(json.dumps(report,indent=2))
     finally:
