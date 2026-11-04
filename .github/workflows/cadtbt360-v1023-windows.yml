@@ -51,6 +51,16 @@ jobs:
           $ErrorActionPreference = 'Stop'
           cargo metadata --locked --no-deps --format-version 1 | Out-Null
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Confirm E0503 borrow-check regression is fixed before packaging
+        working-directory: CADTBT360_V1.000
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $test = 'selected_scan_counts_missing_handles_without_mutable_capture_conflict'
+          $available = cargo test --locked -p cadcraft --bin cadcraft $test -- --list
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if (-not ($available | Select-String -SimpleMatch $test)) { throw "Required E0503 regression test not found: $test" }
+          cargo test --locked -p cadcraft --bin cadcraft $test -- --nocapture
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Check road takeoff logic tests
         working-directory: CADTBT360_V1.000
         run: cargo test --locked -p cadcraft --bin cadcraft takeoff_road::tests -- --nocapture
