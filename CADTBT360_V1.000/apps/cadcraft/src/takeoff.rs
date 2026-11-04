@@ -2856,14 +2856,35 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
                 }
             });
         });
+        // Deleting a measurement is destructive and must not be triggered
+        // by one tiny action icon in a dense, horizontally scrolling grid.
+        let pending_delete_key=egui::Id::new("cadtbt360_qto_confirm_delete_record");
         if let Some((id, kind)) = action {
             match kind {
                 1 => { let _ = state.set_status(id, MeasureStatus::Confirmed); }
                 2 => { let _ = state.set_status(id, MeasureStatus::Excluded); }
-                3 => { let _ = state.delete_measurement(id); }
+                3 => { ui.ctx().data_mut(|data|data.insert_temp(pending_delete_key,id)); }
                 4 => { let _ = state.select_record(id); }
                 5 => { let _ = state.refresh_from_source(app,id); }
                 _ => {}
+            }
+        }
+        if let Some(id)=ui.ctx().data_mut(|data|data.get_temp::<u64>(pending_delete_key)) {
+            if id!=0 && state.records.iter().any(|record|record.id==id) {
+                ui.group(|ui| {
+                    ui.colored_label(egui::Color32::YELLOW,format!("Xóa phép đo #{id} khỏi dự án? Hành động này sẽ được ghi vào lịch sử hoàn tác."));
+                    ui.horizontal_wrapped(|ui| {
+                        if ui.button("Xác nhận xóa phép đo").clicked() {
+                            if state.delete_measurement(id) {state.import_feedback=format!("Đã xóa phép đo #{id}. Có thể hoàn tác.");}
+                            ui.ctx().data_mut(|data|data.insert_temp(pending_delete_key,0u64));
+                        }
+                        if ui.button("Hủy xóa").clicked() {
+                            ui.ctx().data_mut(|data|data.insert_temp(pending_delete_key,0u64));
+                        }
+                    });
+                });
+            } else {
+                ui.ctx().data_mut(|data|data.insert_temp(pending_delete_key,0u64));
             }
         }
         });
