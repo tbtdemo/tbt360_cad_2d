@@ -96,6 +96,24 @@ mod tests {
         assert!(safe_path("", "project/drawing.dxf").is_none());
     }
     #[test]
+    fn actual_png_pixels_decode_into_cached_egui_texture() {
+        let file = std::env::temp_dir().join(format!("cad360-raster-test-{}.png", std::process::id()));
+        let img = image::RgbaImage::from_pixel(2, 2, image::Rgba([24, 128, 236, 255]));
+        img.save(&file).unwrap();
+        let context = egui::Context::default();
+        let texture = read_texture(&context, &file).expect("valid local PNG must load as real pixels");
+        assert_eq!(texture.size(), [2, 2]);
+        let _ = std::fs::remove_file(file);
+    }
+    #[test]
+    fn oversized_file_is_rejected_before_image_decoding() {
+        let file = std::env::temp_dir().join(format!("cad360-raster-large-{}.png", std::process::id()));
+        let handle = std::fs::File::create(&file).unwrap();
+        handle.set_len(MAX_FILE_BYTES + 1).unwrap();
+        assert!(read_texture(&egui::Context::default(), &file).is_none());
+        let _ = std::fs::remove_file(file);
+    }
+    #[test]
     fn image_quad_keeps_top_left_uv_orientation() {
         let a = Vec2::new(10.0, 20.0);
         let u = Vec2::new(30.0, 0.0);
