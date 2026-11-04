@@ -6,6 +6,8 @@ on:
     paths:
       - 'CADTBT360_V1.000/crates/ui-egui/src/autosave.rs'
       - 'CADTBT360_V1.000/crates/ui-egui/src/canvas.rs'
+      - 'CADTBT360_V1.000/crates/render/src/draw.rs'
+      - 'CADTBT360_V1.000/crates/render/src/tests.rs'
       - 'CADTBT360_V1.000/crates/ui-egui/src/canvas/raster_image.rs'
       - 'CADTBT360_V1.000/crates/engine/src/autosave.rs'
       - 'CADTBT360_V1.000/crates/engine/tests/autosave.rs'
@@ -19,6 +21,8 @@ on:
     paths:
       - 'CADTBT360_V1.000/crates/ui-egui/src/autosave.rs'
       - 'CADTBT360_V1.000/crates/ui-egui/src/canvas.rs'
+      - 'CADTBT360_V1.000/crates/render/src/draw.rs'
+      - 'CADTBT360_V1.000/crates/render/src/tests.rs'
       - 'CADTBT360_V1.000/crates/ui-egui/src/canvas/raster_image.rs'
       - 'CADTBT360_V1.000/crates/engine/src/autosave.rs'
       - 'CADTBT360_V1.000/crates/engine/tests/autosave.rs'
@@ -82,6 +86,10 @@ jobs:
         run: |
           cargo test --locked -p cadcraft-ui-egui --lib autosave::tests -- --nocapture
           if ($LASTEXITCODE -ne 0) { throw 'Desktop autosave recovery tests failed' }
+      - name: Confirm IMAGE frame does not cover native raster with placeholder diagonals
+        run: |
+          cargo test --locked -p cadcraft-render --lib raster_image_reference_draws_only_outer_frame_without_obscuring_draft -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'IMAGE reference frame regression failed' }
       - name: Validate local PNG/JPG raster path safety and canvas texture compilation
         run: |
           cargo test --locked -p cadcraft-ui-egui --lib canvas::raster_image::tests -- --nocapture
