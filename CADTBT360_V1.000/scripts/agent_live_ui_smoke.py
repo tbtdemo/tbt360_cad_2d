@@ -8,6 +8,7 @@ import argparse
 import base64
 import json
 import os
+from PIL import Image, ImageChops, ImageStat
 import pathlib
 import queue
 import socket
@@ -72,6 +73,24 @@ def valid_png(path):
     if width<100 or height<100: raise RuntimeError(f"Unexpected PNG size {width}x{height}: {path}")
     return {"width":width,"height":height,"bytes":len(data)}
 
+def visual_stats(before, after, render_file):
+    """Reject blank, unchanged, or implausible capture; keep raw evidence for review."""
+    with Image.open(before) as img0, Image.open(after) as img1, Image.open(render_file) as image_render:
+        original=img0.convert("RGB")
+        final=img1.convert("RGB")
+        drawing=image_render.convert("RGB")
+        if original.size != final.size: raise RuntimeError("Screenshot sizes changed unexpectedly")
+        frame_histogram=final.convert("L").histogram()
+        varied_bins=sum(1 for count in frame_histogram if count)
+        if varied_bins < 12: raise RuntimeError(f"Window screenshot looks blank: grayscale bins={varied_bins}")
+        diff=ImageChops.difference(original, final).convert("RGB")
+        mask=diff.convert("L").point(lambda v: 255 if v > 8 else 0)
+        changed=ImageStat.Stat(mask).mean[0]/255
+        render_bins=sum(bool(count) for count in drawing.convert("L").histogram())
+        if render_bins < 8: raise RuntimeError(f"CAD render looks blank: grayscale bins={render_bins}")
+        return {"screen_changed_ratio":round(changed,6),"screen_grayscale_bins":varied_bins,
+                "render_grayscale_bins":render_bins,"window_size":list(final.size)}
+
 def main():
     p=argparse.ArgumentParser()
     p.add_argument("--cad",required=True,type=pathlib.Path)
@@ -104,6 +123,9 @@ def main():
         for name in ("execute","inspect_drawing","render","screenshot","save","ui_inspect"):
             if name not in names: raise RuntimeError(f"Live MCP bridge missing {name}")
         mcp.tool("new_drawing",{"metric":True})
+        before_file=args.out/"CAD360_WINDOW_BEFORE_DRAWING.png"
+        mcp.tool("screenshot",{"path":str(before_file.resolve())})
+        valid_png(before_file)
         for command, params in [
             ("line",{"points":[[0,0],[100,0]]}),
             ("line",{"points":[[100,0],[100,60]]}),
@@ -113,6 +135,7 @@ def main():
             ("circle",{"center":[90,50],"radius":4}),
         ]:
             mcp.tool("execute",{"command":command,"params":params})
+        mcp.tool("execute",{"command":"zoom","params":{"mode":"extents"}})
         inspect=mcp.tool("inspect_drawing",{"entities":False})
         obj=json.loads(inspect[0]["text"])
         counts=obj.get("counts",{})
@@ -132,6 +155,17 @@ def main():
         mcp.tool("screenshot",{"path":str(screen_file.resolve())})
         if not screen_file.is_file(): raise RuntimeError("UI screenshot tool did not save a real window image")
         screen_info=valid_png(screen_file)
+        visual=visual_stats(before_file,screen_file,render_file)
+        # Rendering may be delayed by a frame on hosted Windows runners.
+        # Retry briefly; never accept a screenshot that is unchanged after drawing.
+        for attempt in range(5):
+            if visual["screen_changed_ratio"] >= 0.0004: break
+            time.sleep(.65)
+            mcp.tool("screenshot",{"path":str(screen_file.resolve())})
+            screen_info=valid_png(screen_file)
+            visual=visual_stats(before_file,screen_file,render_file)
+        if visual["screen_changed_ratio"] < 0.0004:
+            raise RuntimeError(f"CAD screenshot unchanged after six drawing commands: {visual}")
         drawing=args.out/"CAD360_AGENT_LIVE_DRAWING.dxf"
         mcp.tool("save",{"path":str(drawing.resolve())})
         if not drawing.is_file() or drawing.stat().st_size<1024: raise RuntimeError("CAD drawing was not saved")
@@ -140,7 +174,7 @@ def main():
             raise RuntimeError("Saved DXF did not reopen with line and circle geometry")
         (args.out/"reopened_dxf_inspection.json").write_text(check.stdout,encoding="utf-8")
         report={"result":"PASS","method":"real desktop MCP bridge","counts":counts,
-                "render":render_info,"window_screenshot":screen_info,
+                "render":render_info,"window_screenshot":screen_info,"visual_comparison":visual,
                 "drawing_bytes":drawing.stat().st_size}
         (args.out/"ACCEPTANCE.json").write_text(json.dumps(report,indent=2),encoding="utf-8")
         print(json.dumps(report,indent=2))
