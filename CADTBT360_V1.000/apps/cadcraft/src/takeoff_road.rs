@@ -336,7 +336,7 @@ pub fn link_plan_markers(markers: &[RoadPlanMarker], sections: &[RoadCrossSectio
     for section in sections {
         validate_section(section)?;
         let matches: Vec<usize> = markers.iter().enumerate()
-            .filter(|(_, marker)| (marker.chainage_m - section.chainage_m).abs() <= tolerance_m && section.plan_marker_handle.as_deref().is_none_or(|h| h.eq_ignore_ascii_case(&marker.handle)))
+            .filter(|(_, marker)| (marker.chainage_m - section.chainage_m).abs() <= tolerance_m && section.plan_marker_handle.as_deref().is_none_or(|h| same_cad_handle(h,&marker.handle)))
             .map(|(index, _)| index).collect();
         if matches.len() != 1 {
             return Err(format!("Lý trình {} có {} cọc bình đồ phù hợp; cần đúng một cọc.", station_label(section.chainage_m), matches.len()));
@@ -559,6 +559,17 @@ mod tests {
         assert!(link_plan_markers(&markers,&sections,0.1).is_err());
         let mut linked=sections[0].clone(); linked.plan_marker_handle=Some("AA".into());
         assert!(link_plan_markers(&markers,&[linked],0.001).is_err());
+    }
+    #[test]
+    fn explicit_plan_handle_matches_case_and_zero_padding() {
+        let mut cross=section(1000.0,Some(source("1A",20.0)),None);
+        cross.plan_marker_handle=Some("000aa".into());
+        let markers=[RoadPlanMarker{chainage_m:1000.0,handle:"AA".into()}];
+        let links=link_plan_markers(&markers,&[cross.clone()],0.001).unwrap();
+        assert_eq!(links.len(),1);
+        assert_eq!(links[0].marker_handle,"AA");
+        cross.plan_marker_handle=Some("BB".into());
+        assert!(link_plan_markers(&markers,&[cross],0.001).is_err());
     }
     #[test]
     fn explicit_zero_at_cut_fill_transition_is_counted_without_guessing_missing_areas() {
