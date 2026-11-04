@@ -1980,26 +1980,40 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
         state.methods_initialized = true;
     }
     let groups = if state.source_mode == QtoSourceMode::EntireProject { quantities(app) } else { BTreeMap::new() };
-    ui.heading("ĐO BÓC KHỐI LƯỢNG");
-    ui.small("Đo trực tiếp từ bản vẽ • kiểm soát nguồn CAD • xuất hồ sơ");
+    ui.horizontal(|ui| {
+        ui.heading("Đo bóc khối lượng");
+        ui.separator();
+        ui.label(egui::RichText::new("CAD 360").color(egui::Color32::LIGHT_BLUE).strong());
+    });
+    ui.small("Lựa chọn nguồn đo, kiểm tra phép đo và xuất báo cáo từ bản vẽ.");
     let review_count = state.records.iter().filter(|r| r.status == MeasureStatus::Review).count();
     let confirmed_count = state.records.iter().filter(|r| r.status == MeasureStatus::Confirmed).count();
     let excluded_count = state.records.iter().filter(|r| r.status == MeasureStatus::Excluded).count();
     ui.horizontal_wrapped(|ui| {
-        ui.group(|ui| { ui.strong(format!("Tổng phép đo: {}", state.records.len())); });
-        ui.group(|ui| { ui.label(format!("Cần rà soát: {review_count}")); });
-        ui.group(|ui| { ui.label(format!("Đã xác nhận: {confirmed_count}")); });
-        ui.group(|ui| { ui.label(format!("Đã loại: {excluded_count}")); });
-        ui.group(|ui| { ui.label(format!("Có thể hoàn tác: {}", state.undo.len())); });
+        for (label,count,color) in [
+            ("Tổng phép đo",state.records.len(),egui::Color32::LIGHT_BLUE),
+            ("Cần rà soát",review_count,egui::Color32::YELLOW),
+            ("Đã xác nhận",confirmed_count,egui::Color32::LIGHT_GREEN),
+            ("Đã loại",excluded_count,egui::Color32::GRAY)
+        ] {
+            egui::Frame::group(ui.style()).show(ui,|ui| {
+                ui.set_min_width(105.0);
+                ui.small(label);
+                ui.label(egui::RichText::new(count.to_string()).size(19.0).strong().color(color));
+            });
+        }
     });
     if review_count > 0 { ui.small(format!("{} phép đo cần rà soát trước khi nghiệm thu.",review_count)); }
     ui.separator();
     let tab_id=egui::Id::new("cadtbt360_qto_professional_tab_v1");
     let mut active_tab=ui.ctx().data_mut(|data|data.get_temp::<usize>(tab_id).unwrap_or(0).min(3));
-    ui.horizontal_wrapped(|ui| {
-        for (index,label) in ["Đo bóc cơ bản","Thể tích 2 nguồn","Giao thông","Bảng kết quả & Excel"].iter().enumerate() {
-            if ui.selectable_label(active_tab==index,*label).clicked() {active_tab=index;}
-        }
+    egui::Frame::group(ui.style()).show(ui,|ui| {
+        ui.horizontal_wrapped(|ui| {
+            for (index,label) in ["01  Đo bóc cơ bản","02  Thể tích 2 nguồn","03  Giao thông","04  Kết quả & Excel"].iter().enumerate() {
+                let selected=active_tab==index;
+                if ui.selectable_label(selected,egui::RichText::new(*label).strong()).clicked() {active_tab=index;}
+            }
+        });
     });
     ui.ctx().data_mut(|data|data.insert_temp(tab_id,active_tab));
     ui.add_space(8.0);
@@ -2039,7 +2053,10 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
     if active_tab==0 {
     ui.group(|ui| {
         ui.strong("Chọn phạm vi đo");
-        ui.label("Rê chuột và quét cửa sổ (trái → phải chọn nằm trong; phải → trái chọn cắt qua) ở vùng CAD bên trái. Đối tượng được chọn xuất hiện ngay trong bảng xem trước; KHÔNG tự lấy toàn dự án.");
+        ui.small("Chọn vùng trên bản vẽ CAD để xem trước và nhập phép đo.");
+        ui.collapsing("Hướng dẫn chọn vùng",|ui| {
+            ui.small("Kéo trái → phải: chọn đối tượng nằm hoàn toàn trong vùng. Kéo phải → trái: chọn đối tượng giao với vùng. Chỉ đo toàn dự án khi chủ động chọn chế độ đó.");
+        });
         ui.horizontal_wrapped(|ui| {
             ui.label("Phạm vi bóc:");
             egui::ComboBox::from_id_salt("cadtbt360_qto_source_mode").selected_text(state.source_mode.label()).show_ui(ui, |ui| {
@@ -2057,7 +2074,8 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
             }
             ui.label(format!("Đang chọn: {} | Đã lưu: {}", app.session.selection().len(), state.captured_handles.len()));
         });
-        ui.strong("02 — CHỌN PHƯƠNG PHÁP ĐO (CÓ THỂ KẾT HỢP)");
+        ui.add_space(8.0);
+        ui.strong("Phương pháp đo");
         ui.horizontal_wrapped(|ui| {
             for (index, label) in ["Chiều dài", "Diện tích", "Chu vi", "Đếm cấu kiện"].iter().enumerate() {
                 // Start with geometry quantities, not automatic object counting.
@@ -2099,14 +2117,17 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
         } else {
             ui.colored_label(egui::Color32::YELLOW, "Đã chọn toàn bộ bản vẽ. Cách này chỉ áp dụng khi chủ động chọn; khuyến nghị quét vùng cần bóc.");
         }
-        ui.small("Tiếp theo: ghép diện tích mặt bằng + chiều cao mặt cắt thành thể tích; đo đường theo lý trình cọc + diện tích trắc ngang. Không suy diễn hình học khi chưa khai báo đủ nguồn.");
+        ui.small("Muốn đo thể tích hoặc giao thông, chọn tab tương ứng phía trên.");
     });
 
     }
     if active_tab==1 {
     ui.group(|ui| {
         ui.strong("Thể tích mặt bằng × mặt cắt");
-        ui.small("Bước 1: quét đúng 1 đường bao kín trên mặt bằng (AREA). Bước 2: quét đúng 1 LINE thẳng đứng trên mặt cắt (HEIGHT). Hai hình học nguồn được kiểm tra lại trước khi xuất Excel.");
+        ui.small("Chọn diện tích mặt bằng, sau đó chọn chiều cao mặt cắt để tính thể tích.");
+        ui.collapsing("Điều kiện hình học",|ui| {
+            ui.small("Mặt bằng: đúng một biên kín có diện tích (AREA). Mặt cắt: đúng một LINE thẳng đứng (HEIGHT). Hai nguồn được kiểm tra lại trước khi xuất Excel.");
+        });
         ui.horizontal_wrapped(|ui| {
             if ui.button("1. LẤY DIỆN TÍCH MẶT BẰNG").clicked() {
                 let areas=selected_measurements(app).into_iter().filter(|m| m.kind == MeasureKind::Area && m.raw_value > 0.0).collect::<Vec<_>>();
@@ -2197,8 +2218,12 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
     if active_tab==2 {
     egui::CollapsingHeader::new("Đo bóc giao thông • Cọc & trắc ngang")
         .id_salt("cadtbt360_road_qto_panel").default_open(true).show(ui, |ui| {
-        ui.label("Phương pháp diện tích trung bình hai đầu (AEA): V = (A₁ + A₂) × L / 2.");
-        ui.small("Quét/chọn đúng một đường bao kín trên bản vẽ trắc ngang, phân loại vùng ĐÀO hoặc ĐẮP, khai báo lý trình của cọc trên bình đồ. Lý trình nhập theo mét hoặc Km12+345.67. Không tự suy đoán lý trình từ tọa độ CAD.");
+        ui.strong("Khối lượng đào / đắp theo cọc");
+        ui.small("AEA: V = (A đầu + A cuối) × khoảng cách / 2.");
+        ui.small("Chọn cọc bình đồ và vùng trắc ngang, rồi khai báo diện tích đào hoặc đắp.");
+        ui.collapsing("Hướng dẫn xác định nguồn",|ui| {
+            ui.small("Đường bao trắc ngang phải kín. Lý trình nhận từ cọc bình đồ hoặc nhập theo mét / Km12+345.67; không suy đoán từ tọa độ CAD.");
+        });
         ui.horizontal_wrapped(|ui| {
             ui.label("Lý trình");
             ui.add(egui::TextEdit::singleline(&mut state.road_chainage).hint_text("Km0+000.00").desired_width(145.0));
@@ -2444,7 +2469,7 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
 
     }
     if active_tab==0 {
-    ui.collapsing("Công cụ nhập nhanh & đo nâng cao", |ui| {
+    ui.collapsing("Thao tác nâng cao • Block / Array / đếm nhanh", |ui| {
     ui.horizontal(|ui| {
         if ui.button("Thêm phép đo từ CAD đang chọn").clicked() {
             let measurements=selected_measurements(app);
@@ -2540,7 +2565,10 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
     ui.separator();
     egui::CollapsingHeader::new("Cấu hình báo cáo Excel • Cột, nhóm, đơn vị, khổ in").id_salt("cadtbt360_qto_excel_settings").default_open(true).show(ui, |ui| {
         ui.strong("Thiết lập hồ sơ xuất Excel");
-        ui.small("Tạo XLSX có tiêu đề, nhóm công việc, tổng theo đơn vị, bảng kẻ chuẩn, A4 ngang, tiêu đề lặp mỗi trang và ô ký duyệt.");
+        ui.small("Báo cáo XLSX có nhóm công việc, bảng tổng hợp và bố cục in A4 ngang.");
+        ui.collapsing("Quy cách trình bày khi in",|ui| {
+            ui.small("Tiêu đề lặp theo trang, bảng kẻ chuẩn, tổng theo đơn vị và ô ký duyệt.");
+        });
         ui.horizontal_wrapped(|ui| {
             ui.label("Tên dự án");
             ui.add(egui::TextEdit::singleline(&mut state.export_config.project).desired_width(260.0).hint_text("Tên công trình / dự án"));
