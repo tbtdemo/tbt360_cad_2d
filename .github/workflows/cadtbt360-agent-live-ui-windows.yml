@@ -47,6 +47,8 @@ jobs:
         run: |
           $ErrorActionPreference='Stop'
           python --version
+          python -m pip install --disable-pip-version-check pillow
+          if ($LASTEXITCODE -ne 0) {throw 'Unable to install image verification dependency'}
           $cad=(Resolve-Path '.live-ui-bin/CADTBT360_V1.023_RoadQTO_RC.exe').Path
           $cli=(Resolve-Path '.live-ui-bin/cadcraft-cli.exe').Path
           $out=(Resolve-Path 'live-ui-proof').Path
