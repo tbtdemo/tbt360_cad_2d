@@ -306,7 +306,13 @@ jobs:
               throw "Saved AI trace vertex $i mismatch: actual=$($point | ConvertTo-Json -Compress), expected=($($expected[$i].x),$($expected[$i].y))"
             }
           }
-          if (-not (Select-String -Path (Join-Path $dest 'BUILD_INFO.txt') -Pattern 'Release=CADTBT360_V1.025' -Quiet)) { throw 'Incorrect release metadata' }
+          $installedBuildInfo = Get-Content (Join-Path $dest 'BUILD_INFO.txt')
+          if ($installedBuildInfo -notcontains 'Release=CADTBT360_V1.025' -or $installedBuildInfo -notcontains "SourceCommit=$env:GITHUB_SHA" -or $installedBuildInfo -notcontains 'NativeBuild=true') {
+            throw "Installed build metadata does not identify this native release commit: $($installedBuildInfo -join '; ')"
+          }
+          $packagedBuildInfoHash = (Get-FileHash 'dist/v1025/BUILD_INFO.txt' -Algorithm SHA256).Hash
+          $installedBuildInfoHash = (Get-FileHash (Join-Path $dest 'BUILD_INFO.txt') -Algorithm SHA256).Hash
+          if ($installedBuildInfoHash -ne $packagedBuildInfoHash) { throw 'Installed BUILD_INFO.txt differs from verified release metadata' }
           $uninstaller = Join-Path $dest 'unins000.exe'
           if (!(Test-Path $uninstaller)) { throw 'Missing Inno Setup uninstaller' }
           $uninstall = Start-Process -FilePath $uninstaller -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART') -Wait -PassThru
@@ -328,6 +334,13 @@ jobs:
           $nativeGuiHash = (Get-FileHash 'CADTBT360_V1.000/target/release/cadcraft.exe' -Algorithm SHA256).Hash
           $nativeCliHash = (Get-FileHash 'CADTBT360_V1.000/target/release/cadcraft-cli.exe' -Algorithm SHA256).Hash
           if ($portableGuiHash -ne $nativeGuiHash -or $portableCliHash -ne $nativeCliHash) { throw 'Portable executables do not match freshly compiled release' }
+          $portableInfoHash = (Get-FileHash (Join-Path $tmp 'BUILD_INFO.txt') -Algorithm SHA256).Hash
+          $releaseInfoHash = (Get-FileHash 'dist/v1025/BUILD_INFO.txt' -Algorithm SHA256).Hash
+          if ($portableInfoHash -ne $releaseInfoHash) { throw 'Portable BUILD_INFO.txt does not match the Setup release metadata' }
+          $portableBuildInfo = Get-Content (Join-Path $tmp 'BUILD_INFO.txt')
+          if ($portableBuildInfo -notcontains 'Release=CADTBT360_V1.025' -or $portableBuildInfo -notcontains "SourceCommit=$env:GITHUB_SHA" -or $portableBuildInfo -notcontains 'NativeBuild=true') {
+            throw "Portable archive metadata does not identify this native release commit: $($portableBuildInfo -join '; ')"
+          }
           $portableCli = Join-Path $tmp 'CADTBT360_CLI.exe'
           $portableVersion = & $portableCli --version
           if ($LASTEXITCODE -ne 0 -or $portableVersion -notmatch '^cadcraft-cli [0-9]+[.][0-9]+[.][0-9]+') { throw "Portable CLI startup failed: $portableVersion" }
