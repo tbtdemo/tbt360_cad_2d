@@ -133,6 +133,15 @@ fn texture_dimensions(width: u32, height: u32) -> [u32; 2] {
     [scaled(width), scaled(height)]
 }
 
+/// Avoid publishing decoded pixels from a file changed mid-read (external image editors).
+/// The image remains a linked reference, and a subsequent repaint can retry the new version.
+fn read_stable_texture(ctx: &Context, path: &Path, adjust: RasterAdjust) -> Option<TextureHandle> {
+    let before = file_stamp(path)?;
+    let texture = read_texture(ctx, path, adjust)?;
+    let after = file_stamp(path)?;
+    (before == after).then_some(texture)
+}
+
 fn read_texture(ctx: &Context, path: &Path, adjust: RasterAdjust) -> Option<TextureHandle> {
     let metadata = std::fs::metadata(path).ok()?;
     if !metadata.is_file() || metadata.len() == 0 || metadata.len() > MAX_FILE_BYTES { return None; }
@@ -280,7 +289,7 @@ pub(super) fn draw(painter: &Painter, xf: &Xf, session: &Session, ctx: &Context)
         if source_changed || cache.textures.get(&key).is_none_or(|entry| entry.should_retry(now)) {
             // An external editor can truncate a PNG before writing its new bytes. Keep the
             // last valid pixels on screen until the replacement image can be decoded.
-            let new_texture = read_texture(ctx, &path, adjust);
+            let new_texture = read_stable_texture(ctx, &path, adjust);
             if let Some(entry) = cache.textures.get_mut(&key) {
                 entry.refresh_texture(new_texture, file_stamp(&path).is_some(), now);
                 entry.source_stamp = file_stamp(&path);
@@ -443,6 +452,16 @@ fn defaults() -> RasterAdjust {
         assert_eq!(safe_path("images/site.png", "C:/projects/site/plan.dwg"), Some(PathBuf::from("C:/projects/site/images/site.png")));
         assert!(safe_path("//server/share.png", "project/drawing.dxf").is_none());
         assert!(safe_path("", "project/drawing.dxf").is_none());
+    }
+    #[test]
+    fn stable_raster_load_rejects_missing_source_and_accepts_valid_png() {
+        let file = std::env::temp_dir().join(format!("cad360-stable-raster-{}.png", std::process::id()));
+        let ctx = Context::default();
+        assert!(read_stable_texture(&ctx, &file, defaults()).is_none());
+        let img = image::RgbaImage::from_pixel(2, 2, image::Rgba([20, 40, 80, 255]));
+        img.save(&file).unwrap();
+        assert_eq!(read_stable_texture(&ctx, &file, defaults()).expect("stable image should decode").size(), [2, 2]);
+        std::fs::remove_file(file).unwrap();
     }
     #[test]
     fn actual_png_pixels_decode_into_cached_egui_texture() {
