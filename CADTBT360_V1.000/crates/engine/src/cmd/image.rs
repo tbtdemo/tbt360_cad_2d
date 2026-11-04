@@ -317,6 +317,26 @@ mod tests {
     }
 
     #[test]
+    fn imagecalibrate_handles_rotated_raster_and_rejects_collapsed_world_controls() {
+        let mut s = Session::new();
+        let image = s.execute("imageattach", &json!({"path":"rotated.png","at":[0,0],"pixels":[200,100],"width":200,"height":100})).unwrap();
+        let h = image["handle"].as_str().unwrap();
+        let result = s.execute("imagecalibrate", &json!({"handle":h,"pixels":[[0,100],[0,0]],"world":[[10,20],[20,20]]})).unwrap();
+        assert!((result["drawingUnitsPerPixel"].as_f64().unwrap() - 0.1).abs() < 1e-12);
+        let trace = s.execute("imagetrace", &json!({"handle":h,"points":[[0,100],[0,0],[200,0]],"preview":true})).unwrap();
+        let positions = trace["worldPoints"].as_array().unwrap();
+        let check = |idx: usize, x: f64, y: f64| {
+            let p = positions[idx].as_array().unwrap();
+            assert!((p[0].as_f64().unwrap() - x).abs() < 1e-9);
+            assert!((p[1].as_f64().unwrap() - y).abs() < 1e-9);
+        };
+        check(0, 10.0, 20.0);
+        check(1, 20.0, 20.0);
+        check(2, 20.0, 0.0);
+        assert!(s.execute("imagecalibrate", &json!({"handle":h,"pixels":[[0,100],[200,100]],"world":[[10,20],[10,20]]})).is_err());
+    }
+
+    #[test]
     fn imagetrace_maps_image_pixels_into_editable_cad_geometry() {
         let mut s = Session::new();
         let image = s.execute("imageattach", &json!({"path":"site.png","at":[10.0,20.0],"pixels":[200.0,100.0],"width":20.0,"height":10.0})).unwrap();
