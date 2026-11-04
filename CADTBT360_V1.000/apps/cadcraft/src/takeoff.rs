@@ -2736,7 +2736,14 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
             }
             ui.label(format!("Đã bỏ chọn {} phép đo khỏi Excel.", state.export_omitted_ids.len()));
         });
-        egui::ScrollArea::horizontal().show(ui, |ui| {
+        let visible_count=state.records.iter().filter(|record|measurement_matches_filter(record,&state.search_text,state.status_filter)
+            && qto_record_in_scope(record,register_scope.as_ref()) && qto_measure_type_allowed(record.kind,state.selected_measure_types)).count();
+        ui.small(format!("Đang hiển thị {visible_count}/{} phép đo trong phạm vi và bộ lọc hiện tại.",state.records.len()));
+        if visible_count==0 {
+            ui.label(egui::RichText::new("Chưa có phép đo phù hợp. Chọn phạm vi hoặc thay đổi bộ lọc để xem dữ liệu.").color(egui::Color32::GRAY));
+        }
+        egui::ScrollArea::both().id_salt("cadtbt360_qto_measurement_scroll").max_height(390.0).auto_shrink([false,false]).show(ui, |ui| {
+            ui.spacing_mut().item_spacing.y=6.0;
             egui::Grid::new("native_qto_measurements").striped(true).show(ui, |ui| {
                 for h in ["Xuất", "ID","Handle nguồn","Nguồn","Tầng","Bộ môn","Owner","Loại","Layer","Nhóm","Mã CT","Diễn giải","Giá trị","Trạng thái","Thao tác"] { ui.strong(h); }
                 ui.end_row();
