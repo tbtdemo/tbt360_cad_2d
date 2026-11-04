@@ -271,7 +271,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          $tag = "CADTBT360_V1.025_B$env:GITHUB_RUN_NUMBER"
+          $tag = "CADTBT360_V1.025_B$($env:GITHUB_RUN_NUMBER)_A$($env:GITHUB_RUN_ATTEMPT)"
           $assets = @(
             'dist/v1025/CADTBT360_V1.025_Setup_Windows_x64.exe',
             'dist/v1025/CADTBT360_V1.025_Portable_Windows_x64.zip',
@@ -283,6 +283,7 @@ jobs:
           gh release create $tag @assets --title "CAD 360 Viet Nam V1.025 - Build $env:GITHUB_RUN_NUMBER" --target $env:GITHUB_SHA --prerelease --notes $notes
           if ($LASTEXITCODE -ne 0) { throw "Failed to publish verified Windows prerelease $tag" }
           Write-Host "Published verified Windows artifacts under GitHub release tag $tag"
+          "GitHub prerelease: https://github.com/$env:GITHUB_REPOSITORY/releases/tag/$tag" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
 
       - name: Save failed or cancelled build diagnostics for V1.025
         if: ${{ failure() || cancelled() }}
