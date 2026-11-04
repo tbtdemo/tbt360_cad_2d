@@ -2541,6 +2541,22 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
             .is_none_or(|handles|(part.source_start.is_empty() || qto_scope_contains_handle(handles,&part.source_start))
                 && (part.source_end.is_empty() || qto_scope_contains_handle(handles,&part.source_end)))).count()).unwrap_or(0);
         ui.label(format!("Sẵn sàng xem xét: {count} phép đo 2D + {volume_count} thể tích hai nguồn + {road_count} khoảng cọc đào/đắp, {} cột.",state.export_config.selected().len()));
+        if let Some(parts)=road_preview.as_ref() {
+            let scoped=parts.iter().filter(|part|allowed_handles.as_ref().is_none_or(|handles|
+                (part.source_start.is_empty() || qto_scope_contains_handle(handles,&part.source_start))
+                && (part.source_end.is_empty() || qto_scope_contains_handle(handles,&part.source_end)))).cloned().collect::<Vec<_>>();
+            if !scoped.is_empty() {
+                match takeoff_road::summarize_intervals(&scoped) {
+                    Ok(totals) => {
+                        let to_display_unit=state.export_config.unit_scale().powi(3);
+                        ui.strong(format!("TỔNG HỢP ĐÀO–ĐẮP THEO PHẠM VI: Đào {:.3} m³ ({} khoảng), Đắp {:.3} m³ ({} khoảng); chênh lệch đào − đắp {:.3} m³.",
+                            totals.cut_m3,totals.cut_intervals,totals.fill_m3,totals.fill_intervals,totals.cut_m3-totals.fill_m3));
+                        ui.small(format!("Đây là tổng dự kiến từ các đoạn đang chọn, chưa đối chiếu hiện trạng CAD hoặc điều kiện phát hành; hệ số đổi sang đơn vị xuất: {:.6}.",to_display_unit));
+                    },
+                    Err(error) => { ui.colored_label(egui::Color32::YELLOW,error); },
+                }
+            }
+        }
         if state.road_sections.len() >= 2 && road_preview.is_none() {
             ui.colored_label(egui::Color32::YELLOW,"Dữ liệu trắc ngang chưa hợp lệ hoặc chưa hiệu chuẩn. Không phát hành Excel giao thông khi chưa khắc phục lỗi.");
         }
