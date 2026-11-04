@@ -2534,9 +2534,14 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
         let volume_count = state.volume_records.iter().filter(|volume| (!state.export_config.confirmed_only || volume.confirmed)
             && allowed_handles.as_ref().is_none_or(|handles| qto_scope_contains_handle(handles,&volume.plan.handle) && qto_scope_contains_handle(handles,&volume.section.handle))).count();
         let road_preview=state.scale_to_m().and_then(|scale| takeoff_road::parse_range(&state.road_range_start,&state.road_range_end).ok()
-            .and_then(|range|takeoff_road::intervals(&state.road_sections.iter().filter(|section|range.is_none_or(|(from,to)|
-                section.chainage_m>=from-1.0e-6 && section.chainage_m<=to+1.0e-6)).cloned().collect::<Vec<_>>(),scale,state.export_config.confirmed_only).ok()
-                .map(|parts|parts.into_iter().filter(|part|takeoff_road::within_range(part,range)).collect::<Vec<_>>())));
+            .and_then(|range| {
+                takeoff_road::validate_range_export_readiness(&state.road_sections,range,state.export_config.confirmed_only).ok()?;
+                let scoped=state.road_sections.iter().filter(|section|range.is_none_or(|(from,to)|
+                    section.chainage_m>=from-1.0e-6 && section.chainage_m<=to+1.0e-6)).cloned().collect::<Vec<_>>();
+                takeoff_road::validate_unique_plan_handles(&scoped).ok()?;
+                takeoff_road::intervals(&scoped,scale,state.export_config.confirmed_only).ok()
+                    .map(|parts|parts.into_iter().filter(|part|takeoff_road::within_range(part,range)).collect::<Vec<_>>())
+            }));
         let road_count=road_preview.as_ref().map(|parts|parts.iter().filter(|part|allowed_handles.as_ref()
             .is_none_or(|handles|(part.source_start.is_empty() || qto_scope_contains_handle(handles,&part.source_start))
                 && (part.source_end.is_empty() || qto_scope_contains_handle(handles,&part.source_end)))).count()).unwrap_or(0);
@@ -2558,7 +2563,7 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
             }
         }
         if state.road_sections.len() >= 2 && road_preview.is_none() {
-            ui.colored_label(egui::Color32::YELLOW,"Dữ liệu trắc ngang chưa hợp lệ hoặc chưa hiệu chuẩn. Không phát hành Excel giao thông khi chưa khắc phục lỗi.");
+            ui.colored_label(egui::Color32::YELLOW,"Dữ liệu đào–đắp chưa sẵn sàng: kiểm tra tỷ lệ, cọc đầu/cuối, trắc ngang xác nhận, lý trình và handle cọc trùng. Không sử dụng tổng xem trước để phát hành.");
         }
         if !state.export_config.confirmed_only {
             ui.colored_label(egui::Color32::YELLOW, "Chế độ DỰ THẢO: có thể bao gồm phép đo chưa xác nhận. Không gửi Chủ đầu tư trước khi kiểm tra.");
