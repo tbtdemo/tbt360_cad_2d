@@ -876,6 +876,33 @@ mod tests {
     }
 
     #[test]
+    fn image_trace_entity_json_matches_windows_installer_smoke_contract() {
+        let mut s = Session::empty();
+        s.new_drawing(true);
+        let reference = "C:/temp/cad360-reference.png";
+        let attached = s.execute("imageattach", &json!({"path": reference, "pixels": [200, 100], "width": 20, "height": 10})).expect("attach IMAGE");
+        let handle = returned_handle(&s, &attached).expect("IMAGEATTACH returns entity handle");
+        let traced = s.execute("imagetrace", &json!({"handle": handle.hex(), "points": [[0, 100], [200, 100], [200, 0]]})).expect("trace to editable LWPOLYLINE");
+        assert_eq!(traced["vertices"], 3);
+        let images = s.execute("entities", &json!({"type": "IMAGE"})).expect("query IMAGE entities");
+        assert_eq!(images["count"], 1);
+        assert_eq!(images["entities"][0]["geometry"]["Image"]["path"], reference);
+        let outlines = s.execute("entities", &json!({"type": "LWPOLYLINE"})).expect("query LWPOLYLINE entities");
+        assert_eq!(outlines["count"], 1);
+        let line = &outlines["entities"][0];
+        assert_eq!(line["type"], "Polyline");
+        let poly = &line["geometry"]["LwPolyline"];
+        assert_eq!(poly["closed"], false);
+        let verts = poly["vertices"].as_array().expect("externally tagged LwPolyline.vertices");
+        assert_eq!(verts.len(), 3);
+        for (actual, expected) in verts.iter().zip([[0.0, 0.0], [20.0, 0.0], [20.0, 10.0]]) {
+            let p = &actual["p"];
+            assert!((p["x"].as_f64().unwrap() - expected[0]).abs() < 1e-7);
+            assert!((p["y"].as_f64().unwrap() - expected[1]).abs() < 1e-7);
+        }
+    }
+
+    #[test]
     fn write_atomic_replaces_file_and_leaves_no_staging_files() {
         let dir = scratch_dir("replace");
         let out = dir.join("a.dxf");
