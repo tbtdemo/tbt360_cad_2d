@@ -27,3 +27,13 @@ Status: Rust source implemented; Windows acceptance pending. This is an AI-agent
 - Vision-enabled AI outside CAD 360 can propose pixel vertices and call the MCP `execute` tool; `IMAGETRACE` executes only the vetted geometry.
 - Verify image scale with independent measured dimensions; an uncalibrated image cannot establish real-world lengths.
 - New tests are in `crates/engine/src/cmd/image.rs`, and the Windows Desktop Reliability workflow runs them.
+
+## Two-point scale and rotation calibration (new)
+
+Before asking the agent to trace a scanned drawing, supply two known survey/control points. `pixels` are measured on the raster with the origin at top left; `world` are their true CAD coordinates in the desired drawing units. Preview the transform without altering the IMAGE:
+
+```json
+{"handle":"IMAGE_HANDLE","pixels":[[0,1000],[2000,1000]],"world":[[100,200],[120,200]],"preview":true}
+```
+
+Call MCP tool `calibrate_image` with this input. Check the computed `insert`, `rotationDegrees` and `drawingUnitsPerPixel`. After confirming the control points, repeat with `preview:false`, then use `trace_image` as above. This computes a 2D similarity (uniform scale + rotation + translation) and preserves pixel-defined clipping. It does **not** compensate for photographic perspective distortion, lens calibration, georeferencing datum changes, or image recognition; those remain separate features.
