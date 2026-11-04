@@ -21,8 +21,9 @@ permissions:
 
 concurrency:
   group: cad360-v1025-release-${{ github.ref }}
-  # New source supersedes any previous non-releasable installer candidate.
-  cancel-in-progress: true
+  # Finish each package attempt so Setup/Portable artifacts and failure logs can be audited.
+  # Rapid source commits must not repeatedly cancel the expensive Windows release compile.
+  cancel-in-progress: false
 
 jobs:
   windows-package:
