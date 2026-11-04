@@ -2009,6 +2009,18 @@ fn qto_report_lines(state: &State, source_validation: &SourceValidation, config:
     Ok(result)
 }
 
+/// Preflight for ordinary rows in a mixed 2D + 3D report. Match the
+/// exported-record filters so invalid 2D sources cannot block valid 3D data.
+fn qto_has_ordinary_export_candidates(state: &State, source_validation: &SourceValidation,
+    confirmed_only: bool, allowed: Option<&BTreeSet<String>>) -> bool {
+    state.records.iter().any(|record|qto_record_in_scope(record,allowed)
+        && !state.export_omitted_ids.contains(&record.id)
+        && (!state.methods_initialized || qto_measure_type_allowed(record.kind,state.selected_measure_types))
+        && record.status!=MeasureStatus::Excluded && !source_validation.invalid_record_ids.contains(&record.id)
+        && (!confirmed_only || record.status==MeasureStatus::Confirmed)
+        && record.raw_value.is_finite() && record.raw_value>=0.0)
+}
+
 /// Export both ordinary 2D measurements and verified plan×section 3D
 /// quantities without silently swallowing a failed measurement validation.
 fn qto_combined_report_lines(app: &CadApp, state: &State, source_validation: &SourceValidation,
@@ -2016,11 +2028,9 @@ fn qto_combined_report_lines(app: &CadApp, state: &State, source_validation: &So
     if !config.valid() || config.project.trim().is_empty() || config.investor.trim().is_empty() {
         return Err("Cần khai báo dự án, Chủ đầu tư và chọn các cột bắt buộc.".into());
     }
-    let has_ordinary = state.records.iter().any(|record| qto_record_in_scope(record, allowed)
-        && !state.export_omitted_ids.contains(&record.id)
-        && qto_measure_type_allowed(record.kind, state.selected_measure_types)
-        && record.status != MeasureStatus::Excluded
-        && (!config.confirmed_only || record.status == MeasureStatus::Confirmed));
+    // A stale, invalid or disabled ordinary measurement must not prevent
+    // exporting otherwise valid plan×section or road cut/fill rows.
+    let has_ordinary = qto_has_ordinary_export_candidates(state,source_validation,config.confirmed_only,allowed);
     let mut rows = if has_ordinary { qto_report_lines(state, source_validation, config, allowed)? } else { Vec::new() };
     rows.extend(qto_volume_report_lines(app, state, config, allowed)?);
     rows.extend(qto_road_report_lines(app, state, config, allowed)?);
@@ -3091,6 +3101,27 @@ mod tests {
         assert_eq!(qto_report_lines(&state, &SourceValidation::default(), &cfg, None).unwrap().len(), 2);
     }
 
+    #[test]
+    fn combined_qto_preflight_ignores_invalid_and_disabled_2d_sources() {
+        let mut state=State::default();
+        let invalid_id=state.add_measurement(MeasureKind::Area,vec![],25.0,"Mặt bằng".into()).unwrap();
+        let count_id=state.add_measurement(MeasureKind::Count,vec![],3.0,"Cấu kiện".into()).unwrap();
+        for record in &mut state.records {record.status=MeasureStatus::Confirmed;}
+        let mut validation=SourceValidation::default();
+        validation.invalid_record_ids.insert(invalid_id);
+        state.methods_initialized=true;
+        state.selected_measure_types=[false,false,false,true];
+        assert!(qto_has_ordinary_export_candidates(&state,&validation,true,None));
+        state.export_omitted_ids.insert(count_id);
+        assert!(!qto_has_ordinary_export_candidates(&state,&validation,true,None));
+        state.export_omitted_ids.remove(&count_id);
+        state.selected_measure_types=[true,false,false,false];
+        assert!(!qto_has_ordinary_export_candidates(&state,&validation,true,None));
+        validation.invalid_record_ids.clear();
+        assert!(qto_has_ordinary_export_candidates(&state,&validation,true,None));
+        state.records.iter_mut().find(|r|r.id==invalid_id).unwrap().raw_value=f64::NAN;
+        assert!(!qto_has_ordinary_export_candidates(&state,&validation,true,None));
+    }
     #[test]
     fn qto_count_only_export_does_not_require_scale_for_disabled_length() {
         let mut state=State::default();
