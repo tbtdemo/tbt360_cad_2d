@@ -12,6 +12,14 @@ Do not merge or publish as a release before the feature CI and Windows GUI accep
 - If the same handle appears multiple times in the scanned Model/Paper spaces, BOTH candidates are rejected. Automatic matching must never quietly accept the first candidate of an ambiguous handle.
 - Export checks a handle across Model and all Paper Layouts, rejecting any duplicates even if only one layout was scanned.
 
+### Additional source integrity improvements
+- Scanning the current CAD selection now resolves text markers from a Paper Layout, not only from Model Space.
+- Geometry takeoff also locates uniquely identified circles, closed polylines and regions in Paper Layout through drawing-wide handle resolution; this does NOT relax road cross-section constraints (circle is explicitly ineligible as road section boundary).
+- Area evidence duplicated by handle across Model/Paper spaces is rejected instead of selecting the first geometry found.
+- Collision validation checks even unselected Layouts, but only for scanned handles to avoid an expensive whole-drawing second pass.
+- Stale Layout filter names after changing drawings block the scan and require explicit reselection.
+- Development CI uses `concurrency.cancel-in-progress` so only the newest branch revision consumes the Windows test runner.
+
 ## 2. Cut/fill crossover
 - This is an advisory LINEAR signed-area interpolation from a single cut-positive endpoint to a fill-positive endpoint (or the reverse).
 - Both endpoints require valid geometry evidence, with the opposite area explicitly declared zero.
