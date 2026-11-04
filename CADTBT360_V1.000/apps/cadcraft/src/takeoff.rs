@@ -1922,9 +1922,15 @@ fn qto_record_exportable(record: &MeasurementRecord, source_validation: &SourceV
 }
 
 fn qto_detail_csv(state: &State, source_validation: &SourceValidation, lf: f64, af: f64, length_unit: &str, area_unit: &str, confirmed_only: bool) -> String {
+    qto_detail_csv_scoped(state,source_validation,lf,af,length_unit,area_unit,confirmed_only,None)
+}
+
+fn qto_detail_csv_scoped(state: &State, source_validation: &SourceValidation, lf: f64, af: f64,
+    length_unit: &str, area_unit: &str, confirmed_only: bool, allowed: Option<&BTreeSet<String>>) -> String {
             let mut csv = String::from("id,source_handle,source_state,floor_id,discipline,owner_account_id,type,layer,work_group,work_code,description,note,raw_value,converted_value,unit,status\n");
             for record in &state.records {
-                if state.export_omitted_ids.contains(&record.id)
+                if !qto_record_in_scope(record,allowed)
+                    || state.export_omitted_ids.contains(&record.id)
                     || (state.methods_initialized && !qto_measure_type_allowed(record.kind,state.selected_measure_types))
                     || record.status==MeasureStatus::Excluded
                     || source_validation.invalid_record_ids.contains(&record.id)
@@ -3040,17 +3046,23 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
             ui.ctx().copy_text(csv);
         }
         ui.checkbox(&mut state.export_confirmed_only, "Chỉ xuất khối lượng đã xác nhận và nguồn hợp lệ");
-        let exportable = state.records.iter().filter(|r| qto_record_exportable(r, &source_validation, lf, af, state.export_confirmed_only)).count();
-        ui.label(format!("Sẵn sàng xuất: {exportable}/{} phép đo; {} mục chưa đủ điều kiện.", state.records.len(), state.records.len() - exportable));
+        let csv_scope=qto_allowed_handles(app,state);
+        let csv_scope_canonical=qto_canonical_scope(csv_scope.as_ref());
+        let exportable=state.records.iter().filter(|r|qto_record_in_canonical_scope(r,csv_scope_canonical.as_ref())
+            && !state.export_omitted_ids.contains(&r.id)
+            && (!state.methods_initialized || qto_measure_type_allowed(r.kind,state.selected_measure_types))
+            && r.status!=MeasureStatus::Excluded && !source_validation.invalid_record_ids.contains(&r.id)
+            && qto_record_exportable(r,&source_validation,lf,af,state.export_confirmed_only)).count();
+        ui.small(format!("CSV chi tiết: {exportable} phép đo hợp lệ trong phạm vi đang chọn."));
         if ui.button("Sao chép CSV chi tiết phép đo").clicked() {
-            ui.ctx().copy_text(qto_detail_csv(state, &source_validation, lf, af, length_unit, area_unit, state.export_confirmed_only));
-            state.file_feedback = format!("Đã sao chép {} phép đo vào clipboard.", state.records.len());
+            ui.ctx().copy_text(qto_detail_csv_scoped(state, &source_validation, lf, af, length_unit, area_unit, state.export_confirmed_only, csv_scope.as_ref()));
+            state.file_feedback = format!("Đã sao chép {exportable} phép đo hợp lệ vào clipboard.");
         }
         if ui.button("Xuất CSV chi tiết ra tệp").clicked() {
             if let Some(path) = rfd::FileDialog::new().add_filter("CSV Excel", &["csv"]).set_file_name("CAD360_QTO_CHI_TIET.csv").save_file() {
-                let csv = qto_detail_csv(state, &source_validation, lf, af, length_unit, area_unit, state.export_confirmed_only);
+                let csv = qto_detail_csv_scoped(state, &source_validation, lf, af, length_unit, area_unit, state.export_confirmed_only, csv_scope.as_ref());
                 match std::fs::write(&path, format!("\u{feff}{csv}")) {
-                    Ok(()) => state.file_feedback = format!("Đã xuất {} phép đo: {}", state.records.len(), path.display()),
+                    Ok(()) => state.file_feedback = format!("Đã xuất {exportable} phép đo hợp lệ: {}", path.display()),
                     Err(e) => state.file_feedback = format!("Không thể xuất CSV: {e}"),
                 }
             }
@@ -3356,6 +3368,23 @@ mod tests {
         assert_eq!(state.records.len(), 1);
     }
 
+    #[test]
+    fn qto_csv_scoped_export_respects_cad_selection_without_affecting_other_rows() {
+        let mut state=State::default();
+        let first=state.add_measurement(MeasureKind::Count,vec![],2.0,"SCOPE_A".into()).unwrap();
+        let second=state.add_measurement(MeasureKind::Count,vec![],3.0,"SCOPE_B".into()).unwrap();
+        state.records.iter_mut().find(|r|r.id==first).unwrap().source_handle=Some("002A".into());
+        state.records.iter_mut().find(|r|r.id==second).unwrap().source_handle=Some("2B".into());
+        let validation=SourceValidation::default();
+        let selected=BTreeSet::from(["2a".to_string()]);
+        let csv=qto_detail_csv_scoped(&state,&validation,1.0,1.0,"m","m²",false,Some(&selected));
+        assert_eq!(csv.lines().count(),2);
+        assert!(csv.contains("SCOPE_A"));
+        assert!(!csv.contains("SCOPE_B"));
+        let empty=BTreeSet::new();
+        assert_eq!(qto_detail_csv_scoped(&state,&validation,1.0,1.0,"m","m²",false,Some(&empty)).lines().count(),1);
+        assert_eq!(qto_detail_csv_scoped(&state,&validation,1.0,1.0,"m","m²",false,None).lines().count(),3);
+    }
     #[test]
     fn qto_csv_respects_export_checkboxes_methods_and_excludes_removed_records() {
         let mut state=State::default();
