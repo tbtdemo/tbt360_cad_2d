@@ -1,3 +1,4 @@
+mod agent_render;
 mod cli;
 mod drafting_spacing;
 mod help;
