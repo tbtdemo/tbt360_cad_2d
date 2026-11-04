@@ -31,13 +31,13 @@ fn agent_traces_an_image_into_editable_cad_via_mcp() {
     let traced = tool(&mut s, "trace_image", json!({"handle":image["handle"],"points":[[0,100],[200,100],[200,0]],"closed":true}));
     assert_eq!(traced["vertices"], 3);
     assert_eq!(traced["closed"], true);
-    let entities = tool(&mut s, "query_entities", json!({"type":"LwPolyline"}));
+    let entities = tool(&mut s, "query_entities", json!({"type":"Polyline"}));
     assert_eq!(entities["count"], 1, "MCP tracing must create actual editable CAD geometry: {entities}");
     let wrong = call(&mut s, 2, "tools/call", json!({"name":"trace_image","arguments":{"handle":image["handle"],"points":[[0,0]]}}));
     assert_eq!(wrong["error"]["code"], -32602, "MCP schema must reject a single point");
     let bad = call(&mut s, 3, "tools/call", json!({"name":"trace_image","arguments":{"handle":image["handle"],"points":[[0,0],[201,20]]}}));
     assert_eq!(bad["result"]["isError"], true, "Out-of-bounds points must not create geometry");
-    let again = tool(&mut s, "query_entities", json!({"type":"LwPolyline"}));
+    let again = tool(&mut s, "query_entities", json!({"type":"Polyline"}));
     assert_eq!(again["count"], 1);
 }
 
