@@ -148,6 +148,7 @@ pub struct State {
     road_cut_zero_confirmed: bool,
     road_fill_zero_confirmed: bool,
     road_sections: Vec<RoadCrossSection>,
+    road_layout_filter: BTreeSet<String>,
     road_work_group: String,
     road_range_start: String,
     road_range_end: String,
@@ -1246,7 +1247,7 @@ fn qto_road_inspect_marker_entity(doc: &cadcraft_doc::Drawing, entity: &cadcraft
         Err(_)=>*skipped+=1,
     }
 }
-fn qto_road_scan_drawing_markers(doc: &cadcraft_doc::Drawing, selected: &[cadcraft_doc::Handle], all_model: bool, include_layouts: bool) -> (Vec<takeoff_road::RoadPlanMarker>,usize) {
+fn qto_road_scan_drawing_markers(doc: &cadcraft_doc::Drawing, selected: &[cadcraft_doc::Handle], all_model: bool, include_layouts: bool, layout_filter: Option<&BTreeSet<String>>) -> (Vec<takeoff_road::RoadPlanMarker>,usize) {
     let mut markers=Vec::new();
     let mut skipped=0usize;
     let mut handles=BTreeSet::<String>::new();
@@ -1255,6 +1256,7 @@ fn qto_road_scan_drawing_markers(doc: &cadcraft_doc::Drawing, selected: &[cadcra
         for entity in doc.model.iter() {qto_road_inspect_marker_entity(doc,entity,&mut markers,&mut skipped,&mut handles,&mut collisions);}
         if include_layouts {
             for layout in &doc.layouts {
+                if layout_filter.is_some_and(|names|!names.contains(&layout.name)) {continue;}
                 for entity in layout.entities.iter() {qto_road_inspect_marker_entity(doc,entity,&mut markers,&mut skipped,&mut handles,&mut collisions);}
             }
         }
@@ -1272,10 +1274,10 @@ fn qto_road_scan_drawing_markers(doc: &cadcraft_doc::Drawing, selected: &[cadcra
     (markers,skipped)
 }
 
-fn qto_road_scan_markers(app: &CadApp, all_model: bool, include_layouts: bool) -> (Vec<takeoff_road::RoadPlanMarker>,usize) {
+fn qto_road_scan_markers(app: &CadApp, all_model: bool, include_layouts: bool, layout_filter: Option<&BTreeSet<String>>) -> (Vec<takeoff_road::RoadPlanMarker>,usize) {
     let selected=if all_model {Vec::new()} else {app.session.selection()};
     let Ok(doc)=app.session.doc() else {return (Vec::new(),selected.len());};
-    qto_road_scan_drawing_markers(doc,&selected,all_model,include_layouts)
+    qto_road_scan_drawing_markers(doc,&selected,all_model,include_layouts,layout_filter)
 }
 
 fn qto_station_handle_key(value: &str) -> String {
@@ -1366,11 +1368,16 @@ mod road_station_matching_tests {
         p2.entities.push(marker_text(0x31,"Km1+040"));
         doc.layouts.push(p1);
         doc.layouts.push(p2);
-        let (markers,skipped)=qto_road_scan_drawing_markers(&doc,&[],true,true);
+        let (markers,skipped)=qto_road_scan_drawing_markers(&doc,&[],true,true,None);
         assert_eq!(markers.len(),3);
         assert_eq!(skipped,0);
-        let (only_model,_)=qto_road_scan_drawing_markers(&doc,&[],true,false);
+        let (only_model,_)=qto_road_scan_drawing_markers(&doc,&[],true,false,None);
         assert_eq!(only_model.len(),1);
+        let selected=BTreeSet::from(["Trắc ngang 2".to_string()]);
+        let (filtered,_)=qto_road_scan_drawing_markers(&doc,&[],true,true,Some(&selected));
+        assert_eq!(filtered.len(),2);
+        assert!(filtered.iter().any(|m|(m.chainage_m-1040.0).abs()<1e-6));
+        assert!(!filtered.iter().any(|m|(m.chainage_m-1020.0).abs()<1e-6));
         let found=qto_road_find_marker_entity(&doc,cadcraft_doc::Handle(0x31)).unwrap().unwrap();
         assert_eq!(qto_road_station_from_entity(&doc,found).unwrap(),1040.0);
         let mut sections=vec![section(1000.0,None),section(1020.0,None),section(1040.0,None)];
@@ -1384,7 +1391,7 @@ mod road_station_matching_tests {
         paper.entities.push(marker_text(0x11,"Km1+020"));
         doc.layouts.push(paper);
         assert!(qto_road_find_marker_entity(&doc,cadcraft_doc::Handle(0x11)).is_err());
-        let (markers,skipped)=qto_road_scan_drawing_markers(&doc,&[],true,true);
+        let (markers,skipped)=qto_road_scan_drawing_markers(&doc,&[],true,true,None);
         assert!(markers.is_empty());
         assert_eq!(skipped,2);
     }
@@ -1392,7 +1399,7 @@ mod road_station_matching_tests {
     fn selected_scan_counts_missing_handles_without_mutable_capture_conflict() {
         let mut doc=cadcraft_doc::Drawing::new_metric();
         doc.model.push(marker_text(0x11,"Km1+000"));
-        let (markers,skipped)=qto_road_scan_drawing_markers(&doc,&[cadcraft_doc::Handle(0x11),cadcraft_doc::Handle(0x99)],false,false);
+        let (markers,skipped)=qto_road_scan_drawing_markers(&doc,&[cadcraft_doc::Handle(0x11),cadcraft_doc::Handle(0x99)],false,false,None);
         assert_eq!(markers.len(),1);
         assert_eq!(markers[0].chainage_m,1000.0);
         assert_eq!(skipped,1);
@@ -1406,7 +1413,7 @@ mod road_station_matching_tests {
         doc.layouts.push(paper);
         let dxf=cadcraft_io::write(&doc,"road_station_multilayout.dxf").unwrap();
         let imported=cadcraft_io::read(&dxf,"road_station_multilayout.dxf").unwrap();
-        let (markers,_)=qto_road_scan_drawing_markers(&imported,&[],true,true);
+        let (markers,_)=qto_road_scan_drawing_markers(&imported,&[],true,true,None);
         assert!(markers.iter().any(|marker|(marker.chainage_m-1000.0).abs()<1e-6));
         assert!(markers.iter().any(|marker|(marker.chainage_m-1020.0).abs()<1e-6));
     }
@@ -1996,7 +2003,7 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
                 }
             }
             if ui.button("QUÉT NHÃN CỌC TỪ VÙNG CHỌN").clicked() {
-                let (markers,skipped)=qto_road_scan_markers(app,false,false);
+                let (markers,skipped)=qto_road_scan_markers(app,false,false,None);
                 let (linked,not_found,ambiguous)=qto_road_attach_markers(&mut state.road_sections,&markers);
                 state.import_feedback=format!("Quét {} nhãn cọc hợp lệ; ghép {} trắc ngang; chưa tìm thấy {}; xung đột {}; bỏ qua {} đối tượng. Chưa tự phê duyệt; kiểm tra từng dòng trước khi xác nhận.",markers.len(),linked,not_found,ambiguous,skipped);
             }
@@ -2005,17 +2012,30 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
                 if incomplete {
                     state.import_feedback="MODEL vượt 100.000 đối tượng. Chưa ghép tự động từ dữ liệu quét thiếu; hãy chọn phạm vi nhỏ hơn.".into();
                 } else {
-                    let (markers,skipped)=qto_road_scan_markers(app,true,false);
+                    let (markers,skipped)=qto_road_scan_markers(app,true,false,None);
                     let (matched,missing,ambiguous)=qto_road_attach_markers(&mut state.road_sections,&markers);
                     state.import_feedback=format!("Quét MODEL: {} nhãn; ghép {}; thiếu {}; xung đột {}; bỏ qua {}. Chưa phê duyệt số liệu.",markers.len(),matched,missing,ambiguous,skipped);
                 }
             }
+            ui.collapsing("CHỌN LAYOUT CẦN QUÉT",|ui| {
+                let layout_names=app.session.doc().ok().map(|doc|doc.layouts.iter().map(|layout|layout.name.clone()).collect::<Vec<_>>()).unwrap_or_default();
+                ui.small("Không đánh dấu Layout nào: quét tất cả. Model vẫn được quét.");
+                for name in layout_names {
+                    let mut checked=state.road_layout_filter.contains(&name);
+                    if ui.checkbox(&mut checked,&name).changed() {
+                        if checked {state.road_layout_filter.insert(name);}
+                        else {state.road_layout_filter.remove(&name);}
+                    }
+                }
+                if ui.small_button("Bỏ lọc Layout").clicked(){state.road_layout_filter.clear();}
+            });
             if ui.button("QUÉT CỌC MODEL + TẤT CẢ LAYOUT").clicked() {
                 let total=app.session.doc().ok().map(|doc|doc.model.len()+doc.layouts.iter().map(|layout|layout.entities.len()).sum::<usize>()).unwrap_or(0);
                 if total>100_000 {
                     state.import_feedback=format!("MODEL và Layout có {} đối tượng, vượt giới hạn quét 100.000; hãy giới hạn bản vẽ.",total);
                 } else {
-                    let (markers,skipped)=qto_road_scan_markers(app,true,true);
+                    let selected_layouts=(!state.road_layout_filter.is_empty()).then_some(&state.road_layout_filter);
+                    let (markers,skipped)=qto_road_scan_markers(app,true,true,selected_layouts);
                     let (linked,missing,conflicts)=qto_road_attach_markers(&mut state.road_sections,&markers);
                     state.import_feedback=format!("Quét MODEL + {} Layout: {} nhãn, ghép {}, thiếu {}, xung đột {}, bỏ qua {}. Đối chiếu nhãn trên từng Layout trước khi duyệt.",app.session.doc().ok().map(|doc|doc.layouts.len()).unwrap_or(0),markers.len(),linked,missing,conflicts,skipped);
                 }
