@@ -1,0 +1,46 @@
+name: CADTBT360 Road QTO Feature Tests
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/CADTBT360_road-qto-parallel-v1023
+    paths:
+      - 'CADTBT360_V1.000/apps/cadcraft/src/takeoff.rs'
+      - 'CADTBT360_V1.000/apps/cadcraft/src/takeoff_road.rs'
+      - '.github/workflows/cadtbt360-road-qto-feature-tests.yml'
+jobs:
+  road-qto-regression:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout branch under test
+        uses: actions/checkout@v4
+      - name: Install Rust 1.95
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.95.0'
+      - name: Reuse Windows Cargo cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: CADTBT360_V1.000
+          key: cadtbt360-road-qto-feature-win-x64
+      - name: Verify source branch and Cargo workspace
+        working-directory: CADTBT360_V1.000
+        run: |
+          $ErrorActionPreference='Stop'
+          Write-Host "Commit: $env:GITHUB_SHA"
+          cargo metadata --locked --no-deps --format-version 1 | Out-Null
+          if ($LASTEXITCODE -ne 0) {exit $LASTEXITCODE}
+      - name: Run complete road cut-fill regression suite
+        working-directory: CADTBT360_V1.000
+        run: cargo test --locked -p cadcraft --bin cadcraft takeoff_road::tests -- --nocapture
+      - name: Run Layout scan, marker conflict and synthetic DXF roundtrip tests
+        working-directory: CADTBT360_V1.000
+        run: cargo test --locked -p cadcraft --bin cadcraft road_station_matching_tests -- --nocapture
+      - name: Verify source compiles as desktop application
+        working-directory: CADTBT360_V1.000
+        run: cargo check --locked -p cadcraft --bin cadcraft
