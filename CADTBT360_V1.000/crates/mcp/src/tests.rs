@@ -23,6 +23,25 @@ fn tool(s: &mut Server, name: &str, args: Value) -> Value {
 
 
 #[test]
+fn ai_perspective_trace_remains_editable_after_dxf_save_reopen() {
+    let mut server = Server::new(Box::new(Headless::default()));
+    let image = tool(&mut server, "execute", json!({"command":"imageattach","params":{"path":"reference.png","pixels":[200,100],"width":200,"height":100}}));
+    tool(&mut server, "trace_perspective_image", json!({"handle":image["handle"],"pixels":[[0,0],[200,0],[200,100],[0,100]],
+        "world":[[10,20],[40,15],[35,45],[5,40]],"points":[[0,0],[200,0],[200,100],[0,100]],"closed":true}));
+    let identity = format!("cad360-ai-photo-{}-{}", std::process::id(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos());
+    let path = std::env::temp_dir().join(format!("{identity}.dxf"));
+    let filename = path.to_string_lossy().to_string();
+    tool(&mut server, "save", json!({"path":filename}));
+    assert!(path.exists());
+    tool(&mut server, "new_drawing", json!({"metric":true}));
+    assert_eq!(tool(&mut server, "query_entities", json!({"type":"Polyline"}))["count"], 0);
+    tool(&mut server, "open", json!({"path":filename}));
+    assert_eq!(tool(&mut server, "query_entities", json!({"type":"Polyline"}))["count"], 1,
+        "AI projective vector must persist as editable DXF LWPOLYLINE");
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
 fn agent_projects_tilted_photo_into_editable_cad_without_warping_image() {
     let mut server = Server::new(Box::new(Headless::default()));
     let img = tool(&mut server, "execute", json!({"command":"imageattach","params":{"path":"photo.png","pixels":[200,100],"width":200,"height":100}}));
