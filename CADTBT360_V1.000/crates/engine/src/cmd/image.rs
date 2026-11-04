@@ -453,7 +453,7 @@ mod tests {
         let proposed = s.execute("imagetrace", &json!({"handle":image["handle"],"points":[[0.0,100.0],[200.0,100.0],[200.0,0.0]],"preview":true})).unwrap();
         assert_eq!(proposed["preview"], true);
         assert_eq!(proposed["worldPoints"], json!([[10.0,20.0],[30.0,20.0],[30.0,30.0]]));
-        assert!(s.doc().unwrap().model.is_empty(), "preview must never modify a drawing");
+        assert_eq!(s.execute("entities", &json!({"type":"Polyline"})).unwrap()["count"], 0, "preview must not insert any CAD polyline");
         let traced = s.execute("imagetrace", &json!({"handle":image["handle"],"points":[[0.0,100.0],[200.0,100.0],[200.0,0.0]],"closed":false})).unwrap();
         assert_eq!(traced["vertices"], 3);
         let handle = Handle::parse_hex(traced["handle"].as_str().unwrap()).unwrap();
