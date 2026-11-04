@@ -8,6 +8,8 @@ on:
       - 'CADTBT360_V1.000/crates/engine/src/autosave.rs'
       - 'CADTBT360_V1.000/crates/engine/tests/autosave.rs'
       - 'CADTBT360_V1.000/crates/engine/src/cmd/image.rs'
+      - 'CADTBT360_V1.000/crates/mcp/src/tools.rs'
+      - 'CADTBT360_V1.000/crates/mcp/src/tests.rs'
       - '.github/workflows/cad360-v1025-desktop-reliability.yml'
   push:
     branches:
@@ -17,6 +19,8 @@ on:
       - 'CADTBT360_V1.000/crates/engine/src/autosave.rs'
       - 'CADTBT360_V1.000/crates/engine/tests/autosave.rs'
       - 'CADTBT360_V1.000/crates/engine/src/cmd/image.rs'
+      - 'CADTBT360_V1.000/crates/mcp/src/tools.rs'
+      - 'CADTBT360_V1.000/crates/mcp/src/tests.rs'
       - '.github/workflows/cad360-v1025-desktop-reliability.yml'
 
 permissions:
@@ -46,6 +50,10 @@ jobs:
         run: |
           cargo test --locked -p cadcraft-engine --lib imagetrace_maps_image_pixels_into_editable_cad_geometry -- --nocapture
           if ($LASTEXITCODE -ne 0) { throw 'Image pixel-to-CAD vector tracing failed' }
+      - name: Verify AI agent can draw over images using MCP
+        run: |
+          cargo test --locked -p cadcraft-mcp --lib agent_traces_an_image_into_editable_cad_via_mcp -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'MCP raster image tracing regression failed' }
       - name: Compile UI and run Drawing Recovery unit tests
         run: |
           cargo test --locked -p cadcraft-ui-egui --lib autosave::tests -- --nocapture
