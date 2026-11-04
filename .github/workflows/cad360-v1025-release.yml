@@ -183,6 +183,18 @@ jobs:
           if ($traceDrawing.entityCount -ne 2 -or $traceDrawing.counts.'Raster Image' -ne 1 -or $traceDrawing.counts.Polyline -ne 1) {
             throw "AI image-trace DXF must contain exactly one Raster Image and one editable Polyline, found: $($traceInfo -join [char]10)"
           }
+          $geometryOutput = & $installedCli run $traceFile --cmd 'entities {"type":"LWPOLYLINE"}'
+          if ($LASTEXITCODE -ne 0) { throw 'Installed CLI cannot query persisted editable LWPOLYLINE' }
+          $geometry = ($geometryOutput -join [char]10) | ConvertFrom-Json
+          if ($geometry.count -ne 1 -or $geometry.entities.Count -ne 1) { throw 'Saved AI trace does not contain exactly one queryable Polyline' }
+          $vertices = @($geometry.entities[0].geometry.vertices)
+          if ($vertices.Count -ne 3 -or $geometry.entities[0].geometry.type -ne 'lwPolyline') { throw 'Saved AI trace is not an editable three-vertex LWPOLYLINE' }
+          $expected = @(@(0.0,0.0), @(20.0,0.0), @(20.0,10.0))
+          for ($i = 0; $i -lt $expected.Count; $i++) {
+            if ([math]::Abs([double]$vertices[$i].p.x - $expected[$i][0]) -gt 1e-7 -or [math]::Abs([double]$vertices[$i].p.y - $expected[$i][1]) -gt 1e-7) {
+              throw "Saved AI trace vertex $i is not at the expected CAD coordinate"
+            }
+          }
           if (-not (Select-String -Path (Join-Path $dest 'BUILD_INFO.txt') -Pattern 'Release=CADTBT360_V1.025' -Quiet)) { throw 'Incorrect release metadata' }
           $uninstaller = Join-Path $dest 'unins000.exe'
           if (!(Test-Path $uninstaller)) { throw 'Missing Inno Setup uninstaller' }
