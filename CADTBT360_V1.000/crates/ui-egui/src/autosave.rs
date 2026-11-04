@@ -150,6 +150,11 @@ fn civil_from_days(days: u64) -> (i64, u32, u32) {
     }
 }
 
+/// Resolve a confirmation to the original recovery file, even when list indices shift.
+fn recovery_file_index(items: &[Recoverable], path: &str) -> Option<usize> {
+    items.iter().position(|item| item.path == path)
+}
+
 /// The Drawing Recovery window, while autosave files from a crash are waiting.
 pub fn show(app: &mut CadApp, ctx: &egui::Context) {
     let confirmation_id = egui::Id::new("cad360.recovery.confirm_discard");
@@ -201,7 +206,8 @@ pub fn show(app: &mut CadApp, ctx: &egui::Context) {
     // Recovery files may contain the only surviving copy of unsaved drawing geometry.
     // Require explicit confirmation instead of deleting on the first click.
     if let Some(path) = pending_discard.as_deref() {
-        if let Some((i, item)) = app.recovery.items.iter().enumerate().find(|(_, item)| item.path == path) {
+        if let Some(i) = recovery_file_index(&app.recovery.items, path) {
+            let item = &app.recovery.items[i];
             let name = item.drawing.clone();
             let mut cancel = false;
             egui::Window::new("Delete recovery copy?")
@@ -280,6 +286,20 @@ pub fn gpu_notice(app: &mut CadApp, ctx: &egui::Context) {
 
 #[cfg(test)]
 mod tests {
+    use cadcraft_engine::autosave::Recoverable;
+
+    #[test]
+    fn recovery_confirmation_targets_path_after_list_reordering() {
+        let a = Recoverable { path: "a.sv$".into(), drawing: "A".into(), modified: 1, bytes: 100 };
+        let b = Recoverable { path: "b.sv$".into(), drawing: "B".into(), modified: 2, bytes: 200 };
+        let mut files = vec![a, b];
+        let selected = files[1].path.clone();
+        assert_eq!(super::recovery_file_index(&files, &selected), Some(1));
+        files.remove(0);
+        assert_eq!(super::recovery_file_index(&files, &selected), Some(0));
+        assert_eq!(super::recovery_file_index(&files, "a.sv$"), None);
+    }
+
     #[test]
     fn utc_dates() {
         assert_eq!(super::utc(0), "1970-01-01 00:00");
