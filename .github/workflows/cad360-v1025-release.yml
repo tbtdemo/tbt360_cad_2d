@@ -1,0 +1,305 @@
+name: CAD 360 V1.025 - Windows Setup Portable
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'installer/CADTBT360_V1.025_Windows.iss'
+      - '.github/workflows/cad360-v1025-release.yml'
+      - 'CADTBT360_V1.000/**'
+  push:
+    branches:
+      - feature/CADTBT360_V1.025_xref-regression
+    paths:
+      - 'CADTBT360_V1.000/**'
+      - 'installer/CADTBT360_V1.025_Windows.iss'
+      - '.github/workflows/cad360-v1025-release.yml'
+      - '.github/workflows/cad360-v1025-desktop-reliability.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cad360-v1025-release-${{ github.ref }}
+  # Finish each package attempt so Setup/Portable artifacts and failure logs can be audited.
+  # Rapid source commits must not repeatedly cancel the expensive Windows release compile.
+  cancel-in-progress: false
+
+jobs:
+  windows-package:
+    name: Build, install, verify and package V1.025 x64
+    runs-on: windows-latest
+    timeout-minutes: 120
+    steps:
+      - name: Checkout exact commit
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Prepare Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: CADTBT360_V1.000
+          key: cad360-v1025-release
+
+      - name: Preflight Windows GUI and CLI compilation before expensive tests
+        id: preflight
+        shell: pwsh
+        working-directory: CADTBT360_V1.000
+        run: |
+          cargo check --locked -p cadcraft --bin cadcraft
+          if ($LASTEXITCODE -ne 0) { throw 'V1.025 GUI binary compile failed; abort release' }
+          cargo check --locked -p cadcraft-cli
+          if ($LASTEXITCODE -ne 0) { throw 'V1.025 CLI compile failed; abort release' }
+          cargo check --locked -p cadcraft-mcp
+          if ($LASTEXITCODE -ne 0) { throw 'V1.025 MCP compile failed; abort release' }
+
+      - name: Verify required named regression tests exist before running them
+        id: discover
+        shell: pwsh
+        working-directory: CADTBT360_V1.000
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $required = @(
+            @{ Package='cadcraft-mcp'; Target='lib'; Test='agent_traces_an_image_into_editable_cad_via_mcp' },
+            @{ Package='cadcraft-mcp'; Target='lib'; Test='agent_projects_tilted_photo_into_editable_cad_without_warping_image' },
+            @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_perspective_trace_remains_editable_after_dxf_save_reopen' },
+            @{ Package='cadcraft-ui-egui'; Target='lib'; Test='canvas::raster_image::tests' },
+            @{ Package='cadcraft-render'; Target='lib'; Test='raster_image_reference_draws_only_outer_frame_without_obscuring_draft' },
+            @{ Package='cadcraft-render'; Target='lib'; Test='raster_imageclip_frame_matches_rectangle_and_concave_pixel_boundary' },
+            @{ Package='cadcraft-render'; Target='lib'; Test='raster_image_display_off_omits_entire_frame' },
+            @{ Package='cadcraft-io'; Target='it'; Test='xref_roundtrip' },
+            @{ Package='cadcraft-io'; Target='it'; Test='large_dwg_v1025' }
+          )
+          foreach ($case in $required) {
+            if ($case.Target -eq 'lib') { $listing = @(cargo test --locked -p $case.Package --lib $case.Test -- --list 2>&1) }
+            else { $listing = @(cargo test --locked -p $case.Package --test it $case.Test -- --list 2>&1) }
+            if ($LASTEXITCODE -ne 0) { $listing | Out-Host; throw "Cannot discover tests for $($case.Package): $($case.Test)" }
+            $matched = @($listing | Where-Object { $_ -like '*: test' })
+            if ($matched.Count -eq 0) { $listing | Out-Host; throw "No tests found for $($case.Package): $($case.Test)" }
+            Write-Host "Verified $($matched.Count) regression tests in $($case.Package): $($case.Test)"
+          }
+
+      - name: Require image-to-CAD and native raster regression before release packaging
+        id: ai_tests
+        shell: pwsh
+        working-directory: CADTBT360_V1.000
+        run: |
+          $imageTests = @(cargo test --locked -p cadcraft-engine --lib image -- --list 2>&1)
+          if ($LASTEXITCODE -ne 0) { $imageTests | Out-Host; throw 'V1.025 image test discovery failed' }
+          $namedTests = @($imageTests | Where-Object { $_ -match ': test$' })
+          if ($namedTests.Count -lt 4) { $imageTests | Out-Host; throw "V1.025 image test discovery unexpectedly found only $($namedTests.Count) tests" }
+          cargo test --locked -p cadcraft-engine --lib image -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'V1.025 IMAGE engine regression failed' }
+          cargo test --locked -p cadcraft-mcp --lib agent_traces_an_image_into_editable_cad_via_mcp -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'V1.025 AI image MCP trace failed' }
+          cargo test --locked -p cadcraft-mcp --lib agent_projects_tilted_photo_into_editable_cad_without_warping_image -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'V1.025 AI perspective tracing failed' }
+          cargo test --locked -p cadcraft-mcp --lib ai_perspective_trace_remains_editable_after_dxf_save_reopen -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'V1.025 AI DXF persistence failed' }
+          cargo test --locked -p cadcraft-ui-egui --lib canvas::raster_image::tests -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'V1.025 native PNG/JPG raster overlay failed' }
+          cargo test --locked -p cadcraft-render --lib raster_image_reference_draws_only_outer_frame_without_obscuring_draft -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'V1.025 IMAGE renderer frame failed' }
+          cargo test --locked -p cadcraft-render --lib raster_imageclip_frame_matches_rectangle_and_concave_pixel_boundary -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'V1.025 IMAGECLIP frame mismatch failed' }
+          cargo test --locked -p cadcraft-render --lib raster_image_display_off_omits_entire_frame -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'V1.025 IMAGE visibility regression failed' }
+
+      - name: Verify Xref and DWG regression on release source
+        id: cad_tests
+        shell: pwsh
+        working-directory: CADTBT360_V1.000
+        run: |
+          cargo test --locked -p cadcraft-io --test it xref_roundtrip -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'Xref regression failure' }
+          cargo test --locked -p cadcraft-io --test it large_dwg_v1025 -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'Large DWG regression failure' }
+
+      - name: Build native Windows GUI and CLI (not copied from old release)
+        id: release_build
+        shell: pwsh
+        working-directory: CADTBT360_V1.000
+        run: |
+          cargo build --release --locked -p cadcraft -p cadcraft-cli
+          if ($LASTEXITCODE -ne 0) { throw 'Windows release build failed' }
+          foreach ($exe in @('target/release/cadcraft.exe', 'target/release/cadcraft-cli.exe')) {
+            if (!(Test-Path $exe)) { throw "Missing freshly built binary: $exe" }
+          }
+
+      - name: Install Inno Setup and create version metadata
+        id: prepare_installer
+        shell: pwsh
+        run: |
+          $iscc = 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe'
+          if (!(Test-Path $iscc)) { choco install innosetup -y --no-progress }
+          if (!(Test-Path $iscc)) { throw 'Inno Setup compiler not installed' }
+          New-Item -ItemType Directory -Force dist/v1025 | Out-Null
+          @('Release=CADTBT360_V1.025', "SourceCommit=$env:GITHUB_SHA", 'Architecture=windows-x64', 'NativeBuild=true', 'GUIAcceptance=NOT_VERIFIED') | Set-Content dist/v1025/BUILD_INFO.txt -Encoding utf8
+
+      - name: Package new Setup and Portable
+        id: package
+        shell: pwsh
+        run: |
+          & 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe' /Qp installer/CADTBT360_V1.025_Windows.iss
+          if ($LASTEXITCODE -ne 0) { throw 'V1.025 Inno Setup failed' }
+          $setup = 'dist/v1025/CADTBT360_V1.025_Setup_Windows_x64.exe'
+          if (!(Test-Path $setup)) { throw 'V1.025 Setup output missing' }
+          New-Item -ItemType Directory -Force dist/v1025/portable | Out-Null
+          Copy-Item CADTBT360_V1.000/target/release/cadcraft.exe dist/v1025/portable/CADTBT360.exe
+          Copy-Item CADTBT360_V1.000/target/release/cadcraft-cli.exe dist/v1025/portable/CADTBT360_CLI.exe
+          Copy-Item dist/v1025/BUILD_INFO.txt dist/v1025/portable/BUILD_INFO.txt
+          Compress-Archive -Path dist/v1025/portable/* -DestinationPath dist/v1025/CADTBT360_V1.025_Portable_Windows_x64.zip -Force
+
+      - name: Smoke test installed application, uninstall and binary identity
+        id: installed_smoke
+        shell: pwsh
+        run: |
+          $setup = (Resolve-Path 'dist/v1025/CADTBT360_V1.025_Setup_Windows_x64.exe').Path
+          $dest = Join-Path $env:RUNNER_TEMP 'CADTBT360_V1025_InstallTest'
+          $proc = Start-Process -FilePath $setup -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/DIR=$dest") -Wait -PassThru
+          if ($proc.ExitCode -ne 0) { throw "Installer failed with code $($proc.ExitCode)" }
+          foreach ($n in @('CADTBT360.exe', 'CADTBT360_CLI.exe', 'BUILD_INFO.txt')) {
+            if (!(Test-Path (Join-Path $dest $n))) { throw "Installed file missing: $n" }
+          }
+          $srcGui = (Get-FileHash 'CADTBT360_V1.000/target/release/cadcraft.exe' -Algorithm SHA256).Hash
+          $srcCli = (Get-FileHash 'CADTBT360_V1.000/target/release/cadcraft-cli.exe' -Algorithm SHA256).Hash
+          $instGui = (Get-FileHash (Join-Path $dest 'CADTBT360.exe') -Algorithm SHA256).Hash
+          $instCli = (Get-FileHash (Join-Path $dest 'CADTBT360_CLI.exe') -Algorithm SHA256).Hash
+          if ($srcGui -ne $instGui -or $srcCli -ne $instCli) { throw 'Installed binaries do not match current source build' }
+          $installedCli = Join-Path $dest 'CADTBT360_CLI.exe'
+          $cliVersion = & $installedCli --version
+          if ($LASTEXITCODE -ne 0 -or $cliVersion -notmatch '^cadcraft-cli [0-9]+[.][0-9]+[.][0-9]+') { throw "Installed CLI smoke test failed: $cliVersion" }
+          $imageCommands = & $installedCli commands image
+          if ($LASTEXITCODE -ne 0 -or ($imageCommands -join [char]10) -notmatch 'imageattach') { throw 'Installed CLI does not expose IMAGEATTACH command' }
+          $roundTripFile = Join-Path $env:RUNNER_TEMP 'CADTBT360_V1025_Installed_Smoke.dxf'
+          & $installedCli sample floorplan $roundTripFile | Out-Host
+          if ($LASTEXITCODE -ne 0 -or !(Test-Path $roundTripFile)) { throw 'Installed CLI cannot create an editable DXF drawing' }
+          $roundTripInfo = & $installedCli info $roundTripFile
+          if ($LASTEXITCODE -ne 0) { throw 'Installed CLI cannot reopen generated DXF drawing' }
+          $drawingInfo = ($roundTripInfo -join [char]10) | ConvertFrom-Json
+          if ($null -eq $drawingInfo.entityCount -or $drawingInfo.entityCount -le 0) { throw 'Installed CLI reopened DXF without CAD entities' }
+          $dwgFile = Join-Path $env:RUNNER_TEMP 'CADTBT360_V1025_Installed_Interop.dwg'
+          & $installedCli run --metric --cmd 'line {"points":[[0,0],[12,3],[25,8]]}' --save $dwgFile | Out-Host
+          if ($LASTEXITCODE -ne 0 -or !(Test-Path $dwgFile)) { throw 'Installed CLI cannot write an editable DWG drawing' }
+          $dwgBytes = [System.IO.File]::ReadAllBytes($dwgFile)
+          if ($dwgBytes.Length -lt 64 -or [System.Text.Encoding]::ASCII.GetString($dwgBytes, 0, 6) -ne 'AC1032') { throw 'Installed CLI did not produce an R2018 DWG (AC1032)' }
+          $dwgInfoLines = & $installedCli info $dwgFile
+          if ($LASTEXITCODE -ne 0) { throw 'Installed CLI cannot reopen exported DWG' }
+          $dwgInfo = ($dwgInfoLines -join [char]10) | ConvertFrom-Json
+          if ($dwgInfo.counts.Line -ne 2) { throw "DWG roundtrip lost CAD geometry: $($dwgInfoLines -join [char]10)" }
+
+          $traceFile = Join-Path $env:RUNNER_TEMP 'CADTBT360_V1025_AI_ImageTrace_Smoke.dxf'
+          & $installedCli run --metric --cmd 'imageattach {"path":"reference.png","pixels":[200,100],"width":20,"height":10}' --cmd 'imagetrace {"handle":"{last}","points":[[0,100],[200,100],[200,0]]}' --save $traceFile | Out-Host
+          if ($LASTEXITCODE -ne 0 -or !(Test-Path $traceFile)) { throw 'Installed CLI cannot produce AI-traced DXF with IMAGE and LWPOLYLINE' }
+          $traceInfo = & $installedCli info $traceFile
+          if ($LASTEXITCODE -ne 0) { throw 'Installed CLI cannot reopen AI-traced DXF' }
+          $traceDrawing = ($traceInfo -join [char]10) | ConvertFrom-Json
+          if ($traceDrawing.entityCount -ne 2 -or $traceDrawing.counts.'Raster Image' -ne 1 -or $traceDrawing.counts.Polyline -ne 1) {
+            throw "AI image-trace DXF must contain exactly one Raster Image and one editable Polyline, found: $($traceInfo -join [char]10)"
+          }
+          $geometryOutput = & $installedCli run $traceFile --cmd 'entities {"type":"LWPOLYLINE"}'
+          if ($LASTEXITCODE -ne 0) { throw 'Installed CLI cannot query persisted editable LWPOLYLINE' }
+          $geometry = ($geometryOutput -join [char]10) | ConvertFrom-Json
+          if ($geometry.count -ne 1 -or $geometry.entities.Count -ne 1) { throw 'Saved AI trace does not contain exactly one queryable Polyline' }
+          $polyline = $geometry.entities[0].geometry
+          $vertices = @($polyline.vertices)
+          if ($vertices.Count -ne 3 -or $polyline.type -ne 'lwPolyline' -or $polyline.closed -ne $false) {
+            throw "Saved AI trace must be one open editable three-vertex LWPOLYLINE, got $($polyline | ConvertTo-Json -Depth 8 -Compress)"
+          }
+          $expected = @(
+            [pscustomobject]@{ x = 0.0; y = 0.0 },
+            [pscustomobject]@{ x = 20.0; y = 0.0 },
+            [pscustomobject]@{ x = 20.0; y = 10.0 }
+          )
+          for ($i = 0; $i -lt $expected.Count; $i++) {
+            $point = $vertices[$i].p
+            if ($null -eq $point -or [math]::Abs([double]$point.x - $expected[$i].x) -gt 1e-7 -or [math]::Abs([double]$point.y - $expected[$i].y) -gt 1e-7) {
+              throw "Saved AI trace vertex $i mismatch: actual=$($point | ConvertTo-Json -Compress), expected=($($expected[$i].x),$($expected[$i].y))"
+            }
+          }
+          if (-not (Select-String -Path (Join-Path $dest 'BUILD_INFO.txt') -Pattern 'Release=CADTBT360_V1.025' -Quiet)) { throw 'Incorrect release metadata' }
+          $uninstaller = Join-Path $dest 'unins000.exe'
+          if (!(Test-Path $uninstaller)) { throw 'Missing Inno Setup uninstaller' }
+          $uninstall = Start-Process -FilePath $uninstaller -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART') -Wait -PassThru
+          if ($uninstall.ExitCode -ne 0) { throw "Uninstaller failed with code $($uninstall.ExitCode)" }
+          if (Test-Path (Join-Path $dest 'CADTBT360.exe')) { throw 'Uninstaller left main executable behind' }
+
+      - name: Verify portable archive, create SHA256 checksums
+        id: portable_smoke
+        shell: pwsh
+        run: |
+          $zip = 'dist/v1025/CADTBT360_V1.025_Portable_Windows_x64.zip'
+          $tmp = Join-Path $env:RUNNER_TEMP 'CADTBT360_V1025_PortableTest'
+          Expand-Archive $zip -DestinationPath $tmp -Force
+          foreach ($n in @('CADTBT360.exe', 'CADTBT360_CLI.exe', 'BUILD_INFO.txt')) {
+            if (!(Test-Path (Join-Path $tmp $n))) { throw "Portable archive missing $n" }
+          }
+          $portableGuiHash = (Get-FileHash (Join-Path $tmp 'CADTBT360.exe') -Algorithm SHA256).Hash
+          $portableCliHash = (Get-FileHash (Join-Path $tmp 'CADTBT360_CLI.exe') -Algorithm SHA256).Hash
+          $nativeGuiHash = (Get-FileHash 'CADTBT360_V1.000/target/release/cadcraft.exe' -Algorithm SHA256).Hash
+          $nativeCliHash = (Get-FileHash 'CADTBT360_V1.000/target/release/cadcraft-cli.exe' -Algorithm SHA256).Hash
+          if ($portableGuiHash -ne $nativeGuiHash -or $portableCliHash -ne $nativeCliHash) { throw 'Portable executables do not match freshly compiled release' }
+          $portableCli = Join-Path $tmp 'CADTBT360_CLI.exe'
+          $portableVersion = & $portableCli --version
+          if ($LASTEXITCODE -ne 0 -or $portableVersion -notmatch '^cadcraft-cli [0-9]+[.][0-9]+[.][0-9]+') { throw "Portable CLI startup failed: $portableVersion" }
+          $hashes = @()
+          foreach ($name in @('CADTBT360_V1.025_Setup_Windows_x64.exe', 'CADTBT360_V1.025_Portable_Windows_x64.zip')) {
+            $h = Get-FileHash (Join-Path 'dist/v1025' $name) -Algorithm SHA256
+            $hashes += "$($h.Hash)  $name"
+          }
+          $hashes | Set-Content dist/v1025/SHA256SUMS.txt -Encoding ascii
+
+      - name: Upload V1.025 Windows Setup and Portable
+        uses: actions/upload-artifact@v4
+        with:
+          name: CADTBT360_V1.025_Windows_x64_Setup_Portable
+          path: |
+            dist/v1025/CADTBT360_V1.025_Setup_Windows_x64.exe
+            dist/v1025/CADTBT360_V1.025_Portable_Windows_x64.zip
+            dist/v1025/BUILD_INFO.txt
+            dist/v1025/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Save failed or cancelled build diagnostics for V1.025
+        if: ${{ failure() || cancelled() }}
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist/v1025/diagnostics | Out-Null
+          Write-Host 'Preparing diagnostic artifact for failed or cancelled Windows release'
+          $lines = @(
+            'Release=CADTBT360_V1.025',
+            "SourceCommit=$env:GITHUB_SHA",
+            "RunId=$env:GITHUB_RUN_ID",
+            "RunAttempt=$env:GITHUB_RUN_ATTEMPT",
+            "RunnerOS=$env:RUNNER_OS",
+            'Preflight=${{ steps.preflight.outcome }}',
+            'TestDiscovery=${{ steps.discover.outcome }}',
+            'ImageMCPTests=${{ steps.ai_tests.outcome }}',
+            'XrefDWGTests=${{ steps.cad_tests.outcome }}',
+            'ReleaseBuild=${{ steps.release_build.outcome }}',
+            'InstallerPrepare=${{ steps.prepare_installer.outcome }}',
+            'Package=${{ steps.package.outcome }}',
+            'InstalledSmoke=${{ steps.installed_smoke.outcome }}',
+            'PortableSmoke=${{ steps.portable_smoke.outcome }}'
+          )
+          $lines | Set-Content dist/v1025/diagnostics/CI_FAILURE.txt -Encoding utf8
+          rustc --version 2>&1 | Out-File dist/v1025/diagnostics/RUST_VERSION.txt -Encoding utf8
+          cargo --version 2>&1 | Out-File dist/v1025/diagnostics/CARGO_VERSION.txt -Encoding utf8
+          Get-ChildItem dist/v1025 -File -ErrorAction SilentlyContinue | Select-Object Name,Length,LastWriteTimeUtc | Format-Table -AutoSize | Out-String | Set-Content dist/v1025/diagnostics/DIST_FILES.txt -Encoding utf8
+          $lines | ForEach-Object { Write-Host $_ }
+          "### CAD 360 V1.025 - failed Windows release" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          ($lines -join "`n") | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+
+      - name: Upload V1.025 diagnostics on failed or cancelled build
+        if: ${{ failure() || cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: CADTBT360_V1.025_Windows_x64_Failure_Diagnostics
+          path: dist/v1025/diagnostics/
+          if-no-files-found: warn
+          retention-days: 30
