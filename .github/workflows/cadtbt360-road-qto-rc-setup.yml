@@ -5,6 +5,8 @@ on:
       - feature/CADTBT360_road-qto-parallel-v1023
     paths:
       - '.github/workflows/cadtbt360-road-qto-rc-setup.yml'
+      - 'CADTBT360_V1.000/apps/cadcraft/src/takeoff.rs'
+      - 'CADTBT360_V1.000/apps/cadcraft/src/takeoff_road.rs'
   workflow_dispatch:
 permissions:
   contents: read
