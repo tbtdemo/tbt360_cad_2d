@@ -20,7 +20,7 @@ pub(crate) fn specs() -> Vec<CommandSpec> {
         CommandSpec::new("imagetrace", "Trace CAD Geometry on Raster Image", run_imagetrace)
             .menu(&["Draw", "Image", "Trace Vector on Image"])
             .alias(&["itrace"])
-            .params("{handle: image entity handle, points: [[pixelX,pixelY],...] (origin at image top-left), closed?: bool} → {handle, image, vertices, closed}. Creates editable CAD polyline; no automatic AI recognition."),
+            .params("{handle: image entity handle, points: [[pixelX,pixelY],...] (origin at image top-left), closed?: bool, preview?: bool} → {handle?, image, vertices, worldPoints, closed, preview}. Preview performs no edit; no automatic AI recognition."),
         CommandSpec::new("imageclip", "Clip Image", run_imageclip)
             .menu(&["Modify", "Clip", "Image"])
             .alias(&["iclip"])
@@ -111,9 +111,14 @@ fn run_imagetrace(s: &mut Session, p: &Value) -> Result<Value> {
     }
     let closed = bool_or(p, "closed", false);
     let count = vertices.len();
+    let world_points: Vec<Value> = vertices.iter().map(|v| json!([v.p.x, v.p.y])).collect();
+    // AI suggestions should be reviewable before they modify the user's DWG.
+    if bool_or(p, "preview", false) {
+        return Ok(json!({"handle":null, "image":image_handle.hex(), "vertices":count, "worldPoints":world_points, "closed":closed, "preview":true, "units":"drawing", "origin":"image-top-left"}));
+    }
     let polyline = LwPolyline { vertices, closed, const_width: 0.0, elevation: image.insert.z, plinegen: false };
     let handle = s.add_entity(EntityKind::LwPolyline(polyline))?;
-    Ok(json!({"handle":handle.hex(), "image":image_handle.hex(), "vertices":count, "closed":closed, "units":"drawing", "origin":"image-top-left", "recognition":"manual-or-agent-supplied"}))
+    Ok(json!({"handle":handle.hex(), "image":image_handle.hex(), "vertices":count, "worldPoints":world_points, "closed":closed, "preview":false, "units":"drawing", "origin":"image-top-left", "recognition":"manual-or-agent-supplied"}))
 }
 
 fn image_handle(s: &Session, p: &Value) -> Result<Handle> {
@@ -225,6 +230,10 @@ mod tests {
     fn imagetrace_maps_image_pixels_into_editable_cad_geometry() {
         let mut s = Session::new();
         let image = s.execute("imageattach", &json!({"path":"site.png","at":[10.0,20.0],"pixels":[200.0,100.0],"width":20.0,"height":10.0})).unwrap();
+        let proposed = s.execute("imagetrace", &json!({"handle":image["handle"],"points":[[0.0,100.0],[200.0,100.0],[200.0,0.0]],"preview":true})).unwrap();
+        assert_eq!(proposed["preview"], true);
+        assert_eq!(proposed["worldPoints"], json!([[10.0,20.0],[30.0,20.0],[30.0,30.0]]));
+        assert!(s.doc().unwrap().model.is_empty(), "preview must never modify a drawing");
         let traced = s.execute("imagetrace", &json!({"handle":image["handle"],"points":[[0.0,100.0],[200.0,100.0],[200.0,0.0]],"closed":false})).unwrap();
         assert_eq!(traced["vertices"], 3);
         let handle = Handle::parse_hex(traced["handle"].as_str().unwrap()).unwrap();
