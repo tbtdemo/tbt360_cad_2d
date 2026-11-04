@@ -368,8 +368,12 @@ def main():
         if sorted(block_props,key=lambda x:json.dumps(x,sort_keys=True))!=sorted(reopened_blocks,key=lambda x:json.dumps(x,sort_keys=True)):
             raise RuntimeError("DWG changed block insertion geometry/layer")
         hatch_after=mcp_entity_snapshot(mcp,"Hatch")
+        (args.out/"ADVANCED_HATCH_DIAGNOSTIC.json").write_text(json.dumps({
+            "hatch_before":hatch_before,"hatch_after":hatch_after,
+            "block_before":block_props,"block_after":reopened_blocks
+        },indent=2,ensure_ascii=False),encoding="utf-8")
         if hatch_before!=hatch_after:
-            raise RuntimeError("DWG hatch geometry or layer changed")
+            raise RuntimeError("DWG hatch geometry or layer changed; see ADVANCED_HATCH_DIAGNOSTIC.json")
         (args.out/"ADVANCED_DWG_ROUNDTRIP.json").write_text(json.dumps({
             "result":"PASS","counts":advanced_after.get("counts"),"blocks_before":block_props,
             "blocks_after":reopened_blocks,"hatch_before":hatch_before,"hatch_after":hatch_after
