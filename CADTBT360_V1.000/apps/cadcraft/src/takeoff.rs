@@ -1814,6 +1814,14 @@ fn qto_register_matches(record: &MeasurementRecord, search: &str, status_filter:
         && qto_record_in_canonical_scope(record,scope)
         && qto_measure_type_allowed(record.kind,kinds)
 }
+/// Clamp QTO pagination safely after filtering, deleting or editing records.
+/// Page indices are zero-based; return (page, total pages, row start).
+fn qto_page_window(matching_rows: usize, requested_page: usize, rows_per_page: usize) -> (usize,usize,usize) {
+    if rows_per_page==0 || matching_rows==0 {return (0,0,0);}
+    let total_pages=1+(matching_rows-1)/rows_per_page;
+    let page=requested_page.min(total_pages-1);
+    (page,total_pages,page*rows_per_page)
+}
 fn qto_record_in_scope(record: &MeasurementRecord, allowed: Option<&BTreeSet<String>>) -> bool {
     match allowed {
         None => true,
@@ -2761,9 +2769,9 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
         // Draw one bounded page of QTO rows; selection/export operations above
         // still apply to every matching record, not just the visible page.
         const QTO_ROWS_PER_PAGE: usize=75;
-        let total_pages=visible_count.saturating_add(QTO_ROWS_PER_PAGE-1)/QTO_ROWS_PER_PAGE;
         let page_id=egui::Id::new("cadtbt360_qto_register_page");
-        let mut page=if filter_changed {0} else {ui.ctx().data_mut(|data|data.get_temp::<usize>(page_id).unwrap_or(0)).min(total_pages.saturating_sub(1))};
+        let requested_page=if filter_changed {0} else {ui.ctx().data_mut(|data|data.get_temp::<usize>(page_id).unwrap_or(0))};
+        let (mut page,total_pages,_)=qto_page_window(visible_count,requested_page,QTO_ROWS_PER_PAGE);
         ui.horizontal_wrapped(|ui| {
             ui.small(format!("{} / {} phép đo phù hợp",visible_count,state.records.len()));
             if total_pages>1 {
@@ -2782,7 +2790,7 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
                 for h in ["Xuất", "ID","Handle nguồn","Nguồn","Tầng","Bộ môn","Owner","Loại","Layer","Nhóm","Mã CT","Diễn giải","Giá trị","Trạng thái","Thao tác"] { ui.strong(h); }
                 ui.end_row();
                 for record in state.records.iter().filter(|record|qto_register_matches(record,&state.search_text,state.status_filter,state.selected_measure_types,register_scope_canonical.as_ref()))
-                    .skip(page*QTO_ROWS_PER_PAGE).take(QTO_ROWS_PER_PAGE) {
+                    .skip(qto_page_window(visible_count,page,QTO_ROWS_PER_PAGE).2).take(QTO_ROWS_PER_PAGE) {
                     let value = match record.kind {
                         MeasureKind::Area => record.raw_value * af,
                         MeasureKind::Length | MeasureKind::Perimeter => record.raw_value * lf,
@@ -3931,6 +3939,17 @@ mod tests {
         assert!(lwpoly_metrics(&vertices, false).is_none());
     }
 
+    #[test]
+    fn qto_page_window_handles_empty_partial_last_and_outdated_page() {
+        assert_eq!(qto_page_window(0,999,75),(0,0,0));
+        assert_eq!(qto_page_window(1,0,75),(0,1,0));
+        assert_eq!(qto_page_window(75,0,75),(0,1,0));
+        assert_eq!(qto_page_window(76,1,75),(1,2,75));
+        assert_eq!(qto_page_window(230,3,75),(3,4,225));
+        assert_eq!(qto_page_window(76,500,75),(1,2,75));
+        assert_eq!(qto_page_window(230,2,0),(0,0,0));
+        assert_eq!(qto_page_window(usize::MAX,usize::MAX,75).1,1+(usize::MAX-1)/75);
+    }
     #[test]
     fn qto_register_bulk_selection_respects_visible_measure_types() {
         let mut state=State::default();
