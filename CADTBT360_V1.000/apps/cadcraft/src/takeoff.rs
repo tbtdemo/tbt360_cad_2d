@@ -1408,7 +1408,11 @@ mod road_station_matching_tests {
     fn zero_padded_hex_marker_is_considered_the_same_entity() {
         let mut sections=vec![section(100.0,Some("AA")),section(120.0,None)];
         let markers=vec![takeoff_road::RoadPlanMarker{chainage_m:120.0,handle:"0AA".into()}];
-        assert_eq!(qto_road_attach_markers(&mut sections,&markers),(0,0,1));
+        // Station 100 has no candidate in the scanned markers (missing=1).
+        // Station 120 sees 0AA, which is the same canonical CAD handle as
+        // already-bound AA at station 100 (conflicts=1).
+        assert_eq!(qto_road_attach_markers(&mut sections,&markers),(0,1,1));
+        assert_eq!(sections[0].plan_marker_handle.as_deref(),Some("AA"));
         assert!(sections[1].plan_marker_handle.is_none());
     }
 }
