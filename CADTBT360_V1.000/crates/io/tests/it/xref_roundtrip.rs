@@ -232,3 +232,30 @@ fn v1025_dwg_r2018_xref_layer_override_survives() {
     assert_eq!(layer.color, Color::Index(252));
     assert!(layer.frozen);
 }
+
+
+/// A native autosave .sv$ uses DXF content and must reopen with the complete
+/// drawing instead of degrading to an entity-count-only snapshot.
+#[test]
+fn v1025_autosave_sv_dollar_restores_geometry_and_xref() {
+    let mut source = host();
+    source.add(&Space::Model, Common { layer: "Doors".into(), ..Common::default() },
+        EntityKind::Line(Line { a: Vec3::new(123.0, 456.0, 0.0), b: Vec3::new(130.0, 462.0, 0.0) }))
+        .expect("drawing geometry");
+    let mut snapshot = cadcraft_io::write(&source, "drawing.dxf").expect("create autosave DXF payload");
+    for cycle in 0..3 {
+        let recovered = cadcraft_io::read(&snapshot, "Drawing1_123-abc_77.sv$").expect("recover .sv$ content");
+        assert_eq!(recovered.model.len(), 3, "lost geometry during snapshot cycle {cycle}");
+        assert!(recovered.block("SITE").is_some_and(|b| b.xref_path.as_deref() == Some(r"..\shared\site.dwg") && b.entities.is_empty()));
+        assert!(recovered.block("PLAN").is_some_and(|b| b.xref_overlay && b.xref_path.as_deref() == Some("plan.dxf")));
+        assert!(recovered.layer("SITE|Walls").is_some());
+        let lines: Vec<_> = recovered.model.iter().filter_map(|e| match &e.kind {
+            EntityKind::Line(line) if e.common.layer == "Doors" => Some(line),
+            _ => None,
+        }).collect();
+        assert_eq!(lines.len(), 1, "recover must retain the actual CAD line");
+        assert_eq!(lines[0].a, Vec3::new(123.0, 456.0, 0.0));
+        assert_eq!(lines[0].b, Vec3::new(130.0, 462.0, 0.0));
+        snapshot = cadcraft_io::write(&recovered, "drawing.dxf").expect("resave recovered geometry");
+    }
+}
