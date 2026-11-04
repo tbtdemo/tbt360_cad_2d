@@ -1253,13 +1253,6 @@ fn qto_road_scan_drawing_markers(doc: &cadcraft_doc::Drawing, selected: &[cadcra
     let mut skipped=0usize;
     let mut handles=BTreeSet::<String>::new();
     let mut collisions=BTreeSet::<String>::new();
-    // Check ALL spaces even when the user scans only selected Layouts:
-    // a handle duplicated in an unselected Layout is still unsafe evidence.
-    let mut global_handles=BTreeSet::<String>::new();
-    for entity in doc.model.iter().chain(doc.layouts.iter().flat_map(|layout|layout.entities.iter())) {
-        let key=qto_station_handle_key(&entity.handle.hex());
-        if !global_handles.insert(key.clone()) {collisions.insert(key);}
-    }
     if all_model {
         for entity in doc.model.iter() {qto_road_inspect_marker_entity(doc,entity,&mut markers,&mut skipped,&mut handles,&mut collisions);}
         if include_layouts {
@@ -1276,10 +1269,15 @@ fn qto_road_scan_drawing_markers(doc: &cadcraft_doc::Drawing, selected: &[cadcra
             }
         }
     }
-    // If a CAD handle appears in more than one space, both candidate labels
-    // are ambiguous: do not automatically attach even the first occurrence.
+    // Reject ambiguous handles across ALL spaces, even when only one Layout
+    // was selected. Resolve only scanned candidates rather than iterating
+    // every entity again in a large CAD drawing.
     let original_len=markers.len();
-    markers.retain(|marker|!collisions.contains(&qto_station_handle_key(&marker.handle)));
+    markers.retain(|marker| {
+        if collisions.contains(&qto_station_handle_key(&marker.handle)) {return false;}
+        let Some(handle)=cadcraft_doc::Handle::parse_hex(&marker.handle) else {return false;};
+        qto_road_find_marker_entity(doc,handle).is_ok_and(|entity|entity.is_some())
+    });
     skipped+=original_len-markers.len();
     (markers,skipped)
 }
