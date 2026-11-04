@@ -197,3 +197,38 @@ fn v1025_overlay_semantics_survive_repeated_save_open() {
         assert_eq!(records.iter().find(|r| r.0 == "PLAN").map(|r| r.1 & 12), Some(12));
     }
 }
+
+
+/// V1.025: Native R2018 DWG bridge must preserve external-reference block flags,
+/// saved paths, and the host-side placement rather than embedding referenced geometry.
+#[test]
+fn v1025_dwg_r2018_xref_links_survive_save_open() {
+    let d = host();
+    let bytes = cadcraft_io::write_with(&d, "xref-host.dwg", &cadcraft_io::SaveOptions { version: Some(cadcraft_io::Version::R2018), binary: false }).expect("write real DWG");
+    assert_eq!(cadcraft_dwg::version(&bytes).as_deref(), Some("AC1032"));
+    let reopened = cadcraft_io::read(&bytes, "xref-host.dwg").expect("read real DWG");
+    let attached = reopened.block("SITE").expect("attached xref");
+    assert_eq!(attached.xref_path.as_deref(), Some(r"..\shared\site.dwg"));
+    assert!(!attached.xref_overlay);
+    assert!(attached.entities.is_empty(), "xref geometry must stay external");
+    let overlay = reopened.block("PLAN").expect("overlay xref");
+    assert_eq!(overlay.xref_path.as_deref(), Some("plan.dxf"));
+    assert!(overlay.xref_overlay, "overlay cannot silently become an attachment");
+    assert!(overlay.entities.is_empty());
+    assert_eq!(reopened.model.iter().filter(|e| matches!(e.kind, EntityKind::Insert(_))).count(), 2);
+}
+
+/// V1.025: Host-managed Xref layers must remain available after a DWG R2018
+/// bridge roundtrip, even when the referenced drawing is not present locally.
+#[test]
+fn v1025_dwg_r2018_xref_layer_override_survives() {
+    let mut d = host();
+    let layer = d.layer_mut("SITE|Walls").expect("xref dependent layer");
+    layer.color = Color::Index(252);
+    layer.frozen = true;
+    let bytes = cadcraft_io::write_with(&d, "xref-layer.dwg", &cadcraft_io::SaveOptions { version: Some(cadcraft_io::Version::R2018), binary: false }).expect("write DWG");
+    let reopened = cadcraft_io::read(&bytes, "xref-layer.dwg").expect("read DWG");
+    let layer = reopened.layer("SITE|Walls").expect("host layer override retained");
+    assert_eq!(layer.color, Color::Index(252));
+    assert!(layer.frozen);
+}
