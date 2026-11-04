@@ -65,13 +65,15 @@ impl CacheEntry {
         true
     }
 
-    fn source_changed(&mut self, path: &Path, now: Instant) -> bool {
-        if now < self.next_stat { return false; }
+    // Return (source_changed, metadata_checked). The latter must be persisted to egui state,
+    // even if the file is unchanged, or the 2-second throttle is lost on the next repaint.
+    fn source_changed(&mut self, path: &Path, now: Instant) -> (bool, bool) {
+        if now < self.next_stat { return (false, false); }
         self.next_stat = now + Duration::from_secs(2);
         let stamp = file_stamp(path);
-        if stamp == self.source_stamp { return false; }
+        if stamp == self.source_stamp { return (false, true); }
         self.source_stamp = stamp;
-        true
+        (true, true)
     }
 }
 
@@ -253,7 +255,8 @@ pub(super) fn draw(painter: &Painter, xf: &Xf, session: &Session, ctx: &Context)
         let adjust = RasterAdjust::from_image(img);
         let key = (path.clone(), adjust);
         let now = Instant::now();
-        let source_changed = cache.textures.get_mut(&key).is_some_and(|entry| entry.source_changed(&path, now));
+        let (source_changed, metadata_checked) = cache.textures.get_mut(&key).map_or((false, false), |entry| entry.source_changed(&path, now));
+        if metadata_checked { changed = true; }
         if source_changed || cache.textures.get(&key).is_none_or(|entry| entry.should_retry(now)) {
             if cache.textures.len() >= MAX_CACHED_TEXTURES && !cache.textures.contains_key(&key) {
                 // Evict only the least recently used entry; clearing all images on overflow
@@ -332,14 +335,14 @@ fn defaults() -> RasterAdjust {
         let file = std::env::temp_dir().join(format!("cad360-raster-reload-{}.png", std::process::id()));
         std::fs::write(&file, [1u8, 2, 3]).unwrap();
         let mut entry = CacheEntry { texture: None, retry_after: now + Duration::from_secs(5), last_used: now, source_stamp: file_stamp(&file), next_stat: now + Duration::from_secs(2) };
-        assert!(!entry.source_changed(&file, now + Duration::from_secs(1)));
-        assert!(!entry.source_changed(&file, now + Duration::from_secs(2)));
+        assert_eq!(entry.source_changed(&file, now + Duration::from_secs(1)), (false, false));
+        assert_eq!(entry.source_changed(&file, now + Duration::from_secs(2)), (false, true));
         std::fs::write(&file, [1u8, 2, 3, 4, 5]).unwrap();
-        assert!(!entry.source_changed(&file, now + Duration::from_secs(3)));
-        assert!(entry.source_changed(&file, now + Duration::from_secs(4)));
-        assert!(!entry.source_changed(&file, now + Duration::from_secs(6)));
+        assert_eq!(entry.source_changed(&file, now + Duration::from_secs(3)), (false, false));
+        assert_eq!(entry.source_changed(&file, now + Duration::from_secs(4)), (true, true));
+        assert_eq!(entry.source_changed(&file, now + Duration::from_secs(6)), (false, true));
         std::fs::remove_file(&file).unwrap();
-        assert!(entry.source_changed(&file, now + Duration::from_secs(8)));
+        assert_eq!(entry.source_changed(&file, now + Duration::from_secs(8)), (true, true));
     }
     #[test]
     fn cache_entry_tracks_last_access_for_selective_eviction() {
