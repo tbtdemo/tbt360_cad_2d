@@ -2098,7 +2098,9 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
                     let relevant=doc.layouts.iter().filter(|layout|selected_layouts.is_none_or(|names|names.contains(&layout.name))).collect::<Vec<_>>();
                     (doc.model.len()+relevant.iter().map(|layout|layout.entities.len()).sum::<usize>(),relevant.len())
                 }).unwrap_or((0,0));
-                if total>100_000 {
+                if selected_layouts.is_some_and(|names|names.len()!=layout_count) {
+                    state.import_feedback="Có Layout đã chọn không tồn tại trong bản vẽ hiện tại. Bỏ lọc Layout rồi chọn lại, không tự ghép cọc thiếu phạm vi.".into();
+                } else if total>100_000 {
                     state.import_feedback=format!("MODEL và {} Layout được chọn có {} đối tượng, vượt giới hạn quét 100.000; hãy giới hạn phạm vi.",layout_count,total);
                 } else {
                     let (markers,skipped)=qto_road_scan_markers(app,true,true,selected_layouts);
