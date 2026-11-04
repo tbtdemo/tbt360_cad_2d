@@ -7,6 +7,9 @@ on:
       - '.github/workflows/cadtbt360-road-qto-rc-setup.yml'
       - 'CADTBT360_V1.000/apps/cadcraft/src/takeoff.rs'
       - 'CADTBT360_V1.000/apps/cadcraft/src/takeoff_road.rs'
+      - 'CADTBT360_V1.000/apps/cadcraft-cli/**'
+      - 'CADTBT360_V1.000/crates/mcp/**'
+      - '.github/workflows/cadtbt360-agent-mcp-cli-render-windows.yml'
   workflow_dispatch:
 # Keep only the newest Windows release candidate for this feature branch.
 # Superseded candidates must not compete for runner/cache resources.
@@ -52,7 +55,16 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           cargo test --locked -p cadcraft --bin cadcraft road_export_totals_use_actual_accepted_excel_rows_and_units -- --nocapture
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - name: Build Windows x64 application
+      - name: Verify MCP agent and CLI render pipeline before packaging
+        working-directory: CADTBT360_V1.000
+        run: |
+          cargo test --locked -p cadcraft-mcp --lib
+          if ($LASTEXITCODE -ne 0) {exit $LASTEXITCODE}
+          cargo test --locked -p cadcraft-cli --test it agent_render -- --nocapture
+          if ($LASTEXITCODE -ne 0) {exit $LASTEXITCODE}
+          cargo test --locked -p cadcraft-cli --test it mcp_connect -- --nocapture
+          if ($LASTEXITCODE -ne 0) {exit $LASTEXITCODE}
+      - name: Build Windows x64 application and AI CLI
         working-directory: CADTBT360_V1.000
         env:
           CAD360_BUILD_SHA: ${{ github.sha }}
@@ -60,7 +72,7 @@ jobs:
           CADTBT360_RELEASE_VERSION: CADTBT360_V1.023
           CADCRAFT_REQUIRE_WINRES: '1'
         run: |
-          cargo build --locked --release -p cadcraft --bin cadcraft
+          cargo build --locked --release -p cadcraft --bin cadcraft -p cadcraft-cli --bin cadcraft-cli
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Verify EXE identity and create portable zip
         run: |
@@ -74,14 +86,21 @@ jobs:
           $bytes=[System.IO.File]::ReadAllBytes((Resolve-Path $source).Path)
           if ([Text.Encoding]::ASCII.GetString($bytes,0,2) -ne 'MZ') {throw 'Invalid PE header'}
           New-Item -ItemType Directory -Path dist -Force | Out-Null
+          $cli='CADTBT360_V1.000/target/release/cadcraft-cli.exe'
+          if (!(Test-Path $cli)) {throw 'Missing AI MCP CLI EXE'}
+          if ((Get-Item $cli).Length -lt 1048576) {throw 'AI MCP CLI executable too small'}
+          & $cli --version
+          if ($LASTEXITCODE -ne 0) {throw 'AI MCP CLI --version failed'}
           Copy-Item $source dist/CADTBT360_V1.023_RoadQTO_RC.exe
-          Compress-Archive dist/CADTBT360_V1.023_RoadQTO_RC.exe dist/CADTBT360_V1.023_RoadQTO_RC_Portable.zip -Force
+          Copy-Item $cli dist/cadcraft-cli.exe
+          Compress-Archive -Path @('dist/CADTBT360_V1.023_RoadQTO_RC.exe','dist/cadcraft-cli.exe') -DestinationPath dist/CADTBT360_V1.023_RoadQTO_RC_Portable.zip -Force
       - name: Publish portable EXE even if installer stage later fails
         uses: actions/upload-artifact@v4
         with:
           name: CADTBT360_RoadQTO_RC_Portable_Windows_x64
           path: |
             dist/CADTBT360_V1.023_RoadQTO_RC.exe
+            dist/cadcraft-cli.exe
             dist/CADTBT360_V1.023_RoadQTO_RC_Portable.zip
           if-no-files-found: error
           retention-days: 30
@@ -98,6 +117,8 @@ jobs:
           $iss=$iss.Replace('UninstallDisplayName=CAD TBT 360 V1.023','UninstallDisplayName=CAD TBT 360 V1.023 Road QTO RC')
           $iss=$iss.Replace('dist\CADTBT360_V1.023.exe','dist\CADTBT360_V1.023_RoadQTO_RC.exe')
           $iss=$iss.Replace('CADTBT360_V1.023.exe','CADTBT360_V1.023_RoadQTO_RC.exe')
+          $iss=$iss.Replace('Source: "dist\CADTBT360_V1.023_RoadQTO_RC.exe"; DestDir: "{app}"; Flags: ignoreversion','Source: "dist\CADTBT360_V1.023_RoadQTO_RC.exe"; DestDir: "{app}"; Flags: ignoreversion' + "`r`n" + 'Source: "dist\cadcraft-cli.exe"; DestDir: "{app}"; Flags: ignoreversion')
+          if (!$iss.Contains('Source: "dist\cadcraft-cli.exe"')) {throw 'Failed to add MCP CLI to Inno installer'}
           $iss=$iss.Replace('Name: "{autoprograms}\CAD TBT 360"','Name: "{autoprograms}\CAD TBT 360 Road QTO RC"')
           $iss=$iss.Replace('Name: "{autodesktop}\CAD TBT 360"','Name: "{autodesktop}\CAD TBT 360 Road QTO RC"')
           Set-Content CADTBT360_V1.023_RoadQTO_RC.iss -Value $iss -Encoding utf8
@@ -119,6 +140,11 @@ jobs:
           $installed=Join-Path $dir 'CADTBT360_V1.023_RoadQTO_RC.exe'
           if (!(Test-Path $installed)) {throw 'Setup did not install RC EXE'}
           if ((Get-FileHash $installed -Algorithm SHA256).Hash -ne (Get-FileHash dist/CADTBT360_V1.023_RoadQTO_RC.exe -Algorithm SHA256).Hash) {throw 'Installed EXE mismatch'}
+          $cliInstalled=Join-Path $dir 'cadcraft-cli.exe'
+          if (!(Test-Path $cliInstalled)) {throw 'Installer omitted AI MCP CLI'}
+          if ((Get-FileHash $cliInstalled -Algorithm SHA256).Hash -ne (Get-FileHash dist/cadcraft-cli.exe -Algorithm SHA256).Hash) {throw 'Installed AI MCP CLI mismatch'}
+          & $cliInstalled --version
+          if ($LASTEXITCODE -ne 0) {throw 'Installed CLI failed smoke test'}
           $uninstaller=Join-Path $dir 'unins000.exe'
           if (!(Test-Path $uninstaller)) {throw 'Uninstaller missing'}
           $un=Start-Process -FilePath $uninstaller -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART') -Wait -PassThru
@@ -126,18 +152,20 @@ jobs:
       - name: Write checksum manifest and build provenance
         run: |
           $ErrorActionPreference='Stop'
-          $files=@('dist/CADTBT360_V1.023_RoadQTO_RC.exe','dist/CADTBT360_V1.023_RoadQTO_RC_Portable.zip','dist/CADTBT360_V1.023_RoadQTO_RC_Setup.exe')
+          $files=@('dist/CADTBT360_V1.023_RoadQTO_RC.exe','dist/cadcraft-cli.exe','dist/CADTBT360_V1.023_RoadQTO_RC_Portable.zip','dist/CADTBT360_V1.023_RoadQTO_RC_Setup.exe')
           $hashes=foreach ($f in $files) {"$((Get-FileHash $f -Algorithm SHA256).Hash.ToLowerInvariant())  $(Split-Path $f -Leaf)"}
           Set-Content dist/CADTBT360_V1.023_RoadQTO_RC_SHA256.txt -Value $hashes -Encoding ascii
           Set-Content dist/BUILD_COMMIT.txt -Value $env:GITHUB_SHA -Encoding ascii
           "## CAD 360 Road QTO RC: validated installer" | Out-File $env:GITHUB_STEP_SUMMARY -Append
           "Commit: $env:GITHUB_SHA" | Out-File $env:GITHUB_STEP_SUMMARY -Append
+          "Included CLI: cadcraft-cli.exe (MCP stdio, DXF, PNG)" | Out-File $env:GITHUB_STEP_SUMMARY -Append
       - name: Upload verified setup, executable and checksum
         uses: actions/upload-artifact@v4
         with:
           name: CADTBT360_RoadQTO_RC_Setup_Windows_x64
           path: |
             dist/CADTBT360_V1.023_RoadQTO_RC.exe
+            dist/cadcraft-cli.exe
             dist/CADTBT360_V1.023_RoadQTO_RC_Portable.zip
             dist/CADTBT360_V1.023_RoadQTO_RC_Setup.exe
             dist/CADTBT360_V1.023_RoadQTO_RC_SHA256.txt
