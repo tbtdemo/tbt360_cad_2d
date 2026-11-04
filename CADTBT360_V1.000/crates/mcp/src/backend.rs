@@ -293,6 +293,20 @@ pub struct Headless {
 
 impl Default for Headless {
     fn default() -> Self {
+        // Standalone MCP/headless sessions do not go through the GUI or CLI startup.
+        // Register the same real DWG/DXF reader/writer before any SAVEAS or OPEN command.
+        cadcraft_engine::cmd::file::set_io(cadcraft_engine::cmd::file::IoHooks {
+            read: |bytes, name| cadcraft_io::read(bytes, name).map_err(|e| e.to_string()),
+            write: |drawing, name| cadcraft_io::write(drawing, name).map_err(|e| e.to_string()),
+            plot: Some(|drawing, space, opts| cadcraft_io::plotter::plot(drawing, space, opts).map_err(|e| e.to_string())),
+        });
+        cadcraft_engine::cmd::file::set_write_as(|drawing, name, opts| {
+            cadcraft_io::write_with(drawing, name, &cadcraft_io::SaveOptions { version: opts.version, binary: opts.binary }).map_err(|e| e.to_string())
+        });
+        cadcraft_engine::cmd::file::set_entity_codec(cadcraft_engine::cmd::file::EntityCodec {
+            groups: cadcraft_io::entity_groups,
+            entity: cadcraft_io::entity_from_groups,
+        });
         Headless { session: Session::new() }
     }
 }
