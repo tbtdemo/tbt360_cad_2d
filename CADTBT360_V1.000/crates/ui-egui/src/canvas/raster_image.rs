@@ -205,7 +205,7 @@ pub(super) fn draw(painter: &Painter, xf: &Xf, session: &Session, ctx: &Context)
     let mut changed = false;
     let mut visited = 0;
     for entity in space.iter() {
-        if !entity.common.visible { continue; }
+        if !entity.common.visible || state.doc.layer(&entity.common.layer).is_some_and(|layer| !layer.visible()) { continue; }
         let EntityKind::Image(img) = &entity.kind else { continue; };
         if visited >= MAX_IMAGES { break; }
         visited += 1;
@@ -259,6 +259,14 @@ fn defaults() -> RasterAdjust {
         assert_eq!(texture_dimensions(4000, 2000), [2048, 1024]);
         assert_eq!(texture_dimensions(100, 4000), [51, 2048]);
         assert_eq!(texture_dimensions(1, 4000), [1, 2048]);
+    }
+    #[test]
+    fn native_raster_layer_visibility_follows_cad_layer_state() {
+        let mut drawing = cadcraft_doc::Drawing::new_imperial();
+        let layer = drawing.layer_mut("0").expect("default CAD layer");
+        assert!(layer.visible());
+        layer.frozen = true;
+        assert!(!drawing.layer("0").unwrap().visible());
     }
     #[test]
     fn missing_image_can_retry_after_file_becomes_available() {
