@@ -214,6 +214,21 @@ jobs:
           if ($traceDrawing.entityCount -ne 2 -or $traceDrawing.counts.'Raster Image' -ne 1 -or $traceDrawing.counts.Polyline -ne 1) {
             throw "AI image-trace DXF must contain exactly one Raster Image and one editable Polyline, found: $($traceInfo -join [char]10)"
           }
+          # Check that the linked PNG path survived a real DXF save/reopen cycle.
+          # EntityKind::Image serializes its geometry as { "Image": { "path": ... } }.
+          $imageOutput = & $installedCli run $traceFile --cmd 'entities {"type":"IMAGE"}'
+          if ($LASTEXITCODE -ne 0) { throw 'Installed CLI cannot query saved IMAGE reference' }
+          $imageQuery = ($imageOutput -join [char]10) | ConvertFrom-Json
+          if ($imageQuery.count -ne 1 -or @($imageQuery.entities).Count -ne 1) { throw 'DXF reopened with missing or duplicated IMAGE reference' }
+          $savedImage = $imageQuery.entities[0].geometry.Image
+          if ($null -eq $savedImage -or [string]::IsNullOrWhiteSpace($savedImage.path)) { throw 'DXF lost IMAGE geometry or its source path' }
+          $savedImagePath = ([string]$savedImage.path).Replace([char]92, [char]47)
+          if ($savedImagePath -ne $referencePath) { throw "DXF IMAGE path changed: expected $referencePath, found $savedImagePath" }
+          if (!(Test-Path $savedImagePath)) { throw "Reopened DXF references a missing PNG: $savedImagePath" }
+          $openedImage = [System.Drawing.Image]::FromFile($savedImagePath)
+          try {
+            if ($openedImage.Width -ne 200 -or $openedImage.Height -ne 100) { throw 'Reopened DXF source PNG has incorrect dimensions' }
+          } finally { $openedImage.Dispose() }
           $geometryOutput = & $installedCli run $traceFile --cmd 'entities {"type":"LWPOLYLINE"}'
           if ($LASTEXITCODE -ne 0) { throw 'Installed CLI cannot query persisted editable LWPOLYLINE' }
           $geometry = ($geometryOutput -join [char]10) | ConvertFrom-Json
