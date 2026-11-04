@@ -62,27 +62,26 @@ pub(super) fn draw(painter: &Painter, xf: &Xf, session: &Session, ctx: &Context)
     let id = Id::new(CACHE_ID);
     let mut cache = ctx.data(|d| d.get_temp::<Cache>(id)).unwrap_or_default();
     let mut changed = false;
-    let mut drawn = 0;
+    let mut visited = 0;
     for entity in space.iter() {
-        if drawn >= MAX_IMAGES { break; }
         if !entity.common.visible { continue; }
         let EntityKind::Image(img) = &entity.kind else { continue; };
-        if img.path.is_empty() || img.size.x <= 0.0 || img.size.y <= 0.0 { continue; }
+        if visited >= MAX_IMAGES { break; }
+        visited += 1;
+        if img.path.is_empty() || !img.size.x.is_finite() || !img.size.y.is_finite() || img.size.x <= 0.0 || img.size.y <= 0.0 { continue; }
+        let o = img.insert.xy();
+        let u = img.u.xy() * img.size.x;
+        let v = img.v.xy() * img.size.y;
+        let corners = [o + v, o + u + v, o + u, o];
+        if corners.iter().any(|p| !p.x.is_finite() || !p.y.is_finite()) { continue; }
+        if !cadcraft_geom::Bounds2::from_points(corners).intersects(&xf.world_bounds()) { continue; }
         let Some(path) = safe_path(&img.path, &state.title) else { continue; };
         if !cache.textures.contains_key(&path) {
             cache.textures.insert(path.clone(), read_texture(ctx, &path));
             changed = true;
         }
         let Some(texture) = cache.textures.get(&path).and_then(Option::as_ref) else { continue; };
-        let o = img.insert.xy();
-        let u = img.u.xy() * img.size.x;
-        let v = img.v.xy() * img.size.y;
-        let corners = [o + v, o + u + v, o + u, o];
-        if corners.iter().any(|p| !p.x.is_finite() || !p.y.is_finite()) { continue; }
-        let world = cadcraft_geom::Bounds2::from_points(corners);
-        if !world.intersects(&xf.world_bounds()) { continue; }
         painter.add(textured_quad(texture, corners.map(|p: Vec2| xf.to_screen(p))));
-        drawn += 1;
     }
     if changed { ctx.data_mut(|d| d.insert_temp(id, cache)); }
 }
