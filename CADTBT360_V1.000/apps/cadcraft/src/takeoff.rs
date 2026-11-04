@@ -1814,6 +1814,17 @@ fn qto_register_matches(record: &MeasurementRecord, search: &str, status_filter:
         && qto_record_in_canonical_scope(record,scope)
         && qto_measure_type_allowed(record.kind,kinds)
 }
+/// Count chosen and omitted records within the *current* QTO register filter.
+/// Omissions for other tabs, scopes and search results remain stored but must
+/// not inflate the counter shown for this selection.
+fn qto_register_selection_counts(records: &[MeasurementRecord], omitted: &BTreeSet<u64>, search: &str, status_filter: u8, kinds: [bool;4], scope: Option<&BTreeSet<String>>) -> (usize,usize) {
+    let mut chosen=0usize;
+    let mut ignored=0usize;
+    for record in records.iter().filter(|record|qto_register_matches(record,search,status_filter,kinds,scope)) {
+        if omitted.contains(&record.id) {ignored+=1;} else {chosen+=1;}
+    }
+    (chosen,ignored)
+}
 /// Clamp QTO pagination safely after filtering, deleting or editing records.
 /// Page indices are zero-based; return (page, total pages, row start).
 fn qto_page_window(matching_rows: usize, requested_page: usize, rows_per_page: usize) -> (usize,usize,usize) {
@@ -2763,7 +2774,8 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
                     }
                 }
             }
-            ui.label(format!("Đã bỏ chọn {} phép đo khỏi Excel.", state.export_omitted_ids.len()));
+            let (selected_count,skipped_count)=qto_register_selection_counts(&state.records,&state.export_omitted_ids,&state.search_text,state.status_filter,state.selected_measure_types,register_scope_canonical.as_ref());
+            ui.small(format!("Trong bộ lọc: {selected_count} chọn xuất • {skipped_count} bỏ chọn"));
         });
         let visible_count=state.records.iter().filter(|record|qto_register_matches(record,&state.search_text,state.status_filter,state.selected_measure_types,register_scope_canonical.as_ref())).count();
         // Draw one bounded page of QTO rows; selection/export operations above
@@ -3954,6 +3966,23 @@ mod tests {
         assert!(lwpoly_metrics(&vertices, false).is_none());
     }
 
+    #[test]
+    fn qto_register_selection_counts_ignore_omissions_outside_current_filter() {
+        let mut state=State::default();
+        let id_a=state.add_measurement(MeasureKind::Count,Vec::new(),1.0,"LAYER_A".into()).unwrap();
+        let id_b=state.add_measurement(MeasureKind::Count,Vec::new(),1.0,"LAYER_B".into()).unwrap();
+        state.export_omitted_ids.insert(id_a);
+        state.export_omitted_ids.insert(id_b);
+        let kinds=[false,false,false,true];
+        let all=qto_register_selection_counts(&state.records,&state.export_omitted_ids,"",0,kinds,None);
+        assert_eq!(all,(0,2));
+        let filtered=qto_register_selection_counts(&state.records,&state.export_omitted_ids,"LAYER_A",0,kinds,None);
+        assert_eq!(filtered,(0,1));
+        state.export_omitted_ids.remove(&id_a);
+        let selected=qto_register_selection_counts(&state.records,&state.export_omitted_ids,"LAYER_A",0,kinds,None);
+        assert_eq!(selected,(1,0));
+        assert_eq!(qto_register_selection_counts(&state.records,&state.export_omitted_ids,"none",0,kinds,None),(0,0));
+    }
     #[test]
     fn qto_page_window_handles_empty_partial_last_and_outdated_page() {
         assert_eq!(qto_page_window(0,999,75),(0,0,0));
