@@ -499,6 +499,8 @@ fn entity_parts(b: &mut Builder, ctx: &Ctx, e: &Entity) {
             }
         }
         EntityKind::Image(i) => {
+            // DXF IMAGE display flag 1 turns the entire reference off, including its frame.
+            if i.display & 1 == 0 { return; }
             // IMAGECLIP is defined in source pixels, Y down from top left.
             // Follow the same clipped boundary as the native image texture, not the entire image box.
             // Never draw diagonal placeholder strokes over AI-traced geometry.
