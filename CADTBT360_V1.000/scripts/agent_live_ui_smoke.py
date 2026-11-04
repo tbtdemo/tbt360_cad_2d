@@ -347,12 +347,12 @@ def main():
         mcp.tool("execute",{"command":"rectang","params":{"p1":[0,0],"p2":[100,70]}})
         mcp.tool("execute",{"command":"hatch","params":{"points":[[90,60]],"pattern":"ANSI31","scale":2.0,"angle":45}})
         advanced_before=json.loads(mcp.tool("inspect_drawing",{"entities":False})[0]["text"])
-        advanced_expected={"Insert":2,"Polyline":1,"Hatch":1}
+        advanced_expected={"Block Reference":2,"Polyline":1,"Hatch":1}
         for kind,n in advanced_expected.items():
             if advanced_before.get("counts",{}).get(kind)!=n:
                 raise RuntimeError(f"Advanced CAD did not create {kind}: {advanced_before.get('counts')}")
         block_props=[]
-        for entry in json.loads(mcp.tool("query_entities",{"type":"Insert","limit":10})[0]["text"])["entities"]:
+        for entry in json.loads(mcp.tool("query_entities",{"type":"Block Reference","limit":10})[0]["text"])["entities"]:
             block_props.append({"layer":entry.get("layer"),"geometry":canonical_geometry(entry.get("geometry"))})
         hatch_before=mcp_entity_snapshot(mcp,"Hatch")
         advanced_dwg=args.out/"CAD360_BLOCK_ATTRIBUTE_HATCH.dwg"
@@ -363,7 +363,7 @@ def main():
             if advanced_after.get("counts",{}).get(kind)!=n:
                 raise RuntimeError(f"Advanced DWG lost {kind}: {advanced_after.get('counts')}")
         reopened_blocks=[]
-        for entry in json.loads(mcp.tool("query_entities",{"type":"Insert","limit":10})[0]["text"])["entities"]:
+        for entry in json.loads(mcp.tool("query_entities",{"type":"Block Reference","limit":10})[0]["text"])["entities"]:
             reopened_blocks.append({"layer":entry.get("layer"),"geometry":canonical_geometry(entry.get("geometry"))})
         if sorted(block_props,key=lambda x:json.dumps(x,sort_keys=True))!=sorted(reopened_blocks,key=lambda x:json.dumps(x,sort_keys=True)):
             raise RuntimeError("DWG changed block insertion geometry/layer")
