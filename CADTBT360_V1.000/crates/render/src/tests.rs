@@ -17,6 +17,21 @@ fn sample() -> Drawing {
 }
 
 #[test]
+fn raster_image_display_off_omits_entire_frame() {
+    let mut d = Drawing::new_imperial();
+    let image = cadcraft_doc::Image {
+        insert: Vec3::new(10.0, 20.0, 0.0),
+        size: Vec2::new(100.0, 100.0),
+        display: 0,
+        path: "hidden.png".into(),
+        ..Default::default()
+    };
+    d.add(&Space::Model, Common::default(), EntityKind::Image(image)).unwrap();
+    let list = build(&d, &Space::Model, &Options::default());
+    assert!(list.prims.is_empty(), "IMAGE display-off must hide both the raster texture and its CAD outline");
+}
+
+#[test]
 fn raster_imageclip_frame_matches_rectangle_and_concave_pixel_boundary() {
     let mut d = Drawing::new_imperial();
     let base = cadcraft_doc::Image {
