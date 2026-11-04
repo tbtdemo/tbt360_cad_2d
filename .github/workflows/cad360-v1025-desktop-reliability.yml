@@ -53,6 +53,8 @@ jobs:
           cargo test --locked -p cadcraft-engine --lib imagecalibrate_two_points_previews_then_places_image_without_changing_pixel_geometry -- --nocapture
           if ($LASTEXITCODE -ne 0) { throw 'Two-point image calibration regression failed' }
           cargo test --locked -p cadcraft-engine --lib imagecalibratefit_uses_four_controls_and_refuses_bad_residual_without_edit -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'Image multi-control fitting regression failed' }
+          cargo test --locked -p cadcraft-engine --lib imageprojecttrace_maps_tilted_photo_corners_without_modifying_raster -- --nocapture
           if ($LASTEXITCODE -ne 0) { throw 'Image pixel-to-CAD vector tracing failed' }
       - name: Verify AI agent can draw over images using MCP
         run: |
@@ -61,6 +63,8 @@ jobs:
           cargo test --locked -p cadcraft-mcp --lib agent_calibrates_image_before_tracing_using_two_control_points -- --nocapture
           if ($LASTEXITCODE -ne 0) { throw 'Two-point MCP image calibration regression failed' }
           cargo test --locked -p cadcraft-mcp --lib agent_fits_four_survey_controls_before_drawing_on_image -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'MCP multi-control fitting regression failed' }
+          cargo test --locked -p cadcraft-mcp --lib agent_projects_tilted_photo_into_editable_cad_without_warping_image -- --nocapture
           if ($LASTEXITCODE -ne 0) { throw 'MCP raster image tracing regression failed' }
       - name: Compile UI and run Drawing Recovery unit tests
         run: |
