@@ -53,6 +53,13 @@ impl GeometricSource {
         Some(Self{handle:handle.into(),signature:signature.into(),raw_value})
     }
 }
+/// CAD handles identify entities numerically: 2A, 02a and 0002A are identical.
+pub fn same_cad_entity(left: &str, right: &str) -> bool {
+    match (cadcraft_doc::Handle::parse_hex(left),cadcraft_doc::Handle::parse_hex(right)) {
+        (Some(a),Some(b)) => a == b,
+        _ => false,
+    }
+}
 impl PlanSectionVolume {
     pub fn json(&self) -> serde_json::Value {
         serde_json::json!({"plan":self.plan.json(),"section":self.section.json(),
@@ -62,7 +69,7 @@ impl PlanSectionVolume {
     pub fn read(value: &serde_json::Value) -> Option<Self> {
         let plan=GeometricSource::read(value.get("plan")?)?;
         let section=GeometricSource::read(value.get("section")?)?;
-        if cadcraft_doc::Handle::parse_hex(&plan.handle) == cadcraft_doc::Handle::parse_hex(&section.handle) { return None; }
+        if same_cad_entity(&plan.handle,&section.handle) { return None; }
         Some(Self{
             plan, section,
             work_group:value.get("work_group").and_then(serde_json::Value::as_str).unwrap_or("").chars().take(250).collect(),
@@ -90,6 +97,12 @@ mod tests {
         assert!((centimetres - 84_000_000.0).abs() < 1e-6);
         assert!(volume(24.0, f64::NAN, 1.0).is_err());
         assert!(volume(24.0, 3.0, 0.0).is_err());
+    }
+    #[test]
+    fn handle_identity_normalizes_padding_and_case() {
+        assert!(same_cad_entity("2A","0002a"));
+        assert!(!same_cad_entity("2A","2B"));
+        assert!(!same_cad_entity("INVALID","INVALID"));
     }
     #[test]
     fn composite_rejects_same_cad_entity_with_padded_or_lowercase_handle() {
