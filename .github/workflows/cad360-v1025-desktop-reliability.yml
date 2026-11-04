@@ -46,12 +46,18 @@ jobs:
         with:
           workspaces: CADTBT360_V1.000
           key: cad360-v1025-desktop
+      - name: Fast compile gate for image canvas, CAD engine and AI MCP
+        run: |
+          cargo check --locked -p cadcraft-engine -p cadcraft-mcp -p cadcraft-ui-egui
+          if ($LASTEXITCODE -ne 0) { throw 'V1.025 AI raster build compile failed; do not run expensive tests' }
       - name: Validate scheduled autosave, crash recovery and newest-first ordering
         run: |
           cargo test --locked -p cadcraft-engine --test autosave -- --nocapture
           if ($LASTEXITCODE -ne 0) { throw 'Engine autosave and recovery regression failure' }
       - name: Verify AI-compatible raster tracing draws real CAD geometry
         run: |
+          cargo test --locked -p cadcraft-engine --lib imageattach_and_imageclip_keep_dxf_metadata -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'IMAGEATTACH/IMAGECLIP/IMAGEADJUST input regression failed' }
           cargo test --locked -p cadcraft-engine --lib imagetrace_maps_image_pixels_into_editable_cad_geometry -- --nocapture
           if ($LASTEXITCODE -ne 0) { throw 'Image raster trace regression failed' }
           cargo test --locked -p cadcraft-engine --lib imagecalibrate_two_points_previews_then_places_image_without_changing_pixel_geometry -- --nocapture
