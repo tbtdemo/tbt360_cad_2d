@@ -62,7 +62,7 @@ def main():
             raise RuntimeError(f"{name} linetype mismatch: {saved}")
         # Preserve the exact requested line weight, not merely 3 distinct values.
         import re
-        match=re.search(r"([0-9]+(?:\\.[0-9]+)?)",str(saved["lineweight"]))
+        match=re.search(r"([0-9]+(?:\.[0-9]+)?)",str(saved["lineweight"]))
         if not match or abs(float(match.group(1))-case["lineweight"])>0.00001:
             raise RuntimeError(f"{name} lineweight mismatch: expected {case['lineweight']}mm, got {saved['lineweight']}")
         expected_rgb={"red":"#ff0000","blue":"#0000ff","green":"#00ff00"}[case["color"]]
