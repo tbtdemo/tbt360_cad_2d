@@ -1924,7 +1924,11 @@ fn qto_record_exportable(record: &MeasurementRecord, source_validation: &SourceV
 fn qto_detail_csv(state: &State, source_validation: &SourceValidation, lf: f64, af: f64, length_unit: &str, area_unit: &str, confirmed_only: bool) -> String {
             let mut csv = String::from("id,source_handle,source_state,floor_id,discipline,owner_account_id,type,layer,work_group,work_code,description,note,raw_value,converted_value,unit,status\n");
             for record in &state.records {
-                if !qto_record_exportable(record, source_validation, lf, af, confirmed_only) { continue; }
+                if state.export_omitted_ids.contains(&record.id)
+                    || (state.methods_initialized && !qto_measure_type_allowed(record.kind,state.selected_measure_types))
+                    || record.status==MeasureStatus::Excluded
+                    || source_validation.invalid_record_ids.contains(&record.id)
+                    || !qto_record_exportable(record, source_validation, lf, af, confirmed_only) {continue;}
                 let converted = match record.kind {
                     MeasureKind::Area => record.raw_value * af,
                     MeasureKind::Length | MeasureKind::Perimeter => record.raw_value * lf,
@@ -3352,6 +3356,32 @@ mod tests {
         assert_eq!(state.records.len(), 1);
     }
 
+    #[test]
+    fn qto_csv_respects_export_checkboxes_methods_and_excludes_removed_records() {
+        let mut state=State::default();
+        let keep=state.add_measurement(MeasureKind::Count,vec![],2.0,"CSV_KEEP".into()).unwrap();
+        let omitted=state.add_measurement(MeasureKind::Count,vec![],3.0,"CSV_OMIT".into()).unwrap();
+        let disabled=state.add_measurement(MeasureKind::Area,vec![],4.0,"CSV_DISABLED".into()).unwrap();
+        let excluded=state.add_measurement(MeasureKind::Count,vec![],5.0,"CSV_EXCLUDED".into()).unwrap();
+        for record in &mut state.records {record.status=MeasureStatus::Confirmed;}
+        state.records.iter_mut().find(|r|r.id==excluded).unwrap().status=MeasureStatus::Excluded;
+        state.export_omitted_ids.insert(omitted);
+        state.methods_initialized=true;
+        state.selected_measure_types=[false,false,false,true];
+        let csv=qto_detail_csv(&state,&SourceValidation::default(),1.0,1.0,"m","m²",false);
+        assert_eq!(csv.lines().count(),2);
+        assert!(csv.contains("CSV_KEEP"));
+        assert!(!csv.contains("CSV_OMIT"));
+        assert!(!csv.contains("CSV_DISABLED"));
+        assert!(!csv.contains("CSV_EXCLUDED"));
+        state.export_omitted_ids.remove(&omitted);
+        assert_eq!(qto_detail_csv(&state,&SourceValidation::default(),1.0,1.0,"m","m²",true).lines().count(),3);
+        let mut validation=SourceValidation::default();
+        validation.invalid_record_ids.insert(keep);
+        assert!(!qto_detail_csv(&state,&validation,1.0,1.0,"m","m²",false).contains("CSV_KEEP"));
+        assert_eq!(state.records.len(),4);
+        assert!(state.records.iter().any(|r|r.id==disabled));
+    }
     #[test]
     fn qto_detail_csv_exports_vietnamese_metadata_and_converted_quantity() {
         let mut state = State::default();
