@@ -609,10 +609,11 @@ mod tests {
     fn imagetrace_maps_image_pixels_into_editable_cad_geometry() {
         let mut s = Session::new();
         let image = s.execute("imageattach", &json!({"path":"site.png","at":[10.0,20.0],"pixels":[200.0,100.0],"width":20.0,"height":10.0})).unwrap();
+        let before_preview = s.doc().unwrap().entity_count();
         let proposed = s.execute("imagetrace", &json!({"handle":image["handle"],"points":[[0.0,100.0],[200.0,100.0],[200.0,0.0]],"preview":true})).unwrap();
         assert_eq!(proposed["preview"], true);
         assert_eq!(proposed["worldPoints"], json!([[10.0,20.0],[30.0,20.0],[30.0,30.0]]));
-        assert_eq!(s.execute("entities", &json!({"type":"Polyline"})).unwrap()["count"], 0, "preview must not insert any CAD polyline");
+        assert_eq!(s.doc().unwrap().entity_count(), before_preview, "preview must not insert any CAD geometry");
         let traced = s.execute("imagetrace", &json!({"handle":image["handle"],"points":[[0.0,100.0],[200.0,100.0],[200.0,0.0]],"closed":false})).unwrap();
         assert_eq!(traced["vertices"], 3);
         let handle = Handle::parse_hex(traced["handle"].as_str().unwrap()).unwrap();
