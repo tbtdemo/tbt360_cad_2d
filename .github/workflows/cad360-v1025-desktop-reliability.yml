@@ -5,6 +5,8 @@ on:
   pull_request:
     paths:
       - 'CADTBT360_V1.000/crates/ui-egui/src/autosave.rs'
+      - 'CADTBT360_V1.000/crates/ui-egui/src/canvas.rs'
+      - 'CADTBT360_V1.000/crates/ui-egui/src/canvas/raster_image.rs'
       - 'CADTBT360_V1.000/crates/engine/src/autosave.rs'
       - 'CADTBT360_V1.000/crates/engine/tests/autosave.rs'
       - 'CADTBT360_V1.000/crates/engine/src/cmd/image.rs'
@@ -16,6 +18,8 @@ on:
       - feature/CADTBT360_V1.025_xref-regression
     paths:
       - 'CADTBT360_V1.000/crates/ui-egui/src/autosave.rs'
+      - 'CADTBT360_V1.000/crates/ui-egui/src/canvas.rs'
+      - 'CADTBT360_V1.000/crates/ui-egui/src/canvas/raster_image.rs'
       - 'CADTBT360_V1.000/crates/engine/src/autosave.rs'
       - 'CADTBT360_V1.000/crates/engine/tests/autosave.rs'
       - 'CADTBT360_V1.000/crates/engine/src/cmd/image.rs'
@@ -72,6 +76,10 @@ jobs:
         run: |
           cargo test --locked -p cadcraft-ui-egui --lib autosave::tests -- --nocapture
           if ($LASTEXITCODE -ne 0) { throw 'Desktop autosave recovery tests failed' }
+      - name: Validate local PNG/JPG raster path safety and canvas texture compilation
+        run: |
+          cargo test --locked -p cadcraft-ui-egui --lib canvas::raster_image::tests -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'Native image canvas regression failed' }
       - name: Compile Windows CAD desktop executable
         run: |
           cargo check --locked -p cadcraft --bin cadcraft
