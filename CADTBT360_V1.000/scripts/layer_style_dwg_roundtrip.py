@@ -60,12 +60,14 @@ def main():
         saved=actual[name]
         if saved["linetype"].lower()!=case["linetype"].lower():
             raise RuntimeError(f"{name} linetype mismatch: {saved}")
-        if not saved["lineweight"]:
-            raise RuntimeError(f"{name} missing lineweight: {saved}")
-        # Source color names and DWG color representation may normalize. Verify
-        # distinct, populated saved colors; exact RGB can be audited in evidence.
-        if not saved["color"] or not saved["colorRgb"]:
-            raise RuntimeError(f"{name} missing color: {saved}")
+        # Preserve the exact requested line weight, not merely 3 distinct values.
+        import re
+        match=re.search(r"([0-9]+(?:\\.[0-9]+)?)",str(saved["lineweight"]))
+        if not match or abs(float(match.group(1))-case["lineweight"])>0.00001:
+            raise RuntimeError(f"{name} lineweight mismatch: expected {case['lineweight']}mm, got {saved['lineweight']}")
+        expected_rgb={"red":"#ff0000","blue":"#0000ff","green":"#00ff00"}[case["color"]]
+        if str(saved["colorRgb"]).lower()!=expected_rgb:
+            raise RuntimeError(f"{name} color mismatch: expected {expected_rgb}, got {saved['colorRgb']}")
         if saved["on"] is not True or saved["frozen"] is True:
             raise RuntimeError(f"{name} no longer visible: {saved}")
     weights=[actual[x["name"]]["lineweight"] for x in LAYER_CASES]
