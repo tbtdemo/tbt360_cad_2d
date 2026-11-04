@@ -113,6 +113,36 @@ def visual_stats(before, after, render_file, ui_state):
                 "canvas_rect_pixels":list(box),"canvas_grayscale_bins":canvas_bins,
                 "screen_grayscale_bins":varied_bins,"render_grayscale_bins":render_bins,"window_size":list(final.size)}
 
+def canonical_geometry(value):
+    """Round CAD floating point representation but preserve every structural field."""
+    if isinstance(value,dict):
+        return {k:canonical_geometry(v) for k,v in sorted(value.items())}
+    if isinstance(value,list):
+        return [canonical_geometry(v) for v in value]
+    if isinstance(value,float):
+        return round(value,5)
+    return value
+
+def mcp_entity_snapshot(mcp, kind):
+    response=json.loads(mcp.tool("query_entities",{"type":kind,"limit":100})[0]["text"])
+    if response.get("count")!=1 or response.get("returned")!=1:
+        raise RuntimeError(f"Expected exactly one {kind} in MCP query: {response}")
+    ent=response["entities"][0]
+    if not ent.get("geometry") or not ent.get("layer"):
+        raise RuntimeError(f"MCP query missing {kind} geometry or layer: {ent}")
+    return {"layer":ent["layer"],"geometry":canonical_geometry(ent["geometry"])}
+
+def mcp_text_snapshot(mcp):
+    response=json.loads(mcp.tool("find_text",{})[0]["text"])
+    if response.get("count")!=2:
+        raise RuntimeError(f"Expected 2 CAD annotation texts: {response}")
+    result=[]
+    for entry in response["texts"]:
+        result.append({"text":entry["text"],"layer":entry["layer"],
+                       "at":canonical_geometry(entry["at"]),
+                       "height":canonical_geometry(entry["height"])})
+    return sorted(result,key=lambda x:x["text"])
+
 def main():
     p=argparse.ArgumentParser()
     p.add_argument("--cad",required=True,type=pathlib.Path)
@@ -257,6 +287,15 @@ def main():
         for kind,expected in required.items():
             if before_counts.get(kind)!=expected:
                 raise RuntimeError(f"Mixed CAD command did not produce {kind}: {before_counts}")
+        before_entities={kind:mcp_entity_snapshot(mcp,kind) for kind in required}
+        before_texts=mcp_text_snapshot(mcp)
+        # Assert not only existence of layer names but actual assignment of geometry.
+        for kind in ("Polyline","Arc"):
+            if before_entities[kind]["layer"]!="CAD360-WALLS":
+                raise RuntimeError(f"{kind} is not on WALLS layer: {before_entities[kind]}")
+        for kind in ("Text","MText","Circle"):
+            if before_entities[kind]["layer"]!="CAD360-ANNOTATION":
+                raise RuntimeError(f"{kind} is not on ANNOTATION layer: {before_entities[kind]}")
         mixed_dwg=args.out/"CAD360_AGENT_MIXED_ENTITIES.dwg"
         mcp.tool("save",{"path":str(mixed_dwg.resolve())})
         mixed_reopen=subprocess.run([str(args.cli),"info",str(mixed_dwg)],
@@ -271,13 +310,28 @@ def main():
         layers={str(layer.get("name","")) for layer in mixed_after.get("layers",[]) if isinstance(layer,dict)}
         if not {"CAD360-WALLS","CAD360-ANNOTATION"}.issubset(layers):
             raise RuntimeError(f"DWG lost CAD360 layers: {mixed_after.get('layers')}")
+        # Reopen the saved DWG in the same live CAD process; compare geometry,
+        # layer assignment, and text placement/content via MCP, not file names alone.
+        mcp.tool("open",{"path":str(mixed_dwg.resolve())})
+        after_entities={kind:mcp_entity_snapshot(mcp,kind) for kind in required}
+        after_texts=mcp_text_snapshot(mcp)
+        if before_entities!=after_entities:
+            raise RuntimeError("DWG lost geometry or entity layer: "+json.dumps(
+                {"before":before_entities,"after":after_entities},ensure_ascii=False)[:1800])
+        if before_texts!=after_texts:
+            raise RuntimeError("DWG changed text contents/placement/layer: "+json.dumps(
+                {"before":before_texts,"after":after_texts},ensure_ascii=False)[:1800])
+        (args.out/"MIXED_PROPERTY_ROUNDTRIP.json").write_text(json.dumps(
+            {"result":"PASS","before_entities":before_entities,"after_entities":after_entities,
+             "before_texts":before_texts,"after_texts":after_texts},indent=2,ensure_ascii=False),encoding="utf-8")
         (args.out/"mixed_dwg_before.json").write_text(json.dumps(mixed_before,indent=2),encoding="utf-8")
         (args.out/"mixed_dwg_after.json").write_text(json.dumps(mixed_after,indent=2),encoding="utf-8")
         report={"result":"PASS","method":"real desktop MCP bridge","counts":counts,
                 "render":render_info,"window_screenshot":screen_info,"visual_comparison":visual,
                 "drawing_bytes":drawing.stat().st_size,"undo_counts":undo_counts,"redo_counts":redo_counts,
                 "extended_counts":extended_counts,"reopened_dwg_counts":dwg_counts,"dwg_bytes":dwg.stat().st_size,
-                "mixed_expected":required,"mixed_reopened_counts":after_counts,"mixed_layers":sorted(layers)}
+                "mixed_expected":required,"mixed_reopened_counts":after_counts,"mixed_layers":sorted(layers),
+                "property_roundtrip":"PASS","validated_entity_types":sorted(required)}
         (args.out/"ACCEPTANCE.json").write_text(json.dumps(report,indent=2),encoding="utf-8")
         print(json.dumps(report,indent=2))
     finally:
