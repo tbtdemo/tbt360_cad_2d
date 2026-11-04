@@ -1450,6 +1450,20 @@ mod road_station_matching_tests {
         }
     }
     #[test]
+    fn degenerate_closed_polyline_in_paper_layout_is_not_valid_road_area() {
+        use cadcraft_doc::geom::{PolyVertex,Vec2};
+        let poly=cadcraft_doc::LwPolyline{
+            vertices:vec![PolyVertex::new(Vec2::new(0.0,0.0)),PolyVertex::new(Vec2::new(2.0,0.0)),PolyVertex::new(Vec2::new(4.0,0.0))],
+            closed:true,const_width:0.0,elevation:0.0,plinegen:false
+        };
+        let mut doc=cadcraft_doc::Drawing::new_metric();
+        let mut layout=cadcraft_doc::Layout::new("Mặt cắt lỗi",1);
+        layout.entities.push(cadcraft_doc::Entity::new(cadcraft_doc::Handle(0xD5),EntityKind::LwPolyline(poly)));
+        doc.layouts.push(layout);
+        assert!(!qto_road_is_cross_section_entity(&doc,cadcraft_doc::Handle(0xD5)));
+        assert!(!measurements_for_handle_in_drawing(&doc,cadcraft_doc::Handle(0xD5)).iter().any(|m|m.kind==MeasureKind::Area && m.raw_value>0.0));
+    }
+    #[test]
     fn paper_layout_open_polyline_is_not_a_cross_section_area() {
         use cadcraft_doc::geom::{PolyVertex,Vec2};
         let poly=cadcraft_doc::LwPolyline{
@@ -1657,11 +1671,14 @@ fn qto_volume_report_lines(app: &CadApp, state: &State, config: &ExportConfig, a
 /// Road cut/fill cross sections must be delineated by a genuine closed
 /// boundary, hatch or region. A circle's area is not a road section.
 fn qto_road_is_cross_section_entity(doc:&cadcraft_doc::Drawing,handle:cadcraft_doc::Handle)->bool {
-    qto_road_find_marker_entity(doc,handle).ok().flatten().is_some_and(|entity|match &entity.kind {
+    let Ok(Some(entity))=qto_road_find_marker_entity(doc,handle) else {return false;};
+    let eligible=match &entity.kind {
         EntityKind::LwPolyline(poly) => poly.closed,
         EntityKind::Hatch(_) | EntityKind::Region(_) => true,
         _ => false,
-    })
+    };
+    eligible && measurements_for_entity(doc,entity,handle).iter().any(|value|
+        value.kind==MeasureKind::Area && value.raw_value.is_finite() && value.raw_value>0.0)
 }
 fn qto_is_road_cross_section_boundary(app: &CadApp, handle: cadcraft_doc::Handle) -> bool {
     app.session.doc().ok().is_some_and(|doc|qto_road_is_cross_section_entity(doc,handle))
