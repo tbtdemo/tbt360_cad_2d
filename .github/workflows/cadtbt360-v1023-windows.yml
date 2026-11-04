@@ -20,6 +20,18 @@ jobs:
     steps:
       - name: Checkout release sources
         uses: actions/checkout@v4
+      - name: Verify checked-out commit and E0503 source fix
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $actual=(git rev-parse HEAD).Trim()
+          if ($LASTEXITCODE -ne 0) {exit $LASTEXITCODE}
+          if ($actual -ne $env:GITHUB_SHA) {throw "Unexpected checkout SHA: $actual, expected $env:GITHUB_SHA"}
+          $source='CADTBT360_V1.000/apps/cadcraft/src/takeoff.rs'
+          if (!(Test-Path $source)) {throw "CAD takeoff source missing: $source"}
+          $content=Get-Content $source -Raw
+          if (-not $content.Contains('fn qto_road_inspect_marker_entity(')) {throw 'Old CAD source checked out: E0503 marker helper not found'}
+          if ($content.Contains('let mut missing_selected=0usize;')) {throw 'Old E0503 workaround still present; source needs new scan helper'}
+          Write-Host "Validated CADTBT360_V1.023 source commit $actual"
       - name: Install Rust 1.95 stable toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
