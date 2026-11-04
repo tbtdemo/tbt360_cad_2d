@@ -508,11 +508,11 @@ fn entity_parts(b: &mut Builder, ctx: &Ctx, e: &Entity) {
                     let z = i.clip[1];
                     let (x0, x1) = (a.x.min(z.x), a.x.max(z.x));
                     let (y0, y1) = (a.y.min(z.y), a.y.max(z.y));
-                    vec![Vec2::new(x0, y0), Vec2::new(x1, y0), Vec2::new(x1, y1), Vec2::new(x0, y1)]
+                    vec![Vec2::new(x0, y1), Vec2::new(x1, y1), Vec2::new(x1, y0), Vec2::new(x0, y0)]
                 } else { i.clip.clone() }
             } else {
-                vec![Vec2::new(0.0, 0.0), Vec2::new(i.size.x, 0.0),
-                     Vec2::new(i.size.x, i.size.y), Vec2::new(0.0, i.size.y)]
+                vec![Vec2::new(0.0, i.size.y), Vec2::new(i.size.x, i.size.y),
+                     Vec2::new(i.size.x, 0.0), Vec2::new(0.0, 0.0)]
             };
             if outline.len() >= 3 && outline.iter().all(|p| p.x.is_finite() && p.y.is_finite()) {
                 let mut world: Vec<Vec2> = outline.iter().map(|p| i.insert.xy() + i.u.xy() * p.x + i.v.xy() * (i.size.y - p.y)).collect();
