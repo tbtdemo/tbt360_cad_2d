@@ -372,8 +372,17 @@ def main():
             "hatch_before":hatch_before,"hatch_after":hatch_after,
             "block_before":block_props,"block_after":reopened_blocks
         },indent=2,ensure_ascii=False),encoding="utf-8")
-        if hatch_before!=hatch_after:
-            raise RuntimeError("DWG hatch geometry or layer changed: "+json.dumps({"before":hatch_before,"after":hatch_after},ensure_ascii=False)[:3800])
+        # DWG reader expands the built-in ANSI31 pattern into explicit
+        # patternLines. This is additional derived data, not loss of geometry:
+        # compare all original fields strictly and require valid expanded lines.
+        expected_hatch=canonical_geometry(hatch_before)
+        actual_hatch=canonical_geometry(hatch_after)
+        added_pattern_lines=actual_hatch["geometry"].pop("patternLines",None)
+        if not isinstance(added_pattern_lines,list) or not added_pattern_lines:
+            raise RuntimeError("DWG failed to reconstruct ANSI31 pattern lines")
+        if expected_hatch!=actual_hatch:
+            raise RuntimeError("DWG hatch core geometry or layer changed: "+
+                json.dumps({"before":expected_hatch,"after":actual_hatch},ensure_ascii=False)[:3800])
         (args.out/"ADVANCED_DWG_ROUNDTRIP.json").write_text(json.dumps({
             "result":"PASS","counts":advanced_after.get("counts"),"blocks_before":block_props,
             "blocks_after":reopened_blocks,"hatch_before":hatch_before,"hatch_after":hatch_after
@@ -384,7 +393,8 @@ def main():
                 "extended_counts":extended_counts,"reopened_dwg_counts":dwg_counts,"dwg_bytes":dwg.stat().st_size,
                 "mixed_expected":required,"mixed_reopened_counts":after_counts,"mixed_layers":sorted(layers),
                 "property_roundtrip":"PASS","validated_entity_types":sorted(required),
-                "advanced_dwg_counts":advanced_after.get("counts"),"advanced_property_roundtrip":"PASS"}
+                "advanced_dwg_counts":advanced_after.get("counts"),"advanced_property_roundtrip":"PASS",
+                "hatch_pattern_expansion_lines":len(added_pattern_lines)}
         (args.out/"ACCEPTANCE.json").write_text(json.dumps(report,indent=2),encoding="utf-8")
         print(json.dumps(report,indent=2))
     finally:
