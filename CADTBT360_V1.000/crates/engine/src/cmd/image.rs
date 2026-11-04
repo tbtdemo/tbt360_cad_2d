@@ -539,11 +539,12 @@ mod tests {
         let mut s = Session::new();
         let img = s.execute("imageattach", &json!({"path":"photo.png","pixels":[200,100],"width":200,"height":100})).unwrap();
         let h = img["handle"].as_str().unwrap();
+        let before = s.doc().unwrap().entity_count();
         let mut data = json!({"handle":h, "pixels":[[0,0],[200,0],[200,100],[0,100]],
             "world":[[10,20],[40,15],[35,45],[5,40]],"points":[[0,0],[200,0],[200,100],[0,100]],"closed":true,"preview":true});
         let proposal = s.execute("imageprojecttrace", &data).unwrap();
         assert_eq!(proposal["handle"], Value::Null);
-        assert_eq!(s.execute("entities", &json!({"type":"Polyline"})).unwrap()["count"], 0);
+        assert_eq!(s.doc().unwrap().entity_count(), before, "preview must not alter document");
         assert!(proposal["maxControlError"].as_f64().unwrap() < 1.0e-7);
         for (actual, expected) in proposal["worldPoints"].as_array().unwrap().iter().zip(data["world"].as_array().unwrap()) {
             for j in 0..2 { assert!((actual[j].as_f64().unwrap() - expected[j].as_f64().unwrap()).abs() < 1.0e-7); }
@@ -551,14 +552,14 @@ mod tests {
         data["preview"] = json!(false);
         let committed = s.execute("imageprojecttrace", &data).unwrap();
         assert!(committed["handle"].is_string());
-        assert_eq!(s.execute("entities", &json!({"type":"Polyline"})).unwrap()["count"], 1);
+        assert_eq!(s.doc().unwrap().entity_count(), before + 1, "only one traced polyline should be committed");
         let original_image = s.execute("imagetrace", &json!({"handle":h,"points":[[0,100],[200,100]],"preview":true})).unwrap();
         assert_eq!(original_image["worldPoints"], json!([[0.0,0.0],[200.0,0.0]]));
         data["pixels"] = json!([[0,0],[0,100],[200,0],[200,100]]);
         assert!(s.execute("imageprojecttrace", &data).is_err(), "crossed quadrilateral must not fold the vector drawing");
         data["pixels"] = json!([[0,0],[0,0],[200,100],[0,100]]);
         assert!(s.execute("imageprojecttrace", &data).is_err());
-        assert_eq!(s.execute("entities", &json!({"type":"Polyline"})).unwrap()["count"], 1);
+        assert_eq!(s.doc().unwrap().entity_count(), before + 1, "only one traced polyline should be committed");
     }
 
     #[test]
