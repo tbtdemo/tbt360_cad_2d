@@ -21,6 +21,10 @@ pub(crate) fn specs() -> Vec<CommandSpec> {
             .menu(&["Draw", "Image", "Trace Vector on Image"])
             .alias(&["itrace"])
             .params("{handle: image entity handle, points: [[pixelX,pixelY],...] (origin at image top-left), closed?: bool, preview?: bool} → {handle?, image, vertices, worldPoints, closed, preview}. Preview performs no edit; no automatic AI recognition."),
+        CommandSpec::new("imagecalibrate", "Calibrate Raster Image by Two Control Points", run_imagecalibrate)
+            .menu(&["Modify", "Image", "Calibrate"])
+            .alias(&["ical"])
+            .params("{handle: IMAGE entity handle, pixels: [[x0,y0],[x1,y1]] (top-left origin), world: [[X0,Y0],[X1,Y1]], preview?: bool}. Solves uniform scale, rotation and translation; never guesses units."),
         CommandSpec::new("imageclip", "Clip Image", run_imageclip)
             .menu(&["Modify", "Clip", "Image"])
             .alias(&["iclip"])
@@ -119,6 +123,73 @@ fn run_imagetrace(s: &mut Session, p: &Value) -> Result<Value> {
     let polyline = LwPolyline { vertices, closed, const_width: 0.0, elevation: image.insert.z, plinegen: false };
     let handle = s.add_entity(EntityKind::LwPolyline(polyline))?;
     Ok(json!({"handle":handle.hex(), "image":image_handle.hex(), "vertices":count, "worldPoints":world_points, "closed":closed, "preview":false, "units":"drawing", "origin":"image-top-left", "recognition":"manual-or-agent-supplied"}))
+}
+
+
+fn calibration_pair(p: &Value, name: &str, cmd: &str) -> Result<[Vec2; 2]> {
+    let arr = p.get(name).and_then(Value::as_array).filter(|a| a.len() == 2)
+        .ok_or_else(|| bad(cmd, format!("`{name}` must have exactly two [x,y] points")))?;
+    let read = |index: usize| -> Result<Vec2> {
+        let xy = arr[index].as_array().filter(|a| a.len() == 2)
+            .ok_or_else(|| bad(cmd, format!("`{name}[{index}]` must be [x,y]")))?;
+        let x = xy[0].as_f64().filter(|v| v.is_finite()).ok_or_else(|| bad(cmd, format!("`{name}[{index}].x` must be finite")))?;
+        let y = xy[1].as_f64().filter(|v| v.is_finite()).ok_or_else(|| bad(cmd, format!("`{name}[{index}].y` must be finite")))?;
+        Ok(Vec2::new(x, y))
+    };
+    Ok([read(0)?, read(1)?])
+}
+
+/// Fit an IMAGE using two measured control-point correspondences.
+/// The input pixels start at the top left. Preserve the original IMAGE definition and
+/// solve a similarity (not a shear) so any existing IMAGECLIP remains in pixel coordinates.
+fn run_imagecalibrate(s: &mut Session, p: &Value) -> Result<Value> {
+    const CMD: &str = "imagecalibrate";
+    let h = super::curves::handle_param(p, "handle").ok_or_else(|| bad(CMD, "an IMAGE entity handle is required"))?;
+    let old = match &s.doc()?.entity(h).ok_or_else(|| bad(CMD, "image not found"))?.kind {
+        EntityKind::Image(i) => i.clone(),
+        _ => return Err(bad(CMD, "handle must refer to a raster IMAGE entity")),
+    };
+    if !old.size.x.is_finite() || !old.size.y.is_finite() || old.size.x <= 0.0 || old.size.y <= 0.0 {
+        return Err(bad(CMD, "image dimensions must be positive and finite"));
+    }
+    let pixels = calibration_pair(p, "pixels", CMD)?;
+    let world = calibration_pair(p, "world", CMD)?;
+    if pixels.iter().any(|v| v.x < 0.0 || v.y < 0.0 || v.x > old.size.x || v.y > old.size.y) {
+        return Err(bad(CMD, "control points must lie within the raster pixel dimensions"));
+    }
+    let dx = pixels[1].x - pixels[0].x;
+    let dy = pixels[0].y - pixels[1].y; // pixel Y goes down, CAD Y goes up
+    let wx = world[1].x - world[0].x;
+    let wy = world[1].y - world[0].y;
+    let image_dist = dx.hypot(dy);
+    let world_dist = wx.hypot(wy);
+    if !image_dist.is_finite() || !world_dist.is_finite() || image_dist <= 1.0e-9 || world_dist <= 1.0e-9 {
+        return Err(bad(CMD, "two distinct pixel and world points are required"));
+    }
+    let scale = world_dist / image_dist;
+    if !scale.is_finite() || scale <= 0.0 { return Err(bad(CMD, "calibration scale is not finite")); }
+    let rotation = wy.atan2(wx) - dy.atan2(dx);
+    let (sn, cs) = rotation.sin_cos();
+    let u = Vec2::new(cs * scale, sn * scale);
+    let v = Vec2::new(-sn * scale, cs * scale);
+    let insert = world[0] - u * pixels[0].x - v * (old.size.y - pixels[0].y);
+    if [u.x, u.y, v.x, v.y, insert.x, insert.y].iter().any(|n| !n.is_finite()) {
+        return Err(bad(CMD, "calibration transform exceeds coordinate limits"));
+    }
+    let preview = bool_or(p, "preview", false);
+    if !preview {
+        let mut image = old;
+        image.insert.x = insert.x;
+        image.insert.y = insert.y;
+        image.u = Vec3::new(u.x, u.y, 0.0);
+        image.v = Vec3::new(v.x, v.y, 0.0);
+        s.doc_mut()?.modify_entity(h, |entity| entity.kind = EntityKind::Image(image.clone()))?;
+        s.touch();
+    }
+    Ok(json!({"image":h.hex(), "preview":preview, "pixelsPerDrawingUnit":1.0 / scale,
+        "drawingUnitsPerPixel":scale, "rotationDegrees":rotation.to_degrees(),
+        "insert":[insert.x,insert.y], "u":[u.x,u.y], "v":[v.x,v.y],
+        "worldControlPoints":[[world[0].x,world[0].y],[world[1].x,world[1].y]]}))
 }
 
 fn image_handle(s: &Session, p: &Value) -> Result<Handle> {
@@ -225,6 +296,25 @@ fn run_imagetransform(s: &mut Session, p: &Value) -> Result<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn imagecalibrate_two_points_previews_then_places_image_without_changing_pixel_geometry() {
+        let mut s = Session::new();
+        let image = s.execute("imageattach", &json!({"path":"site.png","at":[0,0],"pixels":[200,100],"width":200,"height":100})).unwrap();
+        let h = image["handle"].as_str().unwrap();
+        let p = json!({"handle":h,"pixels":[[0,100],[200,100]],"world":[[10,20],[30,20]],"preview":true});
+        let preview = s.execute("imagecalibrate", &p).unwrap();
+        assert_eq!(preview["insert"], json!([10.0,20.0]));
+        let before = s.execute("imagetrace", &json!({"handle":h,"points":[[0,100],[200,100]],"preview":true})).unwrap();
+        assert_eq!(before["worldPoints"], json!([[0.0,0.0],[200.0,0.0]]));
+        let mut commit = p.clone();
+        commit["preview"] = json!(false);
+        assert_eq!(s.execute("imagecalibrate", &commit).unwrap()["preview"], false);
+        let after = s.execute("imagetrace", &json!({"handle":h,"points":[[0,100],[200,100]],"preview":true})).unwrap();
+        assert_eq!(after["worldPoints"], json!([[10.0,20.0],[30.0,20.0]]));
+        assert!(s.execute("imagecalibrate", &json!({"handle":h,"pixels":[[0,0],[0,0]],"world":[[0,0],[1,1]]})).is_err());
+        assert!(s.execute("imagecalibrate", &json!({"handle":h,"pixels":[[0,0],[201,0]],"world":[[0,0],[1,1]]})).is_err());
+    }
 
     #[test]
     fn imagetrace_maps_image_pixels_into_editable_cad_geometry() {
