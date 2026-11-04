@@ -70,3 +70,11 @@ Use `trace_perspective_image` via MCP (or `imageprojecttrace` in the CAD engine)
 ```
 
 The command computes a homography, returns `worldPoints` and `maxControlError` without changing the drawing in preview mode. After inspecting the calculated points, set `preview:false` to create a standard editable CAD LWPOLYLINE. Singular, coincident or near-collinear controls and out-of-bounds traced pixel coordinates are rejected. The existing raster IMAGE entity is **not moved or resampled**; image display, perspective bitmap rectification, OCR and automatic object detection remain separate outstanding tasks. Image location and real survey dimensions still require independent field verification.
+
+## Native raster pixels under CAD vectors (V1.025 source update)
+
+The Windows/native egui canvas now includes `canvas/raster_image.rs` to load actual local PNG/JPEG reference pixels into an egui GPU texture and draw them below the editable CAD vector list, using the IMAGE entity's insertion, rotation, scale, and pixel dimensions. This does **not** change the DXF/DWG metadata representation or embed the image binary into a drawing: the original local image file must remain accessible.
+
+Initial safeguards: at most four visible IMAGE entities processed per view, files limited to 16 MiB and 16,777,216 decoded pixels, and off-screen references skipped before loading. Missing/unreadable images still have their IMAGE frames. Native-only: the WASM build remains on the original frame renderer. Textures are cached per UI session, so changing an image's contents at the same path may require restarting the CAD UI.
+
+**Known gaps:** image clip masks, per-image brightness/contrast/fade controls and raster content inside PDF/PNG export are not yet integrated into this texture compositor. Vision OCR/segmentation and automatic drafting are still separate work. The test `actual_png_pixels_decode_into_cached_egui_texture` verifies real texture loading, but the new Windows CI must pass before this is called release-ready.
