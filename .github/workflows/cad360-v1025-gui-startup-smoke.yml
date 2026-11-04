@@ -1,0 +1,64 @@
+name: CAD 360 V1.025 - Windows GUI Startup Smoke
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/CADTBT360_V1.025_xref-regression
+    paths:
+      - '.github/workflows/cad360-v1025-gui-startup-smoke.yml'
+      - 'scripts/qa/Test-CADTBT360-V1025-GuiStartup.ps1'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cad360-v1025-gui-smoke-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  gui-startup:
+    name: Verify released V1.025 portable GUI starts on Windows
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout QA script at current commit
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Download exact published B87/A1 Portable (not newly compiled)
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force dist/gui-smoke | Out-Null
+          gh release download CADTBT360_V1.025_B87_A1 --repo tbtdemo/tbt360_cad_2d --pattern 'CADTBT360_V1.025_Portable_Windows_x64.zip' --dir dist/gui-smoke --clobber
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot download B87 A1 Portable from GitHub Release' }
+          $zip = 'dist/gui-smoke/CADTBT360_V1.025_Portable_Windows_x64.zip'
+          $hash = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant()
+          $expected = '9eedc1e568f4a739948716e87c794778102cae9fb3c97a419d07ccf3a63e1737'
+          if ($hash -ne $expected) { throw "Downloaded Portable SHA256 mismatch: $hash" }
+          Expand-Archive -Path $zip -DestinationPath 'dist/gui-smoke/portable' -Force
+          $exe = 'dist/gui-smoke/portable/CADTBT360.exe'
+          if (!(Test-Path $exe)) { throw 'CADTBT360.exe missing in official Portable ZIP' }
+          $info = Get-Content 'dist/gui-smoke/portable/BUILD_INFO.txt'
+          if ($info -notcontains 'SourceCommit=0634a0ec56e47c2d61e659d7a3ff0d99ae0722ed') { throw 'Portable BUILD_INFO does not match released B87 executable commit' }
+          $hash | Set-Content 'dist/gui-smoke/portable-sha256.txt' -Encoding ascii
+
+      - name: Start real Windows GUI and observe top-level window
+        shell: pwsh
+        run: |
+          & './scripts/qa/Test-CADTBT360-V1025-GuiStartup.ps1' -Executable './dist/gui-smoke/portable/CADTBT360.exe' -EvidenceDirectory './dist/gui-smoke/evidence' -WaitSeconds 35
+
+      - name: Upload actual GUI startup evidence even on failure
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: CADTBT360_V1.025_B87_GUI_Startup_Evidence
+          path: |
+            dist/gui-smoke/evidence/
+            dist/gui-smoke/portable-sha256.txt
+          if-no-files-found: warn
+          retention-days: 30
