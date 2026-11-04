@@ -36,6 +36,38 @@ pub struct RoadInterval {
     pub source_end: String,
 }
 
+/// Preview-only aggregate of calculated road intervals. The caller must
+/// first apply the exact same station and CAD selection scope as the export.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct RoadTotals {
+    pub cut_m3: f64,
+    pub fill_m3: f64,
+    pub cut_intervals: usize,
+    pub fill_intervals: usize,
+}
+pub fn summarize_intervals(intervals: &[RoadInterval]) -> Result<RoadTotals,String> {
+    let mut totals=RoadTotals::default();
+    for interval in intervals {
+        if !interval.volume_m3.is_finite() || interval.volume_m3 < 0.0 {
+            return Err("Khoảng cọc có khối lượng không hợp lệ; không tổng hợp.".into());
+        }
+        match interval.kind {
+            EarthworkKind::Cut => {
+                totals.cut_m3 += interval.volume_m3;
+                totals.cut_intervals += 1;
+            },
+            EarthworkKind::Fill => {
+                totals.fill_m3 += interval.volume_m3;
+                totals.fill_intervals += 1;
+            },
+        }
+        if !totals.cut_m3.is_finite() || !totals.fill_m3.is_finite() {
+            return Err("Tổng khối lượng đào/đắp vượt phạm vi tính toán.".into());
+        }
+    }
+    Ok(totals)
+}
+
 pub fn station_to_metres(value: &str) -> Result<f64, String> {
     let s = value.trim().replace(',', ".");
     // CAD station labels use Km/KM/km interchangeably. Match the prefix
@@ -422,6 +454,28 @@ mod tests {
         for invalid in ["12+1000","Km-1+100","3+abc","Km3+","NaN",""] {
             assert!(station_to_metres(invalid).is_err(),"{invalid}");
         }
+    }
+    #[test]
+    fn road_totals_separate_cut_fill_and_reject_invalid_volume() {
+        let sections=[
+            section(1000.0,Some(source("1A",20e6)),Some(source("1B",5e6))),
+            section(1020.0,Some(source("2A",30e6)),Some(source("2B",7e6))),
+            section(1040.0,Some(source("3A",10e6)),Some(source("3B",3e6)))
+        ];
+        let items=intervals(&sections,0.001,true).unwrap();
+        let totals=summarize_intervals(&items).unwrap();
+        assert_eq!(totals.cut_intervals,2);
+        assert_eq!(totals.fill_intervals,2);
+        assert!((totals.cut_m3-900.0).abs()<1e-8);
+        assert!((totals.fill_m3-220.0).abs()<1e-8);
+        let only_first=items.iter().filter(|item|item.start_m==1000.0).cloned().collect::<Vec<_>>();
+        let scoped=summarize_intervals(&only_first).unwrap();
+        assert!((scoped.cut_m3-500.0).abs()<1e-8);
+        assert!((scoped.fill_m3-120.0).abs()<1e-8);
+        let mut invalid=items[0].clone();
+        invalid.volume_m3=f64::NAN;
+        assert!(summarize_intervals(&[invalid]).is_err());
+        assert_eq!(summarize_intervals(&[]).unwrap(),RoadTotals::default());
     }
     #[test]
     fn average_end_area_road_cut_and_fill_are_separated() {
