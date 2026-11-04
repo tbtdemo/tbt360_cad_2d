@@ -2055,15 +2055,19 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
                 }
                 if ui.small_button("Bỏ lọc Layout").clicked(){state.road_layout_filter.clear();}
             });
-            if ui.button("QUÉT CỌC MODEL + TẤT CẢ LAYOUT").clicked() {
-                let total=app.session.doc().ok().map(|doc|doc.model.len()+doc.layouts.iter().map(|layout|layout.entities.len()).sum::<usize>()).unwrap_or(0);
+            let layout_button=if state.road_layout_filter.is_empty(){"QUÉT CỌC MODEL + TẤT CẢ LAYOUT"}else{"QUÉT CỌC MODEL + LAYOUT ĐƯỢC CHỌN"};
+            if ui.button(layout_button).clicked() {
+                let selected_layouts=(!state.road_layout_filter.is_empty()).then_some(&state.road_layout_filter);
+                let (total,layout_count)=app.session.doc().ok().map(|doc| {
+                    let relevant=doc.layouts.iter().filter(|layout|selected_layouts.is_none_or(|names|names.contains(&layout.name))).collect::<Vec<_>>();
+                    (doc.model.len()+relevant.iter().map(|layout|layout.entities.len()).sum::<usize>(),relevant.len())
+                }).unwrap_or((0,0));
                 if total>100_000 {
-                    state.import_feedback=format!("MODEL và Layout có {} đối tượng, vượt giới hạn quét 100.000; hãy giới hạn bản vẽ.",total);
+                    state.import_feedback=format!("MODEL và {} Layout được chọn có {} đối tượng, vượt giới hạn quét 100.000; hãy giới hạn phạm vi.",layout_count,total);
                 } else {
-                    let selected_layouts=(!state.road_layout_filter.is_empty()).then_some(&state.road_layout_filter);
                     let (markers,skipped)=qto_road_scan_markers(app,true,true,selected_layouts);
                     let (linked,missing,conflicts)=qto_road_attach_markers(&mut state.road_sections,&markers);
-                    state.import_feedback=format!("Quét MODEL + {} Layout: {} nhãn, ghép {}, thiếu {}, xung đột {}, bỏ qua {}. Đối chiếu nhãn trên từng Layout trước khi duyệt.",app.session.doc().ok().map(|doc|doc.layouts.len()).unwrap_or(0),markers.len(),linked,missing,conflicts,skipped);
+                    state.import_feedback=format!("Quét MODEL + {} Layout: {} nhãn, ghép {}, thiếu {}, xung đột {}, bỏ qua {}. Đối chiếu nhãn trên từng Layout trước khi duyệt.",layout_count,markers.len(),linked,missing,conflicts,skipped);
                 }
             }
             if ui.small_button("Bỏ gắn cọc").clicked(){state.road_plan_marker_handle=None;}
