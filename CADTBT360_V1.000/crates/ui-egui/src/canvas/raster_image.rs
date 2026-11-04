@@ -51,11 +51,12 @@ struct CacheEntry {
     last_used: Instant,
     source_stamp: Option<FileStamp>,
     next_stat: Instant,
+    reload_pending: bool,
 }
 
 impl CacheEntry {
     fn should_retry(&self, now: Instant) -> bool {
-        self.texture.is_none() && now >= self.retry_after
+        (self.texture.is_none() || self.reload_pending) && now >= self.retry_after
     }
 
     // Avoid rewriting egui temporary data on every repaint during continuous pan/zoom.
@@ -258,20 +259,31 @@ pub(super) fn draw(painter: &Painter, xf: &Xf, session: &Session, ctx: &Context)
         let (source_changed, metadata_checked) = cache.textures.get_mut(&key).map_or((false, false), |entry| entry.source_changed(&path, now));
         if metadata_checked { changed = true; }
         if source_changed || cache.textures.get(&key).is_none_or(|entry| entry.should_retry(now)) {
-            if cache.textures.len() >= MAX_CACHED_TEXTURES && !cache.textures.contains_key(&key) {
-                // Evict only the least recently used entry; clearing all images on overflow
-                // caused repeat disk reads and brief texture dropouts during pan/zoom.
-                if let Some(oldest) = cache.textures.iter().min_by_key(|(_, entry)| entry.last_used).map(|(key, _)| key.clone()) {
-                    cache.textures.remove(&oldest);
+            // An external editor can truncate a PNG before writing its new bytes. Keep the
+            // last valid pixels on screen until the replacement image can be decoded.
+            let new_texture = read_texture(ctx, &path, adjust);
+            if let Some(entry) = cache.textures.get_mut(&key) {
+                if let Some(texture) = new_texture { entry.texture = Some(texture); entry.reload_pending = false; }
+                else { entry.reload_pending = true; }
+                entry.retry_after = now + Duration::from_secs(5);
+                entry.source_stamp = file_stamp(&path);
+                entry.next_stat = now + Duration::from_secs(2);
+                entry.last_used = now;
+            } else {
+                if cache.textures.len() >= MAX_CACHED_TEXTURES {
+                    if let Some(oldest) = cache.textures.iter().min_by_key(|(_, entry)| entry.last_used).map(|(key, _)| key.clone()) {
+                        cache.textures.remove(&oldest);
+                    }
                 }
+                cache.textures.insert(key.clone(), CacheEntry {
+                    reload_pending: new_texture.is_none(),
+                    texture: new_texture,
+                    retry_after: now + Duration::from_secs(5),
+                    last_used: now,
+                    source_stamp: file_stamp(&path),
+                    next_stat: now + Duration::from_secs(2),
+                });
             }
-            cache.textures.insert(key.clone(), CacheEntry {
-                texture: read_texture(ctx, &path, adjust),
-                retry_after: now + Duration::from_secs(5),
-                last_used: now,
-                source_stamp: file_stamp(&path),
-                next_stat: now + Duration::from_secs(2),
-            });
             changed = true;
         }
         let Some(entry) = cache.textures.get_mut(&key) else { continue; };
@@ -322,7 +334,7 @@ fn defaults() -> RasterAdjust {
     #[test]
     fn texture_access_does_not_rewrite_cache_on_each_repaint() {
         let now = Instant::now();
-        let mut entry = CacheEntry { texture: None, retry_after: now + Duration::from_secs(5), last_used: now, source_stamp: None, next_stat: now + Duration::from_secs(2) };
+        let mut entry = CacheEntry { texture: None, retry_after: now + Duration::from_secs(5), last_used: now, source_stamp: None, next_stat: now + Duration::from_secs(2), reload_pending: false };
         assert!(!entry.touch(now));
         assert!(!entry.touch(now + Duration::from_millis(999)));
         assert!(entry.touch(now + Duration::from_secs(1)));
@@ -334,7 +346,7 @@ fn defaults() -> RasterAdjust {
         let now = Instant::now();
         let file = std::env::temp_dir().join(format!("cad360-raster-reload-{}.png", std::process::id()));
         std::fs::write(&file, [1u8, 2, 3]).unwrap();
-        let mut entry = CacheEntry { texture: None, retry_after: now + Duration::from_secs(5), last_used: now, source_stamp: file_stamp(&file), next_stat: now + Duration::from_secs(2) };
+        let mut entry = CacheEntry { texture: None, retry_after: now + Duration::from_secs(5), last_used: now, source_stamp: file_stamp(&file), next_stat: now + Duration::from_secs(2), reload_pending: false };
         assert_eq!(entry.source_changed(&file, now + Duration::from_secs(1)), (false, false));
         assert_eq!(entry.source_changed(&file, now + Duration::from_secs(2)), (false, true));
         std::fs::write(&file, [1u8, 2, 3, 4, 5]).unwrap();
@@ -347,8 +359,8 @@ fn defaults() -> RasterAdjust {
     #[test]
     fn cache_entry_tracks_last_access_for_selective_eviction() {
         let now = Instant::now();
-        let older = CacheEntry { texture: None, retry_after: now + Duration::from_secs(5), last_used: now, source_stamp: None, next_stat: now + Duration::from_secs(2) };
-        let recent = CacheEntry { texture: None, retry_after: now + Duration::from_secs(5), last_used: now + Duration::from_secs(1), source_stamp: None, next_stat: now + Duration::from_secs(2) };
+        let older = CacheEntry { texture: None, retry_after: now + Duration::from_secs(5), last_used: now, source_stamp: None, next_stat: now + Duration::from_secs(2), reload_pending: false };
+        let recent = CacheEntry { texture: None, retry_after: now + Duration::from_secs(5), last_used: now + Duration::from_secs(1), source_stamp: None, next_stat: now + Duration::from_secs(2), reload_pending: false };
         let mut cache = Cache::default();
         cache.textures.insert((PathBuf::from("older.png"), defaults()), older);
         cache.textures.insert((PathBuf::from("recent.png"), defaults()), recent);
@@ -358,9 +370,18 @@ fn defaults() -> RasterAdjust {
         assert!(cache.textures.contains_key(&(PathBuf::from("recent.png"), defaults())));
     }
     #[test]
+    fn a_failed_external_image_rewrite_is_retried_even_with_previous_texture() {
+        let now = Instant::now();
+        let mut entry = CacheEntry { texture: None, retry_after: now + Duration::from_secs(5), last_used: now, source_stamp: None, next_stat: now + Duration::from_secs(2), reload_pending: true };
+        assert!(!entry.should_retry(now + Duration::from_secs(4)));
+        assert!(entry.should_retry(now + Duration::from_secs(5)));
+        entry.reload_pending = false;
+        assert!(entry.should_retry(now + Duration::from_secs(5)));
+    }
+    #[test]
     fn missing_image_can_retry_after_file_becomes_available() {
         let now = Instant::now();
-        let entry = CacheEntry { texture: None, retry_after: now + Duration::from_secs(5), last_used: now, source_stamp: None, next_stat: now + Duration::from_secs(2) };
+        let entry = CacheEntry { texture: None, retry_after: now + Duration::from_secs(5), last_used: now, source_stamp: None, next_stat: now + Duration::from_secs(2), reload_pending: false };
         assert!(!entry.should_retry(now));
         assert!(!entry.should_retry(now + Duration::from_secs(4)));
         assert!(entry.should_retry(now + Duration::from_secs(5)));
