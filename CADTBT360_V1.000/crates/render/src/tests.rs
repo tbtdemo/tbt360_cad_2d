@@ -17,6 +17,39 @@ fn sample() -> Drawing {
 }
 
 #[test]
+fn raster_imageclip_frame_matches_rectangle_and_concave_pixel_boundary() {
+    let mut d = Drawing::new_imperial();
+    let base = cadcraft_doc::Image {
+        insert: Vec3::new(10.0, 20.0, 0.0),
+        u: Vec3::new(0.1, 0.0, 0.0),
+        v: Vec3::new(0.0, 0.1, 0.0),
+        size: Vec2::new(200.0, 100.0),
+        path: "clipped.png".into(),
+        clipping: true,
+        clip: vec![Vec2::new(25.0, 20.0), Vec2::new(175.0, 80.0)],
+        ..Default::default()
+    };
+    d.add(&Space::Model, Common::default(), EntityKind::Image(base.clone())).unwrap();
+    let list = build(&d, &Space::Model, &Options::default());
+    let outlines: Vec<&DPrim> = list.prims.iter().filter(|p| p.kind == Kind::Polyline).collect();
+    assert_eq!(outlines.len(), 1);
+    assert_eq!(list.points(outlines[0]), &[
+        Vec2::new(12.5, 22.0), Vec2::new(27.5, 22.0), Vec2::new(27.5, 28.0),
+        Vec2::new(12.5, 28.0), Vec2::new(12.5, 22.0)
+    ]);
+    let mut polygon = Drawing::new_imperial();
+    let clipped = cadcraft_doc::Image { clip: vec![
+        Vec2::new(0.0, 0.0), Vec2::new(200.0, 0.0), Vec2::new(200.0, 40.0),
+        Vec2::new(40.0, 40.0), Vec2::new(40.0, 100.0), Vec2::new(0.0, 100.0)
+    ], ..base };
+    polygon.add(&Space::Model, Common::default(), EntityKind::Image(clipped)).unwrap();
+    let list = build(&polygon, &Space::Model, &Options::default());
+    let outlines: Vec<&DPrim> = list.prims.iter().filter(|p| p.kind == Kind::Polyline).collect();
+    assert_eq!(outlines.len(), 1);
+    assert_eq!(list.points(outlines[0]).len(), 7, "concave clip must be a closed six-segment outline");
+    assert_eq!(list.points(outlines[0])[0], Vec2::new(10.0, 30.0));
+}
+#[test]
 fn raster_image_reference_draws_only_outer_frame_without_obscuring_draft() {
     let mut d = Drawing::new_imperial();
     let image = cadcraft_doc::Image {
