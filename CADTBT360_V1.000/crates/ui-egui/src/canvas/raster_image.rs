@@ -59,6 +59,13 @@ impl CacheEntry {
         (self.texture.is_none() || self.reload_pending) && now >= self.retry_after
     }
 
+    fn refresh_texture(&mut self, replacement: Option<TextureHandle>, now: Instant) {
+        // An invalid/partially written image must not replace the last valid pixels.
+        if let Some(texture) = replacement { self.texture = Some(texture); self.reload_pending = false; }
+        else { self.reload_pending = true; }
+        self.retry_after = now + Duration::from_secs(5);
+    }
+
     // Avoid rewriting egui temporary data on every repaint during continuous pan/zoom.
     fn touch(&mut self, now: Instant) -> bool {
         if now.duration_since(self.last_used) < Duration::from_secs(1) { return false; }
@@ -263,9 +270,7 @@ pub(super) fn draw(painter: &Painter, xf: &Xf, session: &Session, ctx: &Context)
             // last valid pixels on screen until the replacement image can be decoded.
             let new_texture = read_texture(ctx, &path, adjust);
             if let Some(entry) = cache.textures.get_mut(&key) {
-                if let Some(texture) = new_texture { entry.texture = Some(texture); entry.reload_pending = false; }
-                else { entry.reload_pending = true; }
-                entry.retry_after = now + Duration::from_secs(5);
+                entry.refresh_texture(new_texture, now);
                 entry.source_stamp = file_stamp(&path);
                 entry.next_stat = now + Duration::from_secs(2);
                 entry.last_used = now;
@@ -370,13 +375,23 @@ fn defaults() -> RasterAdjust {
         assert!(cache.textures.contains_key(&(PathBuf::from("recent.png"), defaults())));
     }
     #[test]
-    fn a_failed_external_image_rewrite_is_retried_even_with_previous_texture() {
+    fn failed_external_image_rewrite_keeps_last_valid_texture_and_retries() {
         let now = Instant::now();
-        let mut entry = CacheEntry { texture: None, retry_after: now + Duration::from_secs(5), last_used: now, source_stamp: None, next_stat: now + Duration::from_secs(2), reload_pending: true };
+        let context = Context::default();
+        let texture = context.load_texture("cad360-raster-test-reload", egui::ColorImage::from_rgba_unmultiplied([1, 1], &[10, 20, 30, 255]), TextureOptions::LINEAR);
+        let original_id = texture.id();
+        let mut entry = CacheEntry { texture: Some(texture), retry_after: now, last_used: now, source_stamp: None, next_stat: now + Duration::from_secs(2), reload_pending: false };
+        entry.refresh_texture(None, now);
+        assert_eq!(entry.texture.as_ref().unwrap().id(), original_id);
+        assert!(entry.reload_pending);
         assert!(!entry.should_retry(now + Duration::from_secs(4)));
         assert!(entry.should_retry(now + Duration::from_secs(5)));
-        entry.reload_pending = false;
-        assert!(entry.should_retry(now + Duration::from_secs(5)));
+        let replacement = context.load_texture("cad360-raster-test-recovered", egui::ColorImage::from_rgba_unmultiplied([1, 1], &[50, 60, 70, 255]), TextureOptions::LINEAR);
+        let replacement_id = replacement.id();
+        entry.refresh_texture(Some(replacement), now + Duration::from_secs(5));
+        assert_eq!(entry.texture.as_ref().unwrap().id(), replacement_id);
+        assert!(!entry.reload_pending);
+        assert!(!entry.should_retry(now + Duration::from_secs(11)));
     }
     #[test]
     fn missing_image_can_retry_after_file_becomes_available() {
