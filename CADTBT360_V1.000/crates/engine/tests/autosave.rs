@@ -167,6 +167,25 @@ fn recovery_offers_files_of_apps_that_stopped() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+
+#[test]
+fn recovered_drawings_show_most_recent_snapshot_first() {
+    let dir = temp_dir("newest-first");
+    let older = dir.join("Older.dwg_123-a_1.sv$");
+    let latest = dir.join("Latest.dwg_123-a_2.sv$");
+    std::fs::write(&older, b"old recovery").unwrap();
+    std::fs::write(&latest, b"new recovery").unwrap();
+    let now = SystemTime::now();
+    std::fs::File::open(&older).unwrap().set_modified(now - Duration::from_secs(360)).unwrap();
+    std::fs::File::open(&latest).unwrap().set_modified(now - Duration::from_secs(30)).unwrap();
+    let found = autosave::recoverable(&dir, "999-c");
+    assert_eq!(found.len(), 2, "{found:?}");
+    assert_eq!(found[0].drawing, "Latest.dwg");
+    assert_eq!(found[1].drawing, "Older.dwg");
+    assert!(found[0].modified >= found[1].modified);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 #[test]
 fn autosave_files_are_written_in_the_background_and_removed_on_exit() {
     hooks();
