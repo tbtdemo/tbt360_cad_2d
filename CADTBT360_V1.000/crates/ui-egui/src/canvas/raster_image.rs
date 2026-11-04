@@ -152,7 +152,7 @@ pub(super) fn draw(painter: &Painter, xf: &Xf, session: &Session, ctx: &Context)
         let EntityKind::Image(img) = &entity.kind else { continue; };
         if visited >= MAX_IMAGES { break; }
         visited += 1;
-        if img.path.is_empty() || !img.size.x.is_finite() || !img.size.y.is_finite() || img.size.x <= 0.0 || img.size.y <= 0.0 { continue; }
+        if (img.display & 1) == 0 || img.path.is_empty() || !img.size.x.is_finite() || !img.size.y.is_finite() || img.size.x <= 0.0 || img.size.y <= 0.0 { continue; }
         let o = img.insert.xy();
         let u = img.u.xy() * img.size.x;
         let v = img.v.xy() * img.size.y;
