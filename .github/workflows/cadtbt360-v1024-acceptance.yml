@@ -1,0 +1,72 @@
+name: CADTBT360 V1.024 Real EXE UI MCP and DWG Layer Acceptance
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/CADTBT360_road-qto-parallel-v1023
+    paths:
+      - 'CADTBT360_V1.000/scripts/layer_style_dwg_roundtrip.py'
+      - 'CADTBT360_V1.000/scripts/agent_live_ui_smoke.py'
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: cadtbt360-v1024-acceptance-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  verify-v1024:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Checkout acceptance scripts
+        uses: actions/checkout@v4
+      - name: Download exact V1.024 integrated CAD CLI and Setup
+        uses: actions/download-artifact@v4
+        with:
+          name: CADTBT360_V1.024_RC_Setup_Windows_x64
+          path: .v1024-bin
+          run-id: 41802734837
+          github-token: ${{ github.token }}
+      - name: Verify actual V1.024 PE and CLI before tests
+        run: |
+          $ErrorActionPreference='Stop'
+          $cad='.v1024-bin/CADTBT360_V1.024_RoadQTO_RC.exe'
+          $cli='.v1024-bin/cadcraft-cli.exe'
+          $setup='.v1024-bin/CADTBT360_V1.024_RoadQTO_RC_Setup.exe'
+          foreach ($file in @($cad,$cli,$setup)) { if (!(Test-Path $file)) {throw "V1.024 artifact missing $file"} }
+          $bytes=[IO.File]::ReadAllBytes((Resolve-Path $cad).Path)
+          if ([Text.Encoding]::ASCII.GetString($bytes,0,2) -ne 'MZ') {throw 'Invalid Windows CAD EXE'}
+          if ((Get-Item $cad).VersionInfo.FileDescription -notlike '*V1.024*') {throw 'Downloaded CAD EXE is not V1.024'}
+          & $cli --version
+          if ($LASTEXITCODE -ne 0) {throw 'CLI fails --version'}
+          New-Item -ItemType Directory -Force '.v1024-proof' | Out-Null
+          "Release build run: 41802734837" | Set-Content .v1024-proof/PROVENANCE.txt
+          "Acceptance source: $env:GITHUB_SHA" | Add-Content .v1024-proof/PROVENANCE.txt
+      - name: Verify exact layer style properties after native DWG roundtrip
+        run: |
+          $ErrorActionPreference='Stop'
+          $cli=(Resolve-Path '.v1024-bin/cadcraft-cli.exe').Path
+          $out=(Resolve-Path '.v1024-proof').Path
+          python CADTBT360_V1.000/scripts/layer_style_dwg_roundtrip.py --cli $cli --out $out
+          if ($LASTEXITCODE -ne 0) {throw 'V1.024 DWG layer regression failed'}
+      - name: Verify real Windows GUI MCP and geometry DWG roundtrip
+        run: |
+          $ErrorActionPreference='Stop'
+          python -m pip install --disable-pip-version-check pillow
+          if ($LASTEXITCODE -ne 0) {throw 'Missing Pillow image verification'}
+          $cad=(Resolve-Path '.v1024-bin/CADTBT360_V1.024_RoadQTO_RC.exe').Path
+          $cli=(Resolve-Path '.v1024-bin/cadcraft-cli.exe').Path
+          $out=(Resolve-Path '.v1024-proof').Path
+          python CADTBT360_V1.000/scripts/agent_live_ui_smoke.py --cad $cad --cli $cli --out $out
+          if ($LASTEXITCODE -ne 0) {throw 'V1.024 live desktop MCP verification failed'}
+      - name: Upload V1.024 independent acceptance evidence even on failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: CADTBT360_V1.024_MCP_DWG_Layer_Acceptance_Evidence
+          path: .v1024-proof/
+          if-no-files-found: warn
+          retention-days: 30
