@@ -632,3 +632,63 @@ fn ai_auto_raster_to_cad_dxf_roundtrip_preserves_editable_lines() {
     let _ = std::fs::remove_file(png);
     let _ = std::fs::remove_file(dxf);
 }
+
+
+#[test]
+fn ai_auto_raster_mcp_failed_second_line_rolls_back_first_line() {
+    use image::{GrayImage, Luma};
+    use crate::Backend;
+    struct FailSecondLine { inner: Headless, line_calls: usize }
+    impl Backend for FailSecondLine {
+        fn call(&mut self, method: &str, params: Value) -> Result<Value, String> {
+            if method == "engine.execute" && params["command"] == "line" {
+                self.line_calls += 1;
+                if self.line_calls == 2 { return Err("injected second LINE failure".to_string()); }
+            }
+            self.inner.call(method, params)
+        }
+        fn has_ui(&self) -> bool { false }
+        fn describe(&self) -> String { "test backend with injected LINE failure".into() }
+    }
+    let mut img = GrayImage::from_pixel(90,70,Luma([255]));
+    for x in 10..=72 { img.put_pixel(x,15,Luma([0])); }
+    for x in 10..=72 { img.put_pixel(x,45,Luma([0])); }
+    let name=format!("cad360-ai-undo-mcp-{}-{}.png",std::process::id(),
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos());
+    let file=std::env::temp_dir().join(name);
+    img.save(&file).unwrap();
+    let path=file.to_string_lossy().to_string();
+    let mut backend=FailSecondLine { inner:Headless::default(),line_calls:0 };
+    let before=backend.inner.session.doc().unwrap().entity_count();
+    let result=crate::raster_vector::run(&mut backend,&json!({
+        "path":path,"preview":false,"minLengthPixels":12,"includeDiagonals":false
+    }));
+    assert!(result.as_ref().is_err_and(|e| e.contains("rolled back")), "the MCP must rollback the partial operation: {result:?}");
+    assert_eq!(backend.line_calls,2);
+    assert_eq!(backend.inner.session.doc().unwrap().entity_count(),before,"no image-derived LINE may remain after failed MCP batch");
+    assert!(backend.inner.session.state().unwrap().undo_ctl.group.is_none());
+    let _=std::fs::remove_file(file);
+}
+
+#[test]
+fn ai_auto_raster_mcp_rejects_existing_undo_group_without_changes() {
+    use image::{GrayImage, Luma};
+    let mut img=GrayImage::from_pixel(50,40,Luma([255]));
+    for x in 5..=35 { img.put_pixel(x,15,Luma([0])); }
+    let name=format!("cad360-ai-undo-protected-{}-{}.png",std::process::id(),
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos());
+    let file=std::env::temp_dir().join(name);
+    img.save(&file).unwrap();
+    let path=file.to_string_lossy().to_string();
+    let mut backend=Headless::default();
+    backend.session.state_mut().unwrap().begin_undo_group();
+    let before=backend.session.doc().unwrap().entity_count();
+    let result=crate::raster_vector::run(&mut backend,&json!({
+        "path":path,"preview":false,"minLengthPixels":12,"includeDiagonals":false
+    }));
+    assert!(result.as_ref().is_err_and(|e| e.contains("Undo group")), "the caller's group must not be ended: {result:?}");
+    assert_eq!(backend.session.doc().unwrap().entity_count(),before);
+    assert!(backend.session.state().unwrap().undo_ctl.group.is_some());
+    backend.session.state_mut().unwrap().end_undo_group();
+    let _=std::fs::remove_file(file);
+}
