@@ -23,7 +23,8 @@ Gọi MCP `raster_to_cad_lines` với tham số JSON:
   "unitsPerPixel": 0.01,
   "origin": [0, 0],
   "maxLines": 250,
-  "includeDiagonals": true
+  "includeDiagonals": true,
+  "includeArbitraryAngles": true
 }
 ```
 
@@ -40,7 +41,7 @@ Lưu ý: hiện bước ghi nhiều đối tượng **chưa phải giao dịch t
 - Kiểm tra kích thước ảnh từ phần header trước khi giải mã toàn bộ PNG/JPEG để hạn chế cấp phát quá mức.
 
 - Chỉ hỗ trợ tệp PNG/JPEG cục bộ, tối đa 16 MiB và ảnh tối đa 4.096 pixel mỗi chiều / 12 triệu pixel.
-- Nhận dạng nét thẳng ngang/dọc và nét chéo 45° tương phản rõ; các góc nghiêng bất kỳ, cung tròn, đường cong, ảnh phối cảnh, bản vẽ nhiễu hoặc đứt nét vẫn cần thuật toán nâng cao.
+- Đã bổ sung thử nghiệm nhận dạng các nét thẳng đơn lẻ ở góc nghiêng bất kỳ bằng phân tích thành phần liên thông và PCA; bật bằng includeArbitraryAngles:true. Các điểm giao nhánh, chữ, khối đặc, cung tròn, đường cong và ảnh phối cảnh vẫn chưa được nhận dạng có ngữ nghĩa; bắt buộc kiểm duyệt preview.
 - Có giới hạn `maxLines` để tránh lỡ tạo hàng nghìn đối tượng; nếu vượt giới hạn, công cụ trả lỗi trước khi sửa CAD.
 - Mặc định `preview:true`; không tự chỉnh sửa bản vẽ chỉ vì Agent gửi yêu cầu xem trước.
 - Chưa có giao diện nút bấm riêng trong CAD; thao tác thực hiện qua MCP hoặc Agent được kết nối với CAD.
@@ -48,7 +49,7 @@ Lưu ý: hiện bước ghi nhiều đối tượng **chưa phải giao dịch t
 
 ## Định hướng phát triển tiếp
 
-1. Nhận dạng góc nghiêng bất kỳ, cung tròn, polyline đa hướng; loại nhiễu và ghép các đoạn.
+1. Hoàn thiện nhận dạng góc nghiêng bất kỳ ở các điểm giao nhau, cung tròn, polyline đa hướng; loại nhiễu và ghép các đoạn.
 2. Kết nối mô hình thị giác thực (local/remote) để phân loại tường, cửa, trục, ký hiệu và chữ.
 3. Hiệu chỉnh kích thước/tỷ lệ bằng điểm kiểm soát; dựng Layer và đối tượng CAD theo ngữ nghĩa.
 4. Tương tác chọn vùng ảnh ngay trên canvas, hiển thị lớp nét xem trước, xác nhận và Undo một lượt.
