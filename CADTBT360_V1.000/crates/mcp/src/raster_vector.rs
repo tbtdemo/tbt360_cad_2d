@@ -360,6 +360,50 @@ fn parallel_wall_candidates(lines: &[Line], min_spacing: f64, max_spacing: f64) 
     candidates
 }
 
+/// Conservative drafting panels from observed pairs only; never bridge missing wall edges.
+fn wall_panel_candidates(lines: &[Line], pairs: &[Value], openings: &[Value], columns: &[Value]) -> Vec<Value> {
+    if lines.len()>256 || pairs.len()>128 {return Vec::new();}
+    let mut used=vec![0usize;lines.len()];
+    for pair in pairs {
+        let (Some(i),Some(j))=(pair["edges"][0].as_u64().and_then(|v|usize::try_from(v).ok()),
+            pair["edges"][1].as_u64().and_then(|v|usize::try_from(v).ok())) else {continue};
+        if i<lines.len() && j<lines.len() && i!=j {used[i]+=1;used[j]+=1;}
+    }
+    let mut panels=Vec::new();
+    for pair in pairs {
+        let (Some(i),Some(j))=(pair["edges"][0].as_u64().and_then(|v|usize::try_from(v).ok()),
+            pair["edges"][1].as_u64().and_then(|v|usize::try_from(v).ok())) else {continue};
+        if i>=lines.len()||j>=lines.len()||i==j||used[i]!=1||used[j]!=1 {continue;}
+        let a=lines[i];let b=lines[j];
+        let h=(a.y0-a.y1).abs()<=0.25 && (b.y0-b.y1).abs()<=0.25;
+        let v=(a.x0-a.x1).abs()<=0.25 && (b.x0-b.x1).abs()<=0.25;
+        if !h && !v {continue;}
+        let (lo,hi,c0,c1)=if h {(a.x0.max(b.x0),a.x1.min(b.x1),a.y0,b.y0)}
+            else {(a.y0.max(b.y0),a.y1.min(b.y1),a.x0,b.x0)};
+        if hi-lo<16.0 || (c0-c1).abs()<1.0 {continue;}
+        let bounds=if h {[lo,c0.min(c1),hi,c0.max(c1)]}
+            else {[c0.min(c1),lo,c0.max(c1),hi]};
+        let overlaps=|item:&Value| {
+            let Some(points)=item["outlinePixels"].as_array() else {return false;};
+            let mut minx=f64::INFINITY;let mut miny=f64::INFINITY;
+            let mut maxx=f64::NEG_INFINITY;let mut maxy=f64::NEG_INFINITY;
+            for p in points {
+                let (Some(x),Some(y))=(p[0].as_f64(),p[1].as_f64()) else {return false;};
+                minx=minx.min(x);maxx=maxx.max(x);miny=miny.min(y);maxy=maxy.max(y);
+            }
+            bounds[0]<maxx-0.5 && bounds[2]>minx+0.5 && bounds[1]<maxy-0.5 && bounds[3]>miny+0.5
+        };
+        if openings.iter().any(&overlaps) || columns.iter().any(&overlaps) {continue;}
+        let corners=if h {[[lo,c0],[hi,c0],[hi,c1],[lo,c1]]}
+            else {[[c0,lo],[c0,hi],[c1,hi],[c1,lo]]};
+        panels.push(json!({"outlinePixels":corners,"sourceEdgeIndices":[i,j],
+            "lengthPixels":hi-lo,"thicknessPixels":(c0-c1).abs(),
+            "classification":"observed-parallel-wall-panel-draft-unverified","requiresHumanReview":true}));
+        if panels.len()>=64 {break;}
+    }
+    panels
+}
+
 /// Construct centre lines only for unambiguous one-to-one edge pairs.
 /// Existing source edges are kept; these are editable draft centre lines, not BIM walls.
 fn wall_centerline_candidates(lines: &[Line], pairs: &[Value], excluded: &[bool]) -> Vec<Line> {
