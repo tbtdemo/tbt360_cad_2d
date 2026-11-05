@@ -458,9 +458,43 @@ pub fn preview(args: &Value) -> Result<Value, String> {
     if args["openingGapHints"].as_bool().unwrap_or(false) && gap_pixels > 0 {
         return Err("openingGapHints=true requires maxGapPixels=0 to preserve possible door/opening gaps; no CAD changes made".into());
     }
-    let gaps_hint=if args["openingGapHints"].as_bool().unwrap_or(false) {
-        opening_gap_candidates(&lines,3.0,40.0)
+    let gap_bound = |key: &str, default: f64| -> Result<f64, String> {
+        match args.get(key) {
+            None => Ok(default),
+            Some(v) => v.as_f64().ok_or_else(|| format!("{key}: opening gap must be a number")),
+        }
+    };
+    let opening_min=gap_bound("minOpeningGapPixels",3.0)?;
+    let opening_max=gap_bound("maxOpeningGapPixels",40.0)?;
+    if !opening_min.is_finite() || !opening_max.is_finite() || opening_min < 1.0
+        || opening_max > 120.0 || opening_min > opening_max {
+        return Err("Opening gap pixels must satisfy 1 <= minimum <= maximum <= 120; no CAD changes made".into());
+    }
+    let mut gaps_hint=if args["openingGapHints"].as_bool().unwrap_or(false) {
+        opening_gap_candidates(&lines,opening_min,opening_max)
     } else {Vec::new()};
+    // Give the user measurable CAD dimensions in addition to pixel-space hints.
+    // These values never create a door, close a gap or alter the source lines.
+    for gap in &mut gaps_hint {
+        let from=&gap["fromPixels"];
+        let to=&gap["toPixels"];
+        let convert=|p: &Value| -> Option<Value> {
+            let (x,y)=(p[0].as_f64()?,p[1].as_f64()?);
+            let (wx,wy)=(ox+x*scale,oy+(f64::from(height)-y)*scale);
+            if !wx.is_finite() || !wy.is_finite() || wx.abs()>1.0e12 || wy.abs()>1.0e12 {return None;}
+            Some(json!([wx,wy]))
+        };
+        let (Some(from_cad),Some(to_cad))=(convert(from),convert(to)) else {
+            return Err("Opening gap CAD coordinates exceed safe bounds; no CAD changes made".into());
+        };
+        let width=gap["gapPixels"].as_f64().unwrap_or(0.0)*scale;
+        if !width.is_finite() || width>1.0e12 {
+            return Err("Opening gap CAD width exceeds safe bounds; no CAD changes made".into());
+        }
+        gap["fromCAD"]=from_cad;
+        gap["toCAD"]=to_cad;
+        gap["widthCAD"]=json!(width);
+    }
     let source_strokes = lines.len();
     let bridged_gaps = bridge_collinear_gaps(&mut lines, gap_pixels as f64);
     // Pixel spacing is user-calibrated. Keep narrow, finite limits so the
@@ -523,6 +557,7 @@ pub fn preview(args: &Value) -> Result<Value, String> {
         "imageSize":[width,height],"strokes":count,"sourceStrokes":source_strokes,
         "bridgedGaps":bridged_gaps,"maxGapPixels":gap_pixels,
         "openingGapCandidates":gaps_hint,"openingGapCandidateCount":gaps_hint.len(),
+        "minOpeningGapPixels":opening_min,"maxOpeningGapPixels":opening_max,
         "wallPairHints":wall_hints,"wallPairCandidateCount":wall_hints.len(),
         "minWallSpacingPixels":min_wall_spacing,"maxWallSpacingPixels":max_wall_spacing,
         "wallCenterlines":world_axes,"wallCenterlinesProposed":axes.len(),
@@ -773,6 +808,34 @@ mod tests {
             let e=preview(&args).expect_err("invalid wall spacing must be rejected");
             assert!(e.contains("pixel spacing"),"unexpected validation error: {e}");
         }
+        let _=std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn ai_opening_gap_bounds_and_world_width_are_calibrated() {
+        let mut img=image::RgbImage::from_pixel(110,40,image::Rgb([255,255,255]));
+        for x in 5..=39 {img.put_pixel(x,17,image::Rgb([0,0,0]));}
+        for x in 51..=95 {img.put_pixel(x,17,image::Rgb([0,0,0]));}
+        let path=std::env::temp_dir().join(format!("cad360-opening-size-{}-{}.png",std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        img.save(&path).unwrap();
+        let mut args=json!({"path":path.to_string_lossy(),"preview":true,"minLengthPixels":16,
+            "includeDiagonals":false,"openingGapHints":true,"maxGapPixels":0,
+            "unitsPerPixel":10.0,"origin":[100.0,200.0],"minOpeningGapPixels":10.0,"maxOpeningGapPixels":20.0});
+        let v=preview(&args).unwrap();
+        assert_eq!(v["openingGapCandidateCount"],1);
+        let gap=&v["openingGapCandidates"][0];
+        assert_eq!(gap["gapPixels"],12.0);
+        assert_eq!(gap["widthCAD"],120.0);
+        assert_eq!(gap["fromCAD"],json!([495.0,425.0]));
+        assert_eq!(gap["toCAD"],json!([615.0,425.0]));
+        args["minOpeningGapPixels"]=json!(13.0);
+        assert_eq!(preview(&args).unwrap()["openingGapCandidateCount"],0);
+        args["minOpeningGapPixels"]=json!(0.0);
+        assert!(preview(&args).unwrap_err().contains("Opening gap pixels"));
+        args["minOpeningGapPixels"]=json!(15.0);
+        args["maxOpeningGapPixels"]=json!(10.0);
+        assert!(preview(&args).unwrap_err().contains("Opening gap pixels"));
         let _=std::fs::remove_file(&path);
     }
 
