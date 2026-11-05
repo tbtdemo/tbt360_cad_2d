@@ -159,6 +159,7 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
                 ui.small("Chỉ nhận dạng hình chữ nhật có đủ 4 cạnh; không tự lấp cửa hoặc khoảng hở. Cạnh thuộc PLINE không tạo LINE trùng.");
             }
             if let Some(lines) = proposal["lines"].as_array() {
+                let polygons = proposal["closedPolylines"].as_array();
                 let (rect, _) = ui.allocate_exact_size(egui::vec2(ui.available_width().max(200.0), 220.0), egui::Sense::hover());
                 let painter = ui.painter_at(rect);
                 painter.rect_filled(rect, 4.0, egui::Color32::from_gray(27));
@@ -172,23 +173,44 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
                         }
                     }
                 }
-                let span_x = (max_x - min_x).max(1.0e-9);
-                let span_y = (max_y - min_y).max(1.0e-9);
-                let factor = (f64::from(rect.width()) * 0.90 / span_x)
-                    .min(f64::from(rect.height()) * 0.90 / span_y);
-                for segment in lines {
-                    let (Some(a), Some(b)) = (segment.get(0), segment.get(1)) else { continue };
-                    let (Some(x0), Some(y0), Some(x1), Some(y1)) =
-                        (a[0].as_f64(), a[1].as_f64(), b[0].as_f64(), b[1].as_f64()) else { continue };
+                for polygon in polygons.into_iter().flatten() {
+                    for point in polygon.as_array().into_iter().flatten() {
+                        if let (Some(x), Some(y)) = (point[0].as_f64(), point[1].as_f64()) {
+                            min_x = min_x.min(x); max_x = max_x.max(x);
+                            min_y = min_y.min(y); max_y = max_y.max(y);
+                        }
+                    }
+                }
+                if min_x.is_finite() && min_y.is_finite() {
+                    let span_x = (max_x - min_x).max(1.0e-9);
+                    let span_y = (max_y - min_y).max(1.0e-9);
+                    let factor = (f64::from(rect.width()) * 0.90 / span_x)
+                        .min(f64::from(rect.height()) * 0.90 / span_y);
                     let to_screen = |x: f64, y: f64| egui::pos2(
                         (f64::from(rect.center().x) + ((x - (min_x + max_x) * 0.5) * factor)) as f32,
                         (f64::from(rect.center().y) - ((y - (min_y + max_y) * 0.5) * factor)) as f32);
-                    painter.line_segment([to_screen(x0,y0),to_screen(x1,y1)],
-                        egui::Stroke::new(1.5, egui::Color32::LIGHT_GREEN));
+                    for segment in lines {
+                        let (Some(a), Some(b)) = (segment.get(0), segment.get(1)) else { continue };
+                        let (Some(x0), Some(y0), Some(x1), Some(y1)) =
+                            (a[0].as_f64(), a[1].as_f64(), b[0].as_f64(), b[1].as_f64()) else { continue };
+                        painter.line_segment([to_screen(x0,y0),to_screen(x1,y1)],
+                            egui::Stroke::new(1.5, egui::Color32::LIGHT_GREEN));
+                    }
+                    for polygon in polygons.into_iter().flatten() {
+                        let Some(points) = polygon.as_array() else { continue };
+                        if points.len() < 3 { continue; }
+                        for idx in 0..points.len() {
+                            let a = &points[idx]; let b = &points[(idx+1)%points.len()];
+                            let (Some(x0),Some(y0),Some(x1),Some(y1)) =
+                                (a[0].as_f64(),a[1].as_f64(),b[0].as_f64(),b[1].as_f64()) else { continue };
+                            painter.line_segment([to_screen(x0,y0),to_screen(x1,y1)],
+                                egui::Stroke::new(2.5, egui::Color32::from_rgb(100,190,255)));
+                        }
+                    }
                 }
             }
             if let Some(rectangles) = proposal["closedPolylines"].as_array() {
-                ui.label(format!("Có {} PLINE kín đã phát hiện (xem chi tiết sau khi tạo).", rectangles.len()));
+                ui.label(format!("Có {} PLINE kín (màu xanh lam), các LINE còn lại màu xanh lá.", rectangles.len()));
             }
             ui.label("Bản xem trước chưa sửa dữ liệu CAD. Hãy lưu bản vẽ trước khi thực hiện một lô nét lớn.");
             if ui.add_enabled(count > 0, egui::Button::new("2. Tạo LINE / PLINE chỉnh sửa trong CAD")).clicked() {
