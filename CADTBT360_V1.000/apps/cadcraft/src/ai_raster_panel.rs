@@ -35,6 +35,7 @@ pub struct State {
     override_door_width: bool,
     door_width_cad: f64,
     selected_door_number: usize,
+    selected_door_width_cad: f64,
     door_width_overrides: std::collections::BTreeMap<usize,f64>,
     create_opening_guides: bool,
     confirm_opening_guides: bool,
@@ -67,6 +68,7 @@ impl State {
             self.max_opening_gap = 40.0;
             self.door_width_cad = 900.0;
             self.selected_door_number = 1;
+            self.selected_door_width_cad = 900.0;
         }
     }
 
@@ -274,11 +276,11 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
                                             ui.label("Cửa số");
                                             ui.add(egui::DragValue::new(&mut state.selected_door_number).range(1..=64).speed(1.0));
                                             ui.label("Chiều rộng (đơn vị CAD)");
-                                            ui.add(egui::DragValue::new(&mut state.door_width_cad).speed(10.0).range(0.000001..=1_000_000_000.0));
+                                            ui.add(egui::DragValue::new(&mut state.selected_door_width_cad).speed(10.0).range(0.000001..=1_000_000_000.0));
                                         });
                                         ui.horizontal(|ui| {
                                             if ui.button("Áp dụng cho cửa đã chọn").clicked() {
-                                                state.door_width_overrides.insert(state.selected_door_number.saturating_sub(1),state.door_width_cad);
+                                                state.door_width_overrides.insert(state.selected_door_number.saturating_sub(1),state.selected_door_width_cad);
                                                 state.preview=None;
                                             }
                                             if ui.button("Xóa hiệu chỉnh cửa này").clicked() {
