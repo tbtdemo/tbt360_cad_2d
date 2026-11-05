@@ -77,6 +77,8 @@ def document_xml(markdown: str) -> str:
             paragraphs.append(para(line[3:], "Heading1"))
         elif line.startswith("### "):
             paragraphs.append(para(line[4:], "Heading2"))
+        elif line.startswith("#### "):
+            paragraphs.append(para(line[5:], "Heading3"))
         elif re.match(r"^\d+[.]\s", line):
             paragraphs.append(para(line, "ListParagraph"))
         elif line.startswith("- ") or line.startswith("- ["):
@@ -102,6 +104,7 @@ STYLES = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <w:style w:type="paragraph" w:styleId="Title"><w:name w:val="Title"/><w:pPr><w:spacing w:after="270"/></w:pPr><w:rPr><w:b/><w:color w:val="17365D"/><w:sz w:val="35"/></w:rPr></w:style>
 <w:style w:type="paragraph" w:styleId="Heading1"><w:name w:val="heading 1"/><w:basedOn w:val="Normal"/><w:pPr><w:keepNext/><w:spacing w:before="260" w:after="130"/></w:pPr><w:rPr><w:b/><w:color w:val="17547D"/><w:sz w:val="28"/></w:rPr></w:style>
 <w:style w:type="paragraph" w:styleId="Heading2"><w:name w:val="heading 2"/><w:basedOn w:val="Normal"/><w:pPr><w:keepNext/><w:spacing w:before="160" w:after="90"/></w:pPr><w:rPr><w:b/><w:color w:val="146E7B"/><w:sz w:val="23"/></w:rPr></w:style>
+<w:style w:type="paragraph" w:styleId="Heading3"><w:name w:val="heading 3"/><w:basedOn w:val="Normal"/><w:pPr><w:keepNext/><w:spacing w:before="130" w:after="70"/></w:pPr><w:rPr><w:b/><w:color w:val="275375"/><w:sz w:val="21"/></w:rPr></w:style>
 <w:style w:type="paragraph" w:styleId="ListParagraph"><w:name w:val="List Paragraph"/><w:basedOn w:val="Normal"/><w:pPr><w:ind w:left="320"/><w:spacing w:after="70"/></w:pPr></w:style>
 <w:style w:type="paragraph" w:styleId="Quote"><w:name w:val="Quote"/><w:basedOn w:val="Normal"/><w:pPr><w:ind w:left="350" w:right="280"/></w:pPr><w:rPr><w:i/><w:color w:val="52525B"/></w:rPr></w:style>
 <w:style w:type="paragraph" w:styleId="Code"><w:name w:val="Code"/><w:basedOn w:val="Normal"/><w:rPr><w:rFonts w:ascii="Consolas" w:hAnsi="Consolas"/><w:sz w:val="17"/></w:rPr></w:style>
@@ -131,7 +134,7 @@ DOC_RELS = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 
 CORE = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/">
-<dc:title>CAD 360 V1.025 - Huong dan AI tu anh thanh CAD</dc:title>
+<dc:title>CAD 360 Viet Nam V1.025 - Vietnamese User Guide</dc:title>
 <dc:creator>TBT Viet Nam</dc:creator>
 </cp:coreProperties>"""
 
@@ -144,13 +147,15 @@ def build(source: Path, dest: Path) -> None:
     if missing:
         raise ValueError(f"User guide is incomplete: missing {missing}")
     dest.parent.mkdir(parents=True, exist_ok=True)
+    core_title = "CAD 360 Viet Nam V1.025 - " + ("Giao trinh tong hop CAD 2D, QTO, IFC, BIM, AI, MCP" if "GIAO_TRINH" in source.name.upper() else "Huong dan AI tu anh thanh CAD")
+    core = CORE.replace("CAD 360 Viet Nam V1.025 - Vietnamese User Guide", escape(core_title))
     with ZipFile(dest, "w", compression=ZIP_DEFLATED) as z:
         z.writestr("[Content_Types].xml", CONTENT_TYPES)
         z.writestr("_rels/.rels", ROOT_RELS)
         z.writestr("word/document.xml", document_xml(markdown))
         z.writestr("word/styles.xml", STYLES)
         z.writestr("word/_rels/document.xml.rels", DOC_RELS)
-        z.writestr("docProps/core.xml", CORE)
+        z.writestr("docProps/core.xml", core)
     with ZipFile(dest) as z:
         bad = z.testzip()
         required_parts = {"[Content_Types].xml", "_rels/.rels", "word/document.xml", "word/styles.xml"}
