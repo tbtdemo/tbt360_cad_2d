@@ -413,6 +413,7 @@ fn ai_validated_image_trace_rejects_bad_geometry_before_cad_edit() {
     let preview = tool(&mut s, "trace_image_validated", json!({"handle":image["handle"],
         "points":[[0,100],[200,100],[200,0],[0,0]],"closed":true,"preview":true,"minSegmentLength":1}));
     assert_eq!(preview["preview"], true);
+    assert_eq!(preview["worldPoints"].as_array().map(Vec::len), Some(4));
     assert_eq!(tool(&mut s, "query_entities", json!({"type":"Polyline"}))["count"], 0);
     let committed = tool(&mut s, "trace_image_validated", json!({"handle":image["handle"],
         "points":[[0,100],[200,100],[200,0],[0,0]],"closed":true,"minSegmentLength":1}));
@@ -436,6 +437,8 @@ fn ai_validated_perspective_trace_blocks_bad_trace_without_mutation() {
     args["preview"] = json!(true);
     let preview = tool(&mut s, "trace_perspective_image_validated", args.clone());
     assert_eq!(preview["preview"], true);
+    assert_eq!(preview["worldPoints"].as_array().map(Vec::len), Some(4));
+    assert!(preview["maxControlError"].as_f64().is_some_and(|e| e < 1.0e-6));
     assert_eq!(tool(&mut s, "query_entities", json!({"type":"Polyline"}))["count"], 0);
     args["preview"] = json!(false);
     let committed = tool(&mut s, "trace_perspective_image_validated", args);
