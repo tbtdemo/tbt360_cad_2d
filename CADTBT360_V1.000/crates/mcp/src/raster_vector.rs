@@ -1122,6 +1122,26 @@ pub fn preview(args: &Value) -> Result<Value, String> {
         panel["thicknessCAD"]=json!(panel["thicknessPixels"].as_f64().unwrap_or(0.0)*scale);
         panel["lengthCAD"]=json!(panel["lengthPixels"].as_f64().unwrap_or(0.0)*scale);
     }
+    let create_wall_blocks=args["createWallBlocks"].as_bool().unwrap_or(false);
+    if create_wall_blocks && (!wall_panel_hints || !args["confirmWallBlocks"].as_bool().unwrap_or(false)) {
+        return Err("createWallBlocks requires wallPanelHints=true and confirmWallBlocks=true; no CAD changes made".into());
+    }
+    if create_wall_blocks && (args["createWallPanelPolylines"].as_bool().unwrap_or(false) ||
+        args["closedRectangles"].as_bool().unwrap_or(false)) {
+        return Err("Choose wall Block or general/confirmed wall PLINEs, not both, to avoid duplicate geometry; no CAD changes made".into());
+    }
+    // The BLOCK is only a confirmed geometry draft, not a parametric or semantic wall.
+    // Source raster edges are NEVER substituted with inferred connected wall segments.
+    let wall_block_drafts:Vec<Value>=if create_wall_blocks {
+        wall_panels.iter().filter_map(|panel| {
+            let frame=panel["outlineCAD"].as_array()?;
+            if frame.len()!=4 {return None;}
+            Some(json!({"base":frame[0],"outline":frame,
+                "lengthCAD":panel["lengthCAD"],"thicknessCAD":panel["thicknessCAD"],
+                "sourceEdgeIndices":panel["sourceEdgeIndices"],
+                "classification":"human-confirmed-wall-panel-cad-block-not-semantic-wall"}))
+        }).collect()
+    } else {Vec::new()};
     let create_wall_panels=args["createWallPanelPolylines"].as_bool().unwrap_or(false);
     if create_wall_panels && (!wall_panel_hints || !args["confirmWallPanels"].as_bool().unwrap_or(false)) {
         return Err("createWallPanelPolylines requires wallPanelHints=true and confirmWallPanels=true; no CAD changes made".into());
@@ -1195,6 +1215,9 @@ pub fn preview(args: &Value) -> Result<Value, String> {
         "wallPanelPolylineCount":wall_panel_polylines.len(),
         "wallPanelPolylines":wall_panel_polylines,
         "wallPanelPolylinesRequested":create_wall_panels,
+        "wallBlockDraftCount":wall_block_drafts.len(),
+        "wallBlockDrafts":wall_block_drafts,
+        "wallBlocksRequested":create_wall_blocks,
         "lines":world,"closedPolylines":world_rectangles,"rectanglesDetected":candidates.len(),
         "columnHatchCandidateCount":column_candidates.len(),
         "columnHatchCandidates":column_candidates,
@@ -1220,6 +1243,9 @@ pub fn preview(args: &Value) -> Result<Value, String> {
 /// MCP entry point. The same preview function powers the desktop's AI drawing panel.
 pub fn run(b: &mut dyn Backend, args: &Value) -> Result<Value, String> {
     let proposal = preview(args)?;
+    if args["createWallBlocks"].as_bool().unwrap_or(false) {
+        return Err("createWallBlocks is currently supported only by the desktop AI panel; MCP Block commit requires validated transaction ownership".into());
+    }
     if args["createColumnBlocks"].as_bool().unwrap_or(false) {
         return Err("createColumnBlocks is currently supported only in the desktop AI panel; MCP Block commit is disabled until rollback ownership is proven".into());
     }
@@ -1746,6 +1772,44 @@ mod tests {
         assert_eq!(wall_panel_candidates(&lines,&pairs,&[],&[column]).len(),1);
         let duplicate=vec![json!({"edges":[0,1]}),json!({"edges":[0,3]})];
         assert!(wall_panel_candidates(&lines,&duplicate,&[],&[]).is_empty());
+    }
+
+    #[test]
+    fn ai_wall_blocks_from_real_png_preserve_openings_and_require_confirmed_desktop_commit() {
+        let mut img=image::RgbImage::from_pixel(110,48,image::Rgb([255,255,255]));
+        for y in [15,22] {
+            for x in 5..=39 {img.put_pixel(x,y,image::Rgb([0,0,0]));}
+            for x in 51..=95 {img.put_pixel(x,y,image::Rgb([0,0,0]));}
+        }
+        let path=std::env::temp_dir().join(format!("cad360-wall-block-{}-{}.png",std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        img.save(&path).unwrap();
+        let mut args=json!({"path":path.to_string_lossy(),"minLengthPixels":8,"includeDiagonals":false,
+            "wallPairHints":true,"wallPanelHints":true,"unitsPerPixel":2.0,"maxGapPixels":0,
+            "minWallSpacingPixels":2.0,"maxWallSpacingPixels":40.0,"createWallBlocks":true});
+        assert!(preview(&args).unwrap_err().contains("confirmWallBlocks=true"));
+        args["confirmWallBlocks"]=json!(true);
+        let proposal=preview(&args).unwrap();
+        assert_eq!(proposal["wallBlockDraftCount"],2);
+        assert_eq!(proposal["wallBlocksRequested"],true);
+        assert_eq!(proposal["wallPanelPolylineCount"],0);
+        assert_eq!(proposal["editableEntitiesCreated"],0);
+        assert!(proposal["lines"].as_array().unwrap().len()>=4);
+        for draft in proposal["wallBlockDrafts"].as_array().unwrap() {
+            assert_eq!(draft["outline"].as_array().unwrap().len(),4);
+            assert_eq!(draft["thicknessCAD"],14.0);
+            assert_eq!(draft["classification"],"human-confirmed-wall-panel-cad-block-not-semantic-wall");
+        }
+        assert_eq!(proposal["wallBlockDrafts"][0]["lengthCAD"],68.0);
+        assert_eq!(proposal["wallBlockDrafts"][1]["lengthCAD"],88.0);
+        let mut backend=crate::backend::Headless::default();
+        args["preview"]=json!(false);
+        assert!(run(&mut backend,&args).unwrap_err().contains("desktop AI panel"));
+        assert_eq!(backend.session.doc().unwrap().entity_count(),0);
+        args["createWallPanelPolylines"]=json!(true);
+        args["confirmWallPanels"]=json!(true);
+        assert!(preview(&args).unwrap_err().contains("not both"));
+        let _=std::fs::remove_file(path);
     }
 
     #[test]
