@@ -985,3 +985,40 @@ AI trả các trường `gapPixels`, `widthCAD`, `fromCAD` và `toCAD`, sử d�
 6. Nếu chưa có GitHub Actions Success hoặc kết quả EXE, ghi **Đã thêm mã nguồn/bài kiểm thử, chưa nghiệm thu**, không suy luận PASS.
 
 **Giới hạn:** Chức năng mới là lọc dữ liệu gợi ý hình học từ các nét ảnh bị trùng, chưa phải AI phân loại ngữ nghĩa cửa đi, cửa sổ, tường, cột hoặc vật liệu. Các bản vẽ DWG tiếp tục cần thử nghiệm tương thích với AutoCAD hai chiều.
+
+
+## 36. Đợt 196 — Kiểm tra Windows CI thật trước khi phát hành Setup và Portable
+
+Mục tiêu quan trọng nhất của đợt này là chuyển từ việc **chỉ có mã nguồn, test và hướng dẫn** sang khả năng xác nhận một bộ cài Windows chạy ổn định. Các lần chạy cũ đã có lỗi thực tế. Không đánh dấu **PASS** cho phiên bản V1.025 khi chưa thấy kết quả GitHub Actions của đúng SHA.
+
+### 36.1. Những lỗi đã đọc từ GitHub Actions
+
+| Ngày, run | Lỗi đã ghi trong log | Trạng thái đối chiếu nguồn hiện tại |
+|---|---|---|
+| 04/11/2026, run 41744862778 | Test `zero_padded_hex_marker_is_considered_the_same_entity` của module QTO giao thông thất bại, giá trị `(0,1,1)` khác dự kiến | Run của nhánh/phát hành cũ; kiểm thử này không thấy trong `apps/cadcraft/src/takeoff.rs` trên nhánh V1.025 hiện tại, không thể kết luận lỗi còn tồn tại |
+| 03/11/2026, run 41608879566 | Năm bài `bim_collab::tests` liên quan lưu và phục hồi workspace đều báo `Access is denied (os error 5)` | Nguồn hiện tại dùng quyền đọc/ghi khi đồng bộ bản backup; đã bổ sung gate kiểm thử Windows nhưng chưa có kết quả PASS |
+| 30/10/2026, run 41064962499 | XREF test không biên dịch do gọi `EntityStore.first()` | Nguồn hiện tại dùng `model.iter().next()`; đã bổ sung kiểm thử toàn bộ `cadcraft-engine --test xref` trước khi đóng gói |
+
+### Bài 56 — Kiểm thử XREF và BIM Workspace trên Windows
+
+1. Mở nguồn tại SHA commit đợt 196, vào `CADTBT360_V1.000`.
+2. Chạy `cargo test --locked -p cadcraft-engine --test xref -- --test-threads=2`; đây là các bài kiểm thử Xref thực, không chỉ test tên lệnh.
+3. Chạy `cargo test --locked -p cadcraft-io --test it xref_roundtrip -- --nocapture`, sau đó `cargo test --locked -p cadcraft-io --test it large_dwg_v1025 -- --nocapture`.
+4. Chạy `cargo test --locked -p cadcraft --bin cadcraft bim_collab::tests::safe_workspace_save_preserves_previous_file_as_backup -- --nocapture`.
+5. Chạy tương tự bốn bài test BIM: `corrupted_workspace_recovers_previous_valid_backup`, `repeated_workspace_saves_replace_existing_main_and_backup`, `save_after_corrupted_main_does_not_destroy_last_valid_backup`, `workspace_recovery_does_not_discard_unsynced_in_memory_changes`.
+6. Quan sát workflow `.github/workflows/cad360-v1025-release.yml`; bước **Verify Xref, DWG, and Windows BIM workspace safety before Setup** phải đạt Success trước bước tạo bộ cài.
+7. Nếu một trong các bài test thất bại, đọc stacktrace và log tại chính job thất bại; không đổi tên hoặc bỏ qua test để ép có Setup.
+
+### Bài 57 — Nghiệm thu đúng bộ cài EXE từ GitHub Actions
+
+1. Vào repository `tbtdemo/tbt360_cad_2d` → Actions → **CAD 360 V1.025 - Windows Setup Portable**.
+2. Chọn đúng nhánh `feature/CADTBT360_V1.025_xref-regression`. So sánh SHA trong Actions với SHA ZIP mã nguồn.
+3. Chỉ tải Setup và Portable từ run có kết quả **Success**; không nhầm artifact chẩn đoán hoặc bản `UNVERIFIED_GUI_CANDIDATE` với bộ cài đã nghiệm thu.
+4. Trên Windows sạch: chạy Setup, mở CAD 360, thử mở bản vẽ DXF và DWG, tạo LINE, PLINE, OFFSET và Undo.
+5. Thử Xref: attach, reload, detach, save/mở lại. Bảo đảm file gốc tham chiếu không bị đổi khi chỉ lưu bản vẽ chủ.
+6. Thử BIM Workspace: tạo workspace, lưu, lưu lại, phá nội dung file chính trên bản sao rồi kiểm tra khả năng khôi phục bản sao lưu.
+7. Thử AI: PNG/JPEG → Preview → tạo LINE hoặc PLINE kín → Undo → save DXF/DWG. Dùng ảnh có khoảng hở giả lập cửa và ảnh có tường giao cắt để xác minh AI không tự nối.
+8. Thử Portable từ cùng lượt run; ghi mã SHA, đường dẫn EXE, SHA256 của bộ cài, màn hình ứng dụng và kết quả nghiệm thu.
+9. Muốn khẳng định DWG tương thích AutoCAD hai chiều phải thử mở/chỉnh sửa/lưu lại bằng AutoCAD độc lập, không chỉ kiểm tra header `AC1032`.
+
+**Điều kiện kết luận:** Nguồn V1.025 hiện đã có thêm gate cho các lỗi Xref và BIM cũ, nhưng chưa có xác nhận Windows CI Success và GUI Acceptance. Giữ trạng thái **Chưa nghiệm thu EXE** cho tới khi có bằng chứng.
