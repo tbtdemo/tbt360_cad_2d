@@ -1710,3 +1710,27 @@ Mục tiêu quan trọng nhất của đợt này là chuyển từ việc **ch�
 6. Bộ cài Windows chỉ được nghiệm thu sau khi đầy đủ compile, regression test, đóng gói và installed smoke PASS. Các thay đổi mới được commit không tự động đồng nghĩa EXE đã sẵn sàng.
 
 **Trạng thái đợt 226:** Đã viết mã dữ liệu mô phỏng endpoint T, chuyển tọa độ CAD, hiển thị đoạn cam trước/sau và bổ sung kiểm thử. Chưa triển khai lệnh tự sửa đầu tường, giao dịch Undo cho các phương án và chưa xác nhận Windows CI PASS.
+
+
+## 67. Đợt 227 — AI Agent nhận câu lệnh tiếng Việt và thực thi CAD Engine qua MCP
+
+### Bài 117 — AI vẽ trực tiếp LINE hoặc CIRCLE từ câu lệnh tiếng Việt
+
+1. Kết nối AI Agent với MCP server của CAD 360. Máy chủ MCP hỗ trợ công cụ mới `ai_draw_vietnamese` (bước đầu dùng bộ phân tích câu lệnh có cấu trúc, KHÔNG khẳng định đã có mô hình ngôn ngữ tự suy luận toàn bộ bản vẽ).
+2. Gọi công cụ với `{"text":"vẽ đường thẳng từ 0,0 đến 100,50"}`. Mặc định `preview=true`: hệ thống phân tích thành lệnh CAD native `line`, tham số `{"points":[[0,0],[100,50]]}`, không thêm đối tượng vào bản vẽ.
+3. Hoặc gửi `{"text":"vẽ hình tròn tâm 10,20 bán kính 25"}`: phương án sinh `circle` với `{"center":[10,20],"radius":25}`.
+4. Đọc `plan.command`, `plan.params`, `plan.documentUid`, `plan.documentEpoch` và `plan.revision`. Các trường này là điều kiện an toàn phải đối chiếu khi xác nhận.
+5. Sau khi người dùng đã duyệt hình học, gọi lại công cụ với **cùng câu lệnh**, `preview=false`, `confirm=true` và cung cấp `expectedDocumentUid`, `expectedDocumentEpoch`, `expectedRevision` đúng như Preview. Nếu tài liệu thay đổi hoặc thiếu xác nhận, công cụ từ chối ghi.
+6. Kiểm tra kết quả native command và bản vẽ hiện hành bằng `inspect_drawing`, `query_entities`, hoặc `render`. Đối tượng được tạo bởi CAD Engine, không phải nét ảnh minh họa.
+7. Nếu thao tác vừa thực hiện cần đảo ngược, dùng lệnh Undo CAD thông thường. Ở bước này chỉ một lệnh native được thực thi mỗi lần, chưa tự xử lý chuỗi nhiều lệnh hoặc lưu DWG.
+
+### Bài 118 — Giới hạn parser và kiểm thử an toàn
+
+1. Chạy `cargo test --locked -p cadcraft-mcp --lib ai_vietnamese_draft_ -- --nocapture` để kiểm tra cú pháp hợp lệ và dữ liệu sai.
+2. Công cụ chỉ nhận câu lệnh tiếng Việt có cấu trúc rõ: `vẽ đường thẳng từ x,y đến x,y` hoặc `vẽ hình tròn tâm x,y bán kính r`. Dấu phẩy phân tách X/Y; dùng dấu chấm cho số thập phân.
+3. Từ chối tọa độ NaN/Infinity, số vượt phạm vi an toàn, bán kính <=0, đường thẳng độ dài bằng 0, câu lệnh nhập nhằng hoặc ngoài tập cho phép. **Không đoán ý người dùng và không tự thực hiện lệnh nguy hiểm**.
+4. Chế độ commit yêu cầu `confirm=true`, dấu phiên bản của đúng bản vẽ, Undo Control All, không có nhóm Undo đang mở và không có lệnh tương tác đang chạy.
+5. Windows CI có hai test mới: `ai_vietnamese_draft_parses_native_line_and_circle` và `ai_vietnamese_draft_rejects_missing_or_unsafe_coordinates`. Xác minh test và compile PASS tại đúng SHA cuối trước khi coi bộ cài sẵn sàng.
+6. Đây mới là **bước đầu của AI Agent vẽ trực tiếp**, chưa hiểu yêu cầu đa bước, chưa sinh mặt bằng tổng thể từ câu tiếng Việt tự do và chưa có giao diện chat AI tích hợp ngay trên bản vẽ.
+
+**Trạng thái đợt 227:** Đã cập nhật công cụ MCP chuyển lệnh tiếng Việt → lệnh CAD native có Preview và điều kiện commit an toàn, bổ sung hai regression test vào Windows CI. Chưa xác nhận Windows CI PASS hoặc AI đa bước hoàn thiện.
