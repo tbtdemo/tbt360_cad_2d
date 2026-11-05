@@ -520,6 +520,19 @@ mod ai_draft_vietnamese_tests {
     }
 
     #[test]
+    fn ai_vietnamese_room_wall_plan_produces_closed_native_outlines() {
+        let plan=super::parse_vietnamese_plan("vẽ phòng rộng 6000 dài 4000 tại 0,0\nvẽ tường từ 0,0 đến 6000,0 dày 200").unwrap();
+        assert_eq!(plan.len(),2);
+        assert_eq!(plan[0].0,"rectang");
+        assert_eq!(plan[0].1["p2"],json!([6000.0,4000.0]));
+        assert_eq!(plan[1].0,"pline");
+        assert_eq!(plan[1].1["closed"],true);
+        assert_eq!(plan[1].1["vertices"].as_array().map(Vec::len),Some(4));
+        assert_eq!(plan[1].1["vertices"][0],json!([0.0,100.0]));
+        assert_eq!(plan[1].1["vertices"][2],json!([6000.0,-100.0]));
+    }
+
+    #[test]
     fn ai_vietnamese_plan_is_atomic_on_parser_validation() {
         assert!(super::parse_vietnamese_plan("vẽ đường thẳng từ 0,0 đến 10,0").is_err());
         assert!(super::parse_vietnamese_plan("vẽ đường thẳng từ 0,0 đến 10,0\nxóa tất cả").is_err());
