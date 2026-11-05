@@ -55,6 +55,8 @@ pub struct State {
     door_hinge_flips: std::collections::BTreeSet<usize>,
     door_swing_flips: std::collections::BTreeSet<usize>,
     last_door_source_keys: Vec<String>,
+    selected_wall_junction: Option<usize>,
+    reviewed_wall_junctions: std::collections::BTreeSet<usize>,
     create_opening_guides: bool,
     confirm_opening_guides: bool,
     min_opening_gap: f64,
@@ -84,6 +86,22 @@ fn preview_door_hit(drafts: &[Value], click: [f64;2], project: impl Fn(f64,f64)-
         } else if d<second {second=d;}
     }
     best.filter(|(_,distance)|*distance<=tolerance && second-*distance>4.0).map(|(index,_)|index)
+}
+
+/// Pick only a unique junction whose non-mutating CAD preview point is close.
+fn preview_wall_junction_hit(items: &[Value], click: [f64;2], project: impl Fn(f64,f64)->[f64;2], tolerance: f64) -> Option<usize> {
+    if !tolerance.is_finite() || tolerance<=0.0 {return None;}
+    let mut nearest=None;
+    let mut second=f64::INFINITY;
+    for (index,item) in items.iter().enumerate() {
+        let (Some(x),Some(y))=(item["pointCAD"][0].as_f64(),item["pointCAD"][1].as_f64()) else {continue;};
+        if !x.is_finite()||!y.is_finite(){continue;}
+        let p=project(x,y);let d=(p[0]-click[0]).hypot(p[1]-click[1]);
+        if !d.is_finite(){continue;}
+        if nearest.is_none_or(|(_,old)|d<old) {second=nearest.map_or(f64::INFINITY,|(_,old)|old);nearest=Some((index,d));}
+        else if d<second {second=d;}
+    }
+    nearest.filter(|(_,d)|*d<=tolerance&&second-*d>4.0).map(|(index,_)|index)
 }
 
 /// Compute world units per pixel from a known measured dimension.
@@ -130,6 +148,12 @@ impl State {
         self.door_swing_flips.clear();
         self.last_door_source_keys.clear();
         self.selected_door_number=1;
+        self.reset_wall_junction_review();
+    }
+
+    fn reset_wall_junction_review(&mut self) {
+        self.selected_wall_junction=None;
+        self.reviewed_wall_junctions.clear();
     }
 
     fn matches_document(&self, uid: u64, revision: u64, epoch: u64) -> bool {
@@ -227,6 +251,7 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
                     // Per-door indices refer only to the OLD image's candidate order.
                     // Never transfer reviewed geometry to a newly selected image.
                     state.reset_door_reviews_for_new_source();
+                    state.reset_wall_junction_review();
                     state.preview = None;
                     state.preview_document_uid = None;
                     state.preview_revision = None;
@@ -517,6 +542,7 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
                 }
             });
             if ui.button("1. Nhận dạng và xem trước").clicked() {
+                state.reset_wall_junction_review();
                 match cadcraft_mcp::raster_vector::preview(&state.params()) {
                     Ok(value) => {
                         state.last_door_source_keys=value["doorBlockDrafts"].as_array().map(|items|items.iter()
@@ -559,11 +585,21 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
                     ui.small(format!("QA đầu mút: {wall_boundary_contacts} lần chạm ứng viên khoảng mở/cột; CHỈ cảnh báo, không nối hoặc cắt tường."));
                     ui.small(format!("QA nút giao: {wall_junctions} vị trí nghi giao T/X; KHÔNG nối, cắt hay tự kéo dài tường."));
                     if let Some(junctions)=proposal["wallPanelJunctionCandidates"].as_array() {
-                        for (index,j) in junctions.iter().take(10).enumerate() {
+                        ui.small("Chọn nút giao từ danh sách hoặc nhấn trực tiếp vào dấu tròn trên Preview. Chọn và đánh dấu đã kiểm tra KHÔNG chỉnh sửa CAD.");
+                        for (index,j) in junctions.iter().take(30).enumerate() {
                             let a=j["panelIndices"][0].as_u64().unwrap_or(0)+1;
                             let b=j["panelIndices"][1].as_u64().unwrap_or(0)+1;
-                            ui.small(format!("Nút {}: {} giữa tường {} và {}; kiểm tra ảnh, không tự tạo liên kết.",
-                                index+1,j["kind"].as_str().unwrap_or("chưa xác định"),a,b));
+                            let reviewed=state.reviewed_wall_junctions.contains(&index);
+                            let selected=state.selected_wall_junction==Some(index);
+                            let title=format!("{} Nút {}: {} · tường {} và {}",if reviewed {"✓"} else if selected {"●"} else {"○"},index+1,j["kind"].as_str().unwrap_or("?"),a,b);
+                            if ui.selectable_label(selected,title).clicked() {state.selected_wall_junction=Some(index);}
+                        }
+                        if let Some(index)=state.selected_wall_junction.filter(|&i|i<junctions.len()) {
+                            ui.horizontal(|ui| {
+                                if ui.button("Xác nhận đã kiểm tra hình học (không vẽ)").clicked() {state.reviewed_wall_junctions.insert(index);}
+                                if ui.button("Bỏ dấu đã kiểm tra").clicked() {state.reviewed_wall_junctions.remove(&index);}
+                            });
+                            ui.small(format!("Nút {} chỉ xác nhận QA. Chưa có lệnh trim/extend, không tự gộp tường hoặc tạo BLOCK.",index+1));
                         }
                     }
                     if let Some(rows)=proposal["wallPanelBoundaryContacts"].as_array() {
@@ -687,6 +723,15 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
                     let to_screen = |x: f64, y: f64| egui::pos2(
                         (f64::from(rect.center().x) + ((x - (min_x + max_x) * 0.5) * factor)) as f32,
                         (f64::from(rect.center().y) - ((y - (min_y + max_y) * 0.5) * factor)) as f32);
+                    if state.wall_panel_hints && response.clicked() && !state.create_door_blocks {
+                        if let (Some(click),Some(junctions))=(response.interact_pointer_pos(),proposal["wallPanelJunctionCandidates"].as_array()) {
+                            let project=|x:f64,y:f64|{let p=to_screen(x,y);[f64::from(p.x),f64::from(p.y)]};
+                            if let Some(index)=preview_wall_junction_hit(junctions,[f64::from(click.x),f64::from(click.y)],project,12.0) {
+                                state.selected_wall_junction=Some(index);
+                                cad.set_status(format!("AI Preview: đã chọn nút T/X số {} (chỉ QA, chưa sửa hình học).",index+1));
+                            }
+                        }
+                    }
                     if state.create_door_blocks && response.clicked() {
                         if let (Some(click),Some(drafts))=(response.interact_pointer_pos(),proposal["doorBlockDrafts"].as_array()) {
                             let project=|x:f64,y:f64|{let p=to_screen(x,y);[f64::from(p.x),f64::from(p.y)]};
@@ -781,6 +826,18 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
                                             egui::Stroke::new(2.0,egui::Color32::from_rgb(240,152,66)));
                                     }
                                 }
+                            }
+                        }
+                    }
+                    // T/X nodes are evidence markers only; no edit or topology command is dispatched.
+                    if state.wall_panel_hints {
+                        if let Some(nodes)=proposal["wallPanelJunctionCandidates"].as_array() {
+                            for (index,node) in nodes.iter().enumerate() {
+                                let (Some(x),Some(y))=(node["pointCAD"][0].as_f64(),node["pointCAD"][1].as_f64()) else {continue;};
+                                let point=to_screen(x,y);
+                                let selected=state.selected_wall_junction==Some(index);
+                                let color=if selected {egui::Color32::WHITE} else if state.reviewed_wall_junctions.contains(&index) {egui::Color32::LIGHT_GREEN} else {egui::Color32::from_rgb(245,105,212)};
+                                painter.circle_stroke(point,if selected {8.0} else {5.0},egui::Stroke::new(if selected {3.0} else {2.0},color));
                             }
                         }
                     }
@@ -1236,6 +1293,23 @@ mod tests {
         assert_eq!(state.params()["createWindowBlocks"],true);
         assert_eq!(state.params()["confirmWindowBlocks"],true);
         assert_eq!(state.params()["preview"],true);
+    }
+
+    #[test]
+    fn ai_wall_junction_click_selects_unique_node_without_committing_geometry() {
+        let nodes=vec![json!({"pointCAD":[10.0,20.0]}),json!({"pointCAD":[40.0,20.0]})];
+        let identity=|x:f64,y:f64|[x,y];
+        assert_eq!(preview_wall_junction_hit(&nodes,[11.0,20.0],identity,12.0),Some(0));
+        assert_eq!(preview_wall_junction_hit(&nodes,[40.0,21.0],identity,12.0),Some(1));
+        assert_eq!(preview_wall_junction_hit(&nodes,[25.0,20.0],identity,20.0),None);
+        assert_eq!(preview_wall_junction_hit(&nodes,[90.0,20.0],identity,12.0),None);
+        let mut state=State::default();state.open();state.selected_wall_junction=Some(1);state.reviewed_wall_junctions.insert(1);
+        assert_eq!(state.params()["preview"],true);
+        assert_eq!(state.params()["createWallBlocks"],false);
+        assert_eq!(state.params()["createWallPanelPolylines"],false);
+        state.reset_wall_junction_review();
+        assert_eq!(state.selected_wall_junction,None);
+        assert!(state.reviewed_wall_junctions.is_empty());
     }
 
     #[test]
