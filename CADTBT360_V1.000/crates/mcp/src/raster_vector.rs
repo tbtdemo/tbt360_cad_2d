@@ -1728,6 +1728,58 @@ mod tests {
     }
 
     #[test]
+    fn ai_wall_panels_preserve_door_gap_and_reject_column_overlap_or_ambiguous_edges() {
+        let lines=[
+            Line{x0:5.5,y0:15.5,x1:39.5,y1:15.5},
+            Line{x0:5.5,y0:22.5,x1:39.5,y1:22.5},
+            Line{x0:51.5,y0:15.5,x1:95.5,y1:15.5},
+            Line{x0:51.5,y0:22.5,x1:95.5,y1:22.5}
+        ];
+        let pairs=parallel_wall_candidates(&lines,2.0,40.0);
+        let candidates=wall_panel_candidates(&lines,&pairs,&[],&[]);
+        assert_eq!(candidates.len(),2,"must keep both observed segments without inventing a bridge");
+        assert_eq!(candidates[0]["lengthPixels"],34.0);
+        assert_eq!(candidates[1]["lengthPixels"],44.0);
+        let opening=json!({"outlinePixels":[[39.5,15.5],[51.5,15.5],[51.5,22.5],[39.5,22.5]]});
+        assert_eq!(wall_panel_candidates(&lines,&pairs,&[opening],&[]).len(),2);
+        let column=json!({"outlinePixels":[[10.0,14.0],[22.0,14.0],[22.0,24.0],[10.0,24.0]]});
+        assert_eq!(wall_panel_candidates(&lines,&pairs,&[],&[column]).len(),1);
+        let duplicate=vec![json!({"edges":[0,1]}),json!({"edges":[0,3]})];
+        assert!(wall_panel_candidates(&lines,&duplicate,&[],&[]).is_empty());
+    }
+
+    #[test]
+    fn ai_real_png_wall_panels_require_confirmation_before_native_cad_plines() {
+        let mut img=image::RgbImage::from_pixel(110,48,image::Rgb([255,255,255]));
+        for y in [15,22] {
+            for x in 5..=39 {img.put_pixel(x,y,image::Rgb([0,0,0]));}
+            for x in 51..=95 {img.put_pixel(x,y,image::Rgb([0,0,0]));}
+        }
+        let path=std::env::temp_dir().join(format!("cad360-wall-panel-{}-{}.png",std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        img.save(&path).unwrap();
+        let mut args=json!({"path":path.to_string_lossy(),"minLengthPixels":8,"includeDiagonals":false,
+            "wallPairHints":true,"wallPanelHints":true,"unitsPerPixel":2.0,"maxGapPixels":0,
+            "minWallSpacingPixels":2.0,"maxWallSpacingPixels":40.0});
+        let proposal=preview(&args).unwrap();
+        assert_eq!(proposal["wallPanelCandidateCount"],2);
+        assert_eq!(proposal["wallPanelPolylineCount"],0);
+        assert_eq!(proposal["editableEntitiesCreated"],0);
+        args["createWallPanelPolylines"]=json!(true);
+        assert!(preview(&args).unwrap_err().contains("confirmWallPanels=true"));
+        args["confirmWallPanels"]=json!(true);
+        let confirmed=preview(&args).unwrap();
+        assert_eq!(confirmed["wallPanelPolylineCount"],2);
+        let original=confirmed["lines"].as_array().unwrap().len();
+        let mut backend=crate::backend::Headless::default();
+        args["preview"]=json!(false);
+        let result=run(&mut backend,&args).unwrap();
+        assert_eq!(result["wallPanelPolylinesCreated"],2);
+        assert_eq!(result["editableEntitiesCreated"].as_u64(),Some((original+2) as u64));
+        let _=std::fs::remove_file(path);
+    }
+
+    #[test]
     fn ai_column_block_png_is_reviewed_not_semantic_and_rejects_remote_commit() {
         let mut img=image::RgbImage::from_pixel(90,80,image::Rgb([255,255,255]));
         for x in 20..=52 {for y in [16,48] {img.put_pixel(x,y,image::Rgb([0,0,0]));}}
