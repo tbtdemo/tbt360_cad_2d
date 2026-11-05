@@ -1327,6 +1327,15 @@ pub fn preview(args: &Value) -> Result<Value, String> {
         "editableEntitiesCreated":0,"source":path,
         "caution":"Review vectors before committing; line recognition is not semantic building interpretation"
     });
+    // Provide CAD coordinates for selecting junctions in the native Preview.
+    // These values are evidence only; they are never submitted as mutation commands.
+    for junction in &mut wall_panel_junctions {
+        let (Some(x),Some(y))=(junction["pointPixels"][0].as_f64(),junction["pointPixels"][1].as_f64()) else {continue;};
+        let (wx,wy)=(ox+x*scale,oy+(f64::from(height)-y)*scale);
+        if wx.is_finite() && wy.is_finite() && wx.abs()<=1.0e12 && wy.abs()<=1.0e12 {
+            junction["pointCAD"]=json!([wx,wy]);
+        }
+    }
     let topology=json!({
         "wallPanelContactCount":wall_panel_contacts.iter().map(|v|
             v["startContacts"].as_array().map_or(0,Vec::len)+v["endContacts"].as_array().map_or(0,Vec::len)).sum::<usize>(),
