@@ -442,6 +442,50 @@ fn opening_gap_candidates(lines: &[Line], min_gap: f64, max_gap: f64) -> Vec<Val
     gaps
 }
 
+/// Pair two aligned gaps on nearby parallel wall edges. A single interrupted
+/// stroke is insufficient evidence of a through-wall opening. These are geometric
+/// candidate guides, not classified doors/windows or automatically inferred walls.
+fn paired_wall_openings(gaps: &[Value], min_spacing: f64, max_spacing: f64) -> Vec<Value> {
+    if gaps.len() > 128 || min_spacing < 1.0 || max_spacing < min_spacing { return Vec::new(); }
+    let mut possibilities: Vec<(usize, usize, [[f64; 2]; 4], f64)> = Vec::new();
+    for (i, a) in gaps.iter().enumerate() {
+        for (j, b) in gaps.iter().enumerate().skip(i + 1) {
+            let read = |v: &Value, key: &str| -> Option<[f64; 2]> {
+                let p = &v[key];
+                Some([p[0].as_f64()?, p[1].as_f64()?])
+            };
+            let (Some(a0), Some(a1), Some(b0), Some(b1)) =
+                (read(a,"fromPixels"), read(a,"toPixels"), read(b,"fromPixels"), read(b,"toPixels")) else { continue };
+            let ah = (a0[1]-a1[1]).abs() <= 0.75;
+            let bh = (b0[1]-b1[1]).abs() <= 0.75;
+            let av = (a0[0]-a1[0]).abs() <= 0.75;
+            let bv = (b0[0]-b1[0]).abs() <= 0.75;
+            if !(ah && bh || av && bv) { continue; }
+            let (spacing, start_error, end_error) = if ah && bh {
+                ((a0[1]-b0[1]).abs(), (a0[0]-b0[0]).abs(), (a1[0]-b1[0]).abs())
+            } else {
+                ((a0[0]-b0[0]).abs(), (a0[1]-b0[1]).abs(), (a1[1]-b1[1]).abs())
+            };
+            if spacing < min_spacing || spacing > max_spacing || start_error > 1.5 || end_error > 1.5 { continue; }
+            let width_a=(a1[0]-a0[0]).hypot(a1[1]-a0[1]);
+            let width_b=(b1[0]-b0[0]).hypot(b1[1]-b0[1]);
+            if width_a < 3.0 || (width_a-width_b).abs() > 1.5 { continue; }
+            // Avoid pairing gaps from the same physical scan edge.
+            let vertices=[a0,a1,b1,b0];
+            possibilities.push((i,j,vertices,spacing));
+        }
+    }
+    // Do not guess where one raster gap could pair with multiple other edges.
+    let mut counts=vec![0usize;gaps.len()];
+    for (i,j,_,_) in &possibilities { counts[*i]+=1; counts[*j]+=1; }
+    possibilities.into_iter().filter(|(i,j,_,_)|counts[*i]==1 && counts[*j]==1)
+        .take(64).map(|(i,j,outline,spacing)|json!({
+            "sourceGapIndices":[i,j],"outlinePixels":outline,
+            "wallThicknessPixels":spacing,"classification":"paired-through-wall-gap-unverified",
+            "requiresHumanReview":true
+        })).collect()
+}
+
 /// Shared non-mutating vectorization used by MCP and the desktop GUI.
 pub fn preview(args: &Value) -> Result<Value, String> {
     let path = args["path"].as_str().filter(|s| !s.trim().is_empty()).ok_or("path is required")?;
@@ -537,6 +581,31 @@ pub fn preview(args: &Value) -> Result<Value, String> {
         gap["toCAD"]=to_cad;
         gap["widthCAD"]=json!(width);
     }
+    let paired_enabled=args["pairedWallOpeningHints"].as_bool().unwrap_or(false);
+    if paired_enabled && !args["openingGapHints"].as_bool().unwrap_or(false) {
+        return Err("pairedWallOpeningHints requires openingGapHints=true; no CAD changes made".into());
+    }
+    let mut paired_openings=if paired_enabled {
+        paired_wall_openings(&gaps_hint,2.0,40.0)
+    } else {Vec::new()};
+    for opening in &mut paired_openings {
+        let Some(points)=opening["outlinePixels"].as_array() else {continue};
+        let mut cad=Vec::new();
+        for p in points {
+            let (Some(x),Some(y))=(p[0].as_f64(),p[1].as_f64()) else {return Err("Invalid opening guide coordinates".into())};
+            let (wx,wy)=(ox+x*scale,oy+(f64::from(height)-y)*scale);
+            if !wx.is_finite() || !wy.is_finite() || wx.abs()>1.0e12 || wy.abs()>1.0e12 {
+                return Err("Opening guide CAD coordinates exceed safe bounds; no CAD changes made".into());
+            }
+            cad.push(json!([wx,wy]));
+        }
+        opening["outlineCAD"]=json!(cad);
+        opening["wallThicknessCAD"]=json!(opening["wallThicknessPixels"].as_f64().unwrap_or(0.0)*scale);
+    }
+    let create_opening_guides=args["createOpeningGuidePolylines"].as_bool().unwrap_or(false);
+    if create_opening_guides && (!paired_enabled || !args["confirmOpeningGuides"].as_bool().unwrap_or(false)) {
+        return Err("createOpeningGuidePolylines requires pairedWallOpeningHints=true and confirmOpeningGuides=true; no CAD changes made".into());
+    }
     let source_strokes = lines.len();
     let bridged_gaps = bridge_collinear_gaps(&mut lines, gap_pixels as f64);
     // Pixel spacing is user-calibrated. Keep narrow, finite limits so the
@@ -599,6 +668,9 @@ pub fn preview(args: &Value) -> Result<Value, String> {
         "imageSize":[width,height],"strokes":count,"sourceStrokes":source_strokes,
         "bridgedGaps":bridged_gaps,"maxGapPixels":gap_pixels,
         "openingGapCandidates":gaps_hint,"openingGapCandidateCount":gaps_hint.len(),
+        "pairedWallOpeningCandidates":paired_openings,"pairedWallOpeningCandidateCount":paired_openings.len(),
+        "openingGuidePolylines":if create_opening_guides {paired_openings.iter().map(|v|v["outlineCAD"].clone()).collect::<Vec<_>>()} else {Vec::new()},
+        "openingGuidePolylinesRequested":create_opening_guides,
         "minOpeningGapPixels":opening_min,"maxOpeningGapPixels":opening_max,
         "wallPairHints":wall_hints,"wallPairCandidateCount":wall_hints.len(),
         "minWallSpacingPixels":min_wall_spacing,"maxWallSpacingPixels":max_wall_spacing,
@@ -617,7 +689,8 @@ pub fn run(b: &mut dyn Backend, args: &Value) -> Result<Value, String> {
     let Some(world) = proposal["lines"].as_array() else { return Err("Raster preview has no CAD lines".to_string()) };
     let rectangles = proposal["closedPolylines"].as_array().cloned().unwrap_or_default();
     let axes=proposal["wallCenterlines"].as_array().cloned().unwrap_or_default();
-    if world.is_empty() && rectangles.is_empty() && axes.is_empty() { return Err("No vector strokes detected; no CAD changes made".into()); }
+    let opening_guides=proposal["openingGuidePolylines"].as_array().cloned().unwrap_or_default();
+    if world.is_empty() && rectangles.is_empty() && axes.is_empty() && opening_guides.is_empty() { return Err("No vector strokes detected; no CAD changes made".into()); }
     // Never end a group that another command/user already opened. The caller
     // must have a clean command prompt and full Undo support.
     let state = b.call("drawing.inspect", json!({"entities":false}))?;
@@ -637,7 +710,8 @@ pub fn run(b: &mut dyn Backend, args: &Value) -> Result<Value, String> {
     let mut failure = None;
     let operations: Vec<(&str, Value)> = rectangles.iter().map(|v| ("pline", json!({"vertices":v,"closed":true})))
         .chain(world.iter().map(|v| ("line",json!({"points":v}))))
-        .chain(axes.iter().map(|v| ("line",json!({"points":v})))).collect();
+        .chain(axes.iter().map(|v| ("line",json!({"points":v}))))
+        .chain(opening_guides.iter().map(|v| ("pline",json!({"vertices":v,"closed":true})))).collect();
     for (command_id, params) in operations {
         // Guard against an asynchronous document switch or external edit in a
         // connected GUI while the MCP agent is sending its line commands.
@@ -693,7 +767,7 @@ pub fn run(b: &mut dyn Backend, args: &Value) -> Result<Value, String> {
     }
     Ok(json!({"preview":false,"recognition":"automatic-raster-line-strokes",
         "imageSize":proposal["imageSize"],"strokes":proposal["strokes"],
-        "rectanglesDetected":proposal["rectanglesDetected"],"closedPolylinesCreated":rectangles.len(),
+        "rectanglesDetected":proposal["rectanglesDetected"],"closedPolylinesCreated":rectangles.len(),"openingGuidePolylinesCreated":opening_guides.len(),
         "wallCenterlinesCreated":axes.len(),
         "editableEntitiesCreated":handles.len(),
         "entities":handles,"source":proposal["source"],
@@ -735,6 +809,24 @@ mod tests {
         let valid=preview(&json!({"path":path.to_string_lossy(),"maxGapPixels":0}));
         let _=std::fs::remove_file(path);
         assert!(valid.is_ok(),"explicit zero must still disable bridging: {valid:?}");
+    }
+
+    #[test]
+    fn ai_two_aligned_wall_edge_gaps_propose_one_opening_outline() {
+        let gap=|y:f64|json!({"fromPixels":[25.0,y],"toPixels":[35.0,y],"gapPixels":10.0});
+        let result=paired_wall_openings(&[gap(10.0),gap(16.0)],2.0,40.0);
+        assert_eq!(result.len(),1);
+        assert_eq!(result[0]["outlinePixels"],json!([[25.0,10.0],[35.0,10.0],[35.0,16.0],[25.0,16.0]]));
+        assert_eq!(result[0]["wallThicknessPixels"],6.0);
+        assert_eq!(result[0]["classification"],"paired-through-wall-gap-unverified");
+    }
+
+    #[test]
+    fn ai_single_or_ambiguous_opening_gap_must_not_invent_a_door() {
+        let gap=|start:f64,end:f64,y:f64|json!({"fromPixels":[start,y],"toPixels":[end,y]});
+        assert!(paired_wall_openings(&[gap(25.0,35.0,10.0)],2.0,40.0).is_empty());
+        assert!(paired_wall_openings(&[gap(25.0,35.0,10.0),gap(25.0,35.0,16.0),gap(25.0,35.0,18.0)],2.0,40.0).is_empty());
+        assert!(paired_wall_openings(&[gap(25.0,35.0,10.0),gap(41.0,51.0,16.0)],2.0,40.0).is_empty());
     }
 
     #[test]
