@@ -54,3 +54,18 @@ Lưu ý: hiện bước ghi nhiều đối tượng **chưa phải giao dịch t
 3. Hiệu chỉnh kích thước/tỷ lệ bằng điểm kiểm soát; dựng Layer và đối tượng CAD theo ngữ nghĩa.
 4. Tương tác chọn vùng ảnh ngay trên canvas, hiển thị lớp nét xem trước, xác nhận và Undo một lượt.
 5. Kiểm thử CAD GUI và vòng mở/sửa/lưu DXF/DWG độc lập trong AutoCAD.
+
+## Thao tác trực tiếp trên giao diện CAD 360 (bổ sung mã V1.025)
+
+Bên cạnh MCP, desktop đã bổ sung nút **AI TỪ ẢNH → CAD** trên thanh điều khiển tab CAD.
+
+1. Mở CAD 360, vào tab **CAD**, chọn **AI TỪ ẢNH → CAD**.
+2. Chọn tệp PNG/JPG từ máy. Giữ `Nét tối thiểu` khoảng 16–20 pixel cho lần thử đầu, rồi nhập tỷ lệ `Đơn vị CAD/pixel` theo kích thước đo kiểm.
+3. Chọn **Nét 45°** và khi cần, **Góc bất kỳ (thử nghiệm)**. Chế độ góc bất kỳ có thể bỏ qua nét giao nhánh/chồng lấn vì thuật toán cố tình không suy đoán cấu kiện.
+4. Bấm **1. Nhận dạng và xem trước**. Các đoạn nét được vẽ minh họa trong hộp thoại theo tọa độ CAD và chưa làm thay đổi bản vẽ.
+5. Kiểm tra các nét và tỷ lệ. Bấm **2. Tạo LINE chỉnh sửa trong CAD** để thực sự đưa nét vào tài liệu CAD đang mở.
+6. Kiểm tra đối tượng LINE, chọn/sửa/lưu DWG hoặc DXF bằng chức năng CAD thông thường.
+
+**Trạng thái nghiệm thu:** Các bước trên đã được lập trình, nhưng chưa có chứng cứ CI Windows PASS hoặc ảnh chụp xác nhận bản EXE mới chạy đạt yêu cầu. Không nhầm hình xem trước trong cửa sổ AI với lớp phủ trực tiếp lên canvas; phần overlay tương tác/chọn vùng ngay trên canvas vẫn cần triển khai.
+
+**Giới hạn:** Quá trình tạo nhiều LINE hiện chưa bảo đảm tính nguyên tử toàn bộ. Hãy thực hiện trên bản sao bản vẽ và kiểm tra kết quả trước khi lưu. Không nhận diện ngữ nghĩa tường, cửa, cột, phòng hoặc kích thước như phần mềm AI thị giác chuyên dụng.
