@@ -18,7 +18,7 @@ concurrency:
 
 jobs:
   gui-startup:
-    name: Verify released V1.025 portable GUI starts on Windows
+    name: Verify released V1.025 Portable and Setup GUI startup on Windows
     runs-on: windows-latest
     timeout-minutes: 20
     steps:
@@ -56,6 +56,8 @@ jobs:
           $hash | Set-Content 'dist/gui-smoke/portable-sha256.txt' -Encoding ascii
 
       - name: Start real Windows GUI and observe top-level window
+        id: portable_gui
+        continue-on-error: true
         shell: pwsh
         run: |
           & './scripts/qa/Test-CADTBT360-V1025-GuiStartup.ps1' -Executable './dist/gui-smoke/portable/CADTBT360.exe' -EvidenceDirectory './dist/gui-smoke/evidence' -WaitSeconds 35
@@ -92,6 +94,8 @@ jobs:
           $dest | Set-Content 'dist/gui-smoke/installed-directory.txt'
 
       - name: Start installed Setup GUI and observe top-level window
+        id: installed_gui
+        continue-on-error: true
         shell: pwsh
         run: |
           $dest = Get-Content 'dist/gui-smoke/installed-directory.txt' -Raw
@@ -109,6 +113,27 @@ jobs:
               $p = Start-Process -FilePath $uninstaller -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART') -Wait -PassThru
               if ($p.ExitCode -ne 0) { throw "Setup uninstaller failed with exit $($p.ExitCode)" }
             }
+          }
+
+      - name: Report startup acceptance gate for both package types
+        if: ${{ always() }}
+        shell: pwsh
+        env:
+          PORTABLE_OUTCOME: ${{ steps.portable_gui.outcome }}
+          INSTALLED_OUTCOME: ${{ steps.installed_gui.outcome }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $summary = @(
+            '## CAD 360 V1.025 B87 - Windows GUI startup results',
+            "- Portable GUI startup: $env:PORTABLE_OUTCOME",
+            "- Installed Setup GUI startup: $env:INSTALLED_OUTCOME",
+            '- GUI manual acceptance: NOT_VERIFIED',
+            '- AutoCAD independent DWG interoperability: NOT_VERIFIED'
+          )
+          $summary | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          $summary | ForEach-Object { Write-Host $_ }
+          if ($env:PORTABLE_OUTCOME -ne 'success' -or $env:INSTALLED_OUTCOME -ne 'success') {
+            throw 'V1.025 GUI startup gate did not pass for both Portable and Setup; inspect uploaded evidence.'
           }
 
       - name: Upload actual GUI startup evidence even on failure
