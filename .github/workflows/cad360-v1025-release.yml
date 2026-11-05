@@ -165,6 +165,15 @@ jobs:
           foreach ($exe in @('target/release/cadcraft.exe', 'target/release/cadcraft-cli.exe')) {
             if (!(Test-Path $exe)) { throw "Missing freshly built binary: $exe" }
           }
+          # Verify the bytes of the freshly compiled GUI, not only the Rust source.
+          # The desktop displays a full embedded SHA in its build-info tooltip and
+          # CADTBT360_V1.025 in the workspace header. A stale/cached EXE must fail.
+          $nativeGui = 'target/release/cadcraft.exe'
+          $nativeGuiText = [System.Text.Encoding]::ASCII.GetString([System.IO.File]::ReadAllBytes((Resolve-Path $nativeGui).Path))
+          if (-not $nativeGuiText.Contains('CADTBT360_V1.025')) { throw 'Compiled Windows GUI EXE lacks the V1.025 version indicator' }
+          if (-not $nativeGuiText.Contains($env:GITHUB_SHA)) { throw "Compiled Windows GUI EXE lacks exact embedded source commit $env:GITHUB_SHA" }
+          Remove-Variable nativeGuiText
+          Write-Host "Verified native Windows GUI embeds V1.025 and full source commit $env:GITHUB_SHA"
 
       - name: Install Inno Setup and create version metadata
         id: prepare_installer
