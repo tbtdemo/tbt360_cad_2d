@@ -1686,3 +1686,27 @@ Mục tiêu quan trọng nhất của đợt này là chuyển từ việc **ch�
 5. Xem GitHub Actions theo **đúng SHA commit cuối**, bắt buộc xác nhận Compile, Regression, Windows Packaging và Installed Smoke PASS trước khi coi bản cài được nghiệm thu.
 
 **Trạng thái đợt 225:** Đã cập nhật mã gợi ý kiểm tra đầu tường T/X và hiển thị trên GUI; các hành động chỉnh sửa thực tế vẫn bị khóa, chưa có xác nhận Windows CI PASS. Phần xử lý Trim/Extend và Undo tự động sẽ chỉ được triển khai sau khi xác định ranh giới thay đổi, nguồn đối tượng và kiểm thử rollback.
+
+
+## 66. Đợt 226 — Mô phỏng hình học đầu tường trước/sau tại nút giao T
+
+### Bài 115 — Đọc và đối chiếu phương án Snap/Extend ngắn ngay trên Preview
+
+1. Mở CAD 360 → AI từ ảnh → CAD; chọn ảnh mặt bằng đủ rõ, hiệu chuẩn tỷ lệ bằng `unitsPerPixel`.
+2. Bật gợi ý cặp nét tường và gợi ý dải tường; bật nhận diện khoảng mở và cột nếu bản vẽ có các thành phần đó. Nhấn **1. Nhận dạng và xem trước**.
+3. Click nút giao T trên Preview hoặc chọn trong danh sách. Với đầu tường còn lệch nút giao không quá 1 pixel và lớn hơn 0,05 pixel, một phương án `editPreview` sẽ hiển thị, chỉ khi không chạm vùng bảo vệ cửa/cột.
+4. Dấu đỏ là tọa độ đầu tường cũ (`beforeCAD`); dấu xanh là vị trí giả định tại nút T (`afterCAD`); đoạn cam nối hai dấu thể hiện sai lệch. Đây là **mô phỏng**, không phải đối tượng CAD mới.
+5. Danh sách cho biết chỉ số tường gốc, độ dịch chuyển `distanceCAD` và số phương án hình học hợp lệ. Khi đầu tường đã khớp (lệch không quá 0,05 pixel), AI không tạo thay đổi ảo.
+6. Với nút X xuyên nhau, phần mềm chỉ yêu cầu kiểm tra giao cắt, **không tự cắt** hoặc suy đoán tường ưu tiên. Với nút T, phần mềm cũng chưa tự ghi đè lên hình học nguồn.
+7. Có thể đánh dấu nút đã kiểm tra, nhưng `canAutoApply=false` luôn được giữ. Không xuất hay coi Preview này là bản CAD đã được cập nhật.
+
+### Bài 116 — Kiểm thử trước/sau, vùng bảo vệ và kiểm soát Undo
+
+1. Tại thư mục `CADTBT360_V1.000`, chạy `cargo test --locked -p cadcraft-mcp --lib ai_wall_panel_junction_qa_detects_t_and_cross_and_ignores_opening_or_column -- --nocapture`.
+2. Kiểm tra nút T đã khớp trả `editPreview=[]`; nút T còn cách 0,5 pixel trả đúng một phương án `beforePixels`, `afterPixels`, `distancePixels=0.5` và `canAutoApply=false`.
+3. Kiểm tra vùng cửa/cột che nút T làm loại bỏ đề xuất; nút X chỉ có `proposedEditAction=review-crossing-overlap-without-edit`, không tạo phương án Trim tự động.
+4. Chạy `cargo check --locked -p cadcraft --bin cadcraft` và `cargo check --locked -p cadcraft --tests`, sau đó kiểm tra Windows CI trên đúng commit cuối.
+5. Xác minh rằng thao tác chọn một nút, vẽ đường mô phỏng trên Preview hoặc đánh dấu QA không làm tăng `editableEntitiesCreated`, không mở giao dịch Undo và không thay đổi LINE, PLINE, BLOCK, cửa/cột nguồn.
+6. Bộ cài Windows chỉ được nghiệm thu sau khi đầy đủ compile, regression test, đóng gói và installed smoke PASS. Các thay đổi mới được commit không tự động đồng nghĩa EXE đã sẵn sàng.
+
+**Trạng thái đợt 226:** Đã viết mã dữ liệu mô phỏng endpoint T, chuyển tọa độ CAD, hiển thị đoạn cam trước/sau và bổ sung kiểm thử. Chưa triển khai lệnh tự sửa đầu tường, giao dịch Undo cho các phương án và chưa xác nhận Windows CI PASS.
