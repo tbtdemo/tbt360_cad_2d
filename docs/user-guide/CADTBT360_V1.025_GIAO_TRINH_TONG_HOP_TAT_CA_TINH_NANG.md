@@ -1594,3 +1594,27 @@ Mục tiêu quan trọng nhất của đợt này là chuyển từ việc **ch�
 7. Tiếp tục cần phân loại mức độ tin cậy, liên kết đối tượng ổn định qua các lần nhận dạng, kiểm soát lưu/mở DWG và thao tác chỉnh sửa kích thước Block tường/cửa/khung theo ý người dùng.
 
 **Trạng thái đợt 221:** Đã cập nhật mã QA tiếp xúc đầu mút tường–khoảng mở–cột, thông tin giao diện, bài kiểm thử PNG và chốt CI; đã sửa nguyên nhân biên dịch `json!` của đợt 220. Chưa xác nhận Windows CI PASS hoặc tạo topology/BIM hoàn chỉnh.
+
+
+## 62. Đợt 222 — AI kiểm tra nút giao tường T/X, không tự nối qua cửa hoặc cột
+
+### Bài 107 — Phân tích nút giao T/X giữa các dải tường đã nhận dạng
+
+1. Mở CAD 360 → **AI từ ảnh → CAD**, chọn ảnh PNG/JPG có các dải tường giao vuông góc; hiệu chuẩn tỷ lệ `unitsPerPixel`.
+2. Bật `wallPairHints=true`, `wallPanelHints=true` và chạy Preview. Bật thêm `openingGapHints`/`pairedWallOpeningHints` và `columnHatchHints` nếu mặt bằng có cửa/cột cần bảo vệ.
+3. AI lấy các ứng viên dải tường từ hai mép thực có, sau đó dựng tim hình học **chỉ để kiểm tra**. Tại giao của hai tim vuông góc, nếu một tim kết thúc ở tim kia, hệ thống ghi `T-candidate`; nếu cả hai đi xuyên qua nhau, ghi `cross-candidate`.
+4. Đọc `wallPanelJunctionCount` và `wallPanelJunctionCandidates`: mỗi nút có `panelIndices`, `pointPixels`, `kind`, `classification=observed-wall-panel-junction-preview-only`.
+5. Giao diện AI hiển thị danh sách nút giao nghi T/X theo số thứ tự dải tường; đây là gợi ý QA, không tự vẽ liên kết, không cắt nối và không gộp BLOCK.
+6. Nếu vị trí nút giao nằm trong đường bao ứng viên khoảng mở cửa hoặc cột, hệ thống không đề xuất nút giao T/X tại vị trí đó để tránh lấy nhầm một cấu kiện hoặc cửa thành giao tường.
+7. Các đường bao tường, khoảng cửa và hình học từ ảnh giữ nguyên sau Preview. Người dùng cần đối chiếu bản vẽ kiến trúc/kết cấu trước khi cho phép bất kỳ thao tác chỉnh sửa thực tế nào.
+
+### Bài 108 — Kiểm thử T/X, bảo toàn khoảng mở và trạng thái Windows Build
+
+1. Chạy `cargo test --locked -p cadcraft-mcp --lib ai_wall_panel_junction_qa_detects_t_and_cross_and_ignores_opening_or_column -- --nocapture`. Hai dải tường tạo giao dạng T phải nhận `T-candidate`; hai dải xuyên nhau nhận `cross-candidate`; vùng cửa/cột phủ nút phải làm nút đó bị loại khỏi đề xuất.
+2. Chạy `cargo test --locked -p cadcraft --bin cadcraft ai_wall_junction_preview_is_never_a_mutating_request -- --nocapture`: bật gợi ý tường không được tự bật `createWallPanelPolylines`, `createWallBlocks`, `confirmWallPanels` hoặc `confirmWallBlocks`.
+3. Tại Preview, kiểm tra `wallTopologyStatus=preview-only-unverified-no-geometry-joining`, `editableEntitiesCreated=0`; thao tác QA chỉ trả dữ liệu, không tự vẽ thêm LINE/PLINE/BLOCK hoặc làm thay đổi khoảng cửa.
+4. Windows CI thực thi hai bài kiểm thử mới trong `.github/workflows/cad360-v1025-release.yml`; cần xác minh **đúng commit SHA** hoàn thành PASS. Không coi việc đã bổ sung test là đã nghiệm thu Windows EXE.
+5. Kiểm thử trên ảnh mặt bằng thực tế với nút giao T/X, tường ngắt bởi cửa, cột ở góc giao, nét CAD nhiều lớp và hình học thiếu; hiện chưa suy ra topology kiến trúc tự động, chưa tách/trim tường, chưa tạo ràng buộc kích thước hay quan hệ BIM.
+6. Chức năng tạo PLINE/BLOCK tường của Bài 101–104 vẫn phải được người dùng xem Preview và xác nhận riêng. Không dùng thông tin nút giao T/X để lách cơ chế kiểm soát này.
+
+**Trạng thái đợt 222:** Đã bổ sung mã QA nút giao T/X theo tim các ứng viên tường, loại trường hợp trùng vùng cửa/cột; GUI hiển thị danh sách; thêm bài kiểm thử CI. Đây là bước kiểm chứng hình học Preview-only, chưa tự dựng liên kết tường và chưa có xác nhận Windows CI PASS.
