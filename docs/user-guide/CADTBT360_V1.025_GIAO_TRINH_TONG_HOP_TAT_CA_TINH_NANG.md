@@ -1569,3 +1569,28 @@ Mục tiêu quan trọng nhất của đợt này là chuyển từ việc **ch�
 7. Những phần cần phát triển tiếp: Block động thay đổi chiều dài/bề dày, tường cong/chéo, nút giao T/X, tường đổi bề dày, quan hệ thực thể với cột/cửa đi/cửa sổ và liên kết thuộc tính kiến trúc/BIM.
 
 **Trạng thái đợt 220:** Đã bổ sung mã dựng BLOCK/INSERT tường CAD theo ứng viên PLINE có xác nhận, bài kiểm thử PNG, GUI và Undo. Chưa xác nhận Windows CI PASS hoặc chức năng BIM thông minh.
+
+
+## 61. Đợt 221 — QA quan hệ hình học tường–khoảng mở–cột và sửa lỗi biên dịch GUI
+
+### Bài 105 — Kiểm tra hai đầu dải tường tiếp xúc cửa đi/cửa sổ hoặc cột
+
+1. Mở **CAD 360 → AI từ ảnh → CAD**, chọn ảnh PNG/JPG mặt bằng có hai mép tường và khoảng hở cửa. Hiệu chuẩn `unitsPerPixel`, giới hạn khoảng cách mép tường.
+2. Bật `wallPairHints=true`, `wallPanelHints=true`, `openingGapHints=true` và `pairedWallOpeningHints=true`. Nếu có ký hiệu cột hatch chữ thập, bật thêm `columnHatchHints=true`. Nhấn **Nhận dạng và xem trước**.
+3. Ngoài các `wallPanelCandidates` màu cam, giao diện hiển thị **QA đầu mút** và số lần tiếp xúc nghi vấn với ứng viên khoảng mở/cột. Các chỉ số của từng panel được xem trong `wallPanelBoundaryContacts`.
+4. Mỗi dải tường có `panelIndex`, `startPixels`, `endPixels`, `startContacts`, `endContacts`; một tiếp xúc ghi `kind=opening` hoặc `kind=column`, `candidateIndex`, `classification=boundary-touch-only-unverified`.
+5. Ví dụ một cửa nằm giữa hai dải tường, đầu cuối tường trái và đầu đầu tường phải có thể cùng chạm biên khoảng mở. Đây là dấu hiệu để kỹ thuật viên kiểm tra cửa, **không đồng nghĩa phần mềm đã gắn cửa vào tường**.
+6. `wallTopologyStatus=preview-only-unverified-no-geometry-joining` nhấn mạnh thuật toán **không tự kéo dài, nối, cắt, hợp nhất hoặc xóa** bất kỳ nét ảnh hay Block CAD nào. Các dải tường trước/sau kiểm tra giữ nguyên.
+7. Khi rà soát thấy cửa hoặc cột không đúng, người dùng chỉnh lại phạm vi nhận dạng/tỷ lệ và xem Preview trước khi chọn tạo PLINE/BLOCK. Chưa tự động cập nhật quan hệ topology trong bản vẽ.
+
+### Bài 106 — Kiểm thử an toàn hình học và sửa lỗi `json!` trong Windows CI
+
+1. Đợt 220 có Windows CI FAILED tại `apps/cadcraft/src/ai_raster_panel.rs` do `recursion limit reached while expanding serde_json::json_internal!` trong hàm `params()`, không phải lỗi nghiệm thu đối tượng tường. Bản sửa đợt 221 chia JSON tham số GUI thành các nhóm nhỏ, hợp nhất qua `serde_json::Map`, không tăng giới hạn đệ quy toàn crate.
+2. Chạy `cargo test --locked -p cadcraft-mcp --lib ai_wall_panel_contact_qa_reports_both_sides_of_opening_without_joining_wall_geometry -- --nocapture`. Kiểm tra đầu hai dải tường tiếp xúc đúng khoảng mở; ứng viên cột chỉ xuất hiện dưới dạng tiếp xúc hình học; dữ liệu dải tường nguồn không thay đổi.
+3. Chạy `cargo test --locked -p cadcraft-mcp --lib ai_real_png_wall_opening_contact_qa_is_preview_only -- --nocapture`. Ảnh PNG mẫu có một khoảng mở, hai dải tường, hai tiếp xúc đầu mút; kết quả `editableEntitiesCreated=0`.
+4. Kiểm tra rằng `wallPanelPolylineCount=0` khi không chọn tạo PLINE. Tất cả hành động tạo PLINE/BLOCK tường của đợt 219–220 vẫn phải được xác nhận riêng.
+5. Trên Windows, chạy bước preflight biên dịch CLI/GUI và toàn bộ test AI trong `.github/workflows/cad360-v1025-release.yml`. Không tuyên bố PASS khi chưa có run completed/success của đúng SHA.
+6. Kiểm tra thử nghiệm EXE trên các mặt bằng thực tế, đặc biệt nút giao T/X, vùng cột chồng tường, cửa sổ có nét khung và đối tượng nhiễu. QA hiện mới là kiểm tra tiếp xúc biên theo hình học phẳng, chưa phải topology kiến trúc, chưa suy luận quan hệ BIM.
+7. Tiếp tục cần phân loại mức độ tin cậy, liên kết đối tượng ổn định qua các lần nhận dạng, kiểm soát lưu/mở DWG và thao tác chỉnh sửa kích thước Block tường/cửa/khung theo ý người dùng.
+
+**Trạng thái đợt 221:** Đã cập nhật mã QA tiếp xúc đầu mút tường–khoảng mở–cột, thông tin giao diện, bài kiểm thử PNG và chốt CI; đã sửa nguyên nhân biên dịch `json!` của đợt 220. Chưa xác nhận Windows CI PASS hoặc tạo topology/BIM hoàn chỉnh.
