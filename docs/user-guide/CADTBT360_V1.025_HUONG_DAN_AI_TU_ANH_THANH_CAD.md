@@ -226,3 +226,25 @@ Script `scripts/verify_mcp_executable.ps1` hiện tạo ảnh PNG 64 × 32 pixel
 Workflow `.github/workflows/cad360-v1025-release.yml` được cấu hình tự chạy khi thay đổi `scripts/verify_mcp_executable.ps1`, `scripts/validate_mcp_smoke_fixture.py`, hoặc bất kỳ tài liệu nào trong `docs/user-guide/`. Điều này giúp tránh phát hành tài liệu không đồng bộ với mã nguồn đang nghiệm thu.
 
 **Giới hạn nghiệm thu:** Kiểm tra PNG chính xác và cập nhật script/CI **không đồng nghĩa** Windows build đã PASS. Cần có job thành công, bộ cài phát hành và thử GUI/AutoCAD độc lập trước khi ghi trạng thái đạt nghiệm thu.
+
+
+## 14. Đợt nâng cấp 175 — Kiểm tra ảnh mẫu ngay đầu Windows CI
+
+**Thay đổi mới:** Workflow chạy `scripts/validate_mcp_smoke_fixture.py` **trước khi tải/biên dịch Rust**. Nếu ảnh PNG Base64 bị sửa nhầm, checksum chunk không hợp lệ hoặc nét đen không đúng dữ liệu kiểm thử, bước này báo lỗi sớm mà không tạo bộ cài giả đạt.
+
+### Hướng dẫn kiểm tra từng bước
+
+1. Mở PowerShell tại thư mục gốc của mã nguồn CAD 360 V1.025.
+2. Kiểm tra Python: `python --version` (workflow sử dụng Python 3.12).
+3. Chạy lệnh `python scripts/validate_mcp_smoke_fixture.py scripts/verify_mcp_executable.ps1`.
+4. Kết quả kỳ vọng: `PASS: valid PNG 64x32 RGB8; one horizontal 51-pixel black stroke`.
+5. Nếu lỗi **Base64**: kiểm tra chuỗi `$pngBase64` trong `scripts/verify_mcp_executable.ps1`; không tùy tiện sửa nếu chưa tạo và kiểm tra lại ảnh.
+6. Nếu lỗi **CRC**: tệp PNG đã hỏng; tái tạo ảnh gốc rồi chạy lại script xác thực.
+7. Nếu lỗi **pixel**: ảnh mẫu không còn đúng một nét ngang đen 51 pixel; điều chỉnh ảnh thử hoặc thay đổi kỳ vọng kiểm thử có kiểm soát.
+8. Chỉ khi bước kiểm tra trên đạt, Windows workflow mới tiếp tục Cargo preflight, các bài test AI/MCP, build Release, cài Setup và kiểm chứng Portable.
+
+### Cách theo dõi nghiệm thu
+
+Trong GitHub Actions, mở workflow **CAD 360 V1.025 - Windows Setup Portable**. Kiểm tra bước `Validate embedded image fixture before Rust compilation`, sau đó các bước **Preflight**, **Require image-to-CAD regression**, **Build**, **Smoke test installed application** và **Verify portable archive**. Các trạng thái chỉ có ý nghĩa khi toàn bộ lượt chạy hoàn thành thành công; dấu tích từng bước không thay thế kiểm thử giao diện thực tế.
+
+**Giới hạn:** Chưa xác minh có lượt Windows CI hoàn tất PASS cho mã mới; chưa có ảnh chụp GUI thật hoặc kiểm chứng DWG bằng AutoCAD độc lập. Đợt 175 mới cập nhật quy trình kiểm thử sớm và hướng dẫn xử lý lỗi.
