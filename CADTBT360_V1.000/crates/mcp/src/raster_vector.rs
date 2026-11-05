@@ -404,8 +404,14 @@ pub fn preview(args: &Value) -> Result<Value, String> {
     let bridged_gaps = bridge_collinear_gaps(&mut lines, gap_pixels as f64);
     // Pixel spacing is user-calibrated. Keep narrow, finite limits so the
     // detector cannot silently match opposite room edges or huge image spans.
-    let min_wall_spacing=args["minWallSpacingPixels"].as_f64().unwrap_or(2.0);
-    let max_wall_spacing=args["maxWallSpacingPixels"].as_f64().unwrap_or(40.0);
+    let numeric_spacing = |key: &str, fallback: f64| -> Result<f64, String> {
+        match args.get(key) {
+            None => Ok(fallback),
+            Some(value) => value.as_f64().ok_or_else(|| format!("{key}: wall edge pixel spacing must be a number")),
+        }
+    };
+    let min_wall_spacing=numeric_spacing("minWallSpacingPixels",2.0)?;
+    let max_wall_spacing=numeric_spacing("maxWallSpacingPixels",40.0)?;
     if !min_wall_spacing.is_finite() || !max_wall_spacing.is_finite()
         || min_wall_spacing < 1.0 || max_wall_spacing > 80.0
         || max_wall_spacing < min_wall_spacing {
