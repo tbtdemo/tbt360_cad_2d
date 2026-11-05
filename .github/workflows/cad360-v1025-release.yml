@@ -141,6 +141,7 @@ jobs:
             @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_wall_junction_preview_finds_t_and_cross_candidates_without_drawing' },
             @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_wall_junction_refuses_disjoint_and_tip_only_lines' },
             @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_opening_gap_hints_preserve_unjoined_wall_segments' },
+            @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_opening_gap_real_png_refuses_to_bridge_possible_door' },
             @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_opening_gap_hints_ignore_parallel_separated_and_touching_lines' },
             @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_wall_centerline_real_png_keeps_both_edges_and_adds_editable_centerline' },
             @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_wall_centerline_rejects_creation_without_hint_review' },
@@ -204,6 +205,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'V1.025 AI DXF persistence failed' }
           cargo test --locked -p cadcraft-mcp --lib ai_mcp_rectangle_png_creates_closed_polyline_and_single_undo -- --nocapture
           if ($LASTEXITCODE -ne 0) { throw 'V1.025 MCP Agent failed to create/Undo editable closed rectangle polyline' }
+          cargo test --locked -p cadcraft-mcp --lib ai_opening_gap_real_png_refuses_to_bridge_possible_door -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'AI cannot preserve opening when gap bridging is simultaneously enabled' }
           cargo test --locked -p cadcraft-mcp --lib ai_opening_gap_hints_ -- --nocapture
           if ($LASTEXITCODE -ne 0) { throw 'AI opening gap must stay non-destructive and exclude unrelated geometry' }
           cargo test --locked -p cadcraft-mcp --lib ai_wall_junction_ -- --nocapture
