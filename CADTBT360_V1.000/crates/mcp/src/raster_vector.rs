@@ -734,12 +734,31 @@ pub fn preview(args: &Value) -> Result<Value, String> {
             Some(width)
         }
     };
+    // Per-candidate reviewed widths take precedence over the optional common width.
+    // Keys are zero-based preview candidate indices; fail closed on stale/invalid indices.
+    let mut widths_by_door=std::collections::BTreeMap::<usize,f64>::new();
+    if let Some(value)=args.get("doorWidthOverridesCAD") {
+        if !create_door_blocks {return Err("doorWidthOverridesCAD requires reviewed createDoorBlocks=true; no edits made".into());}
+        let fields=value.as_object().ok_or("doorWidthOverridesCAD must be an object keyed by zero-based door index; no edits made")?;
+        if fields.len()>64 {return Err("doorWidthOverridesCAD supports at most 64 reviewed doors; no edits made".into());}
+        for (key,value) in fields {
+            let index=key.parse::<usize>().map_err(|_|format!("doorWidthOverridesCAD key {key:?} must be a zero-based door index"))?;
+            if index.to_string()!=*key || index>=door_arcs.len() {
+                return Err(format!("doorWidthOverridesCAD index {key:?} is not a current Preview door; no edits made"));
+            }
+            let width=value.as_f64().ok_or_else(||format!("doorWidthOverridesCAD[{key}] must be a positive finite number"))?;
+            if !width.is_finite() || !(0.000001..=1_000_000_000.0).contains(&width) {
+                return Err(format!("doorWidthOverridesCAD[{key}] must be within 0.000001..1000000000 CAD units; no edits made"));
+            }
+            widths_by_door.insert(index,width);
+        }
+    }
     let mut door_blocks=Vec::new();
     if create_door_blocks {
-        for arc in &door_arcs {
+        for (door_index,arc) in door_arcs.iter().enumerate() {
             let (Some(cx),Some(cy),Some(radius),Some(start))=(arc["center"][0].as_f64(),arc["center"][1].as_f64(),
                 arc["radius"].as_f64(),arc["start"].as_f64()) else {continue};
-            let reviewed_radius=override_width.unwrap_or(radius);
+            let reviewed_radius=widths_by_door.get(&door_index).copied().or(override_width).unwrap_or(radius);
             let angle=start.to_radians();
             let x=cx+reviewed_radius*angle.cos(); let y=cy+reviewed_radius*angle.sin();
             if !x.is_finite() || !y.is_finite() || x.abs()>1.0e12 || y.abs()>1.0e12 {
@@ -749,7 +768,7 @@ pub fn preview(args: &Value) -> Result<Value, String> {
             drafted_arc["radius"]=json!(reviewed_radius);
             door_blocks.push(json!({"base":[cx,cy],"leaf":[[cx,cy],[x,y]],"arc":drafted_arc,
                 "widthCAD":reviewed_radius,"sourceOpeningWidthCAD":radius,
-                "widthOverridden":override_width.is_some(),
+                "doorIndex":door_index,"widthOverridden":widths_by_door.contains_key(&door_index) || override_width.is_some(),
                 "classification":"human-confirmed-cad-drafting-block-not-semantic-door"}));
         }
     }
@@ -1038,6 +1057,24 @@ mod tests {
         let current=backend.call("drawing.inspect",json!({"entities":false})).unwrap();
         assert_eq!(current["entityCount"].as_u64(),Some((source_lines+1) as u64));
         let _=std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn ai_per_door_width_override_changes_only_selected_door_geometry_and_rejects_stale_indices() {
+        let gap=|start:f64,end:f64,y:f64|json!({"fromPixels":[start,y],"toPixels":[end,y]});
+        let mut openings=paired_wall_openings(&[
+            gap(39.5,51.5,15.5),gap(39.5,51.5,22.5),
+            gap(79.5,91.5,15.5),gap(79.5,91.5,22.5)
+        ],2.0,40.0);
+        let leaves=[
+            Line{x0:39.5,y0:3.5,x1:39.5,y1:15.5},
+            Line{x0:79.5,y0:3.5,x1:79.5,y1:15.5}
+        ];
+        door_leaf_evidence(&mut openings,&leaves);
+        let arcs=door_swing_arcs(&openings,&leaves,0.0,0.0,48,2.0);
+        assert_eq!(arcs.len(),2,"independent doors must retain a stable preview order");
+        assert_eq!(arcs[0]["radius"],24.0);
+        assert_eq!(arcs[1]["radius"],24.0);
     }
 
     #[test]
