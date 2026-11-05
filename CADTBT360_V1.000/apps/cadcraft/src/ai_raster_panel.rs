@@ -860,6 +860,36 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
                         }
                     }
                 }
+                if failure.is_none() && let Some(drafts)=proposal["columnBlockDrafts"].as_array() {
+                    let uid=cad.session.state().map(|d|d.uid).unwrap_or(0);
+                    let revision=cad.session.state().map(|d|d.revision).unwrap_or(0);
+                    for (index,draft) in drafts.iter().enumerate() {
+                        let mut handles=Vec::new();
+                        match cad.run("pline",json!({"vertices":draft["frame"],"closed":true})) {
+                            Ok(v)=>{created+=1;if let Some(h)=v["handle"].as_str(){handles.push(h.to_string());}
+                                else {failure=Some("AI Column BLOCK: thiếu PLINE handle".into());break;}},
+                            Err(e)=>{failure=Some(e);break;}
+                        }
+                        if let Some(rails)=draft["hatches"].as_array() {
+                            for rail in rails {
+                                match cad.run("line",json!({"points":rail})) {
+                                    Ok(v)=>{created+=1;if let Some(h)=v["handle"].as_str(){handles.push(h.to_string());}
+                                        else {failure=Some("AI Column BLOCK: thiếu LINE handle".into());break;}},
+                                    Err(e)=>{failure=Some(e);break;}
+                                }
+                            }
+                        }
+                        if failure.is_some(){break;}
+                        if handles.len()!=3 {failure=Some("AI Column BLOCK: cần đúng 2 nét hatch và khung".into());break;}
+                        let name=format!("TBT_AI_COLUMN_{}_{}_{}",uid,revision,index+1);
+                        match cad.run("block",json!({"name":name,"base":draft["base"],"handles":handles,
+                            "keep":"convert","description":"Reviewed column-like drawing block; not structural BIM"})) {
+                            Ok(v) if v["insert"].as_str().is_some()=>created+=1,
+                            Ok(_)=>{failure=Some("AI Column BLOCK: thiếu INSERT".into());break;},
+                            Err(e)=>{failure=Some(e);break;}
+                        }
+                    }
+                }
                 if failure.is_none() && let Some(guides) = proposal["columnGuidePolylines"].as_array() {
                     for polygon in guides {
                         match cad.run("pline",json!({"vertices":polygon,"closed":true})) {
@@ -1071,6 +1101,41 @@ mod tests {
         assert_eq!(state.params()["createWindowBlocks"],true);
         assert_eq!(state.params()["confirmWindowBlocks"],true);
         assert_eq!(state.params()["preview"],true);
+    }
+
+    #[test]
+    fn ai_column_block_gui_is_opt_in_and_preserves_preview_mode() {
+        let mut state=State::default();state.open();
+        assert_eq!(state.params()["createColumnBlocks"],false);
+        assert_eq!(state.params()["confirmColumnBlocks"],false);
+        state.column_hatch_hints=true;
+        state.create_column_blocks=true;
+        assert_eq!(state.params()["confirmColumnBlocks"],false);
+        state.confirm_column_blocks=true;
+        assert_eq!(state.params()["createColumnBlocks"],true);
+        assert_eq!(state.params()["confirmColumnBlocks"],true);
+        assert_eq!(state.params()["preview"],true);
+    }
+
+    #[test]
+    fn ai_column_block_engine_convert_has_one_insert_and_one_undo() {
+        let mut engine=cadcraft_engine::Session::new();
+        let before=engine.doc().unwrap().entity_count();
+        engine.state_mut().unwrap().begin_undo_group();
+        let frame=engine.execute("pline",&json!({"vertices":[[10.0,10.0],[42.0,10.0],[42.0,42.0],[10.0,42.0]],"closed":true})).unwrap();
+        let x=engine.execute("line",&json!({"points":[[21.0,26.0],[31.0,26.0]]})).unwrap();
+        let y=engine.execute("line",&json!({"points":[[26.0,21.0],[26.0,31.0]]})).unwrap();
+        let (Some(hf),Some(hx),Some(hy))=(frame["handle"].as_str(),x["handle"].as_str(),y["handle"].as_str())
+            else {panic!("column draft must return handles");};
+        let block=engine.execute("block",&json!({"name":"TBT_AI_COLUMN_TEST","base":[10.0,10.0],
+            "handles":[hf,hx,hy],"keep":"convert"})).unwrap();
+        assert!(block["insert"].as_str().is_some());
+        assert_eq!(engine.doc().unwrap().entity_count(),before+1);
+        assert_eq!(engine.doc().unwrap().block("TBT_AI_COLUMN_TEST").unwrap().entities.len(),3);
+        engine.state_mut().unwrap().end_undo_group();
+        engine.execute("undo",&json!({"count":1})).unwrap();
+        assert_eq!(engine.doc().unwrap().entity_count(),before);
+        assert!(engine.doc().unwrap().block("TBT_AI_COLUMN_TEST").is_none());
     }
 
     #[test]
