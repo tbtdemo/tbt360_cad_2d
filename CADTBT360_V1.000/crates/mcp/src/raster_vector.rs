@@ -1253,9 +1253,6 @@ pub fn preview(args: &Value) -> Result<Value, String> {
         "wallCenterlinesProposed":axes.len(),"wallCenterlines":world_axes,
         "wallCenterlineJunctionCount":junctions.len(),"wallCenterlineJunctions":junctions,
         "wallPanelCandidateCount":wall_panels.len(),
-        "wallPanelContactCount":wall_panel_contacts.iter().map(|v|
-            v["startContacts"].as_array().map_or(0,Vec::len)+v["endContacts"].as_array().map_or(0,Vec::len)).sum::<usize>(),
-        "wallPanelBoundaryContacts":wall_panel_contacts,
         "wallPanelCandidates":wall_panels,
         "wallPanelHintsRequested":wall_panel_hints,
         "wallPanelPolylineCount":wall_panel_polylines.len(),
@@ -1278,8 +1275,14 @@ pub fn preview(args: &Value) -> Result<Value, String> {
         "editableEntitiesCreated":0,"source":path,
         "caution":"Review vectors before committing; line recognition is not semantic building interpretation"
     });
+    let topology=json!({
+        "wallPanelContactCount":wall_panel_contacts.iter().map(|v|
+            v["startContacts"].as_array().map_or(0,Vec::len)+v["endContacts"].as_array().map_or(0,Vec::len)).sum::<usize>(),
+        "wallPanelBoundaryContacts":wall_panel_contacts,
+        "wallTopologyStatus":"preview-only-unverified-no-geometry-joining"
+    });
     let Some(dst)=result.as_object_mut() else {unreachable!("preview JSON is an object")};
-    for extra in [architectural,geometry] {
+    for extra in [architectural,geometry,topology] {
         let Value::Object(fields)=extra else {unreachable!("preview JSON section is an object")};
         dst.extend(fields);
     }
