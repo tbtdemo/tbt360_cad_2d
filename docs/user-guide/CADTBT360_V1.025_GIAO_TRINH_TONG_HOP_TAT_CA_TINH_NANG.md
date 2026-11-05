@@ -4,7 +4,7 @@
 **Ngày:** 05/11/2026. **Đơn vị:** Công ty CP Công nghệ TBT Việt Nam.  
 **Tình trạng:** tài liệu đối chiếu mã nguồn; Windows CI PASS, EXE hiện hành và ảnh chụp giao diện thật vẫn phải kiểm chứng. Không mô tả tính năng thử nghiệm như đã nghiệm thu.
 
-**Tài liệu Word học viên:** `CADTBT360_V1.025_GiaoTrinh_TONG_HOP_TAT_CA_TINH_NANG_Dot178.docx` — bản Word tổng hợp được bàn giao đồng thời trong cuộc trao đổi dự án. Bản Markdown này lưu **chương trình giảng dạy và quy trình thực hành chuẩn** trong ZIP mã nguồn. Giữ các giáo trình cũ về AI như tài liệu chuyên đề, không dùng thay tài liệu tổng hợp.
+**Tài liệu Word học viên:** Bản phát hành Windows tạo `CADTBT360_V1.025_GIAO_TRINH_TONG_HOP.docx` từ chính Markdown này và cài với tên `GIAO_TRINH_TONG_HOP_CAD360.docx`; bản trao đổi đợt 180 có tên `CADTBT360_V1.025_GiaoTrinh_TOAN_BO_TINH_NANG_Dot180.docx` (32 trang, 21 bài thực hành). Tài liệu AI chỉ là hướng dẫn chuyên đề, không thay thế giáo trình toàn phần mềm.
 
 ### 15 chương của giáo trình
 
