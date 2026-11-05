@@ -20,6 +20,7 @@ pub struct State {
     calibration_length: f64,
     include_diagonals: bool,
     arbitrary_angles: bool,
+    closed_rectangles: bool,
 }
 
 /// Compute world units per pixel from a known measured dimension.
@@ -57,7 +58,7 @@ impl State {
     fn params(&self) -> Value {
         json!({"path":self.path,"preview":true,"minLengthPixels":self.min_length,
             "unitsPerPixel":self.scale,"includeDiagonals":self.include_diagonals,
-            "includeArbitraryAngles":self.arbitrary_angles,"maxLines":250})
+            "includeArbitraryAngles":self.arbitrary_angles,"closedRectangles":self.closed_rectangles,"maxLines":250})
     }
 }
 
@@ -135,6 +136,10 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
             ui.horizontal(|ui| {
                 if ui.checkbox(&mut state.include_diagonals, "Nét 45°").changed() { state.preview = None; }
                 if ui.checkbox(&mut state.arbitrary_angles, "Góc bất kỳ (thử nghiệm)").changed() { state.preview = None; }
+                if ui.checkbox(&mut state.closed_rectangles, "Đường bao chữ nhật kín → PLINE").changed() {
+                    state.preview = None; state.preview_document_uid = None;
+                    state.preview_revision = None; state.preview_document_epoch = None;
+                }
             });
             if ui.button("1. Nhận dạng và xem trước").clicked() {
                 match cadcraft_mcp::raster_vector::preview(&state.params()) {
@@ -148,7 +153,11 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
             let Some(proposal) = &state.preview else { return; };
             let count = proposal["strokes"].as_u64().unwrap_or(0);
             ui.separator();
-            ui.label(format!("Đã nhận dạng: {count} nét. Kiểm tra trước khi ghi vào bản vẽ."));
+            let rectangle_count = proposal["closedPolylines"].as_array().map_or(0,Vec::len);
+            ui.label(format!("Đã nhận dạng: {count} nét nguồn, {rectangle_count} đường bao PLINE kín. Kiểm tra trước khi ghi vào bản vẽ."));
+            if state.closed_rectangles {
+                ui.small("Chỉ nhận dạng hình chữ nhật có đủ 4 cạnh; không tự lấp cửa hoặc khoảng hở. Cạnh thuộc PLINE không tạo LINE trùng.");
+            }
             if let Some(lines) = proposal["lines"].as_array() {
                 let (rect, _) = ui.allocate_exact_size(egui::vec2(ui.available_width().max(200.0), 220.0), egui::Sense::hover());
                 let painter = ui.painter_at(rect);
@@ -178,8 +187,11 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
                         egui::Stroke::new(1.5, egui::Color32::LIGHT_GREEN));
                 }
             }
+            if let Some(rectangles) = proposal["closedPolylines"].as_array() {
+                ui.label(format!("Có {} PLINE kín đã phát hiện (xem chi tiết sau khi tạo).", rectangles.len()));
+            }
             ui.label("Bản xem trước chưa sửa dữ liệu CAD. Hãy lưu bản vẽ trước khi thực hiện một lô nét lớn.");
-            if ui.add_enabled(count > 0, egui::Button::new("2. Tạo LINE chỉnh sửa trong CAD")).clicked() {
+            if ui.add_enabled(count > 0, egui::Button::new("2. Tạo LINE / PLINE chỉnh sửa trong CAD")).clicked() {
                 // Keep the whole AI batch in a single user-visible Undo step. Do not
                 // unexpectedly close somebody else's active undo group.
                 let undo_ready = cad.session.state().map(|d| {
@@ -196,7 +208,15 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
                 }
                 let mut created = 0usize;
                 let mut failure = None;
-                if let Some(lines) = proposal["lines"].as_array() {
+                if let Some(rectangles) = proposal["closedPolylines"].as_array() {
+                    for corners in rectangles {
+                        match cad.run("pline", json!({"vertices":corners,"closed":true})) {
+                            Ok(_) => created += 1,
+                            Err(e) => { failure = Some(e); break; }
+                        }
+                    }
+                }
+                if failure.is_none() && let Some(lines) = proposal["lines"].as_array() {
                     for line in lines {
                         match cad.run("line", json!({"points":line})) {
                             Ok(_) => created += 1,
@@ -221,7 +241,7 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
                     }
                 } else {
                     state.error = None;
-                    cad.set_status(format!("AI ảnh → CAD: đã tạo {created} LINE trong một nhóm UNDO. Kiểm tra trước khi lưu DWG."));
+                    cad.set_status(format!("AI ảnh → CAD: đã tạo {created} LINE/PLINE trong một nhóm UNDO. Kiểm tra trước khi lưu DWG."));
                     state.preview = None;
                     state.preview_document_uid = None;
                     state.preview_revision = None;
@@ -340,6 +360,16 @@ mod tests {
         assert!(state.include_diagonals);
         assert_eq!(state.params()["preview"], true);
         assert_eq!(state.params()["includeArbitraryAngles"], false);
+    }
+
+    #[test]
+    fn ai_raster_closed_rectangle_mode_is_opt_in_and_preserves_preview_safety() {
+        let mut state = State::default();
+        state.open();
+        assert_eq!(state.params()["closedRectangles"], false);
+        state.closed_rectangles = true;
+        assert_eq!(state.params()["closedRectangles"], true);
+        assert_eq!(state.params()["preview"], true);
     }
 
     #[test]
