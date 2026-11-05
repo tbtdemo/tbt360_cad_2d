@@ -92,6 +92,7 @@ jobs:
             @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_automatic_raster_to_cad_lines_from_real_png' },
             @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_auto_raster_to_cad_dxf_roundtrip_preserves_editable_lines' },
             @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_auto_raster_mcp_failed_second_line_rolls_back_first_line' },
+            @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_auto_raster_mcp_document_switch_must_not_undo_unrelated_new_drawing' },
             @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_auto_raster_mcp_rejects_existing_undo_group_without_changes' },
             @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_image_mcp_inspect_exposes_revision_and_undo_safety_state' },
             @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_auto_raster_diagonal_png_creates_editable_line' },
@@ -156,6 +157,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'V1.025 AI PNG-to-CAD DXF persistence regression failed' }
           cargo test --locked -p cadcraft-mcp --lib ai_auto_raster_mcp_failed_second_line_rolls_back_first_line -- --nocapture
           if ($LASTEXITCODE -ne 0) { throw 'V1.025 MCP automatic image import failed to rollback partial edits' }
+          cargo test --locked -p cadcraft-mcp --lib ai_auto_raster_mcp_document_switch_must_not_undo_unrelated_new_drawing -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'V1.025 MCP image import attempted to undo unrelated drawing after switch' }
           cargo test --locked -p cadcraft-mcp --lib ai_auto_raster_mcp_rejects_existing_undo_group_without_changes -- --nocapture
           if ($LASTEXITCODE -ne 0) { throw 'V1.025 MCP image import unexpectedly closed caller Undo group' }
           cargo test --locked -p cadcraft-mcp --lib ai_image_mcp_inspect_exposes_revision_and_undo_safety_state -- --nocapture
