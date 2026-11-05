@@ -9,6 +9,7 @@ pub struct State {
     pub open: bool,
     path: String,
     preview: Option<Value>,
+    preview_document_uid: Option<u64>,
     error: Option<String>,
     min_length: u32,
     scale: f64,
@@ -48,6 +49,7 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
                 {
                     state.path = path.to_string_lossy().into_owned();
                     state.preview = None;
+                    state.preview_document_uid = None;
                     state.error = None;
                 }
                 ui.label(state.path.rsplit(['/', '\\']).next().unwrap_or("(Chưa chọn ảnh)"));
@@ -64,8 +66,8 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
             });
             if ui.button("1. Nhận dạng và xem trước").clicked() {
                 match cadcraft_mcp::raster_vector::preview(&state.params()) {
-                    Ok(value) => { state.preview = Some(value); state.error = None; }
-                    Err(e) => { state.preview = None; state.error = Some(e); }
+                    Ok(value) => { state.preview = Some(value); state.preview_document_uid = cad.session.state().ok().map(|doc| doc.uid); state.error = None; }
+                    Err(e) => { state.preview = None; state.preview_document_uid = None; state.error = Some(e); }
                 }
             }
             if let Some(error) = &state.error {
@@ -110,9 +112,10 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
                 // unexpectedly close somebody else's active undo group.
                 let undo_ready = cad.session.state().map(|d| {
                     d.undo_ctl.control == cadcraft_engine::undoctl::Control::All && d.undo_ctl.group.is_none()
+                        && state.preview_document_uid == Some(d.uid) && cad.session.running.is_none()
                 }).unwrap_or(false);
                 if !undo_ready {
-                    state.error = Some("Không thể tạo nhóm AI Undo: hãy kết thúc nhóm UNDO đang mở và bật UNDO Control All.".to_string());
+                    state.error = Some("Không thể ghi nét AI: hãy mở đúng bản vẽ đã xem trước, kết thúc lệnh CAD đang chạy và bật UNDO Control All.".to_string());
                     return;
                 }
                 if let Err(e) = cad.session.state_mut().map(|d| d.begin_undo_group()) {
@@ -148,6 +151,7 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
                     state.error = None;
                     cad.set_status(format!("AI ảnh → CAD: đã tạo {created} LINE trong một nhóm UNDO. Kiểm tra trước khi lưu DWG."));
                     state.preview = None;
+                    state.preview_document_uid = None;
                     state.open = false;
                 }
             }
