@@ -162,6 +162,9 @@ impl eframe::App for App {
             if self.active_tab == MainTab::Cad && ui.button("AI TỪ ẢNH → CAD").on_hover_text("Chọn PNG/JPEG, xem trước nét tự động và tạo LINE chỉnh sửa trực tiếp vào bản vẽ").clicked() {
                 self.ai_raster_state.open();
             }
+            if self.active_tab == MainTab::Cad && ui.button("HƯỚNG DẪN AI").on_hover_text("Mở hướng dẫn sử dụng AI từ ảnh thành CAD ngay trong phần mềm, kể cả khi offline").clicked() {
+                self.ai_raster_state.open_help();
+            }
             if self.active_tab == MainTab::Cad && ui.button("Aa KIỂU CHỮ").on_hover_text("Tạo, sửa, đặt hiện hành font và kiểu chữ CAD — lệnh STYLE/ST").clicked() {
                 self.cad.start("style");
             }
