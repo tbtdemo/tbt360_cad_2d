@@ -967,6 +967,37 @@ mod tests {
     }
 
     #[test]
+    fn ai_real_png_door_arc_commit_creates_native_arc_after_confirmation() {
+        let mut img=image::RgbImage::from_pixel(110,48,image::Rgb([255,255,255]));
+        for y in [15,22] {
+            for x in 5..=39 {img.put_pixel(x,y,image::Rgb([0,0,0]));}
+            for x in 51..=95 {img.put_pixel(x,y,image::Rgb([0,0,0]));}
+        }
+        for y in 3..=15 {img.put_pixel(39,y,image::Rgb([0,0,0]));}
+        let path=std::env::temp_dir().join(format!("cad360-door-arc-{}-{}.png",std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        img.save(&path).unwrap();
+        let mut args=json!({"path":path.to_string_lossy(),"minLengthPixels":8,
+            "includeDiagonals":false,"openingGapHints":true,"pairedWallOpeningHints":true,
+            "doorLeafHints":true,"maxGapPixels":0,"unitsPerPixel":2.0,
+            "createDoorSwingArcs":true});
+        assert!(preview(&args).unwrap_err().contains("confirmDoorSwingArcs=true"));
+        args["confirmDoorSwingArcs"]=json!(true);
+        let proposal=preview(&args).unwrap();
+        assert_eq!(proposal["doorSwingArcsProposed"],1);
+        assert_eq!(proposal["doorSwingArcs"][0]["classification"],"confirmed-drafting-arc-not-door-block");
+        let source_lines=proposal["lines"].as_array().unwrap().len();
+        let mut backend=crate::backend::Headless::default();
+        args["preview"]=json!(false);
+        let result=run(&mut backend,&args).unwrap();
+        assert_eq!(result["doorSwingArcsCreated"],1);
+        assert_eq!(result["editableEntitiesCreated"],source_lines+1);
+        let current=backend.call("drawing.inspect",json!({"entities":false})).unwrap();
+        assert_eq!(current["entityCount"].as_u64(),Some((source_lines+1) as u64));
+        let _=std::fs::remove_file(&path);
+    }
+
+    #[test]
     fn ai_confirmed_door_swing_arc_is_editable_and_refuses_missing_confirmation() {
         let gap=|y:f64|json!({"fromPixels":[39.5,y],"toPixels":[51.5,y]});
         let mut candidates=paired_wall_openings(&[gap(15.5),gap(22.5)],2.0,40.0);
