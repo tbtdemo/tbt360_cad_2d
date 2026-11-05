@@ -343,6 +343,33 @@ fn fetch(path: &str, host: Option<&Path>, chosen: bool, cx: &mut Ctx, depth: usi
     Ok((x, file))
 }
 
+/// Xref loading is a reference import, not an editable CAD COPY: remap the
+/// entity handle while preserving BIM source revision and scope metadata.
+/// Regular CAD COPY intentionally resets a new object's revision to 1.
+fn rebind_xref_bim_identity(common: &mut cadcraft_doc::Common, handle: cadcraft_doc::Handle) {
+    let mut in_bim = false;
+    for tag in &mut common.xdata {
+        if tag.code == 1001 {
+            in_bim = tag.value.eq_ignore_ascii_case("TBT360_BIM");
+            continue;
+        }
+        if in_bim && tag.code == 1000 {
+            let mut found = false;
+            let mut parts: Vec<String> = tag.value.split(';').map(|part| {
+                if part.starts_with("entity=") {
+                    found = true;
+                    format!("entity={}", handle.hex())
+                } else {
+                    part.to_string()
+                }
+            }).collect();
+            if !found { parts.push(format!("entity={}", handle.hex())); }
+            tag.value = parts.join(";");
+            break;
+        }
+    }
+}
+
 /// Bring referenced drawing `x` into xref `key`: its model space becomes the block's objects, its
 /// symbols and blocks are added as `key|name` (dependent symbols the host already has keep the
 /// host's settings, so layer changes survive a reload).
@@ -403,7 +430,7 @@ fn import(d: &mut Drawing, key: &str, x: &Drawing, cx: &mut Ctx) -> Result<(), S
     let adopt=|d:&mut Drawing,e:&Entity| {
         let mut e=e.clone();
         e.handle=d.new_handle();
-        crate::cmd::modify::refresh_tbt360_bim_copy_identity(&mut e.common,e.handle);
+        rebind_xref_bim_identity(&mut e.common, e.handle);
         rename_refs(&mut e,&dep);
         if let EntityKind::Dimension(dm)=&mut e.kind { dm.assoc.clear(); }
         e
