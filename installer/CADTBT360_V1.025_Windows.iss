@@ -28,6 +28,7 @@ Source: "..\CADTBT360_V1.000\target\release\cadcraft.exe"; DestDir: "{app}"; Des
 Source: "..\CADTBT360_V1.000\target\release\cadcraft-cli.exe"; DestDir: "{app}"; DestName: "CADTBT360_CLI.exe"; Flags: ignoreversion
 Source: "..\dist\v1025\BUILD_INFO.txt"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\docs\user-guide\CADTBT360_V1.025_HUONG_DAN_AI_TU_ANH_THANH_CAD.md"; DestDir: "{app}\HuongDan"; DestName: "HUONG_DAN_AI_TU_ANH_THANH_CAD.md"; Flags: ignoreversion
+Source: "..\dist\v1025\CADTBT360_V1.025_HUONG_DAN_AI_TU_ANH_THANH_CAD.docx"; DestDir: "{app}\HuongDan"; DestName: "HUONG_DAN_AI_TU_ANH_THANH_CAD.docx"; Flags: ignoreversion
 
 [Icons]
 Name: "{autoprograms}\CAD 360 Viet Nam - TBT"; Filename: "{app}\CADTBT360.exe"
