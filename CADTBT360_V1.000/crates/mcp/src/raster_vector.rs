@@ -294,6 +294,34 @@ fn closed_rectangles(lines: &[Line]) -> Vec<RectangleOutline> {
     result
 }
 
+/// Conservative geometric parallel-edge hints; not semantic wall recognition.
+/// Pair only axis-aligned segments of similar span with substantial overlap.
+fn parallel_wall_candidates(lines: &[Line], min_spacing: f64, max_spacing: f64) -> Vec<Value> {
+    if lines.len() > 256 || !(min_spacing > 0.0 && max_spacing >= min_spacing) { return Vec::new(); }
+    let mut candidates = Vec::new();
+    let horizontal = |l: &Line| (l.y0-l.y1).abs() < 0.25 && l.x1-l.x0 >= 16.0;
+    let vertical = |l: &Line| (l.x0-l.x1).abs() < 0.25 && l.y1-l.y0 >= 16.0;
+    for (i,a) in lines.iter().enumerate() {
+        for (j,b) in lines.iter().enumerate().skip(i+1) {
+            let same_h = horizontal(a) && horizontal(b);
+            let same_v = vertical(a) && vertical(b);
+            if !same_h && !same_v { continue; }
+            let spacing = if same_h { (a.y0-b.y0).abs() } else { (a.x0-b.x0).abs() };
+            if spacing < min_spacing || spacing > max_spacing { continue; }
+            let (a0,a1,b0,b1) = if same_h { (a.x0,a.x1,b.x0,b.x1) } else { (a.y0,a.y1,b.y0,b.y1) };
+            let start = a0.max(b0); let end = a1.min(b1);
+            let shorter = (a1-a0).min(b1-b0);
+            if shorter <= 0.0 || end-start < 16.0 || (end-start)/shorter < 0.8 { continue; }
+            // Only a suggestion with two source indices. The user chooses whether
+            // they are indeed a wall; no geometry is created or discarded here.
+            candidates.push(json!({"edges":[i,j],"orientation":if same_h {"horizontal"} else {"vertical"},
+                "spacingPixels":spacing,"overlapPixels":end-start}));
+            if candidates.len() >= 128 { return candidates; }
+        }
+    }
+    candidates
+}
+
 /// Shared non-mutating vectorization used by MCP and the desktop GUI.
 pub fn preview(args: &Value) -> Result<Value, String> {
     let path = args["path"].as_str().filter(|s| !s.trim().is_empty()).ok_or("path is required")?;
@@ -337,6 +365,9 @@ pub fn preview(args: &Value) -> Result<Value, String> {
     }
     let gap_pixels = args["maxGapPixels"].as_u64().unwrap_or(0);
     if gap_pixels > 12 { return Err("maxGapPixels must be 0..12; larger gaps may represent doors or openings".into()); }
+    let wall_hints = if args["wallPairHints"].as_bool().unwrap_or(false) {
+        parallel_wall_candidates(&lines, 2.0, 40.0)
+    } else { Vec::new() };
     let source_strokes = lines.len();
     let bridged_gaps = bridge_collinear_gaps(&mut lines, gap_pixels as f64);
     let candidates = if args["closedRectangles"].as_bool().unwrap_or(false) { closed_rectangles(&lines) } else { Vec::new() };
@@ -369,6 +400,7 @@ pub fn preview(args: &Value) -> Result<Value, String> {
     Ok(json!({"preview":true,"recognition":"automatic-raster-line-strokes","model":"deterministic-pixel-vectorization-not-neural-AI",
         "imageSize":[width,height],"strokes":count,"sourceStrokes":source_strokes,
         "bridgedGaps":bridged_gaps,"maxGapPixels":gap_pixels,
+        "wallPairHints":wall_hints,"wallPairCandidateCount":wall_hints.len(),
         "lines":world,"closedPolylines":world_rectangles,"rectanglesDetected":candidates.len(),
         "closedRectangles":args["closedRectangles"].as_bool().unwrap_or(false),
         "editableEntitiesCreated":0,
@@ -544,6 +576,31 @@ mod tests {
         assert_eq!(value["rectanglesDetected"],0);
         assert_eq!(value["closedPolylines"].as_array().unwrap().len(),0);
         assert_eq!(value["lines"].as_array().unwrap().len(),3,"retain three source strokes as LINE");
+    }
+
+    #[test]
+    fn ai_parallel_wall_candidate_hints_find_two_near_equal_parallel_lines() {
+        let lines = vec![
+            Line{x0:10.5,y0:10.5,x1:110.5,y1:10.5},
+            Line{x0:10.5,y0:20.5,x1:110.5,y1:20.5},
+            Line{x0:150.5,y0:10.5,x1:250.5,y1:10.5},
+        ];
+        let candidates=parallel_wall_candidates(&lines,2.0,40.0);
+        assert_eq!(candidates.len(),1);
+        assert_eq!(candidates[0]["edges"],json!([0,1]));
+        assert_eq!(candidates[0]["spacingPixels"],10.0);
+        assert_eq!(candidates[0]["overlapPixels"],100.0);
+    }
+
+    #[test]
+    fn ai_parallel_wall_hints_refuse_disjoint_or_crossed_lines() {
+        let lines = vec![
+            Line{x0:10.5,y0:10.5,x1:100.5,y1:10.5},
+            Line{x0:120.5,y0:20.5,x1:200.5,y1:20.5},
+            Line{x0:50.5,y0:0.5,x1:50.5,y1:80.5},
+            Line{x0:100.5,y0:0.5,x1:100.5,y1:80.5},
+        ];
+        assert!(parallel_wall_candidates(&lines,2.0,40.0).is_empty());
     }
 
     #[test]
