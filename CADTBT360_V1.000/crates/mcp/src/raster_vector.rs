@@ -278,15 +278,53 @@ pub fn run(b: &mut dyn Backend, args: &Value) -> Result<Value, String> {
     let proposal = preview(args)?;
     if args["preview"].as_bool().unwrap_or(true) { return Ok(proposal); }
     let Some(world) = proposal["lines"].as_array() else { return Err("Raster preview has no CAD lines".to_string()) };
+    if world.is_empty() { return Err("No vector strokes detected; no CAD changes made".into()); }
+    // Never end a group that another command/user already opened. The caller
+    // must have a clean command prompt and full Undo support.
+    let state = b.call("drawing.inspect", json!({"entities":false}))?;
+    if state["undoControl"] != "all" || state["undoGroupOpen"] != false {
+        return Err("AI image import requires UNDO Control All and no active Undo group".into());
+    }
+    let command = b.call("cmdline.state", json!({}))?;
+    if command["running"].as_str().is_some() {
+        return Err("Finish the active CAD command before importing image vectors".into());
+    }
+    let Some(document_uid) = state["documentUid"].as_u64() else { return Err("CAD document identity unavailable; no edits made".into()) };
+    let Some(revision) = state["revision"].as_u64() else { return Err("CAD document revision unavailable; no edits made".into()) };
+    let group = |backend: &mut dyn Backend, mode: &str| backend.call("engine.execute", json!({"command":"undo","params":{"mode":mode}}));
+    group(b, "begin")?;
     let mut handles = Vec::new();
+    let mut failure = None;
     for pts in world {
-        let response = b.call("engine.execute", json!({"command":"line","params":{"points":pts}}))?;
-        handles.push(response);
+        // Guard against an asynchronous document switch or external edit in a
+        // connected GUI while the MCP agent is sending its line commands.
+        let latest = b.call("drawing.inspect", json!({"entities":false}));
+        match latest {
+            Ok(st) if st["documentUid"].as_u64() == Some(document_uid)
+                && st["revision"].as_u64() == Some(revision + handles.len() as u64) => {}
+            Ok(_) => { failure = Some("CAD document changed during AI image import".to_string()); break; }
+            Err(e) => { failure = Some(format!("Cannot verify active CAD document: {e}")); break; }
+        }
+        match b.call("engine.execute", json!({"command":"line","params":{"points":pts}})) {
+            Ok(response) => handles.push(response),
+            Err(e) => { failure = Some(e); break; }
+        }
+    }
+    let end_result = group(b, "end");
+    if let Err(err) = end_result { failure.get_or_insert(format!("Cannot close AI Undo group: {err}")); }
+    if let Some(problem) = failure {
+        if !handles.is_empty() {
+            match b.call("engine.execute", json!({"command":"undo","params":{"count":1}})) {
+                Ok(_) => return Err(format!("AI image import rolled back {} LINE entities: {problem}", handles.len())),
+                Err(rollback) => return Err(format!("AI image import failed after {} LINE entities: {problem}; automatic Undo failed: {rollback}. Inspect drawing before saving", handles.len())),
+            }
+        }
+        return Err(format!("AI image import stopped without creating LINE entities: {problem}"));
     }
     Ok(json!({"preview":false,"recognition":"automatic-raster-line-strokes",
         "imageSize":proposal["imageSize"],"strokes":proposal["strokes"],"editableEntitiesCreated":handles.len(),
         "entities":handles,"source":proposal["source"],
-        "caution":"Review generated LINE entities before saving DWG; the batch is not yet transactional"}))
+        "caution":"Lines are grouped in one Undo action; review before saving DWG"}))
 }
 
 #[cfg(test)]
