@@ -914,3 +914,41 @@ AI trả các trường `gapPixels`, `widthCAD`, `fromCAD` và `toCAD`, sử d�
 7. Lưu DXF/DWG bản thử, đối chiếu bằng trình CAD độc lập; không nghiệm thu DWG chỉ dựa vào header hoặc thông báo CLI.
 
 **Ranh giới chức năng:** Đây là một bước AI hỗ trợ phân tích và đo kích thước hình học từ ảnh, vẫn chưa tự nhận diện cửa, tường hoặc cột theo ngữ nghĩa. Chưa có xác nhận Windows CI PASS cho đợt 193.
+
+
+## 34. Đợt 194 — Chống AI nhận nhầm khoảng mở khi có tường giao cắt
+
+Đợt 194 tối ưu bộ phát hiện khoảng hở trong ảnh PNG/JPEG. Trước đây hai nét thẳng hàng cách nhau một khoảng phù hợp có thể được gợi ý là *khoảng mở*. Nhưng nếu **một nét thứ ba hoặc tường giao cắt đi xuyên qua đoạn trống**, thì đoạn này không còn là khoảng trống rõ ràng. Bộ lọc mới loại trường hợp đó trước khi trả gợi ý; không tự tạo cửa, tự vẽ đường nối hoặc xóa LINE.
+
+### Bài 50 — Kiểm tra khoảng mở có tường giao cắt
+
+1. Mở bản vẽ thử `BT50_AI_KhoangMoGiaoTuong.dxf`; không thao tác trực tiếp trên hồ sơ dự án.
+2. Chuẩn bị ảnh nền trắng có hai nét ngang cùng tại y=20, nét trái từ x=5 đến 35, nét phải từ x=55 đến 95. Ban đầu khoảng cách giữa hai đầu nét là 20 pixel.
+3. Bật **Gợi ý khoảng hở có thể là cửa (chỉ Preview)** và giữ `maxGapPixels=0`, đặt ngưỡng khoảng mở 3–40 pixel.
+4. Preview khi chưa có nét đi qua khoảng trống: phần mềm có thể trả 01 khoảng hở *chưa xác minh*.
+5. Thêm một nét đứng tại x=45, kéo từ y=4 đến y=38, xuyên qua đúng khoảng trống. Preview lại.
+6. Xác minh khoảng mở 20 pixel không còn được gợi ý vì có hình học cắt qua. Các LINE nguồn vẫn tồn tại; không tạo BLOCK cửa hoặc tường BIM.
+7. Kiểm tra tương tự với trường hợp hai nét đứng bị ngắt nhưng một nét ngang đi xuyên qua khoảng trống.
+8. Chỉ khi đã đối chiếu bản vẽ thực tế mới sử dụng các ứng viên khoảng mở để kiểm tra vị trí cửa hoặc triển khai nghiệp vụ CAD tiếp theo.
+
+**Cần đạt:** Không đánh dấu một khoảng trống là ứng viên cửa nếu nó đang bị đường ngang/dọc khác giao cắt. Đây là bộ lọc hình học bảo thủ, chưa xác định ngữ nghĩa cửa đi.
+
+### Bài 51 — Chống gợi ý nhầm khi khoảng trống chứa nét thứ ba
+
+1. Dùng hai nét ngang tại y=20: nét 1 kết thúc x=35, nét 2 bắt đầu x=55.
+2. Thêm đoạn nằm cùng hàng từ x=40 đến x=50 ở giữa hai nét.
+3. Nhấn Preview với **Gợi ý khoảng hở** đã bật; thuật toán không được coi toàn bộ đoạn x=35 đến x=55 là một khoảng mở trống 20 pixel.
+4. Bộ lọc có thể đưa ra hai khoảng trống nhỏ x=35 đến x=40 và x=50 đến x=55; người dùng phải kiểm tra xem chúng là nét scan đứt hay cửa thực.
+5. Không bật nối tự động `maxGapPixels>0` trong khi đang tìm khoảng mở; công cụ phải chặn cấu hình mâu thuẫn này.
+6. Ghi lại số lượng ứng viên, ảnh đầu vào, thông số `unitsPerPixel`, và bản DXF kết quả. Không dùng hình mô phỏng thay cho ảnh GUI từ bản EXE nghiệm thu.
+
+### Bài 52 — Kiểm thử Rust/CI và danh mục nghiệm thu
+
+1. Mở `CADTBT360_V1.000` trong ZIP của **đúng commit** và chạy `cargo test --locked -p cadcraft-mcp --lib ai_opening_gap_refuses_crossing_wall_or_third_fragment -- --nocapture`.
+2. Chạy `cargo test --locked -p cadcraft-mcp --lib ai_opening_gap_vertical_crossing_is_not_a_clear_doorway -- --nocapture`.
+3. Chạy lại `cargo test --locked -p cadcraft-mcp --lib ai_opening_gap_bounds_and_world_width_are_calibrated -- --nocapture` để bảo đảm không làm hỏng quy đổi chiều rộng sang CAD.
+4. Chạy kiểm thử bảo vệ khoảng mở và Undo ở các bài 45–49, sau đó kiểm tra **Windows CI Success** trên cùng commit.
+5. Cài Setup/Portable từ run thành công, thử chức năng trên GUI thực tế, lưu ảnh trước/sau và DXF/DWG để đối chiếu.
+6. Nếu chưa có xác nhận chạy Windows CI hoặc kiểm tra EXE, chỉ ghi **Mã nguồn đã cập nhật — Chưa nghiệm thu**.
+
+**Giới hạn:** Tính năng hiện tại xử lý nét ngang/dọc theo hình học; chưa phân loại được tường/cửa/cột bằng mô hình AI ngữ nghĩa. Không được suy luận một khoảng mở là cửa thực tế chỉ dựa trên số liệu pixel.
