@@ -1345,3 +1345,27 @@ Mục tiêu quan trọng nhất của đợt này là chuyển từ việc **ch�
 6. Block ở đây vẫn là bản nháp CAD sau khi người dùng xác nhận, chưa phải đối tượng cửa kiến trúc thông minh hoặc nhận dạng ngữ nghĩa bằng học sâu.
 
 **Trạng thái đợt 211:** Đã bổ sung hiệu chỉnh chiều rộng Block cửa cùng kiểm thử bảo toàn nét gốc và GUI. Chưa xác nhận CI Windows PASS, chưa hoàn thiện chỉnh chiều bản lề/hướng mở bằng AI.
+
+
+## 52. Đợt 212 — AI hiệu chỉnh từng cửa riêng biệt trước khi vẽ BLOCK CAD
+
+### Bài 87 — Chọn cửa số 1, số 2… và thay đổi chiều rộng riêng từng cửa
+
+1. Mở **AI từ ảnh → CAD** và ảnh mặt bằng có từ hai cửa trở lên. Hiệu chuẩn `unitsPerPixel` và kích hoạt gợi ý khoảng mở, nhận dạng nét cánh, tạo ARC, tạo Block; xác nhận các công tắc an toàn như trong Bài 83–86.
+2. Nhấn **Nhận dạng và xem trước**. Khi có các `doorBlockDrafts` độc lập, giao diện liệt kê **Chọn cửa 1**, **Chọn cửa 2**… kèm `widthCAD` và `sourceOpeningWidthCAD`.
+3. Chọn đúng cửa cần thay đổi. Ở khung **Hiệu chỉnh riêng từng cửa trong danh sách AI**, nhập chiều rộng mới theo đơn vị bản vẽ rồi bấm **Áp dụng cho cửa đã chọn**. Ví dụ, cửa 1 giữ 800 mm, cửa 2 chỉnh thành 900 mm; hai cửa phải được xử lý độc lập.
+4. Nhấn Preview lại để đối chiếu danh sách Block. Cửa được chọn có `widthOverridden=true`, bán kính ARC và chiều dài LINE cánh được đổi theo chiều rộng mới. Các cửa không chọn tiếp tục dùng kích thước suy ra từ ảnh hoặc kích thước chung nếu đã bật.
+5. Để trả lại kích thước nhận dạng, chọn cửa tương ứng và bấm **Xóa hiệu chỉnh cửa này**, sau đó Preview lại.
+6. Người dùng phải đối chiếu lại thứ tự cửa sau mỗi lần thay đổi nguồn ảnh, vùng nhận dạng hoặc tham số có thể làm thứ tự ứng viên thay đổi; phiên bản hiện tại dùng chỉ số cửa, chưa có ID hình học bất biến xuyên mọi lần nhận dạng.
+7. Chỉ Commit sau khi đã kiểm tra từng cửa trong Preview. Block vẫn là bản nháp CAD được xác nhận thủ công, chưa phải đối tượng cửa kiến trúc thông minh.
+
+### Bài 88 — Kiểm thử độc lập hai cửa từ PNG và an toàn cấu hình cũ
+
+1. Tham số MCP/GUI mới: `doorWidthOverridesCAD` là object gồm chỉ số **bắt đầu từ 0** và chiều rộng CAD, ví dụ `{"1":900.0}` điều chỉnh cửa số 2 trên giao diện. GUI hiển thị số bắt đầu từ 1.
+2. Giữ tương thích với `doorWidthOverrideCAD` của đợt 211: nếu cả chiều rộng chung và riêng tồn tại, chiều rộng riêng của mỗi cửa được ưu tiên; các cửa còn lại nhận chiều rộng chung.
+3. Chạy `cargo test --locked -p cadcraft-mcp --lib ai_two_png_doors_have_independent_widths_and_validate_stale_review -- --nocapture` để thử ảnh PNG có hai cửa. Kiểm tra cửa 1 giữ rộng 24 CAD units, cửa 2 đổi 36, toàn bộ `lines` từ ảnh không thay đổi.
+4. Thử chỉ số ngoài danh sách, số âm, khóa không đúng định dạng, null, chiều rộng âm hoặc sai kiểu: Preview phải từ chối trước khi ghi CAD, không tự áp dụng vào cửa khác.
+5. Chạy kiểm thử giao diện `ai_individual_door_width_override_gui_serializes_selected_indices_only` để xác nhận GUI không gửi hiệu chỉnh khi chưa chọn tạo Block.
+6. Kiểm tra đúng SHA của Windows CI. Các bài test là bằng chứng chỉ khi chạy PASS; kết quả chưa thay thế nghiệm thu EXE, ảnh thực tế nhiều cửa hoặc DWG mở/lưu hai chiều trong AutoCAD.
+
+**Trạng thái đợt 212:** Đã bổ sung kiểm soát chiều rộng riêng từng cửa trong thuật toán, giao diện lựa chọn từ Preview và bài test hai cửa PNG. Chưa có xác nhận CI Windows PASS, chưa tự nhận dạng hướng mở/bản lề mọi kiểu cửa hoặc Block động kiến trúc hoàn chỉnh.
