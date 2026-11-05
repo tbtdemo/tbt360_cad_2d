@@ -642,3 +642,43 @@ Bảng này là **bản đồ học lệnh**, không thay thế bảng **Help �
 7. So sánh kết quả đo trên DXF/DWG, ghi rõ mã commit và dùng giáo trình Word tổng hợp để đối chiếu.
 
 **Giới hạn nghiệm thu:** Chưa có kết quả Windows CI PASS cho commit đợt 186. Code hiệu chuẩn đã đưa vào giao diện và CI nhưng chưa có ảnh chụp GUI Windows thực tế, chưa xác nhận tất cả thiết bị chạy được.
+
+
+## 27. Đợt 187 — Từ ảnh PNG/JPEG thành đường bao PLINE khép kín
+
+**Nâng cấp chức năng AI theo hướng có cấu trúc:** Từ các nét ảnh đã vector hóa, CAD 360 có chế độ **tùy chọn** phát hiện một đường bao hình chữ nhật có đủ bốn cạnh, tạo **một đối tượng PLINE đóng** thay cho bốn LINE chồng lên nhau. Đây là xử lý hình học có điều kiện, **không phải** tự suy luận kiến trúc, tên phòng, tường, cửa hay cột.
+
+### Bài 30 — Tạo đường bao hình chữ nhật khép kín từ ảnh
+
+1. Mở bản vẽ thực hành `BT30_AI_DuongBaoKin.dxf` trong **CAD**, chọn **AI TỪ ẢNH → CAD**.
+2. Chuẩn bị PNG nền trắng có một hình chữ nhật mảnh, bốn cạnh thẳng ngang/dọc nối liền nhau, không có chữ/kích thước chồng lên cạnh.
+3. Nhấn **Chọn ảnh PNG/JPG…** và chọn ảnh. Khai báo ngưỡng nét, **Đơn vị CAD/pixel** hoặc dùng công cụ **Tính tỷ lệ từ đoạn chuẩn** trước khi Preview.
+4. Tích chọn **Đường bao chữ nhật kín → PLINE**. Chức năng mặc định **tắt** để bảo vệ tương thích các bản vẽ dùng LINE trước đây.
+5. Nhấn **1. Nhận dạng và xem trước**; kiểm tra màn hình hiển thị số đường bao PLINE kín. Khi khung có đủ bốn cạnh, kết quả dự kiến là **1 PLINE đóng**, không nhân thêm bốn LINE trùng cùng ranh giới.
+6. Nhấn **2. Tạo LINE / PLINE chỉnh sửa trong CAD**. Chọn PLINE trên canvas, kiểm tra thuộc tính **Closed** và các đỉnh của hình chữ nhật.
+7. Dùng `AREA` hoặc công cụ QTO để kiểm tra diện tích hình học. Không tự xem đường bao là một cấu kiện tường BIM hay diện tích sàn khi chưa gán nghiệp vụ.
+8. Nhấn **UNDO** một lần để hoàn tác nhóm AI, rồi làm lại và lưu DXF hoặc DWG trong thư mục bài tập.
+9. Đóng/mở lại file để xác nhận PLINE không biến thành raster. Để nghiệm thu DWG tương thích AutoCAD hai chiều, phải thử độc lập với AutoCAD.
+
+**Cần đạt:** Một hình chữ nhật bốn cạnh hợp lệ tạo **một native closed POLYLINE**, chỉnh sửa và đo diện tích được, không còn LINE trùng cạnh do cùng một nguồn ảnh.
+
+### Bài 31 — Không tự lấp khoảng hở, cửa đi và cạnh thiếu
+
+1. Sao chép ảnh bài 30, xóa toàn bộ một cạnh của hình chữ nhật để giả lập bản vẽ chưa đầy đủ hoặc cửa mở.
+2. Nạp ảnh mới, vẫn bật **Đường bao chữ nhật kín → PLINE** và Preview lại.
+3. Kiểm tra hệ thống **không** phát hiện PLINE đóng từ ba cạnh; các nét hợp lệ còn lại tiếp tục là LINE để người dùng chỉnh sửa thủ công.
+4. Nếu hình có một khoảng hở trên cạnh, không tự động gọi đó là tường/cửa. Người dùng cần quyết định có nối đoạn bằng lệnh CAD sau khi xem xét bản vẽ thật.
+5. Dùng **UNDO** hoặc xóa đối tượng thử; lưu kết quả nghiệm thu "Không đóng đường bao thiếu cạnh" kèm ảnh chụp giao diện thực tế.
+
+**Cần đạt:** Không tự thêm cấu kiện hoặc cạnh bị thiếu; ưu tiên an toàn bản vẽ hơn việc ép tạo hình kín.
+
+### Bài 32 — Kiểm thử Rust và giao diện cho PLINE từ ảnh
+
+1. Trong `CADTBT360_V1.000` chạy `cargo test --locked -p cadcraft-mcp --lib raster_rectangular_png -- --nocapture`; kiểm tra hai bài test với ảnh PNG thật: bốn cạnh tạo một PLINE, thiếu cạnh không tự đóng.
+2. Chạy `cargo test --locked -p cadcraft-mcp --lib raster_closed_rectangles_recognizes_four_edges_and_refuses_missing_side -- --nocapture` để kiểm tra detector trên nét vector.
+3. Chạy `cargo test --locked -p cadcraft --bin cadcraft ai_raster_closed_rectangle_mode_is_opt_in_and_preserves_preview_safety -- --nocapture` để kiểm tra chế độ tùy chọn và Preview trên GUI.
+4. Với MCP, công cụ `raster_to_cad_lines` chấp nhận tham số **`closedRectangles: true`** và trả về `rectanglesDetected`, `closedPolylines`, `closedPolylinesCreated` khi phù hợp.
+5. Khi **`closedRectangles: false`**, hành vi LINE như cũ; không tự chuyển hình chữ nhật thành PLINE.
+6. Chỉ kết luận **đạt** khi có Windows CI Success, kết quả chạy trên chính Setup/Portable, file DXF/DWG mở lại được và có ảnh chụp GUI thật. Chưa có xác nhận này trong đợt 187.
+
+**Giới hạn cần giữ rõ:** Chức năng chỉ phát hiện hình chữ nhật theo trục ngang/dọc với đủ bốn cạnh. Hình nghiêng, nét gãy, nhiều phòng liên thông hoặc tường dày giao cắt cần các bộ nhận dạng chuyên sâu khác. Vẫn chưa có mô hình AI ngữ nghĩa đọc bản vẽ tường, cửa, cột.
