@@ -544,6 +544,51 @@ fn door_leaf_evidence(openings: &mut [Value], lines: &[Line]) {
     }
 }
 
+/// Draw a quarter-circle swing drafting guide only for a single unambiguous
+/// observed leaf anchored to a geometrically paired wall opening. The source
+/// LINE is retained; the ARC is not a semantic door/block.
+fn door_swing_arcs(openings: &[Value], lines: &[Line], ox: f64, oy: f64, height: u32, scale: f64) -> Vec<Value> {
+    let mut arcs=Vec::new();
+    for opening in openings {
+        if opening["doorLeafCandidate"]!=true || opening["doorLeafAmbiguous"]==true {continue;}
+        let leaf=&opening["doorLeafEvidence"];
+        let Some(index)=leaf["sourceLineIndex"].as_u64().and_then(|v|usize::try_from(v).ok()) else {continue};
+        let Some(line)=lines.get(index) else {continue};
+        let (Some(hx),Some(hy))=(leaf["hingePixels"][0].as_f64(),leaf["hingePixels"][1].as_f64()) else {continue};
+        let Some(corners)=opening["outlinePixels"].as_array() else {continue};
+        let width=opening["outlinePixels"][0][0].as_f64().zip(opening["outlinePixels"][1][0].as_f64())
+            .zip(opening["outlinePixels"][0][1].as_f64().zip(opening["outlinePixels"][1][1].as_f64()))
+            .map(|((x0,x1),(y0,y1))|(x1-x0).hypot(y1-y0)).unwrap_or(0.0);
+        if width<=0.0 || !width.is_finite() {continue;}
+        let ends=[[line.x0,line.y0],[line.x1,line.y1]];
+        let dist=|p:[f64;2]|(p[0]-hx).hypot(p[1]-hy);
+        let leaf_end=if dist(ends[0])<=1.5 {ends[1]} else if dist(ends[1])<=1.5 {ends[0]} else {continue};
+        let leaf_length=dist(leaf_end);
+        if (leaf_length-width).abs() > (width*0.10).max(1.5) {continue;}
+        // The opening's other endpoint must be on the same edge as the hinge.
+        let target=corners.iter().filter_map(|p|Some([p[0].as_f64()?,p[1].as_f64()?]))
+            .filter(|p|dist(*p)>width*0.7 && (dist(*p)-width).abs()<=1.5)
+            .find(|p|{
+                let vx=p[0]-hx; let vy=p[1]-hy;
+                (vx*(leaf_end[0]-hx)+vy*(leaf_end[1]-hy)).abs()<=width*width*0.10
+            });
+        let Some(target)=target else {continue};
+        let hcad=[ox+hx*scale,oy+(f64::from(height)-hy)*scale];
+        if hcad.iter().any(|v|!v.is_finite()||v.abs()>1.0e12) {continue;}
+        let angle=|p:[f64;2]|(hy-p[1]).atan2(p[0]-hx).to_degrees().rem_euclid(360.0);
+        let a=angle(leaf_end); let b=angle(target);
+        let delta=(b-a).rem_euclid(360.0);
+        let (start,end)=if (delta-90.0).abs()<=12.0 {(a,b)}
+            else if (delta-270.0).abs()<=12.0 {(b,a)}
+            else {continue};
+        let radius=width*scale;
+        if !radius.is_finite() || radius<=1e-9 || radius>1.0e12 {continue;}
+        arcs.push(json!({"center":hcad,"radius":radius,"start":start,"end":end,
+            "sourceLineIndex":index,"classification":"confirmed-drafting-arc-not-door-block"}));
+    }
+    arcs
+}
+
 /// Shared non-mutating vectorization used by MCP and the desktop GUI.
 pub fn preview(args: &Value) -> Result<Value, String> {
     let path = args["path"].as_str().filter(|s| !s.trim().is_empty()).ok_or("path is required")?;
@@ -664,6 +709,12 @@ pub fn preview(args: &Value) -> Result<Value, String> {
         opening["outlineCAD"]=json!(cad);
         opening["wallThicknessCAD"]=json!(opening["wallThicknessPixels"].as_f64().unwrap_or(0.0)*scale);
     }
+    let create_door_arcs=args["createDoorSwingArcs"].as_bool().unwrap_or(false);
+    if create_door_arcs && (!args["doorLeafHints"].as_bool().unwrap_or(false)
+        || !paired_enabled || !args["confirmDoorSwingArcs"].as_bool().unwrap_or(false)) {
+        return Err("createDoorSwingArcs requires doorLeafHints=true, pairedWallOpeningHints=true and confirmDoorSwingArcs=true; no CAD changes made".into());
+    }
+    let door_arcs=if create_door_arcs {door_swing_arcs(&paired_openings,&lines,ox,oy,height,scale)} else {Vec::new()};
     let create_opening_guides=args["createOpeningGuidePolylines"].as_bool().unwrap_or(false);
     if create_opening_guides && (!paired_enabled || !args["confirmOpeningGuides"].as_bool().unwrap_or(false)) {
         return Err("createOpeningGuidePolylines requires pairedWallOpeningHints=true and confirmOpeningGuides=true; no CAD changes made".into());
@@ -733,6 +784,8 @@ pub fn preview(args: &Value) -> Result<Value, String> {
         "pairedWallOpeningCandidates":paired_openings,"pairedWallOpeningCandidateCount":paired_openings.len(),
         "doorLeafCandidateCount":paired_openings.iter().filter(|v|v["doorLeafCandidate"]==true).count(),
         "doorLeafHintsRequested":args["doorLeafHints"].as_bool().unwrap_or(false),
+        "doorSwingArcs":door_arcs,"doorSwingArcsProposed":door_arcs.len(),
+        "doorSwingArcsRequested":create_door_arcs,
         "openingGuidePolylines":if create_opening_guides {paired_openings.iter().map(|v|v["outlineCAD"].clone()).collect::<Vec<_>>()} else {Vec::new()},
         "openingGuidePolylinesRequested":create_opening_guides,
         "minOpeningGapPixels":opening_min,"maxOpeningGapPixels":opening_max,
@@ -754,7 +807,8 @@ pub fn run(b: &mut dyn Backend, args: &Value) -> Result<Value, String> {
     let rectangles = proposal["closedPolylines"].as_array().cloned().unwrap_or_default();
     let axes=proposal["wallCenterlines"].as_array().cloned().unwrap_or_default();
     let opening_guides=proposal["openingGuidePolylines"].as_array().cloned().unwrap_or_default();
-    if world.is_empty() && rectangles.is_empty() && axes.is_empty() && opening_guides.is_empty() { return Err("No vector strokes detected; no CAD changes made".into()); }
+    let door_arcs=proposal["doorSwingArcs"].as_array().cloned().unwrap_or_default();
+    if world.is_empty() && rectangles.is_empty() && axes.is_empty() && opening_guides.is_empty() && door_arcs.is_empty() { return Err("No vector strokes detected; no CAD changes made".into()); }
     // Never end a group that another command/user already opened. The caller
     // must have a clean command prompt and full Undo support.
     let state = b.call("drawing.inspect", json!({"entities":false}))?;
@@ -775,7 +829,8 @@ pub fn run(b: &mut dyn Backend, args: &Value) -> Result<Value, String> {
     let operations: Vec<(&str, Value)> = rectangles.iter().map(|v| ("pline", json!({"vertices":v,"closed":true})))
         .chain(world.iter().map(|v| ("line",json!({"points":v}))))
         .chain(axes.iter().map(|v| ("line",json!({"points":v}))))
-        .chain(opening_guides.iter().map(|v| ("pline",json!({"vertices":v,"closed":true})))).collect();
+        .chain(opening_guides.iter().map(|v| ("pline",json!({"vertices":v,"closed":true}))))
+        .chain(door_arcs.iter().map(|v| ("arc",json!({"center":v["center"],"radius":v["radius"],"start":v["start"],"end":v["end"]})))).collect();
     for (command_id, params) in operations {
         // Guard against an asynchronous document switch or external edit in a
         // connected GUI while the MCP agent is sending its line commands.
@@ -831,7 +886,7 @@ pub fn run(b: &mut dyn Backend, args: &Value) -> Result<Value, String> {
     }
     Ok(json!({"preview":false,"recognition":"automatic-raster-line-strokes",
         "imageSize":proposal["imageSize"],"strokes":proposal["strokes"],
-        "rectanglesDetected":proposal["rectanglesDetected"],"closedPolylinesCreated":rectangles.len(),"openingGuidePolylinesCreated":opening_guides.len(),
+        "rectanglesDetected":proposal["rectanglesDetected"],"closedPolylinesCreated":rectangles.len(),"openingGuidePolylinesCreated":opening_guides.len(),"doorSwingArcsCreated":door_arcs.len(),
         "wallCenterlinesCreated":axes.len(),
         "editableEntitiesCreated":handles.len(),
         "entities":handles,"source":proposal["source"],
@@ -909,6 +964,24 @@ mod tests {
         let inspected=backend.call("drawing.inspect",json!({"entities":false})).unwrap();
         assert_eq!(inspected["entityCount"],5);
         let _=std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn ai_confirmed_door_swing_arc_is_editable_and_refuses_missing_confirmation() {
+        let gap=|y:f64|json!({"fromPixels":[39.5,y],"toPixels":[51.5,y]});
+        let mut candidates=paired_wall_openings(&[gap(15.5),gap(22.5)],2.0,40.0);
+        let leaf=Line{x0:39.5,y0:3.5,x1:39.5,y1:15.5};
+        door_leaf_evidence(&mut candidates,&[leaf]);
+        assert_eq!(candidates[0]["doorLeafCandidate"],true);
+        let arcs=door_swing_arcs(&candidates,&[leaf],100.0,200.0,48,2.0);
+        assert_eq!(arcs.len(),1,"a single observed perpendicular leaf must allow a 90-degree swing guide");
+        assert_eq!(arcs[0]["center"],json!([179.0,265.0]));
+        assert_eq!(arcs[0]["radius"],24.0);
+        assert!((arcs[0]["end"].as_f64().unwrap()-arcs[0]["start"].as_f64().unwrap()).rem_euclid(360.0)-90.0<1e-9);
+        let mut no_leaf=paired_wall_openings(&[gap(15.5),gap(22.5)],2.0,40.0);
+        assert!(door_swing_arcs(&no_leaf,&[leaf],0.0,0.0,48,1.0).is_empty());
+        door_leaf_evidence(&mut no_leaf,&[leaf,Line{x0:51.5,y0:3.5,x1:51.5,y1:15.5}]);
+        assert!(door_swing_arcs(&no_leaf,&[leaf],0.0,0.0,48,1.0).is_empty(),"ambiguous door evidence must not draw");
     }
 
     #[test]
