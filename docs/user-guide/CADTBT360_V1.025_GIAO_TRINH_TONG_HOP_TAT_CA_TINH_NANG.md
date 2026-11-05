@@ -1222,3 +1222,32 @@ Mục tiêu quan trọng nhất của đợt này là chuyển từ việc **ch�
 6. Khi test thành công, tiếp tục toàn bộ kiểm thử Xref, DWG, BIM, AI, cài/gỡ Setup và Portable; chỉ kết luận đạt khi đúng lượt CI của bản nguồn đó thành công.
 
 **Trạng thái đợt 206:** Đã sửa cơ chế Xref bảo toàn revision và bổ sung unit test/CI preflight. Chưa có kết quả Windows CI PASS của đúng SHA mới, chưa nghiệm thu bộ cài EXE hoặc chức năng AI dựng kiến trúc hoàn chỉnh từ ảnh.
+
+
+## 47. Đợt 207 — AI đối chiếu hai mép tường để gợi ý khoảng mở và vẽ đường bao CAD
+
+### Bài 76 — Từ ảnh PNG/JPG nhận biết khoảng mở xuyên hai mép tường
+
+1. Chuẩn bị ảnh mặt bằng rõ nét có hai đường tường song song, cả hai bị ngắt cùng vị trí tại một khoảng mở. Đây là đầu vào kiểm chứng hình học, **chưa phải** mô hình học sâu nhận dạng cửa.
+2. Trong AI Raster/MCP chọn ảnh, hiệu chuẩn `unitsPerPixel`, bật `openingGapHints=true` và `pairedWallOpeningHints=true`; giữ `maxGapPixels=0` để không tự lấp lỗ mở.
+3. Chạy Preview để xem `openingGapCandidates` theo từng mép, sau đó `pairedWallOpeningCandidates` chỉ khi hai khoảng hở thẳng hàng và cách nhau theo chiều dày tường hợp lệ (hiện 2–40 pixel).
+4. Kiểm tra `outlinePixels`, `outlineCAD`, `wallThicknessPixels`, `wallThicknessCAD`, `sourceGapIndices`. Kết quả `paired-through-wall-gap-unverified` chỉ là ứng viên và cần người dùng xác nhận.
+5. Nếu chỉ có một mép đứt, hai khoảng hở lệch vị trí hoặc có nhiều mép có thể ghép thì thuật toán từ chối tự suy ra cửa. Không tạo cửa đi, cửa sổ hay Block kiến trúc từ giả thuyết chưa đủ chứng cứ.
+
+### Bài 77 — Cho AI tạo PLINE hướng dẫn trong CAD sau xác nhận
+
+1. Mở bản vẽ CAD làm việc; bảo đảm không còn lệnh đang chạy, chế độ Undo là All và không có nhóm Undo khác.
+2. Sau khi xem Preview và xác nhận vị trí, bật cả ba tùy chọn: `openingGapHints=true`, `pairedWallOpeningHints=true`, `createOpeningGuidePolylines=true`. Đặt `confirmOpeningGuides=true` để đồng ý tạo hình học hướng dẫn.
+3. Chuyển `preview=false` để Commit. AI tạo các LINE nét gốc và thêm PLINE khép kín bao quanh khoảng mở đã đối chiếu, nằm trong một nhóm Undo; có thể chọn, sửa và xóa như đối tượng CAD thông thường.
+4. Đường bao này chỉ để kiểm tra, không phải Block cửa hay đối tượng BIM; không được tự dùng làm kết quả đo bóc kiến trúc khi chưa nghiệm thu ngữ nghĩa.
+5. Thực hành Undo để hoàn tác cả nhóm, mở lại bản vẽ và kiểm tra kích thước theo đơn vị CAD. Việc lưu DWG chuẩn và trao đổi AutoCAD cần kiểm thử độc lập.
+
+### Bài 78 — Kiểm thử ảnh PNG thật và trường hợp không đủ chứng cứ
+
+1. Trong `CADTBT360_V1.000/crates/mcp/src/raster_vector.rs` có kiểm thử `ai_real_png_paired_wall_opening_preview_and_editable_guide`: ảnh PNG tự dựng có bốn đoạn tường tạo hai mép ngắt đồng vị trí.
+2. Preview phải xác nhận hai khoảng hở đơn, một khoảng mở ghép đôi, bảo toàn bốn LINE gốc; `wallThicknessCAD` phải đúng theo tỷ lệ hiệu chuẩn.
+3. Khi chưa có `confirmOpeningGuides=true`, yêu cầu tạo guide phải bị từ chối. Sau xác nhận, Headless CAD phải có bốn LINE và một PLINE chỉnh sửa được.
+4. Kiểm thử `ai_single_or_ambiguous_opening_gap_must_not_invent_a_door` đảm bảo không suy ra cửa từ một khoảng hở đơn lẻ hoặc tổ hợp mơ hồ.
+5. Windows CI bắt buộc phát hiện và chạy các kiểm thử AI này trước bước đóng gói. Chỉ coi thành công khi đúng run/SHA xác nhận PASS.
+
+**Giới hạn được công bố:** Đã bổ sung thuật toán hình học và vẽ đường bao có xác nhận, nhưng chưa đạt AI nhận diện ngữ nghĩa cửa/cột/tường trên tập ảnh thực tế đa dạng. Không thay thế nghiệm thu ngoài thực tế bằng kết quả test tổng hợp.
