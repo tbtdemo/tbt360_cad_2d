@@ -7,6 +7,7 @@ use serde_json::{Value, json};
 #[derive(Default)]
 pub struct State {
     pub open: bool,
+    pub show_help: bool,
     path: String,
     preview: Option<Value>,
     preview_document_uid: Option<u64>,
@@ -28,6 +29,11 @@ impl State {
         }
     }
 
+    pub fn open_help(&mut self) {
+        self.open();
+        self.show_help = true;
+    }
+
     fn matches_document(&self, uid: u64, revision: u64) -> bool {
         self.preview_document_uid == Some(uid) && self.preview_revision == Some(revision)
     }
@@ -47,6 +53,23 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
         .show(ctx, |ui| {
             ui.label("Tự nhận dạng các nét thẳng trong PNG/JPEG để tạo LINE chỉnh sửa được.");
             ui.label("Đây là vector hóa pixel, chưa tự hiểu tường/cửa/kích thước.");
+            if ui.toggle_value(&mut state.show_help, "📖 Hướng dẫn từng bước").clicked() {
+                state.error = None;
+            }
+            if state.show_help {
+                ui.group(|ui| {
+                    ui.heading("Cách sử dụng AI từ ảnh → CAD");
+                    ui.label("1. Mở một bản sao bản vẽ, chuẩn bị ảnh PNG/JPEG nét đậm và nền sáng.");
+                    ui.label("2. Chọn ảnh. Thiết lập Nét tối thiểu (thử 16 px) và tỷ lệ Đơn vị CAD/pixel.");
+                    ui.label("3. Chọn Nét 45° nếu cần; Góc bất kỳ là tính năng thử nghiệm.");
+                    ui.label("4. Nhấn 'Nhận dạng và xem trước', kiểm tra số lượng nét và kích thước dự kiến.");
+                    ui.label("5. Nhấn 'Tạo LINE chỉnh sửa trong CAD', chọn từng nét để kiểm tra và lưu bản vẽ mới.");
+                    ui.label("6. Dùng UNDO một lần để hoàn tác cả nhóm AI khi cần.");
+                    ui.separator();
+                    ui.small("Tài liệu Word đầy đủ: Setup → HuongDan\\HUONG_DAN_AI_TU_ANH_THANH_CAD.docx; Portable → HUONG_DAN_AI_TU_ANH_THANH_CAD.docx.");
+                    ui.small("Giới hạn: Không tự hiểu tường, cửa, cột, kích thước. Chưa có xác nhận kiểm thử GUI Windows thủ công.");
+                });
+            }
             ui.horizontal(|ui| {
                 if ui.button("Chọn ảnh PNG/JPG…").clicked()
                     && let Some(path) = rfd::FileDialog::new()
@@ -216,6 +239,15 @@ mod tests {
         assert!(state.matches_document(original_uid, revision));
         assert!(!state.matches_document(other_uid, revision), "switching documents invalidates the AI preview binding");
         assert!(!state.matches_document(original_uid, revision + 1), "editing the same drawing after preview also invalidates it");
+    }
+
+    #[test]
+    fn ai_raster_help_is_accessible_offline_without_external_links() {
+        let mut state = State::default();
+        state.open_help();
+        assert!(state.open);
+        assert!(state.show_help);
+        assert_eq!(state.params()["preview"], true);
     }
 
     #[test]
