@@ -715,6 +715,26 @@ pub fn preview(args: &Value) -> Result<Value, String> {
         return Err("createDoorSwingArcs requires doorLeafHints=true, pairedWallOpeningHints=true and confirmDoorSwingArcs=true; no CAD changes made".into());
     }
     let door_arcs=if create_door_arcs {door_swing_arcs(&paired_openings,&lines,ox,oy,height,scale)} else {Vec::new()};
+    let create_door_blocks=args["createDoorBlocks"].as_bool().unwrap_or(false);
+    if create_door_blocks && (!create_door_arcs || !args["confirmDoorBlocks"].as_bool().unwrap_or(false)) {
+        return Err("createDoorBlocks requires createDoorSwingArcs=true and confirmDoorBlocks=true; no CAD changes made".into());
+    }
+    // A block consists of a newly drawn door-leaf LINE and swing ARC, not the
+    // traced raster source edge: source evidence stays available for comparison.
+    let mut door_blocks=Vec::new();
+    if create_door_blocks {
+        for arc in &door_arcs {
+            let (Some(cx),Some(cy),Some(radius),Some(start))=(arc["center"][0].as_f64(),arc["center"][1].as_f64(),
+                arc["radius"].as_f64(),arc["start"].as_f64()) else {continue};
+            let angle=start.to_radians();
+            let x=cx+radius*angle.cos(); let y=cy+radius*angle.sin();
+            if !x.is_finite() || !y.is_finite() || x.abs()>1.0e12 || y.abs()>1.0e12 {
+                return Err("Door block draft coordinates are outside CAD safety bounds; no changes made".into());
+            }
+            door_blocks.push(json!({"base":[cx,cy],"leaf":[[cx,cy],[x,y]],"arc":arc,
+                "classification":"human-confirmed-cad-drafting-block-not-semantic-door"}));
+        }
+    }
     let create_opening_guides=args["createOpeningGuidePolylines"].as_bool().unwrap_or(false);
     if create_opening_guides && (!paired_enabled || !args["confirmOpeningGuides"].as_bool().unwrap_or(false)) {
         return Err("createOpeningGuidePolylines requires pairedWallOpeningHints=true and confirmOpeningGuides=true; no CAD changes made".into());
@@ -786,6 +806,8 @@ pub fn preview(args: &Value) -> Result<Value, String> {
         "doorLeafHintsRequested":args["doorLeafHints"].as_bool().unwrap_or(false),
         "doorSwingArcs":door_arcs,"doorSwingArcsProposed":door_arcs.len(),
         "doorSwingArcsRequested":create_door_arcs,
+        "doorBlockDrafts":door_blocks,"doorBlockDraftCount":door_blocks.len(),
+        "doorBlocksRequested":create_door_blocks,
         "openingGuidePolylines":if create_opening_guides {paired_openings.iter().map(|v|v["outlineCAD"].clone()).collect::<Vec<_>>()} else {Vec::new()},
         "openingGuidePolylinesRequested":create_opening_guides,
         "minOpeningGapPixels":opening_min,"maxOpeningGapPixels":opening_max,
@@ -802,6 +824,9 @@ pub fn preview(args: &Value) -> Result<Value, String> {
 /// MCP entry point. The same preview function powers the desktop's AI drawing panel.
 pub fn run(b: &mut dyn Backend, args: &Value) -> Result<Value, String> {
     let proposal = preview(args)?;
+    if args["createDoorBlocks"].as_bool().unwrap_or(false) {
+        return Err("createDoorBlocks is currently supported by the desktop AI panel; MCP must use ARC drafts until block transaction ownership is implemented".into());
+    }
     if args["preview"].as_bool().unwrap_or(true) { return Ok(proposal); }
     let Some(world) = proposal["lines"].as_array() else { return Err("Raster preview has no CAD lines".to_string()) };
     let rectangles = proposal["closedPolylines"].as_array().cloned().unwrap_or_default();
@@ -994,6 +1019,35 @@ mod tests {
         assert_eq!(result["editableEntitiesCreated"].as_u64(),Some((source_lines+1) as u64));
         let current=backend.call("drawing.inspect",json!({"entities":false})).unwrap();
         assert_eq!(current["entityCount"].as_u64(),Some((source_lines+1) as u64));
+        let _=std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn ai_door_block_drafts_require_review_and_keep_traced_lines_separate() {
+        let mut img=image::RgbImage::from_pixel(110,48,image::Rgb([255,255,255]));
+        for y in [15,22] {
+            for x in 5..=39 {img.put_pixel(x,y,image::Rgb([0,0,0]));}
+            for x in 51..=95 {img.put_pixel(x,y,image::Rgb([0,0,0]));}
+        }
+        for y in 3..=15 {img.put_pixel(39,y,image::Rgb([0,0,0]));}
+        let path=std::env::temp_dir().join(format!("cad360-door-block-draft-{}-{}.png",std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        img.save(&path).unwrap();
+        let mut args=json!({"path":path.to_string_lossy(),"minLengthPixels":8,"includeDiagonals":false,
+            "openingGapHints":true,"pairedWallOpeningHints":true,"doorLeafHints":true,
+            "maxGapPixels":0,"createDoorSwingArcs":true,"confirmDoorSwingArcs":true,
+            "createDoorBlocks":true});
+        assert!(preview(&args).unwrap_err().contains("confirmDoorBlocks=true"));
+        args["confirmDoorBlocks"]=json!(true);
+        let proposal=preview(&args).unwrap();
+        assert_eq!(proposal["doorBlockDraftCount"],1);
+        assert_eq!(proposal["doorBlockDrafts"][0]["classification"],"human-confirmed-cad-drafting-block-not-semantic-door");
+        assert!(proposal["lines"].as_array().unwrap().len()>=4,"original raster sources must remain for review");
+        let mut backend=crate::backend::Headless::default();
+        args["preview"]=json!(false);
+        assert!(run(&mut backend,&args).unwrap_err().contains("desktop AI panel"),
+            "MCP block transactions must fail closed until ownership/undo is validated");
+        assert_eq!(backend.session.doc().unwrap().entity_count(),0);
         let _=std::fs::remove_file(&path);
     }
 
