@@ -26,6 +26,8 @@ pub struct State {
     max_wall_spacing: f64,
     create_wall_centerlines: bool,
     opening_gap_hints: bool,
+    min_opening_gap: f64,
+    max_opening_gap: f64,
 }
 
 /// Compute world units per pixel from a known measured dimension.
@@ -49,6 +51,8 @@ impl State {
             self.include_diagonals = true;
             self.min_wall_spacing = 2.0;
             self.max_wall_spacing = 40.0;
+            self.min_opening_gap = 3.0;
+            self.max_opening_gap = 40.0;
         }
     }
 
@@ -68,7 +72,8 @@ impl State {
             "includeArbitraryAngles":self.arbitrary_angles,"closedRectangles":self.closed_rectangles,
             "wallPairHints":self.wall_pair_hints,"createWallCenterlines":self.create_wall_centerlines,
             "minWallSpacingPixels":self.min_wall_spacing,"maxWallSpacingPixels":self.max_wall_spacing,
-            "openingGapHints":self.opening_gap_hints,"maxLines":250})
+            "openingGapHints":self.opening_gap_hints,"minOpeningGapPixels":self.min_opening_gap,
+            "maxOpeningGapPixels":self.max_opening_gap,"maxLines":250})
     }
 }
 
@@ -165,6 +170,17 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
                     state.preview = None;
                 }
                 if ui.checkbox(&mut state.opening_gap_hints, "Gợi ý khoảng hở có thể là cửa (chỉ Preview)").changed() {state.preview=None;}
+                if state.opening_gap_hints {
+                    ui.horizontal(|ui| {
+                        ui.label("Khoảng mở (px): từ");
+                        if ui.add(egui::DragValue::new(&mut state.min_opening_gap).speed(1.0).range(1.0..=120.0)).changed() { state.preview=None; }
+                        ui.label("đến");
+                        if ui.add(egui::DragValue::new(&mut state.max_opening_gap).speed(1.0).range(1.0..=120.0)).changed() { state.preview=None; }
+                    });
+                    if state.min_opening_gap>state.max_opening_gap {
+                        ui.colored_label(egui::Color32::RED,"Khoảng mở: ngưỡng từ không được lớn hơn ngưỡng đến.");
+                    }
+                }
                 if ui.checkbox(&mut state.closed_rectangles, "Đường bao chữ nhật kín → PLINE").changed() {
                     state.preview = None; state.preview_document_uid = None;
                     state.preview_revision = None; state.preview_document_epoch = None;
@@ -191,6 +207,14 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
             }
             if state.opening_gap_hints {
                 ui.small(format!("{opening_count} khoảng hở tiềm năng. Chưa xác nhận là cửa đi/cửa sổ; không tự đóng đoạn."));
+                if let Some(gaps)=proposal["openingGapCandidates"].as_array() {
+                    for (index,gap) in gaps.iter().take(12).enumerate() {
+                        let px=gap["gapPixels"].as_f64().unwrap_or(0.0);
+                        let cad_width=gap["widthCAD"].as_f64().unwrap_or(0.0);
+                        ui.small(format!("Khoảng {}: {:.2} px = {:.3} đơn vị CAD (chưa xác minh).",index+1,px,cad_width));
+                    }
+                    if gaps.len()>12 {ui.small(format!("Còn {} khoảng khác; xem kết quả MCP chi tiết.",gaps.len()-12));}
+                }
             }
             let centerline_count = proposal["wallCenterlinesProposed"].as_u64().unwrap_or(0);
             let junction_count = proposal["wallCenterlineJunctionCount"].as_u64().unwrap_or(0);
@@ -476,6 +500,19 @@ mod tests {
         state.create_wall_centerlines=true;
         assert_eq!(state.params()["wallPairHints"], true);
         assert_eq!(state.params()["createWallCenterlines"], true);
+        assert_eq!(state.params()["preview"],true);
+    }
+
+    #[test]
+    fn ai_opening_gap_thresholds_are_editable_and_preview_only() {
+        let mut state=State::default();state.open();
+        assert_eq!(state.params()["minOpeningGapPixels"],3.0);
+        assert_eq!(state.params()["maxOpeningGapPixels"],40.0);
+        state.opening_gap_hints=true;
+        state.min_opening_gap=10.0;state.max_opening_gap=20.0;
+        assert_eq!(state.params()["openingGapHints"],true);
+        assert_eq!(state.params()["minOpeningGapPixels"],10.0);
+        assert_eq!(state.params()["maxOpeningGapPixels"],20.0);
         assert_eq!(state.params()["preview"],true);
     }
 
