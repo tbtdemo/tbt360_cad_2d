@@ -28,7 +28,7 @@ def validate(path: Path) -> None:
         raise ValueError("Word manual has no third-level instructional heading styles")
     if len(tables) < 2:
         raise ValueError(f"Expected at least two native Word tables; got {len(tables)}")
-    for n in range(1,16):
+    for n in range(1,22):
         if f"Bài {n:02d}" not in all_text:
             raise ValueError(f"Missing unique full-product hands-on lesson Bài {n:02d}")
     required = ("CAD", "ĐO BÓC", "BIM", "IFC", "XREF", "DXF", "DWG", "XLSX", "AI", "MCP")
@@ -37,7 +37,7 @@ def validate(path: Path) -> None:
         raise ValueError(f"Missing whole-product features in Word manual: {missing}")
     if len(all_text) < 16000:
         raise ValueError(f"Word manual too short: {len(all_text)} characters")
-    print(f"PASS: complete Word manual, {len(tables)} native tables, 15 unique hands-on lessons, {len(all_text)} chars")
+    print(f"PASS: complete Word manual, {len(tables)} native tables, 21 unique hands-on lessons, {len(all_text)} chars")
 
 if __name__ == "__main__":
     if len(sys.argv) != 2:
