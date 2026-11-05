@@ -504,7 +504,7 @@ jobs:
             'dist/v1025/CADTBT360_V1.025_HUONG_DAN_AI_TU_ANH_THANH_CAD.docx'
           )
           foreach ($asset in $assets) { if (!(Test-Path $asset)) { throw "Verified release asset missing: $asset" } }
-          $notes = "CAD 360 Viet Nam V1.025 Windows x64 - verified automated build `nSource commit: $env:GITHUB_SHA`nRun: $env:GITHUB_RUN_ID`nSetup install/uninstall, CLI DXF/DWG roundtrips, real-PNG IMAGE attachment with supplied trace vertices, and Portable hashes checked. GUI manual acceptance and automatic AI tracing are not verified."
+          $notes = "CAD 360 Viet Nam V1.025 Windows x64 - verified automated build `nSource commit: $env:GITHUB_SHA`nRun: $env:GITHUB_RUN_ID`nSetup install/uninstall, CLI DXF/DWG roundtrips, real-PNG IMAGE attachment with supplied trace vertices, and Portable hashes checked. Setup/Portable MCP smoke verifies one generated real-PNG LINE and Undo. Real-world AI accuracy, manual GUI acceptance and independent AutoCAD DWG interoperability are not verified."
           gh release create $tag @assets --title "CAD 360 Viet Nam V1.025 - Build $env:GITHUB_RUN_NUMBER" --target $env:GITHUB_SHA --prerelease --notes $notes
           if ($LASTEXITCODE -ne 0) { throw "Failed to publish verified Windows prerelease $tag" }
           # Verify what GitHub actually accepted, not just the local files and
