@@ -584,9 +584,13 @@ fn door_swing_arcs(openings: &[Value], lines: &[Line], ox: f64, oy: f64, height:
         let radius=width*scale;
         if !radius.is_finite() || radius<=1e-9 || radius>1.0e12 {continue;}
         let opposite=[ox+target[0]*scale,oy+(f64::from(height)-target[1])*scale];
+        // Stable within the original source image and recognition settings, independent
+        // of world origin/scale and subsequent reviewed Block width/hinge/swing changes.
+        let source_key=format!("{:.3},{:.3}:{:.3},{:.3}:{}",hx,hy,target[0],target[1],index);
         arcs.push(json!({"center":hcad,"radius":radius,"start":start,"end":end,
             "oppositeHingeCAD":opposite,"leafAngleDegrees":a,"openingAngleDegrees":b,
-            "sourceLineIndex":index,"classification":"confirmed-drafting-arc-not-door-block"}));
+            "sourceDoorKey":source_key,"sourceLineIndex":index,
+            "classification":"confirmed-drafting-arc-not-door-block"}));
     }
     arcs
 }
@@ -774,6 +778,15 @@ pub fn preview(args: &Value) -> Result<Value, String> {
     };
     let flip_hinges=parse_door_flips("doorHingeFlips")?;
     let flip_swings=parse_door_flips("doorSwingFlips")?;
+    // When the operator reviews candidates individually, reject any changed list/order
+    // rather than silently applying a previous door's width/hinge/swing to a new candidate.
+    if let Some(value)=args.get("expectedDoorSourceKeys") {
+        if !create_door_blocks {return Err("expectedDoorSourceKeys requires createDoorBlocks=true; no edits made".into());}
+        let keys=value.as_array().ok_or("expectedDoorSourceKeys must be a list of the original Preview source keys")?;
+        if keys.len()!=door_arcs.len() || keys.iter().enumerate().any(|(i,key)|key.as_str()!=door_arcs[i]["sourceDoorKey"].as_str()) {
+            return Err("AI door candidates changed since the reviewed Preview; clear reviewed door edits and Preview again; no CAD changes made".into());
+        }
+    }
     let mut door_blocks=Vec::new();
     if create_door_blocks {
         for (door_index,arc) in door_arcs.iter().enumerate() {
@@ -802,7 +815,7 @@ pub fn preview(args: &Value) -> Result<Value, String> {
             drafted_arc["end"]=json!(end);
             door_blocks.push(json!({"base":[cx,cy],"leaf":[[cx,cy],[x,y]],"arc":drafted_arc,
                 "widthCAD":reviewed_radius,"sourceOpeningWidthCAD":radius,
-                "doorIndex":door_index,"hingeFlipped":hinge_flipped,"swingFlipped":swing_flipped,
+                "sourceDoorKey":arc["sourceDoorKey"],                "doorIndex":door_index,"hingeFlipped":hinge_flipped,"swingFlipped":swing_flipped,
                 "widthOverridden":widths_by_door.contains_key(&door_index) || override_width.is_some(),
                 "classification":"human-confirmed-cad-drafting-block-not-semantic-door"}));
         }
@@ -1132,6 +1145,32 @@ mod tests {
             args["doorHingeFlips"]=invalid;
             assert!(preview(&args).is_err(),"invalid hinge index must not silently alter the drawing");
         }
+        let _=std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn ai_stale_per_door_review_keys_must_not_retarget_a_different_candidate() {
+        let mut img=image::RgbImage::from_pixel(110,48,image::Rgb([255,255,255]));
+        for y in [15,22] {
+            for x in 5..=39 {img.put_pixel(x,y,image::Rgb([0,0,0]));}
+            for x in 51..=95 {img.put_pixel(x,y,image::Rgb([0,0,0]));}
+        }
+        for y in 3..=15 {img.put_pixel(39,y,image::Rgb([0,0,0]));}
+        let path=std::env::temp_dir().join(format!("cad360-stale-door-review-{}-{}.png",std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        img.save(&path).unwrap();
+        let mut args=json!({"path":path.to_string_lossy(),"minLengthPixels":8,"includeDiagonals":false,
+            "openingGapHints":true,"pairedWallOpeningHints":true,"doorLeafHints":true,
+            "maxGapPixels":0,"createDoorSwingArcs":true,"confirmDoorSwingArcs":true,
+            "createDoorBlocks":true,"confirmDoorBlocks":true});
+        let first=preview(&args).unwrap();
+        let key=first["doorBlockDrafts"][0]["sourceDoorKey"].as_str().unwrap().to_string();
+        args["expectedDoorSourceKeys"]=json!([key]);
+        args["doorWidthOverridesCAD"]=json!({"0":30.0});
+        assert_eq!(preview(&args).unwrap()["doorBlockDrafts"][0]["widthCAD"],30.0);
+        args["expectedDoorSourceKeys"]=json!(["mismatched-image:another-door"]);
+        let err=preview(&args).unwrap_err();
+        assert!(err.contains("door candidates changed"),"{err}");
         let _=std::fs::remove_file(path);
     }
 
