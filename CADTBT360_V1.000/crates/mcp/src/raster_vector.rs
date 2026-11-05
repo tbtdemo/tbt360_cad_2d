@@ -423,7 +423,7 @@ fn wall_panel_boundary_contacts(panels: &[Value], openings: &[Value], columns: &
         let Some(b)=bounds(panel) else {continue;};
         let horizontal=b[2]-b[0]>=b[3]-b[1];
         let endpoints=if horizontal {[[b[0],(b[1]+b[3])*0.5],[b[2],(b[1]+b[3])*0.5]]}
-            else {[[(b[0]+b[2])*0.5,b[1]],[(b[0]+b[2])*0.5,b[3]]};
+            else { [[(b[0]+b[2])*0.5,b[1]],[(b[0]+b[2])*0.5,b[3]]] };
         let mut contacts=[Vec::<Value>::new(),Vec::<Value>::new()];
         for (side,point) in endpoints.iter().enumerate() {
             for (kind,regions) in [("opening",openings),("column",columns)] {
