@@ -519,6 +519,40 @@ fn ai_trace_quality_broad_phase_preserves_nonadjacent_crossings() {
 
 
 #[test]
+fn ai_mcp_rectangle_png_creates_closed_polyline_and_single_undo() {
+    use image::{RgbImage, Rgb};
+    let mut image = RgbImage::from_pixel(96, 72, Rgb([255,255,255]));
+    for x in 10..=70 {
+        image.put_pixel(x,10,Rgb([0,0,0]));
+        image.put_pixel(x,50,Rgb([0,0,0]));
+    }
+    for y in 10..=50 {
+        image.put_pixel(10,y,Rgb([0,0,0]));
+        image.put_pixel(70,y,Rgb([0,0,0]));
+    }
+    let path=std::env::temp_dir().join(format!("cad360-mcp-outline-{}-{}.png",std::process::id(),
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+    image.save(&path).unwrap();
+    let filename=path.to_string_lossy().to_string();
+    let mut server=Server::new(Box::new(Headless::default()));
+    let args=json!({"path":filename,"preview":true,"closedRectangles":true,"includeDiagonals":false,"minLengthPixels":16});
+    let preview=tool(&mut server,"raster_to_cad_lines",args.clone());
+    assert_eq!(preview["rectanglesDetected"],1);
+    assert_eq!(preview["lines"].as_array().unwrap().len(),0);
+    let mut commit_args=args;
+    commit_args["preview"]=json!(false);
+    let result=tool(&mut server,"raster_to_cad_lines",commit_args);
+    let _=std::fs::remove_file(path);
+    assert_eq!(result["closedPolylinesCreated"],1);
+    assert_eq!(result["editableEntitiesCreated"],1);
+    let entities=tool(&mut server,"query_entities",json!({}));
+    assert_eq!(entities["count"],1,"one rectangle should yield one editable CAD entity");
+    let _=tool(&mut server,"execute",json!({"command":"undo","params":{"count":1}}));
+    let after=tool(&mut server,"query_entities",json!({}));
+    assert_eq!(after["count"],0,"AI-created closed PLINE must be removed by one Undo");
+}
+
+#[test]
 fn ai_automatic_raster_to_cad_lines_from_real_png_without_manual_points() {
     use image::{GrayImage, Luma};
     let mut pixels = GrayImage::from_pixel(64, 48, Luma([255]));
