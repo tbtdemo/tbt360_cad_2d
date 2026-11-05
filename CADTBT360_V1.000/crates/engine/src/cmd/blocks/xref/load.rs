@@ -602,3 +602,37 @@ mod tests {
         assert_eq!((r.cols, r.rows), (3, 2));
     }
 }
+
+
+#[cfg(test)]
+mod xref_bim_identity_tests {
+    use super::rebind_xref_bim_identity;
+    use cadcraft_doc::{Common, Handle, RawTag};
+
+    #[test]
+    fn xref_bim_identity_rebind_preserves_source_revision_and_other_apps() {
+        let mut common = Common::default();
+        common.xdata = vec![
+            RawTag { code: 1001, value: "FOREIGN_APP".into() },
+            RawTag { code: 1000, value: "keep=unchanged".into() },
+            RawTag { code: 1001, value: "TBT360_BIM".into() },
+            RawTag { code: 1000, value: "floor=2;discipline=ELEC;owner=u1;revision=9;entity=1".into() },
+        ];
+        rebind_xref_bim_identity(&mut common, Handle(0xABCD));
+        assert_eq!(common.xdata[1].value, "keep=unchanged");
+        assert_eq!(common.xdata[3].value, "floor=2;discipline=ELEC;owner=u1;revision=9;entity=ABCD");
+        rebind_xref_bim_identity(&mut common, Handle(0xBEEF));
+        assert_eq!(common.xdata[3].value, "floor=2;discipline=ELEC;owner=u1;revision=9;entity=BEEF");
+    }
+
+    #[test]
+    fn xref_bim_identity_rebind_adds_missing_entity_without_resetting_revision() {
+        let mut common = Common::default();
+        common.xdata = vec![
+            RawTag { code: 1001, value: "TBT360_BIM".into() },
+            RawTag { code: 1000, value: "revision=7;floor=3".into() },
+        ];
+        rebind_xref_bim_identity(&mut common, Handle(0x42));
+        assert_eq!(common.xdata[1].value, "revision=7;floor=3;entity=42");
+    }
+}
