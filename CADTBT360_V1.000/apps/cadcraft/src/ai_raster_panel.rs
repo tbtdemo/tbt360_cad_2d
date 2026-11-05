@@ -599,7 +599,16 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
                                 if ui.button("Xác nhận đã kiểm tra hình học (không vẽ)").clicked() {state.reviewed_wall_junctions.insert(index);}
                                 if ui.button("Bỏ dấu đã kiểm tra").clicked() {state.reviewed_wall_junctions.remove(&index);}
                             });
-                            ui.small(format!("Nút {} chỉ xác nhận QA. Chưa có lệnh trim/extend, không tự gộp tường hoặc tạo BLOCK.",index+1));
+                            let candidate=&junctions[index];
+                            let distances=candidate["endpointDistancesPixels"].as_array().map(|values|values.iter().filter_map(Value::as_f64).map(|v|format!("{v:.2}")).collect::<Vec<_>>().join(" / ")).unwrap_or_else(||"chưa xác định".to_string());
+                            let advice=match candidate["proposedEditAction"].as_str().unwrap_or("") {
+                                "review-endpoint-snap-without-edit"=>"Đầu tường sát nút giao; kiểm tra sai lệch và phương án Snap thủ công",
+                                "review-crossing-overlap-without-edit"=>"Hai tim tường cắt nhau; kiểm tra phần giao và ưu tiên tường chính trước khi Trim",
+                                _=>"Chưa đủ dữ liệu để đề xuất chỉnh sửa, cần kiểm tra thủ công"
+                            };
+                            ui.small(format!("Khoảng cách gần nhất từ các đầu tường đến nút: {distances} px."));
+                            ui.small(advice);
+                            ui.small(format!("Nút {}: chỉ đề xuất kiểm tra, canAutoApply=false; không tự Trim/Extend hoặc gộp BLOCK.",index+1));
                         }
                     }
                     if let Some(rows)=proposal["wallPanelBoundaryContacts"].as_array() {
