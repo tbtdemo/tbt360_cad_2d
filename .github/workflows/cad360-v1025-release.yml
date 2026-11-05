@@ -125,6 +125,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'V1.025 AI perspective tracing failed' }
           cargo test --locked -p cadcraft-mcp --lib ai_perspective_trace_remains_editable_after_dxf_save_reopen -- --nocapture
           if ($LASTEXITCODE -ne 0) { throw 'V1.025 AI DXF persistence failed' }
+          cargo test --locked -p cadcraft-mcp --lib ai_trace_quality_gate -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'V1.025 AI vector trace geometry quality gate failed' }
           cargo test --locked -p cadcraft-ui-egui --lib canvas::raster_image::tests -- --nocapture
           if ($LASTEXITCODE -ne 0) { throw 'V1.025 native PNG/JPG raster overlay failed' }
           cargo test --locked -p cadcraft-render --lib raster_image_reference_draws_only_outer_frame_without_obscuring_draft -- --nocapture
