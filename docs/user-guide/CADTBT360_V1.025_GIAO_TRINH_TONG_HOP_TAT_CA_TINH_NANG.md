@@ -952,3 +952,36 @@ AI trả các trường `gapPixels`, `widthCAD`, `fromCAD` và `toCAD`, sử d�
 6. Nếu chưa có xác nhận chạy Windows CI hoặc kiểm tra EXE, chỉ ghi **Mã nguồn đã cập nhật — Chưa nghiệm thu**.
 
 **Giới hạn:** Tính năng hiện tại xử lý nét ngang/dọc theo hình học; chưa phân loại được tường/cửa/cột bằng mô hình AI ngữ nghĩa. Không được suy luận một khoảng mở là cửa thực tế chỉ dựa trên số liệu pixel.
+
+
+## 35. Đợt 195 — Không báo trùng khoảng mở khi ảnh scan có nhiều nét chồng
+
+Ảnh scan thực tế có thể làm nét tường bị nhận dạng hai lần (nét nhòe, ảnh lớp trùng, nét LINE lặp). Mục tiêu đợt 195 là không trả **hai ứng viên cho cùng một vị trí khoảng mở** nhưng vẫn giữ các khoảng mở thật ở vị trí khác nhau. Dữ liệu nguồn `sourceEdges` vẫn được giữ cho ứng viên đầu tiên, và chỉ danh sách gợi ý được lọc trùng; không tự xóa nét CAD hoặc tạo BLOCK cửa.
+
+### Bài 53 — Kiểm tra không đếm trùng một khoảng mở
+
+1. Trong tab CAD tạo bản vẽ thử `BT53_AI_LocTrungKhoangMo.dxf`. Không chỉnh sửa hồ sơ dự án đang sản xuất.
+2. Dựng ảnh thử có đoạn ngang trái từ (5.5,20.5) đến (35.5,20.5), và đoạn phải từ (47.5,20.5) đến (87.5,20.5).
+3. Chèn mỗi đoạn thành **hai nét trùng tọa độ**, mô phỏng trường hợp công cụ vector hóa nhận trùng cùng một nét.
+4. Bật **Gợi ý khoảng hở có thể là cửa (chỉ Preview)**; để `maxGapPixels=0` và ngưỡng khoảng mở 3–40 px.
+5. Kết quả đúng là **một ứng viên khoảng hở 12 pixel**, không phải bốn ứng viên từ tổ hợp các nét trùng.
+6. Xác minh các nét nguồn vẫn còn, bộ lọc chỉ loại gợi ý vị trí trùng. Đừng coi một ứng viên là một cửa thật trước khi kỹ sư xác minh trên hồ sơ.
+
+### Bài 54 — Giữ đúng hai khoảng mở thật trên hai tuyến
+
+1. Tạo cặp nét trái/phải theo bài 53 tại y=10.5, rồi tạo thêm một cặp giống vậy tại y=30.5.
+2. Preview với `openingGapHints=true`; kết quả phải là **hai ứng viên** tại hai tuyến khác nhau.
+3. Kiểm tra khoảng cách giữa hai tuyến lớn hơn dung sai lọc trùng; không được gom hai khoảng mở khác vị trí thành một.
+4. Thử một nét thứ ba đi xuyên qua khoảng hở ở một tuyến; chỉ khoảng hở còn thông thoáng được gợi ý.
+5. Chụp màn hình EXE thực tế, giữ ảnh đầu vào và đối chiếu DXF để nghiệm thu, không dùng ảnh minh họa thay bằng chứng.
+
+### Bài 55 — Kiểm thử Rust và điều kiện phát hành
+
+1. Mở thư mục `CADTBT360_V1.000` của ZIP mã nguồn theo đúng commit.
+2. Chạy `cargo test --locked -p cadcraft-mcp --lib ai_opening_gap_duplicate_raster_strokes_do_not_duplicate_one_gap -- --nocapture`.
+3. Chạy `cargo test --locked -p cadcraft-mcp --lib ai_opening_gap_different_openings_are_not_deduplicated -- --nocapture`.
+4. Chạy lại các test `ai_opening_gap_refuses_crossing_wall_or_third_fragment` và `ai_opening_gap_vertical_crossing_is_not_a_clear_doorway`.
+5. Kiểm tra workflow Windows V1.025 chỉ đóng gói khi những bài test trên thực sự PASS. Sau khi có Setup và Portable, thử trên GUI thật, lưu ảnh màn hình và mở lại DXF/DWG trong phần mềm độc lập.
+6. Nếu chưa có GitHub Actions Success hoặc kết quả EXE, ghi **Đã thêm mã nguồn/bài kiểm thử, chưa nghiệm thu**, không suy luận PASS.
+
+**Giới hạn:** Chức năng mới là lọc dữ liệu gợi ý hình học từ các nét ảnh bị trùng, chưa phải AI phân loại ngữ nghĩa cửa đi, cửa sổ, tường, cột hoặc vật liệu. Các bản vẽ DWG tiếp tục cần thử nghiệm tương thích với AutoCAD hai chiều.
