@@ -1114,3 +1114,25 @@ Mục tiêu quan trọng nhất của đợt này là chuyển từ việc **ch�
 - **Mức 4 — Người dùng:** kiểm tra GUI trên Windows sạch, đối tượng AI chỉnh sửa được, DWG mở/sửa/lưu hai chiều qua AutoCAD độc lập và các chức năng CAD/QTO/BIM thực tế.
 
 **Trạng thái đợt 201:** Workflow đã bổ sung kiểm tra cấu trúc giáo trình Word trong Portable. Chưa xác nhận đạt Mức 2–4 khi không có bằng chứng Windows CI Success và nghiệm thu người dùng.
+
+
+## 42. Đợt 202 — Sửa ba lỗi E0599 của bài kiểm thử Xref trên Windows
+
+### Bài 66 — Sửa API `Vec<Handle>` và `EntityStore` đúng kiểu Rust
+
+1. Mở run 42034172599 và bước `Verify Xref, DWG, and Windows BIM workspace safety before Setup`; xem log `XREF_ENGINE_WINDOWS.log`.
+2. Lỗi thứ nhất: `crates/engine/tests/xref.rs:107` gọi `model.handles().next()`, nhưng `handles()` trả về `Vec<Handle>`, không phải iterator. Dùng `model.handles().into_iter().next()`.
+3. Lỗi thứ hai và ba: `loaded.entities.first()` và `reloaded.entities.first()` không có trên `EntityStore`. Dùng `loaded.entities.iter().next()` và `reloaded.entities.iter().next()`.
+4. Giữ nguyên assertion của các ca `xclip_rectangular_boundary_is_stored_on_xref_reference` và `xref_reload_preserves_bim_xdata_repairs_member_identity_and_invalidates_root_revision`; tuyệt đối không bỏ kiểm thử để có build xanh.
+5. Bản sửa nằm tại commit `0fb28a9146a11ca4bbacf4436be3ce7281327119`.
+6. Chạy `cargo check --locked -p cadcraft-engine --test xref` rồi `cargo test --locked -p cadcraft-engine --test xref -- --test-threads=1 --nocapture` trên Windows. Chỉ đánh dấu PASS nếu thấy kết quả thật trên đúng mã nguồn.
+
+### Bài 67 — Phát hiện lỗi Xref ngay từ Preflight
+
+1. Mở `.github/workflows/cad360-v1025-release.yml` tại nhánh V1.025.
+2. Sau `cargo check --locked -p cadcraft --tests`, chạy thêm `cargo check --locked -p cadcraft-engine --test xref`.
+3. Khi có lỗi biên dịch tích hợp Xref, log `dist/v1025/diagnostics/CARGO_CHECK_XREF_TEST.log` phải được ghi và bước Preflight dừng ngay; không đợi đến vòng thử AI và đóng gói Setup.
+4. Chạy tiếp các bài kiểm thử Xref/DWG/BIM chỉ khi đã qua chốt biên dịch. Bản bổ sung workflow nằm tại commit `4ea7dce1ec7813074fb1eb10b0c71ed59de02c0c`.
+5. Sau đó đối chiếu cùng commit giữa Setup, Portable, giáo trình, SHA256SUMS và hình ảnh nghiệm thu Windows. Không coi kiểm tra biên dịch là chứng minh tương thích AutoCAD hai chiều.
+
+**Trạng thái đợt 202:** Đã sửa ba vị trí gây lỗi biên dịch Xref đã được chứng minh trong run 42034172599 và bổ sung gate test-target sớm. Chưa có bằng chứng toàn bộ Windows CI thành công, Setup EXE hoạt động hoặc AI dựng hoàn chỉnh tường, cửa, cột từ ảnh thực tế.
