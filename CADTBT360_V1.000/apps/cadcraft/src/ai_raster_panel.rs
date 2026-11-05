@@ -34,6 +34,8 @@ pub struct State {
     confirm_door_blocks: bool,
     override_door_width: bool,
     door_width_cad: f64,
+    selected_door_number: usize,
+    door_width_overrides: std::collections::BTreeMap<usize,f64>,
     create_opening_guides: bool,
     confirm_opening_guides: bool,
     min_opening_gap: f64,
@@ -64,6 +66,7 @@ impl State {
             self.min_opening_gap = 3.0;
             self.max_opening_gap = 40.0;
             self.door_width_cad = 900.0;
+            self.selected_door_number = 1;
         }
     }
 
@@ -91,12 +94,16 @@ impl State {
             "createDoorBlocks":self.create_door_blocks,
             "confirmDoorBlocks":self.confirm_door_blocks,
             "doorWidthOverrideCAD":if self.create_door_blocks && self.override_door_width {Some(self.door_width_cad)} else {None},
+            "doorWidthOverridesCAD":if self.create_door_blocks && !self.door_width_overrides.is_empty() {Some(&self.door_width_overrides)} else {None},
             "createOpeningGuidePolylines":self.create_opening_guides,
             "confirmOpeningGuides":self.confirm_opening_guides,
             "minOpeningGapPixels":self.min_opening_gap,
             "maxOpeningGapPixels":self.max_opening_gap,"maxLines":250});
         if !(self.create_door_blocks && self.override_door_width) {
             params.as_object_mut().expect("AI settings JSON object").remove("doorWidthOverrideCAD");
+        }
+        if !(self.create_door_blocks && !self.door_width_overrides.is_empty()) {
+            params.as_object_mut().expect("AI settings JSON object").remove("doorWidthOverridesCAD");
         }
         params
     }
@@ -203,6 +210,7 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
                         state.create_door_blocks=false;
                         state.confirm_door_blocks=false;
                         state.override_door_width=false;
+                        state.door_width_overrides.clear();
                         state.create_opening_guides=false;
                         state.confirm_opening_guides=false;
                     }
@@ -228,6 +236,7 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
                             state.create_door_blocks=false;
                             state.confirm_door_blocks=false;
                             state.override_door_width=false;
+                            state.door_width_overrides.clear();
                         }
                         state.preview=None;
                     }
@@ -246,7 +255,7 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
                                 if ui.checkbox(&mut state.confirm_door_swing_arcs, "Tôi xác nhận các cung quay ARC này sau khi xem trước").changed() {state.preview=None;}
                                 ui.small("Cung quay chỉ là hình học có bằng chứng; chưa được xác nhận là cửa BIM.");
                                 if ui.checkbox(&mut state.create_door_blocks, "Gộp cánh LINE + cung ARC thành Block CAD bản nháp").changed() {
-                                    if !state.create_door_blocks {state.confirm_door_blocks=false;state.override_door_width=false;}
+                                    if !state.create_door_blocks {state.confirm_door_blocks=false;state.override_door_width=false;state.door_width_overrides.clear();}
                                     state.preview=None;
                                 }
                                 if state.create_door_blocks {
@@ -259,6 +268,29 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
                                         });
                                         ui.small("Chỉ thay đổi LINE/ARC mới của Block, giữ nguyên các nét tường đã trích từ ảnh.");
                                     }
+                                    ui.group(|ui| {
+                                        ui.label("Hiệu chỉnh riêng từng cửa trong danh sách AI (số thứ tự bắt đầu từ 1):");
+                                        ui.horizontal(|ui| {
+                                            ui.label("Cửa số");
+                                            ui.add(egui::DragValue::new(&mut state.selected_door_number).range(1..=64).speed(1.0));
+                                            ui.label("Chiều rộng (đơn vị CAD)");
+                                            ui.add(egui::DragValue::new(&mut state.door_width_cad).speed(10.0).range(0.000001..=1_000_000_000.0));
+                                        });
+                                        ui.horizontal(|ui| {
+                                            if ui.button("Áp dụng cho cửa đã chọn").clicked() {
+                                                state.door_width_overrides.insert(state.selected_door_number.saturating_sub(1),state.door_width_cad);
+                                                state.preview=None;
+                                            }
+                                            if ui.button("Xóa hiệu chỉnh cửa này").clicked() {
+                                                state.door_width_overrides.remove(&state.selected_door_number.saturating_sub(1));
+                                                state.preview=None;
+                                            }
+                                        });
+                                        for (index,width) in state.door_width_overrides.iter().take(12) {
+                                            ui.small(format!("Cửa số {}: {:.3} đơn vị CAD (đã hiệu chỉnh)",index+1,width));
+                                        }
+                                        ui.small("Sau khi áp dụng, nhấn Preview lại. Cửa không chọn giữ chiều rộng gốc hoặc chiều rộng chung nếu đã bật.");
+                                    });
                                     ui.small("Block tạo bằng LINE và ARC CAD gốc, không phải Block cửa kiến trúc đã kiểm chứng. MCP chưa hỗ trợ commit Block.");
                                 }
                             }
@@ -321,7 +353,8 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
                     if state.create_door_swing_arcs {ui.small(format!("Dự kiến {door_arcs_count} cung quay ARC chỉnh sửa được, sau xác nhận."));}
                     if state.create_door_blocks {
                         ui.small(format!("Dự kiến {door_blocks_count} Block cửa dạng hình học nháp, không nhận dạng ngữ nghĩa."));
-                        if state.override_door_width {ui.small(format!("Chiều rộng Block sẽ dùng: {:.3} đơn vị CAD (sau hiệu chỉnh).",state.door_width_cad));}
+                        if state.override_door_width {ui.small(format!("Chiều rộng chung: {:.3} đơn vị CAD.",state.door_width_cad));}
+                        ui.small(format!("Có {} cửa được hiệu chỉnh chiều rộng riêng.",state.door_width_overrides.len()));
                     }
                 }
                 if let Some(items)=proposal["pairedWallOpeningCandidates"].as_array() {
@@ -663,6 +696,22 @@ mod tests {
         assert!(calibrated_units_per_pixel(f64::INFINITY, 500.0).is_err());
         assert!(calibrated_units_per_pixel(0.0000001, 500.0).is_err());
         assert!(calibrated_units_per_pixel(100000000.0, 0.1).is_err());
+    }
+
+    #[test]
+    fn ai_individual_door_width_override_gui_serializes_selected_indices_only() {
+        let mut state=State::default();state.open();
+        assert!(state.params().get("doorWidthOverridesCAD").is_none());
+        state.create_door_blocks=true;
+        state.door_width_overrides.insert(1,850.0);
+        state.door_width_overrides.insert(3,1200.0);
+        let p=state.params();
+        assert_eq!(p["doorWidthOverridesCAD"]["1"],850.0);
+        assert_eq!(p["doorWidthOverridesCAD"]["3"],1200.0);
+        assert!(p["doorWidthOverridesCAD"].as_object().unwrap().get("0").is_none());
+        state.create_door_blocks=false;
+        assert!(state.params().get("doorWidthOverridesCAD").is_none());
+        assert_eq!(state.params()["preview"],true);
     }
 
     #[test]
