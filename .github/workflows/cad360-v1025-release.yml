@@ -198,9 +198,6 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'V1.025 MCP Agent failed to create/Undo editable closed rectangle polyline' }
           cargo test --locked -p cadcraft-mcp --lib ai_wall_centerline_ -- --nocapture
           if ($LASTEXITCODE -ne 0) { throw 'AI wall centerline real-PNG, opt-in or Undo regression failed' }
-          # Explicit test name is also verified at discovery time.
-          #           cargo test --locked -p cadcraft-mcp --lib ai_wall_centerline_is_only_created_for_unique_parallel_pair -- --nocapture
-          if ($LASTEXITCODE -ne 0) { throw 'AI wall centerline ambiguity safety regression failed' }
           cargo test --locked -p cadcraft-mcp --lib ai_parallel_wall_ -- --nocapture
           if ($LASTEXITCODE -ne 0) { throw 'AI parallel edge preview safety regression failed' }
           cargo test --locked -p cadcraft-mcp --lib raster_rectangular_png -- --nocapture
