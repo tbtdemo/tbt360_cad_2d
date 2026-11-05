@@ -131,6 +131,8 @@ jobs:
             @{ Package='cadcraft-io'; Target='it'; Test='large_dwg_v1025' },
             @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_automatic_raster_to_cad_lines_from_real_png' },
             @{ Package='cadcraft-mcp'; Target='lib'; Test='raster_vector_preview_real_png_has_exact_scaled_world_coordinates' },
+            @{ Package='cadcraft-mcp'; Target='lib'; Test='raster_rectangular_png_preview_and_headless_commit_create_one_closed_polyline' },
+            @{ Package='cadcraft-mcp'; Target='lib'; Test='raster_rectangular_png_with_open_side_does_not_invent_wall' },
             @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_auto_raster_to_cad_dxf_roundtrip_preserves_editable_lines' },
             @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_auto_raster_mcp_failed_second_line_rolls_back_first_line' },
             @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_auto_raster_mcp_document_switch_must_not_undo_unrelated_new_drawing' },
@@ -145,6 +147,7 @@ jobs:
             @{ Package='cadcraft'; Target='gui'; Test='ai_raster_preview_never_commits_to_another_open_drawing' },
             @{ Package='cadcraft'; Target='gui'; Test='ai_raster_preview_refuses_switch_away_and_back_with_unchanged_revision' },
             @{ Package='cadcraft'; Target='gui'; Test='ai_raster_calibration_uses_known_length_and_pixel_distance' },
+            @{ Package='cadcraft'; Target='gui'; Test='ai_raster_closed_rectangle_mode_is_opt_in_and_preserves_preview_safety' },
             @{ Package='cadcraft'; Target='gui'; Test='ai_raster_calibration_rejects_zero_nan_and_oversize_ratio' }
           )
           foreach ($case in $required) {
@@ -183,6 +186,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'V1.025 AI perspective tracing failed' }
           cargo test --locked -p cadcraft-mcp --lib ai_perspective_trace_remains_editable_after_dxf_save_reopen -- --nocapture
           if ($LASTEXITCODE -ne 0) { throw 'V1.025 AI DXF persistence failed' }
+          cargo test --locked -p cadcraft-mcp --lib raster_rectangular_png -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'AI rectangle PLINE or open-wall safety regression failed' }
           cargo test --locked -p cadcraft-mcp --lib raster_vector_preview_real_png_has_exact_scaled_world_coordinates -- --nocapture
           if ($LASTEXITCODE -ne 0) { throw 'V1.025 real PNG raster centerline coordinates or unit conversion regressed' }
           cargo test --locked -p cadcraft-mcp --lib ai_trace_quality_gate -- --nocapture
@@ -229,6 +234,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Complete product user guide Setup/Portable path discovery failed' }
           cargo test --locked -p cadcraft --bin cadcraft ai_raster_help_is_accessible_offline_without_external_links -- --nocapture
           if ($LASTEXITCODE -ne 0) { throw 'V1.025 offline Vietnamese AI user guide integration failed' }
+          cargo test --locked -p cadcraft --bin cadcraft ai_raster_closed_rectangle_mode_is_opt_in_and_preserves_preview_safety -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'V1.025 AI GUI rectangle opt-in or Preview gate failed' }
           cargo test --locked -p cadcraft --bin cadcraft ai_raster_calibration -- --nocapture
           if ($LASTEXITCODE -ne 0) { throw 'V1.025 AI raster measurement calibration validation regressed' }
           cargo test --locked -p cadcraft --bin cadcraft ai_raster_preview_refuses_switch_away_and_back_with_unchanged_revision -- --nocapture
