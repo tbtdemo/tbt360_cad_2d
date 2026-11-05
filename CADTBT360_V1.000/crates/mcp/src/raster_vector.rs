@@ -402,8 +402,17 @@ pub fn preview(args: &Value) -> Result<Value, String> {
     if gap_pixels > 12 { return Err("maxGapPixels must be 0..12; larger gaps may represent doors or openings".into()); }
     let source_strokes = lines.len();
     let bridged_gaps = bridge_collinear_gaps(&mut lines, gap_pixels as f64);
+    // Pixel spacing is user-calibrated. Keep narrow, finite limits so the
+    // detector cannot silently match opposite room edges or huge image spans.
+    let min_wall_spacing=args["minWallSpacingPixels"].as_f64().unwrap_or(2.0);
+    let max_wall_spacing=args["maxWallSpacingPixels"].as_f64().unwrap_or(40.0);
+    if !min_wall_spacing.is_finite() || !max_wall_spacing.is_finite()
+        || min_wall_spacing < 1.0 || max_wall_spacing > 80.0
+        || max_wall_spacing < min_wall_spacing {
+        return Err("Wall edge pixel spacing must satisfy 1 <= minimum <= maximum <= 80; no CAD changes made".into());
+    }
     let wall_hints = if args["wallPairHints"].as_bool().unwrap_or(false) {
-        parallel_wall_candidates(&lines, 2.0, 40.0)
+        parallel_wall_candidates(&lines, min_wall_spacing, max_wall_spacing)
     } else { Vec::new() };
     let candidates = if args["closedRectangles"].as_bool().unwrap_or(false) { closed_rectangles(&lines) } else { Vec::new() };
     let mut replacement = vec![false; lines.len()];
@@ -446,6 +455,7 @@ pub fn preview(args: &Value) -> Result<Value, String> {
         "imageSize":[width,height],"strokes":count,"sourceStrokes":source_strokes,
         "bridgedGaps":bridged_gaps,"maxGapPixels":gap_pixels,
         "wallPairHints":wall_hints,"wallPairCandidateCount":wall_hints.len(),
+        "minWallSpacingPixels":min_wall_spacing,"maxWallSpacingPixels":max_wall_spacing,
         "wallCenterlines":world_axes,"wallCenterlinesProposed":axes.len(),
         "lines":world,"closedPolylines":world_rectangles,"rectanglesDetected":candidates.len(),
         "closedRectangles":args["closedRectangles"].as_bool().unwrap_or(false),
@@ -668,6 +678,32 @@ mod tests {
         let err=preview(&args).unwrap_err();
         let _=std::fs::remove_file(&path);
         assert!(err.contains("requires wallPairHints=true"));
+    }
+
+    #[test]
+    fn ai_wall_spacing_range_filters_pairs_without_rescaling_source_geometry() {
+        let lines=vec![
+            Line{x0:10.5,y0:10.5,x1:110.5,y1:10.5},
+            Line{x0:10.5,y0:20.5,x1:110.5,y1:20.5}
+        ];
+        assert_eq!(parallel_wall_candidates(&lines,2.0,40.0).len(),1);
+        assert!(parallel_wall_candidates(&lines,11.0,40.0).is_empty());
+        assert!(parallel_wall_candidates(&lines,1.0,9.0).is_empty());
+    }
+
+    #[test]
+    fn ai_wall_spacing_validation_refuses_impossible_values_before_preview() {
+        let img=image::RgbImage::from_pixel(32,16,image::Rgb([255,255,255]));
+        let path=std::env::temp_dir().join(format!("cad360-spacing-{}-{}.png",std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        img.save(&path).unwrap();
+        for (lo,hi) in [(0.0,40.0),(10.0,9.0),(1.0,81.0),(f64::NAN,40.0)] {
+            let args=json!({"path":path.to_string_lossy(),"preview":true,
+                "wallPairHints":true,"minWallSpacingPixels":lo,"maxWallSpacingPixels":hi});
+            let e=preview(&args).expect_err("invalid wall spacing must be rejected");
+            assert!(e.contains("pixel spacing"),"unexpected validation error: {e}");
+        }
+        let _=std::fs::remove_file(&path);
     }
 
     #[test]
