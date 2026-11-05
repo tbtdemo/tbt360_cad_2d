@@ -99,3 +99,19 @@ Chưa tự nhận dạng tường, cửa, cột, dầm, kích thước, Layer th
 
 ---
 **Quy tắc phát hành tài liệu TBT:** Mỗi phiên bản/đợt nâng cấp phải cập nhật hướng dẫn thao tác, bảng tính năng đã làm/chưa làm, các trường hợp lỗi và checklist nghiệm thu; file hướng dẫn phải được đóng gói cùng Setup, Portable và công bố cùng phiên bản trên GitHub.
+
+
+## 8. Bổ sung cho đợt nâng cấp 169 — File Word đi kèm bản phát hành
+
+Từ đợt này, Windows Release tạo tự động **hai định dạng hướng dẫn** từ đúng mã nguồn tài liệu của commit:
+
+- **Word:** `CADTBT360_V1.025_HUONG_DAN_AI_TU_ANH_THANH_CAD.docx`, có thể tải riêng ở GitHub Release.
+- **Markdown:** `HUONG_DAN_AI_TU_ANH_THANH_CAD.md`, phiên bản văn bản gốc.
+
+Sau khi cài **Setup EXE**, mở `HuongDan/HUONG_DAN_AI_TU_ANH_THANH_CAD.docx` trong thư mục cài đặt. Với **Portable ZIP**, mở `HUONG_DAN_AI_TU_ANH_THANH_CAD.docx` nằm cùng thư mục với tệp `CADTBT360.exe`. Không dùng tài liệu phiên bản cũ để đối chiếu giao diện mới.
+
+CI có bước kiểm tra tệp Word là gói DOCX hợp lệ, bản Word trong Portable giống bản phát hành theo SHA256, bản Word được cài bởi Setup giống tệp Word phát hành theo SHA256 và cả hai định dạng có trong tài nguyên công bố.
+
+**Chưa xác minh thực tế:** Windows CI PASS, EXE phát hành thành công và ảnh chụp trực tiếp từ GUI Windows. Tài liệu hiện hướng dẫn đúng cách sử dụng theo mã nguồn; sau khi có bản EXE được nghiệm thu cần bổ sung ảnh chụp thực tế từng bước, không sử dụng ảnh mô phỏng thay thế.
+
+**Quy ước lâu dài:** Mỗi đợt nâng cấp chức năng phải cập nhật tài liệu từng bước, ví dụ, cách kiểm tra kết quả, lỗi thường gặp và trạng thái nghiệm thu; khi công bố phát hành phải mang theo bản Word và bản Markdown đồng bộ.
