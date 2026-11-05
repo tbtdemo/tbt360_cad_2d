@@ -444,6 +444,19 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
                         }
                     }
                 }
+                // A reviewed door may be wider or hinge-flipped relative to the PNG:
+                // include both its leaf and full swing radius in the Preview viewport.
+                if state.create_door_blocks {
+                    if let Some(doors)=proposal["doorBlockDrafts"].as_array() {
+                        for door in doors {
+                            let arc=&door["arc"];
+                            if let (Some(cx),Some(cy),Some(radius))=(arc["center"][0].as_f64(),arc["center"][1].as_f64(),arc["radius"].as_f64()) {
+                                min_x=min_x.min(cx-radius);max_x=max_x.max(cx+radius);
+                                min_y=min_y.min(cy-radius);max_y=max_y.max(cy+radius);
+                            }
+                        }
+                    }
+                }
                 if min_x.is_finite() && min_y.is_finite() {
                     let span_x = (max_x - min_x).max(1.0e-9);
                     let span_y = (max_y - min_y).max(1.0e-9);
@@ -490,7 +503,8 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
                     // Draw the exact native ARC proposal in purple before committing.
                     // CAD uses CCW degrees; preview samples its short CCW sweep.
                     if state.create_door_swing_arcs {
-                        if let Some(arcs)=proposal["doorSwingArcs"].as_array() {
+                        let arcs=if state.create_door_blocks {None} else {proposal["doorSwingArcs"].as_array()};
+                        if let Some(arcs)=arcs {
                             for arc in arcs {
                                 let (Some(cx),Some(cy),Some(radius),Some(start),Some(end))=
                                     (arc["center"][0].as_f64(),arc["center"][1].as_f64(),
@@ -505,6 +519,35 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
                                 for segment in points.windows(2) {
                                     painter.line_segment([segment[0],segment[1]],
                                         egui::Stroke::new(2.0,egui::Color32::from_rgb(216,125,255)));
+                                }
+                            }
+                        }
+                    }
+                    // Human-reviewed door Block drafts, including EACH selected
+                    // door's hinge, opening direction and width, are drawn in
+                    // magenta here. This matches the native LINE/ARC submitted.
+                    if state.create_door_blocks {
+                        if let Some(doors)=proposal["doorBlockDrafts"].as_array() {
+                            for door in doors {
+                                let leaf=&door["leaf"];
+                                if let (Some(x0),Some(y0),Some(x1),Some(y1))=(leaf[0][0].as_f64(),leaf[0][1].as_f64(),leaf[1][0].as_f64(),leaf[1][1].as_f64()) {
+                                    painter.line_segment([to_screen(x0,y0),to_screen(x1,y1)],
+                                        egui::Stroke::new(3.0,egui::Color32::from_rgb(241,130,255)));
+                                }
+                                let arc=&door["arc"];
+                                let (Some(cx),Some(cy),Some(radius),Some(start),Some(end))=
+                                    (arc["center"][0].as_f64(),arc["center"][1].as_f64(),arc["radius"].as_f64(),
+                                     arc["start"].as_f64(),arc["end"].as_f64()) else {continue};
+                                let sweep=(end-start).rem_euclid(360.0);
+                                if !(1.0..=180.0).contains(&sweep) {continue;}
+                                let mut points=Vec::new();
+                                for i in 0..=24 {
+                                    let angle=(start+sweep*f64::from(i)/24.0).to_radians();
+                                    points.push(to_screen(cx+radius*angle.cos(),cy+radius*angle.sin()));
+                                }
+                                for edge in points.windows(2) {
+                                    painter.line_segment([edge[0],edge[1]],
+                                        egui::Stroke::new(2.0,egui::Color32::from_rgb(241,130,255)));
                                 }
                             }
                         }
