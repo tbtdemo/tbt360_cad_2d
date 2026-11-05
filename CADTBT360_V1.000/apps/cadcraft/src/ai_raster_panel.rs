@@ -161,6 +161,22 @@ mod tests {
 
 
     #[test]
+    fn ai_raster_undo_rolls_back_partial_batch_when_second_line_fails() {
+        let mut engine = cadcraft_engine::Session::new();
+        let before_count = engine.doc().unwrap().entity_count();
+        let before_undo = engine.state().unwrap().undo.len();
+        engine.state_mut().unwrap().begin_undo_group();
+        engine.execute("line", &json!({"points":[[0,0],[5,0]]})).unwrap();
+        assert!(engine.execute("line", &json!({"points":[[9,9],[9,9]]})).is_err());
+        engine.state_mut().unwrap().end_undo_group();
+        assert_eq!(engine.doc().unwrap().entity_count(), before_count + 1);
+        engine.execute("undo", &json!({"count":1})).unwrap();
+        assert_eq!(engine.doc().unwrap().entity_count(), before_count, "failed AI batch must not leave any draft LINE");
+        assert_eq!(engine.state().unwrap().undo.len(), before_undo);
+        assert!(engine.state().unwrap().undo_ctl.group.is_none());
+    }
+
+    #[test]
     fn ai_raster_multi_line_group_is_one_undo_step() {
         let mut engine = cadcraft_engine::Session::new();
         let before = engine.state().unwrap().undo.len();
