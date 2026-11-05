@@ -131,6 +131,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'V1.025 validated IMAGE AI trace MCP test failed' }
           cargo test --locked -p cadcraft-mcp --lib ai_validated_perspective_trace -- --nocapture
           if ($LASTEXITCODE -ne 0) { throw 'V1.025 validated perspective AI trace MCP test failed' }
+          cargo test --locked -p cadcraft-mcp --lib ai_world_projection_gate -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'V1.025 AI world-coordinate projection validation failed' }
           cargo test --locked -p cadcraft-ui-egui --lib canvas::raster_image::tests -- --nocapture
           if ($LASTEXITCODE -ne 0) { throw 'V1.025 native PNG/JPG raster overlay failed' }
           cargo test --locked -p cadcraft-render --lib raster_image_reference_draws_only_outer_frame_without_obscuring_draft -- --nocapture
