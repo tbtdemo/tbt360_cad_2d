@@ -24,6 +24,8 @@ pub struct State {
     column_hatch_hints: bool,
     create_column_guides: bool,
     confirm_column_guides: bool,
+    create_column_blocks: bool,
+    confirm_column_blocks: bool,
     wall_pair_hints: bool,
     min_wall_spacing: f64,
     max_wall_spacing: f64,
@@ -137,6 +139,8 @@ impl State {
             "columnHatchHints":self.column_hatch_hints,
             "createColumnGuidePolylines":self.create_column_guides,
             "confirmColumnGuides":self.confirm_column_guides,
+            "createColumnBlocks":self.create_column_blocks,
+            "confirmColumnBlocks":self.confirm_column_blocks,
             "wallPairHints":self.wall_pair_hints,"createWallCenterlines":self.create_wall_centerlines,
             "minWallSpacingPixels":self.min_wall_spacing,"maxWallSpacingPixels":self.max_wall_spacing,
             "openingGapHints":self.opening_gap_hints,
@@ -433,21 +437,28 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
                     }
                 }
                 if ui.checkbox(&mut state.column_hatch_hints,"Gợi ý cột: hình chữ nhật kín + 2 nét giao nhau bên trong").changed() {
-                    if !state.column_hatch_hints {state.create_column_guides=false;state.confirm_column_guides=false;}
+                    if !state.column_hatch_hints {state.create_column_guides=false;state.confirm_column_guides=false;state.create_column_blocks=false;state.confirm_column_blocks=false;}
                     state.preview=None;
                 }
                 if state.column_hatch_hints {
                     ui.small("Chỉ là dấu hiệu hình học; không tự phân loại cột kết cấu hoặc thay thế nét ảnh.");
                     if ui.checkbox(&mut state.create_column_guides,"Thêm PLINE hướng dẫn tại ứng viên cột").changed() {
-                        if state.create_column_guides {state.closed_rectangles=false;}
+                        if state.create_column_guides {state.closed_rectangles=false;state.create_column_blocks=false;state.confirm_column_blocks=false;}
                         else {state.confirm_column_guides=false;}
                         state.preview=None;
                     }
                     if state.create_column_guides && ui.checkbox(&mut state.confirm_column_guides,
                         "Tôi đã xem Preview và xác nhận vẽ PLINE cột").changed() {state.preview=None;}
+                    if ui.checkbox(&mut state.create_column_blocks,"Tạo BLOCK cột CAD bản nháp (khung + 2 hatch)").changed() {
+                        if state.create_column_blocks {state.closed_rectangles=false;state.create_column_guides=false;state.confirm_column_guides=false;}
+                        else {state.confirm_column_blocks=false;}
+                        state.preview=None;
+                    }
+                    if state.create_column_blocks && ui.checkbox(&mut state.confirm_column_blocks,
+                        "Tôi đã xem Preview và đồng ý tạo BLOCK cột").changed() {state.preview=None;}
                 }
                 if ui.checkbox(&mut state.closed_rectangles, "Đường bao chữ nhật kín → PLINE").changed() {
-                    if state.closed_rectangles {state.create_column_guides=false;state.confirm_column_guides=false;}
+                    if state.closed_rectangles {state.create_column_guides=false;state.confirm_column_guides=false;state.create_column_blocks=false;state.confirm_column_blocks=false;}
                     state.preview = None; state.preview_document_uid = None;
                     state.preview_revision = None; state.preview_document_epoch = None;
                 }
@@ -469,6 +480,7 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
             ui.separator();
             let rectangle_count = proposal["closedPolylines"].as_array().map_or(0,Vec::len);
             let column_hint_count=proposal["columnHatchCandidateCount"].as_u64().unwrap_or(0);
+            let column_block_count=proposal["columnBlockDraftCount"].as_u64().unwrap_or(0);
             let wall_pairs = proposal["wallPairCandidateCount"].as_u64().unwrap_or(0);
             let opening_count = proposal["openingGapCandidateCount"].as_u64().unwrap_or(0);
             let paired_opening_count = proposal["pairedWallOpeningCandidateCount"].as_u64().unwrap_or(0);
@@ -480,7 +492,8 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
             ui.label(format!("Đã nhận dạng: {count} nét nguồn, {rectangle_count} PLINE kín, {wall_pairs} cặp nét song song nghi là mép tường."));
             if state.column_hatch_hints {
                 ui.small(format!("Có {column_hint_count} ứng viên hình chữ nhật có dấu gạch chéo chữ thập bên trong; chưa xác nhận là cột."));
-                ui.small("Ứng viên cột hiện viền vàng trên Preview. Chỉ tạo PLINE mới khi người dùng xác nhận.");
+                ui.small("Ứng viên cột hiện viền vàng trên Preview. Chỉ tạo PLINE/BLOCK sau khi xác nhận.");
+                if state.create_column_blocks {ui.small(format!("Dự kiến {column_block_count} BLOCK CAD cột bản nháp."));}
             }
             if state.wall_pair_hints {
                 ui.small("Gợi ý hình học, không phải tường BIM. Nét nguồn luôn được giữ để đối chiếu.");
