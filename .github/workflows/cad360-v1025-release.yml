@@ -425,6 +425,21 @@ jobs:
           foreach ($n in @('CADTBT360.exe', 'CADTBT360_CLI.exe', 'BUILD_INFO.txt', 'HuongDan/HUONG_DAN_AI_TU_ANH_THANH_CAD.md', 'HuongDan/HUONG_DAN_AI_TU_ANH_THANH_CAD.docx', 'HuongDan/GIAO_TRINH_TONG_HOP_CAD360.docx')) {
             if (!(Test-Path (Join-Path $dest $n))) { throw "Installed file missing: $n" }
           }
+          # Verify that both user manuals installed by Inno Setup match the freshly generated release documents.
+          # Existence-only checks can pass even if the installer bundles an outdated or damaged manual.
+          $installedGuides = @(
+            @{ Installed='HuongDan/HUONG_DAN_AI_TU_ANH_THANH_CAD.docx'; Source='dist/v1025/CADTBT360_V1.025_HUONG_DAN_AI_TU_ANH_THANH_CAD.docx' },
+            @{ Installed='HuongDan/GIAO_TRINH_TONG_HOP_CAD360.docx'; Source='dist/v1025/CADTBT360_V1.025_GIAO_TRINH_TONG_HOP.docx' },
+            @{ Installed='HuongDan/HUONG_DAN_AI_TU_ANH_THANH_CAD.md'; Source='docs/user-guide/CADTBT360_V1.025_HUONG_DAN_AI_TU_ANH_THANH_CAD.md' }
+          )
+          foreach ($guide in $installedGuides) {
+            $installedPath = Join-Path $dest $guide.Installed
+            $expectedHash = (Get-FileHash $guide.Source -Algorithm SHA256).Hash
+            $actualHash = (Get-FileHash $installedPath -Algorithm SHA256).Hash
+            if ($actualHash -ne $expectedHash) { throw "Installed manual does not match this release: $($guide.Installed)" }
+          }
+          python scripts/validate_word_guide.py (Join-Path $dest 'HuongDan/GIAO_TRINH_TONG_HOP_CAD360.docx')
+          if ($LASTEXITCODE -ne 0) { throw 'Installed full-product Word manual failed curriculum validation' }
           $srcGui = (Get-FileHash 'CADTBT360_V1.000/target/release/cadcraft.exe' -Algorithm SHA256).Hash
           $srcCli = (Get-FileHash 'CADTBT360_V1.000/target/release/cadcraft-cli.exe' -Algorithm SHA256).Hash
           $instGui = (Get-FileHash (Join-Path $dest 'CADTBT360.exe') -Algorithm SHA256).Hash
