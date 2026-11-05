@@ -590,6 +590,10 @@ jobs:
           if ((Get-FileHash $fullGuideSource -Algorithm SHA256).Hash -ne (Get-FileHash $fullGuidePortable -Algorithm SHA256).Hash) { throw 'Full-product user guide in Portable differs from published guide' }
           python -c "import sys,zipfile,xml.etree.ElementTree as ET; z=zipfile.ZipFile(sys.argv[1]); assert z.testzip() is None; x=ET.fromstring(z.read('word/document.xml')); assert len(z.read('word/document.xml')) > 8000" $fullGuidePortable
           if ($LASTEXITCODE -ne 0) { throw 'Whole-product Word curriculum is damaged or empty' }
+          # Run the same structural and curriculum gate on the extracted Portable document as on Setup.
+          # ZIP/XML readability alone cannot catch missing lessons, missing tables, or mangled Windows filenames.
+          python scripts/validate_word_guide.py $fullGuidePortable
+          if ($LASTEXITCODE -ne 0) { throw 'Portable full-product Word manual failed curriculum validation' }
           python -c "import sys,zipfile,xml.etree.ElementTree as ET; p=sys.argv[1]; z=zipfile.ZipFile(p); assert z.testzip() is None; ET.fromstring(z.read('word/document.xml')); assert len(z.read('word/document.xml')) > 1500" (Join-Path $tmp 'HUONG_DAN_AI_TU_ANH_THANH_CAD.docx')
           if ($LASTEXITCODE -ne 0) { throw 'Portable Word manual is damaged or invalid' }
           if ($guideHash -ne $sourceGuideHash) { throw 'Portable user guide differs from release source' }
