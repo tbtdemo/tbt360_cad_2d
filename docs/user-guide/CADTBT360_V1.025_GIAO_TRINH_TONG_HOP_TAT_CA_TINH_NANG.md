@@ -884,3 +884,33 @@ Khi bật **Gợi ý khoảng hở có thể là cửa (chỉ Preview)**, màn h
 | Hai nét khác hàng hoặc chỉ chạm đầu | Không nhận là khoảng mở hợp lệ | Không |
 
 **Giới hạn:** Đây là cải tiến bảo vệ hình học trong công cụ vector hóa, không phải AI OCR hoặc mô hình ngữ nghĩa xác định chắc chắn tường, cửa, cột. Chưa xác minh Windows CI PASS hoặc bộ cài EXE mới.
+
+
+## 33. Đợt 193 — Đo kích thước khoảng mở từ ảnh theo đúng tỷ lệ CAD
+
+Đợt 193 bổ sung khả năng **lọc và đo khoảng hở chưa xác minh** trên ảnh PNG/JPEG. Trong **CAD → AI TỪ ẢNH → CAD**, chọn **Gợi ý khoảng hở có thể là cửa (chỉ Preview)**, nhập **Khoảng mở (px): từ … đến …**. Mặc định 3–40 pixel; giới hạn hợp lệ từ **1 đến 120 pixel**, và giá trị tối thiểu không được vượt tối đa. Khi thay ngưỡng, phải Preview lại.
+
+AI trả các trường `gapPixels`, `widthCAD`, `fromCAD` và `toCAD`, sử dụng tỷ lệ `unitsPerPixel` cùng gốc `origin` để quy đổi. Kết quả là **thông tin đo**, không phải kích thước cửa thật, vì một khoảng mờ trên ảnh cũng có thể là nét đứt do scan.
+
+### Bài 48 — Đo độ rộng khoảng mở với hiệu chuẩn 10 đơn vị CAD/pixel
+
+1. Trong CAD 360 tạo bản vẽ thử `BT48_AI_DoKhoangMo.dxf`. Mở AI TỪ ẢNH → CAD và chọn PNG RGB kích thước 110 × 40 pixel.
+2. Ảnh mẫu có hai nét ngang: nét trái từ x=5 đến x=39, nét phải từ x=51 đến x=95, cùng tại y=17; khoảng cách giữa **tâm hai đầu mút** là 12 pixel.
+3. Đặt ngưỡng `minLengthPixels=16` và `unitsPerPixel=10` sau khi hiệu chuẩn chiều dài thực. Bật **Gợi ý khoảng hở có thể là cửa (chỉ Preview)**.
+4. Chọn khoảng mở **từ 10 px đến 20 px**, nhấn **Nhận dạng và xem trước**.
+5. Kiểm tra màn hình thông báo 01 khoảng hở có **12 px = 120 đơn vị CAD**; hai nét vẫn là LINE tách biệt.
+6. Thay ngưỡng dưới thành 13 px rồi Preview lại: khoảng hở 12 px không được xuất hiện trong danh sách.
+7. Khi dùng MCP với `origin=[100,200]`, điểm bắt đầu và kết thúc khoảng hở là `fromCAD=[495,425]` và `toCAD=[615,425]`. Giá trị này đã bao gồm phép đảo chiều trục Y của ảnh.
+8. Nếu khoảng hở thật là cửa, phải kiểm tra ảnh gốc, bản thiết kế, kích thước ghi chú và thông tin kiến trúc trước khi dựng Block cửa.
+
+### Bài 49 — Kiểm thử độ rộng và giới hạn an toàn
+
+1. Trong thư mục `CADTBT360_V1.000` của mã nguồn đúng commit, chạy `cargo test --locked -p cadcraft-mcp --lib ai_opening_gap_bounds_and_world_width_are_calibrated -- --nocapture`.
+2. Bài test yêu cầu khoảng hở 12 pixel với tỷ lệ 10 cho `widthCAD=120`; khi `minOpeningGapPixels=13`, số ứng viên phải về 0.
+3. Khi nhập ngưỡng 0, ngưỡng tối thiểu lớn hơn tối đa hoặc giá trị không phải số, chương trình phải từ chối và không ghi bản vẽ.
+4. Chạy `cargo test --locked -p cadcraft --bin cadcraft ai_opening_gap_thresholds_are_editable_and_preview_only -- --nocapture` để kiểm tra GUI.
+5. Chạy lại bài `ai_opening_gap_real_png_refuses_to_bridge_possible_door`: chế độ tìm khoảng mở không được bật đồng thời với `maxGapPixels>0`.
+6. Kiểm tra chính Windows CI thuộc đúng SHA commit trước khi coi kiểm thử đã đạt; thử cả Setup và Portable bằng EXE thực tế, lấy ảnh chụp GUI có thông số khoảng hở.
+7. Lưu DXF/DWG bản thử, đối chiếu bằng trình CAD độc lập; không nghiệm thu DWG chỉ dựa vào header hoặc thông báo CLI.
+
+**Ranh giới chức năng:** Đây là một bước AI hỗ trợ phân tích và đo kích thước hình học từ ảnh, vẫn chưa tự nhận diện cửa, tường hoặc cột theo ngữ nghĩa. Chưa có xác nhận Windows CI PASS cho đợt 193.
