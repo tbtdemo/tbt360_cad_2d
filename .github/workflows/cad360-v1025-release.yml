@@ -227,6 +227,11 @@ jobs:
           Remove-Variable nativeGuiText
           Write-Host "Verified native Windows GUI embeds V1.025 and full source commit $env:GITHUB_SHA"
 
+      - name: Prepare Python for offline reproducible Word user manual
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
       - name: Install Inno Setup and create version metadata
         id: prepare_installer
         shell: pwsh
@@ -386,6 +391,11 @@ jobs:
           if ($installedBuildInfo -notcontains 'Release=CADTBT360_V1.025' -or $installedBuildInfo -notcontains "SourceCommit=$env:GITHUB_SHA" -or $installedBuildInfo -notcontains 'NativeBuild=true') {
             throw "Installed build metadata does not identify this native release commit: $($installedBuildInfo -join '; ')"
           }
+          $installedDocx = Join-Path $dest 'HuongDan/HUONG_DAN_AI_TU_ANH_THANH_CAD.docx'
+          $sourceDocx = 'dist/v1025/CADTBT360_V1.025_HUONG_DAN_AI_TU_ANH_THANH_CAD.docx'
+          if ((Get-FileHash $installedDocx -Algorithm SHA256).Hash -ne (Get-FileHash $sourceDocx -Algorithm SHA256).Hash) {
+            throw 'Installed Word guide does not match release document'
+          }
           $packagedBuildInfoHash = (Get-FileHash 'dist/v1025/BUILD_INFO.txt' -Algorithm SHA256).Hash
           $installedBuildInfoHash = (Get-FileHash (Join-Path $dest 'BUILD_INFO.txt') -Algorithm SHA256).Hash
           if ($installedBuildInfoHash -ne $packagedBuildInfoHash) { throw 'Installed BUILD_INFO.txt differs from verified release metadata' }
@@ -410,6 +420,8 @@ jobs:
           $docxHash = (Get-FileHash (Join-Path $tmp 'HUONG_DAN_AI_TU_ANH_THANH_CAD.docx') -Algorithm SHA256).Hash
           $releaseDocxHash = (Get-FileHash 'dist/v1025/CADTBT360_V1.025_HUONG_DAN_AI_TU_ANH_THANH_CAD.docx' -Algorithm SHA256).Hash
           if ($docxHash -ne $releaseDocxHash) { throw 'Portable Word manual differs from the packaged release manual' }
+          python -c "import sys,zipfile,xml.etree.ElementTree as ET; p=sys.argv[1]; z=zipfile.ZipFile(p); assert z.testzip() is None; ET.fromstring(z.read('word/document.xml')); assert len(z.read('word/document.xml')) > 1500" (Join-Path $tmp 'HUONG_DAN_AI_TU_ANH_THANH_CAD.docx')
+          if ($LASTEXITCODE -ne 0) { throw 'Portable Word manual is damaged or invalid' }
           if ($guideHash -ne $sourceGuideHash) { throw 'Portable user guide differs from release source' }
           $portableGuiHash = (Get-FileHash (Join-Path $tmp 'CADTBT360.exe') -Algorithm SHA256).Hash
           $portableCliHash = (Get-FileHash (Join-Path $tmp 'CADTBT360_CLI.exe') -Algorithm SHA256).Hash
