@@ -1136,7 +1136,7 @@ pub fn preview(args: &Value) -> Result<Value, String> {
     let wall_panel_contacts=if wall_panel_hints {
         wall_panel_boundary_contacts(&wall_panels,&paired_openings,&column_candidates)
     } else {Vec::new()};
-    let wall_panel_junctions=if wall_panel_hints {
+    let mut wall_panel_junctions=if wall_panel_hints {
         wall_panel_junction_qa(&wall_panels,&paired_openings,&column_candidates)
     } else {Vec::new()};
     let count = lines.len();
