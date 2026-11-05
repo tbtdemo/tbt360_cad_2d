@@ -659,6 +659,8 @@ mod tests {
         engine.state_mut().unwrap().end_undo_group();
         engine.execute("undo",&json!({"count":1})).unwrap();
         assert_eq!(engine.doc().unwrap().entity_count(),original,"one Undo must clear the drafted door insert");
+        assert!(engine.doc().unwrap().block("TBT_AI_DOOR_TEST").is_none(),
+            "one Undo must also remove the drafted Block definition, not just the INSERT");
     }
 
     #[test]
