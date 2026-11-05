@@ -1772,3 +1772,43 @@ Mục tiêu quan trọng nhất của đợt này là chuyển từ việc **ch�
 - Mức độ xác minh cần tách thành: mã đã viết, test có trong source, CI PASS, và Windows EXE chạy được. Không coi nguồn có commit là nghiệm thu EXE.
 
 **Trạng thái đợt 228:** MCP đã bổ sung bộ phân tích RECTANG và PLINE, có regression test trong source. Minh họa trực quan đã có trong markdown nguồn. Bản Word biên soạn tổng hợp độc lập 123 bài và 44 sơ đồ minh họa đã được xuất riêng; chưa có bằng chứng ảnh chụp EXE thật cho toàn bộ bài và chưa xác nhận Windows CI PASS.
+
+
+## 69. Đợt 229 — AI Agent lập kế hoạch nhiều lệnh CAD từ tiếng Việt, xem trước và Undo
+
+### Bài 121 — Lập kế hoạch 2–8 lệnh trong một yêu cầu MCP
+
+1. Mở CAD 360 trên bản vẽ thực hành riêng rồi kết nối MCP Agent; chọn công cụ `ai_draw_plan_vietnamese`.
+2. Nhập nhiều lệnh, mỗi lệnh một dòng: `vẽ đường thẳng từ 0,0 đến 100,0`, `vẽ hình chữ nhật từ 0,0 đến 100,60`, `vẽ hình tròn tâm 50,30 bán kính 10`, `vẽ đa tuyến qua 0,0; 100,0; 100,60`.
+3. Gọi `{"text":"vẽ đường thẳng từ 0,0 đến 100,0\nvẽ hình chữ nhật từ 0,0 đến 100,60\nvẽ hình tròn tâm 50,30 bán kính 10\nvẽ đa tuyến qua 0,0; 100,0; 100,60"}`. Mặc định là Preview; chưa sửa CAD.
+4. Kết quả `plan.stepCount=4` và danh sách `plan.steps` cho biết lệnh `line`, `rectang`, `circle`, `pline` kèm tọa độ. Đặc biệt dấu `;` phân chia **các đỉnh PLINE**, không chia lệnh mới.
+5. Parser từ chối câu chưa hỗ trợ, nhập tọa độ sai, dưới 2 lệnh hoặc quá 8 lệnh. Giới hạn này là chủ động để giảm rủi ro của AI Agent; chưa hỗ trợ đoạn mô tả thiết kế tự do.
+
+### Bài 122 — Xác nhận, thực thi các bước và hoàn tác một lần
+
+1. Ghi lại từ Preview: `documentUid`, `documentEpoch`, `revision`.
+2. Kiểm tra Undo Control All, không có Undo group mở sẵn và không có lệnh CAD tương tác đang chạy.
+3. Chỉ sau khi người dùng đã xem kế hoạch và đồng ý, gọi lại `ai_draw_plan_vietnamese` với cùng `text`, `preview=false`, `confirm=true`, `expectedDocumentUid`, `expectedDocumentEpoch`, `expectedRevision`.
+4. MCP bắt đầu một Undo group, kiểm tra quyền sở hữu cùng tài liệu và revision trước mỗi bước, chạy lệnh CAD native theo thứ tự.
+5. Nếu hoàn thành tất cả, đóng nhóm Undo; kiểm tra các hình trong CAD bằng `inspect_drawing`, `query_entities` và `render`.
+6. Kiểm tra Undo một lần trên bản vẽ thử. Khi lỗi xảy ra giữa chừng, Agent chỉ thử rollback sau khi xác nhận không có bản vẽ khác hoặc thay đổi ngoài luồng. Nếu mất quyền sở hữu, không tự Undo để bảo vệ dữ liệu người dùng khác.
+
+### Bài 123 — Kiểm thử hồi quy và phát hành Windows
+
+1. `cargo test --locked -p cadcraft-mcp --lib ai_vietnamese_plan_ -- --nocapture`: thử kế hoạch bốn lệnh và từ chối câu sai/ngoài giới hạn.
+2. `cargo test --locked -p cadcraft-mcp --lib ai_vietnamese_draft_ -- --nocapture`: thử các lệnh đơn trước đó.
+3. `cargo check --locked -p cadcraft --bin cadcraft`; `cargo check --locked -p cadcraft-mcp`; kiểm tra các regression khác trong GitHub workflow V1.025.
+4. Chỉ công nhận Windows EXE sau khi workflow đúng SHA báo PASS, Setup/Portable được đóng gói, khởi động và smoke-test thành công.
+5. Bắt buộc ghi phân biệt: **mã đã commit**, **test đã viết**, **CI PASS**, **EXE đã chạy nghiệm thu**. Hiện chưa khẳng định hai mức cuối.
+
+### Hình quy trình minh họa (không phải ảnh chụp EXE)
+
+![Sơ đồ AI Agent với lệnh tiếng Việt và CAD Engine](images/ai-agent-vietnamese-native-cad-stage228.svg)
+
+*Hình 69.1: AI Agent → MCP → Preview/xác nhận → CAD Engine. Sơ đồ nguyên lý, không thay thế ảnh chụp màn hình phần mềm thật.*
+
+### Yêu cầu bàn giao giáo trình FULL
+
+Bản Word **CADTBT360_V1.025_GIAO_TRINH_FULL_CO_HINH_DOT229.docx** biên soạn **toàn bộ 126 bài**, 127 sơ đồ/hình minh họa, từ thao tác CAD 2D cơ bản, Layer, Xref, QTO, BIM/IFC đến AI từ ảnh, topology và AI Agent; không phải tài liệu riêng của đợt 229. Bản Word được dựng và render kiểm tra trang trong môi trường biên soạn; chưa có đầy đủ ảnh chụp màn hình EXE thực tế. Yêu cầu từng đợt tiếp theo: thêm bài vào bản FULL, cập nhật mục lục và hình, xuất lại Word, chứ không chỉ viết Markdown phụ lục.
+
+**Trạng thái đợt 229:** Đã commit mã MCP mới `ai_draw_plan_vietnamese`, hai regression parser và CI test discovery; bộ cài Windows chưa xác nhận PASS.
