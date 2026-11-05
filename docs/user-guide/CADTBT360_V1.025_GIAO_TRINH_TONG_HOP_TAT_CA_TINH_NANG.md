@@ -446,3 +446,52 @@ Các tình huống dưới đây áp dụng theo đúng thứ tự: **kiểm tra
 | Hướng dẫn | Setup và Portable | DOCX đầy đủ 21 bài, bảng thực, mở từ GUI | Chưa kiểm chứng EXE |
 
 Sau khi Windows CI thực tế PASS, ghi **run ID, commit SHA, Setup/Portable SHA256, ảnh chụp GUI thật, người kiểm thử và kết quả** trong biên bản. Không ghi “Đạt” chỉ vì script có trong GitHub.
+
+
+## 22. Đợt 182 — Quy trình nghiệm thu 21 bài học trên EXE thật
+
+Giáo trình **không chỉ hướng dẫn đọc**, mà cần phục vụ kiểm tra thực tế từng nhóm tính năng. Người dùng thực hành trong một thư mục riêng, không dùng bản vẽ sản xuất. Sau mỗi bài, ghi **tên file – kết quả đo – phiên bản EXE – commit SHA – ảnh chụp màn hình thật – Đạt/Không đạt/Chưa kiểm chứng**.
+
+### Phiếu theo dõi từ bài 01 đến bài 21
+
+| Bài | Nhóm chức năng | Dữ liệu/kết quả cần lưu | Cần kiểm tra trên EXE |
+|---|---|---|---|
+| 01 | Cài đặt, New/Open/Save | BT01_CAD_CoBan.dxf, LINE 5000 | Có |
+| 02 | Giao diện, Layers/Properties | Ảnh giao diện 5 tab, Command Line | Có |
+| 03 | Vẽ, Offset, Trim | Phòng 6000×4000, tường 200 mm | Có |
+| 04 | Layer và chế độ khóa/ẩn | A-TUONG, A-CUA, A-KICH_THUOC | Có |
+| 05 | Block, Insert, Explode | CUA_D1 và hai INSERT | Có |
+| 06 | Xref và IMAGEATTACH | Tổng hợp DXF và ảnh tham chiếu | Có |
+| 07 | Text, Dimension, Plot | DIM 6000 và bản in PDF | Có |
+| 08 | QTO cơ bản, phân vùng chọn | LINE 6000 mm → 6 m | Có |
+| 09 | QTO mặt bằng × mặt cắt | 20 m² × 3 m = 60 m³ | Có |
+| 10 | Đào/đắp giao thông | AEA 8/12 m², L=20 m → 200 m³ | Có |
+| 11 | Báo cáo đo bóc XLSX | Báo cáo có mã, nguồn, nhóm và tổng | Có |
+| 12 | IFC/3D và bộ lọc | Danh sách GlobalId/tầng/bộ môn | Có |
+| 13 | BIM cộng tác | Workspace có tầng, bộ môn và Issue | Có |
+| 14 | AI từ ảnh thành CAD | PNG → LINE, Preview, Undo, DXF | Có |
+| 15 | CLI/MCP | tools/list, info, convert DXF/DWG | Có |
+| 16 | OSNAP/ORTHO | LINE chính xác 1000 và 500 đơn vị | Có |
+| 17 | Polyline và Hatch | Vùng kín 20 m² và Hatch | Có |
+| 18 | Attribute của Block | Hai mã D01/D02 nếu ATTDEF có trong EXE | Có |
+| 19 | Layout và Viewport | PDF A3, tỷ lệ phù hợp | Có |
+| 20 | Truy nguyên nguồn QTO | Trạng thái Review/Confirm và XLSX | Có |
+| 21 | Sao lưu/phục hồi CAD+BIM | Cặp file CAD và workspace BIM khớp | Có |
+
+### Bài 22 — Cách tạo bộ bằng chứng nghiệm thu thực tế (quy trình QA)
+
+1. Cài đúng **CADTBT360_V1.025_Setup_Windows_x64.exe** hoặc giải nén **Portable** thuộc cùng **GitHub Actions Success run**; không dùng file EXE cũ có tên giống nhau.
+2. Kiểm tra `BUILD_INFO.txt` và lưu `SourceCommit` vào bảng kiểm tra.
+3. Mở giao diện CAD 360, chụp màn hình toàn cửa sổ bằng **Win + Shift + S** hoặc Snipping Tool. Ảnh phải hiển thị giao diện thật và không cắt mất phần thông báo lỗi.
+4. Trong mỗi bài, chỉ lấy ảnh ở **trạng thái cuối thao tác** hoặc trạng thái lỗi cần tái hiện; không thay bằng ảnh AutoCAD hoặc hình thiết kế giả lập.
+5. Tạo thư mục `CAD360_V1025_NghiemThu/`, có `01_CAD/`, `02_QTO/`, `03_IFC_BIM/`, `04_AI_MCP/`, `05_Screenshots/` và `06_BaoCao/`.
+6. Với file DXF/DWG, phải mở và chỉnh sửa lại bằng chính CAD 360, sau đó **kiểm tra độc lập bằng AutoCAD** trước khi ký đạt tiêu chí tương thích DWG hai chiều.
+7. Với Excel QTO, mở tệp bằng Excel và đối chiếu tổng với nguồn, đơn vị và trạng thái nghiệm thu; không chỉ xem số lượng dòng.
+8. Ghi rõ tính năng **PDF đang tích hợp**, **BIM đồng bộ mô phỏng**, **Clash 2D sơ bộ**, **AI vector hóa pixel**, và **IFC mesh phụ thuộc runtime** — các giới hạn này không được đánh dấu hoàn thiện sai thực tế.
+9. Chỉ kết luận bản phát hành **Đạt** khi có Windows CI Success, bộ cài/Portable tải được, mã nguồn ZIP cùng commit, tài liệu Word mở được và bảng kiểm thử có bằng chứng.
+
+### Tăng cường chất lượng đóng gói đợt 182
+
+Trong CI, ảnh PNG test được kiểm tra trước; tiếp đó hệ thống **xác minh đủ 21 bài trong Markdown**, **tạo cả Word tổng hợp lẫn Word chuyên đề**, rồi **kiểm tra Word tổng hợp có bảng thật, tiêu đề đúng cấu trúc và đủ 21 bài**. Nếu sai, dừng trước khi biên dịch Rust và trước bước tạo Setup/Portable.
+
+**Lưu ý về phiên bản:** V1.025 vẫn là định danh nhánh phát triển hiện tại; các đợt 179–182 là các lần cập nhật mã nguồn/tài liệu, chưa phải bằng chứng phiên bản EXE phát hành mới. Chưa có kết quả Windows CI PASS được xác minh cho commit này và chưa có bộ ảnh chụp thực tế từ EXE để đưa vào giáo trình.
