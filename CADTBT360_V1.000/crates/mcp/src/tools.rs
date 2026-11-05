@@ -52,7 +52,7 @@ pub fn tool_definitions(has_ui: bool) -> Value {
 /// Validate candidate AI vectorization geometry without touching a drawing. The result
 /// describes geometric defects only, never pixel-level recognition accuracy.
 fn check_trace_quality(args: &Value) -> Value {
-    let points = args["points"].as_array().expect("validated points array");
+    let Some(points) = args["points"].as_array() else { return json!({"safeToCommit":false,"error":"missing points array"}) };
     let closed = args["closed"].as_bool().unwrap_or(false);
     let min_len = args["minSegmentLength"].as_f64().unwrap_or(1.0e-8);
     let mut pts = Vec::with_capacity(points.len());
