@@ -1494,3 +1494,27 @@ Mục tiêu quan trọng nhất của đợt này là chuyển từ việc **ch�
 7. Kiểm tra Windows CI đúng commit SHA. **Mã đã được cập nhật không đồng nghĩa các bài test đã PASS hay EXE đã nghiệm thu**. Kiểm chứng thêm ảnh thực tế: cột tròn, cột chữ L/T, cấu kiện không có ký hiệu hatch, tường giao nhau và bản vẽ nhiễu vẫn cần nghiên cứu tiếp.
 
 **Trạng thái đợt 217:** Đã bổ sung thuật toán nhận biết ứng viên cột hình chữ nhật có hatch chữ thập, GUI Preview viền vàng, tạo PLINE sau xác nhận, chốt tránh PLINE trùng và test CI. Chưa hoàn thiện nhận dạng cột kiến trúc/kết cấu tổng quát, chưa tuyên bố Windows CI PASS.
+
+
+## 58. Đợt 218 — AI tạo BLOCK cột từ PLINE khung và hai nét hatch
+
+### Bài 99 — Chuyển ứng viên cột thành BLOCK CAD bản nháp có xác nhận
+
+1. Mở **AI từ ảnh → CAD**, chọn PNG/JPG, đặt tỷ lệ `unitsPerPixel`, bật `columnHatchHints=true` và nhấn Preview.
+2. Kiểm tra ứng viên cột màu vàng; cột phải có hình chữ nhật khép kín với hai nét trong giao nhau, không suy diễn cột kết cấu từ hình chữ nhật trống.
+3. Bật **Tạo BLOCK cột CAD bản nháp (khung + 2 hatch)**, sau đó tích **Tôi đã xem Preview và đồng ý tạo BLOCK cột**.
+4. Preview trả `columnBlockDrafts`: mỗi bản nháp gồm `frame` (bốn đỉnh PLINE kín), `hatches` (hai LINE), `base`, `widthCAD`, `heightCAD`. Ký hiệu `human-reviewed-column-like-cad-block-not-structural-column` nhắc đây chưa phải đối tượng cột BIM.
+5. GUI không cho bật đồng thời tạo BLOCK, PLINE cột và PLINE mọi hình chữ nhật nhằm tránh hình học trùng.
+6. Sau xác nhận, nhấn tạo hình học CAD. GUI tạo khung PLINE + hai LINE mới, chuyển ba nét mới thành BLOCK/INSERT với `keep=convert`. Các nét nguồn từ ảnh được giữ nguyên.
+7. Thử chọn INSERT, quản lý Block và Undo; kiểm chứng bằng bản vẽ thực tế trước khi lưu DWG. Chưa tự động xác định tiết diện, vật liệu hay cao độ.
+
+### Bài 100 — Kiểm thử PNG, Undo và giới hạn MCP
+
+1. Chạy `cargo test --locked -p cadcraft-mcp --lib ai_column_block_png_is_reviewed_not_semantic_and_rejects_remote_commit -- --nocapture`; phải xác minh một ứng viên, khung bốn đỉnh, hai hatch và nét ảnh gốc không bị xóa.
+2. `createColumnBlocks=true` yêu cầu `confirmColumnBlocks=true`; nếu thiếu thì lỗi trước khi thay đổi CAD. MCP chỉ Preview, từ chối Commit BLOCK khi chưa kiểm chứng quản lý Undo từ xa.
+3. Chạy `cargo test --locked -p cadcraft --bin cadcraft ai_column_block_engine_convert_has_one_insert_and_one_undo -- --nocapture`; engine phải tạo một INSERT với ba nét trong Block, sau đó Undo loại bỏ cả INSERT lẫn định nghĩa Block.
+4. Chạy `cargo test --locked -p cadcraft --bin cadcraft ai_column_block_gui_is_opt_in_and_preserves_preview_mode -- --nocapture`; mặc định tắt chức năng tạo BLOCK, người dùng phải bật và xác nhận.
+5. Kiểm tra Windows CI đúng commit SHA và thử trên EXE với ảnh mặt bằng thực tế; chưa có kết quả CI PASS thì chưa thể nghiệm thu.
+6. Cần bổ sung nhận dạng cột tròn, chữ L/T, cột không có dấu giao, bản vẽ nhiễu, cột tại nút giao tường và cấu kiện kết cấu thực tế.
+
+**Trạng thái đợt 218:** Đã cập nhật thuật toán, GUI tạo BLOCK/INSERT và kiểm thử. Chưa xác nhận CI Windows PASS; tính năng chưa tự hiểu đầy đủ đối tượng cột kết cấu.
