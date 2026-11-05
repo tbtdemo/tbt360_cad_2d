@@ -24,6 +24,8 @@ REQUIRED = (
     "scripts/verify_source_bundle.py",
     "docs/user-guide/build_word_guide.py",
     "docs/user-guide/CADTBT360_V1.025_HUONG_DAN_AI_TU_ANH_THANH_CAD.md",
+    "docs/user-guide/CADTBT360_V1.025_GIAO_TRINH_TONG_HOP_TAT_CA_TINH_NANG.md",
+    "scripts/validate_full_user_guide.py",
 )
 
 def verify(archive: Path) -> None:
