@@ -88,11 +88,18 @@ jobs:
             @{ Package='cadcraft-render'; Target='lib'; Test='raster_imageclip_frame_matches_rectangle_and_concave_pixel_boundary' },
             @{ Package='cadcraft-render'; Target='lib'; Test='raster_image_display_off_omits_entire_frame' },
             @{ Package='cadcraft-io'; Target='it'; Test='xref_roundtrip' },
-            @{ Package='cadcraft-io'; Target='it'; Test='large_dwg_v1025' }
+            @{ Package='cadcraft-io'; Target='it'; Test='large_dwg_v1025' },
+            @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_automatic_raster_to_cad_lines_from_real_png' },
+            @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_auto_raster_diagonal_png_creates_editable_line' },
+            @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_arbitrary_angle_raster_to_cad_png_creates_editable_line' },
+            @{ Package='cadcraft'; Target='gui'; Test='ai_raster_panel_defaults_to_preview' },
+            @{ Package='cadcraft'; Target='gui'; Test='ai_raster_undo_rolls_back_partial_batch' },
+            @{ Package='cadcraft'; Target='gui'; Test='ai_raster_preview_never_commits_to_another_open_drawing' }
           )
           foreach ($case in $required) {
             if ($case.Target -eq 'lib') { $listing = @(cargo test --locked -p $case.Package --lib $case.Test -- --list 2>&1) }
             elseif ($case.Target -eq 'bin') { $listing = @(cargo test --locked -p $case.Package --bin cadcraft-cli $case.Test -- --list 2>&1) }
+            elseif ($case.Target -eq 'gui') { $listing = @(cargo test --locked -p $case.Package --bin cadcraft $case.Test -- --list 2>&1) }
             else { $listing = @(cargo test --locked -p $case.Package --test it $case.Test -- --list 2>&1) }
             if ($LASTEXITCODE -ne 0) { $listing | Out-Host; throw "Cannot discover tests for $($case.Package): $($case.Test)" }
             $matched = @($listing | Where-Object { $_ -like '*: test' })
