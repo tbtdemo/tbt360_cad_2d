@@ -682,3 +682,43 @@ Bảng này là **bản đồ học lệnh**, không thay thế bảng **Help �
 6. Chỉ kết luận **đạt** khi có Windows CI Success, kết quả chạy trên chính Setup/Portable, file DXF/DWG mở lại được và có ảnh chụp GUI thật. Chưa có xác nhận này trong đợt 187.
 
 **Giới hạn cần giữ rõ:** Chức năng chỉ phát hiện hình chữ nhật theo trục ngang/dọc với đủ bốn cạnh. Hình nghiêng, nét gãy, nhiều phòng liên thông hoặc tường dày giao cắt cần các bộ nhận dạng chuyên sâu khác. Vẫn chưa có mô hình AI ngữ nghĩa đọc bản vẽ tường, cửa, cột.
+
+
+## 28. Đợt 188 — Gợi ý mép tường song song từ ảnh mà không làm sai bản CAD
+
+Chế độ **Gợi ý cặp nét tường song song (chỉ Preview)** bổ sung thông tin hình học từ các nét ảnh PNG/JPEG. Thuật toán tìm các cặp LINE ngang hoặc dọc tương đối dài, có đoạn chồng lấn đủ lớn, khoảng cách trong ảnh từ **2 đến 40 pixel**. Kết quả là **ứng viên** để kỹ sư kiểm tra, không phải nhận dạng chắc chắn tường, không có đối tượng BIM Wall.
+
+### Bài 33 — Xem trước các cặp nét song song nghi là tường
+
+1. Chuẩn bị ảnh PNG mặt bằng thử có hai nét dài nằm ngang, gần song song, ví dụ nét thứ nhất từ x=10 đến x=110 tại y=10, nét thứ hai từ x=10 đến x=110 tại y=20.
+2. Trong tab CAD chọn **AI TỪ ẢNH → CAD**, mở ảnh và chọn đơn vị CAD/pixel hoặc hiệu chuẩn theo một đoạn có chiều dài đã biết.
+3. Tích **Gợi ý cặp nét tường song song (chỉ Preview)**. Mặc định chế độ này tắt, không ảnh hưởng các file cũ.
+4. Nhấn **Nhận dạng và xem trước**; đọc số lượng **cặp nét song song nghi là mép tường**.
+5. Kiểm tra hình học: hai nét cách nhau 10 pixel, đoạn chồng lấn đủ dài; phần mềm báo một ứng viên. Người dùng quyết định hai nét này có thực sự là hai mép tường hay chỉ là ký hiệu/hai đường khác.
+6. Không có tường tự động được dựng. Nếu nhấn **Tạo LINE / PLINE chỉnh sửa trong CAD**, các nét vẫn là đối tượng CAD hình học để chỉnh tay.
+7. Dùng `DIST` để đo khoảng cách hai mép và đối chiếu bề dày tường sau khi hiệu chuẩn. Không gán bề dày tường nếu chưa hiểu đúng tỷ lệ và đơn vị bản vẽ.
+
+**Nghiệm thu:** Có gợi ý đúng cặp song song trên ảnh thử, không tự thêm hoặc xóa bất kỳ hình học nào chỉ vì người dùng bật chế độ gợi ý.
+
+### Bài 34 — Kiểm tra chống nhận nhầm tường
+
+1. Tạo hai đoạn LINE ngang dài nhưng **không chồng lấn** theo trục X; đây không phải hai mép cùng một dải tường.
+2. Tạo thêm hai LINE thẳng đứng cách nhau trên 40 pixel; khoảng cách ngoài ngưỡng, không được ghép thành một ứng viên.
+3. Thêm một đường giao cắt vuông góc; chỉ những cặp **cùng phương, có chồng lấn đủ lớn và nằm gần nhau** mới được gợi ý.
+4. Chạy lại Preview và kiểm tra số ứng viên. Nếu nhận diện bất thường, lưu ảnh nguồn, kích thước ảnh, thông số threshold/minLength và log.
+5. Tắt chế độ **Gợi ý cặp nét tường song song** và Preview lại. Kết quả số gợi ý phải trở về 0; nét LINE của bản vẽ không bị thay đổi.
+
+**Nghiệm thu:** Không nhận nhầm nét giao nhau, nét rời, hoặc nét song song quá xa thành tường.
+
+### Bài 35 — Tự động kiểm thử bằng Rust và Windows CI
+
+1. Tại thư mục `CADTBT360_V1.000`, dùng Rust/Cargo của dự án.
+2. Chạy `cargo test --locked -p cadcraft-mcp --lib ai_parallel_wall_ -- --nocapture` để kiểm tra ghép cặp và từ chối các trường hợp hình học không hợp lệ.
+3. Chạy `cargo test --locked -p cadcraft --bin cadcraft ai_raster_wall_pair_hints_are_opt_in_and_non_mutating -- --nocapture` để kiểm tra tùy chọn tắt mặc định và Preview không có quyền ghi.
+4. Xác nhận workflow Windows V1.025 có hai bộ kiểm thử trên, sau đó mới đánh giá trạng thái **Success/Failure** của đúng commit.
+5. Nếu CI thành công và có Setup/Portable, mở GUI thật để chụp ảnh nút, màn hình Preview và các nét CAD. Không lấy ảnh minh họa trên Internet làm bằng chứng phần mềm.
+6. Thực hiện thêm kiểm thử ảnh mặt bằng thật nhiều lớp nét, số ứng viên đúng/sai, thời gian xử lý, RAM và tính ổn định trước khi dùng trong sản xuất.
+
+**Giới hạn quan trọng:** Chỉ là phát hiện **ứng viên cặp mép tường từ nét song song**. Chưa có semantic AI phân loại vật liệu, cửa, cửa sổ, cầu thang, chưa gán Layer tường, và chưa sinh mô hình BIM. Không được dùng số ứng viên như khối lượng tường để quyết toán nếu chưa kiểm tra bằng kỹ sư.
+
+**Trạng thái đợt 188:** Đã đưa mã nguồn phát hiện ứng viên, giao diện xem trước, mô tả MCP và kiểm thử CI vào repository. Chưa có xác nhận Windows Build PASS và ảnh GUI từ EXE được nghiệm thu.
