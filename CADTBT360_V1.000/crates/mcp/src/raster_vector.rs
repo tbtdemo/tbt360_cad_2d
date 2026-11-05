@@ -397,6 +397,32 @@ mod tests {
         assert!(arbitrary_angle_strokes(&img,160,20).is_empty());
     }
     #[test]
+    fn raster_vector_preview_real_png_has_exact_scaled_world_coordinates() {
+        // The Windows Setup/Portable MCP smoke uses the same 64x32 pattern.
+        // Verify the core raster decoder + pixel-to-CAD transform independently
+        // so a failing CLI smoke can be localized to packaging or protocol.
+        let mut img = image::RgbImage::from_pixel(64, 32, image::Rgb([255,255,255]));
+        for x in 6..=56 { img.put_pixel(x, 15, image::Rgb([0,0,0])); }
+        let unique = format!("cad360-raster-coordinate-{}-{}.png", std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos());
+        let path = std::env::temp_dir().join(unique);
+        img.save(&path).expect("write real PNG fixture");
+        let args = json!({"path":path.to_string_lossy(), "preview":true,
+            "minLengthPixels":16,"includeDiagonals":false,"unitsPerPixel":10.0});
+        let result = preview(&args);
+        let _ = std::fs::remove_file(&path);
+        let value = result.expect("raster preview must read real 64x32 PNG");
+        assert_eq!(value["imageSize"], json!([64,32]));
+        assert_eq!(value["strokes"], 1);
+        assert_eq!(value["editableEntitiesCreated"], 0);
+        assert_eq!(value["lines"], json!([[[65.0,165.0],[565.0,165.0]]]));
+        let points = value["lines"][0].as_array().expect("one line with two endpoints");
+        let x0 = points[0][0].as_f64().expect("start x");
+        let x1 = points[1][0].as_f64().expect("end x");
+        assert!((x1-x0-500.0).abs() < 1e-9);
+    }
+
+    #[test]
     fn raster_vector_detects_one_thick_horizontal_stroke_as_one_line() {
         let mut img = GrayImage::from_pixel(48, 32, image::Luma([255]));
         for y in 10..=12 { for x in 4..=40 { img.put_pixel(x,y,image::Luma([0])); } }
