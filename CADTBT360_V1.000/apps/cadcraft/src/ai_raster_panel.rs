@@ -28,6 +28,8 @@ pub struct State {
     opening_gap_hints: bool,
     paired_wall_opening_hints: bool,
     door_leaf_hints: bool,
+    create_door_swing_arcs: bool,
+    confirm_door_swing_arcs: bool,
     create_opening_guides: bool,
     confirm_opening_guides: bool,
     min_opening_gap: f64,
@@ -79,6 +81,8 @@ impl State {
             "openingGapHints":self.opening_gap_hints,
             "pairedWallOpeningHints":self.paired_wall_opening_hints,
             "doorLeafHints":self.door_leaf_hints,
+            "createDoorSwingArcs":self.create_door_swing_arcs,
+            "confirmDoorSwingArcs":self.confirm_door_swing_arcs,
             "createOpeningGuidePolylines":self.create_opening_guides,
             "confirmOpeningGuides":self.confirm_opening_guides,
             "minOpeningGapPixels":self.min_opening_gap,
@@ -182,6 +186,8 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
                     if !state.opening_gap_hints {
                         state.paired_wall_opening_hints=false;
                         state.door_leaf_hints=false;
+                        state.create_door_swing_arcs=false;
+                        state.confirm_door_swing_arcs=false;
                         state.create_opening_guides=false;
                         state.confirm_opening_guides=false;
                     }
@@ -202,12 +208,27 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
                             state.create_opening_guides=false;
                             state.confirm_opening_guides=false;
                             state.door_leaf_hints=false;
+                            state.create_door_swing_arcs=false;
+                            state.confirm_door_swing_arcs=false;
                         }
                         state.preview=None;
                     }
                     if state.paired_wall_opening_hints {
-                        if ui.checkbox(&mut state.door_leaf_hints, "Gợi ý nét cánh cửa tại góc khoảng mở (chỉ Preview)").changed() {state.preview=None;}
+                        if ui.checkbox(&mut state.door_leaf_hints, "Gợi ý nét cánh cửa tại góc khoảng mở (chỉ Preview)").changed() {
+                            if !state.door_leaf_hints {state.create_door_swing_arcs=false; state.confirm_door_swing_arcs=false;}
+                            state.preview=None;
+                        }
                         ui.small("Tìm đoạn nét vuông góc từ góc mở ra ngoài bề dày tường. Có thể là nét cánh cửa, chưa phải nhận dạng cửa xác thực.");
+                        if state.door_leaf_hints {
+                            if ui.checkbox(&mut state.create_door_swing_arcs, "Tạo cung quay ARC cho nét cửa đã nhận dạng (tùy chọn)").changed() {
+                                if !state.create_door_swing_arcs {state.confirm_door_swing_arcs=false;}
+                                state.preview=None;
+                            }
+                            if state.create_door_swing_arcs {
+                                if ui.checkbox(&mut state.confirm_door_swing_arcs, "Tôi xác nhận các cung quay ARC này sau khi xem trước").changed() {state.preview=None;}
+                                ui.small("Chỉ vẽ ARC hình học có bằng chứng, không tạo Block cửa/BIM. Bản vẽ vẫn phải kiểm tra thủ công.");
+                            }
+                        }
                         if ui.checkbox(&mut state.create_opening_guides, "Cho phép thêm PLINE bao vùng mở đã nhận dạng").changed() {
                             if !state.create_opening_guides { state.confirm_opening_guides=false; }
                             state.preview=None;
@@ -242,6 +263,7 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
             let opening_count = proposal["openingGapCandidateCount"].as_u64().unwrap_or(0);
             let paired_opening_count = proposal["pairedWallOpeningCandidateCount"].as_u64().unwrap_or(0);
             let door_leaf_count = proposal["doorLeafCandidateCount"].as_u64().unwrap_or(0);
+            let door_arcs_count = proposal["doorSwingArcsProposed"].as_u64().unwrap_or(0);
             ui.label(format!("Đã nhận dạng: {count} nét nguồn, {rectangle_count} PLINE kín, {wall_pairs} cặp nét song song nghi là mép tường."));
             if state.wall_pair_hints {
                 ui.small("Gợi ý hình học, không phải tường BIM. Nét nguồn luôn được giữ để đối chiếu.");
@@ -259,7 +281,10 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
             }
             if state.paired_wall_opening_hints {
                 ui.label(format!("Đối chiếu hai mép tường: {paired_opening_count} vùng mở hình học cần xác nhận (không tự nhận là cửa)."));
-                if state.door_leaf_hints { ui.small(format!("{door_leaf_count} vùng có nét giống cánh cửa vuông góc. Chỉ là dấu hiệu ảnh; không tự vẽ Block cửa.")); }
+                if state.door_leaf_hints {
+                    ui.small(format!("{door_leaf_count} vùng có nét giống cánh cửa vuông góc. Chỉ là dấu hiệu ảnh; không tự vẽ Block cửa."));
+                    if state.create_door_swing_arcs {ui.small(format!("Dự kiến {door_arcs_count} cung quay ARC chỉnh sửa được, sau xác nhận."));}
+                }
                 if let Some(items)=proposal["pairedWallOpeningCandidates"].as_array() {
                     for (index,item) in items.iter().take(8).enumerate() {
                         let t=item["wallThicknessCAD"].as_f64().unwrap_or(0.0);
@@ -405,6 +430,14 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
                         match cad.run("line", json!({"points":line})) {
                             Ok(_) => created += 1,
                             Err(e) => { failure = Some(e); break; }
+                        }
+                    }
+                }
+                if failure.is_none() && let Some(door_arcs) = proposal["doorSwingArcs"].as_array() {
+                    for arc in door_arcs {
+                        match cad.run("arc",json!({"center":arc["center"],"radius":arc["radius"],"start":arc["start"],"end":arc["end"]})) {
+                            Ok(_) => created+=1,
+                            Err(e) => {failure=Some(e);break;}
                         }
                     }
                 }
