@@ -15,7 +15,7 @@ from zipfile import ZipFile, ZIP_DEFLATED
 MAIN_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
 
 def para(text: str, style: str = "Normal") -> str:
-    safe = escape(re.sub(r"(?<!\\)[`*_]", "", text.strip()))
+    # Strip only Markdown markup. Underscores are literal parts of CAD file names,\n    # SHA-related labels and PowerShell paths, so they MUST survive DOCX generation.\n    safe = escape(re.sub(r"(?<!\\)(?:\\*\\*|`)", "", text.strip()))
     return ('<w:p><w:pPr><w:pStyle w:val="' + style + '"/></w:pPr>'
             '<w:r><w:t xml:space="preserve">' + safe + '</w:t></w:r></w:p>')
 
