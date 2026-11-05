@@ -158,6 +158,9 @@ jobs:
             @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_opening_gap_real_png_refuses_to_bridge_possible_door' },
             @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_real_png_paired_wall_opening_preview_and_editable_guide' },
             @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_real_png_door_leaf_hint_is_preview_only_and_preserves_native_geometry' },
+            @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_confirmed_door_swing_arc_is_editable_and_refuses_missing_confirmation' },
+            @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_real_png_door_arc_commit_creates_native_arc_after_confirmation' },
+            @{ Package='cadcraft'; Target='gui'; Test='ai_door_swing_arc_gui_requires_explicit_two_step_confirmation' },
             @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_door_leaf_evidence_requires_a_perpendicular_outward_stroke_at_opening_corner' },
             @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_two_aligned_wall_edge_gaps_propose_one_opening_outline' },
             @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_single_or_ambiguous_opening_gap_must_not_invent_a_door' },
@@ -239,6 +242,10 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'AI paired-wall opening editable CAD guide regression failed' }
           cargo test --locked -p cadcraft-mcp --lib ai_real_png_door_leaf_hint_is_preview_only_and_preserves_native_geometry -- --nocapture
           if ($LASTEXITCODE -ne 0) { throw 'AI door-leaf raster evidence preview regression failed' }
+          cargo test --locked -p cadcraft-mcp --lib ai_real_png_door_arc_commit_creates_native_arc_after_confirmation -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'AI PNG-to-native-ARC commit regression failed' }
+          cargo test --locked -p cadcraft-mcp --lib ai_confirmed_door_swing_arc_is_editable_and_refuses_missing_confirmation -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'AI door swing arc geometry regression failed' }
           cargo test --locked -p cadcraft-mcp --lib ai_door_leaf_evidence_requires_a_perpendicular_outward_stroke_at_opening_corner -- --nocapture
           if ($LASTEXITCODE -ne 0) { throw 'AI door-leaf detector incorrectly accepted a jamb or ambiguous candidate' }
           cargo test --locked -p cadcraft-mcp --lib ai_single_or_ambiguous_opening_gap_must_not_invent_a_door -- --nocapture
