@@ -630,6 +630,7 @@ fn run_inspect(s: &mut Session, p: &Value) -> Result<Value> {
         "undoControl": match st.undo_ctl.control { crate::undoctl::Control::All => "all", crate::undoctl::Control::One => "one", crate::undoctl::Control::None => "none" },
         "undoGroupOpen": st.undo_ctl.group.is_some(),
         "documentUid": st.uid,
+        "documentEpoch": s.doc_epoch,
         "revision": st.revision,
         "view": { "center": [st.view().center.x, st.view().center.y], "height": st.view().height },
         // Records of the file the drawing came from that the reader could not place.
