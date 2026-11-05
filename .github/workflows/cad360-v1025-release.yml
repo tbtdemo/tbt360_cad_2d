@@ -124,6 +124,7 @@ jobs:
             @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_arbitrary_angle_raster_to_cad_png_creates_editable_line' },
             @{ Package='cadcraft'; Target='gui'; Test='ai_raster_panel_defaults_to_preview' },
             @{ Package='cadcraft'; Target='gui'; Test='ai_raster_help_is_accessible_offline_without_external_links' },
+            @{ Package='cadcraft'; Target='gui'; Test='complete_user_manual_is_found_in_setup_and_portable_paths' },
             @{ Package='cadcraft'; Target='gui'; Test='ai_raster_undo_rolls_back_partial_batch' },
             @{ Package='cadcraft'; Target='gui'; Test='ai_raster_preview_never_commits_to_another_open_drawing' },
             @{ Package='cadcraft'; Target='gui'; Test='ai_raster_preview_refuses_switch_away_and_back_with_unchanged_revision' }
@@ -204,6 +205,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'V1.025 arbitrary-angle PNG to editable CAD regression failed' }
           cargo test --locked -p cadcraft --bin cadcraft ai_raster_panel -- --nocapture
           if ($LASTEXITCODE -ne 0) { throw 'V1.025 native image-to-CAD GUI preview regression failed' }
+          cargo test --locked -p cadcraft --bin cadcraft complete_user_manual_is_found_in_setup_and_portable_paths -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'Complete product user guide Setup/Portable path discovery failed' }
           cargo test --locked -p cadcraft --bin cadcraft ai_raster_help_is_accessible_offline_without_external_links -- --nocapture
           if ($LASTEXITCODE -ne 0) { throw 'V1.025 offline Vietnamese AI user guide integration failed' }
           cargo test --locked -p cadcraft --bin cadcraft ai_raster_preview_refuses_switch_away_and_back_with_unchanged_revision -- --nocapture
