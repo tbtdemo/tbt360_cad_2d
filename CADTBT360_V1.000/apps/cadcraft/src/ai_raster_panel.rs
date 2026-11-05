@@ -27,6 +27,7 @@ pub struct State {
     create_wall_centerlines: bool,
     opening_gap_hints: bool,
     paired_wall_opening_hints: bool,
+    door_leaf_hints: bool,
     create_opening_guides: bool,
     confirm_opening_guides: bool,
     min_opening_gap: f64,
@@ -77,6 +78,7 @@ impl State {
             "minWallSpacingPixels":self.min_wall_spacing,"maxWallSpacingPixels":self.max_wall_spacing,
             "openingGapHints":self.opening_gap_hints,
             "pairedWallOpeningHints":self.paired_wall_opening_hints,
+            "doorLeafHints":self.door_leaf_hints,
             "createOpeningGuidePolylines":self.create_opening_guides,
             "confirmOpeningGuides":self.confirm_opening_guides,
             "minOpeningGapPixels":self.min_opening_gap,
@@ -179,6 +181,7 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
                 if ui.checkbox(&mut state.opening_gap_hints, "Gợi ý khoảng hở có thể là cửa (chỉ Preview)").changed() {
                     if !state.opening_gap_hints {
                         state.paired_wall_opening_hints=false;
+                        state.door_leaf_hints=false;
                         state.create_opening_guides=false;
                         state.confirm_opening_guides=false;
                     }
@@ -198,10 +201,13 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
                         if !state.paired_wall_opening_hints {
                             state.create_opening_guides=false;
                             state.confirm_opening_guides=false;
+                            state.door_leaf_hints=false;
                         }
                         state.preview=None;
                     }
                     if state.paired_wall_opening_hints {
+                        if ui.checkbox(&mut state.door_leaf_hints, "Gợi ý nét cánh cửa tại góc khoảng mở (chỉ Preview)").changed() {state.preview=None;}
+                        ui.small("Tìm đoạn nét vuông góc từ góc mở ra ngoài bề dày tường. Có thể là nét cánh cửa, chưa phải nhận dạng cửa xác thực.");
                         if ui.checkbox(&mut state.create_opening_guides, "Cho phép thêm PLINE bao vùng mở đã nhận dạng").changed() {
                             if !state.create_opening_guides { state.confirm_opening_guides=false; }
                             state.preview=None;
@@ -235,6 +241,7 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
             let wall_pairs = proposal["wallPairCandidateCount"].as_u64().unwrap_or(0);
             let opening_count = proposal["openingGapCandidateCount"].as_u64().unwrap_or(0);
             let paired_opening_count = proposal["pairedWallOpeningCandidateCount"].as_u64().unwrap_or(0);
+            let door_leaf_count = proposal["doorLeafCandidateCount"].as_u64().unwrap_or(0);
             ui.label(format!("Đã nhận dạng: {count} nét nguồn, {rectangle_count} PLINE kín, {wall_pairs} cặp nét song song nghi là mép tường."));
             if state.wall_pair_hints {
                 ui.small("Gợi ý hình học, không phải tường BIM. Nét nguồn luôn được giữ để đối chiếu.");
@@ -252,10 +259,12 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
             }
             if state.paired_wall_opening_hints {
                 ui.label(format!("Đối chiếu hai mép tường: {paired_opening_count} vùng mở hình học cần xác nhận (không tự nhận là cửa)."));
+                if state.door_leaf_hints { ui.small(format!("{door_leaf_count} vùng có nét giống cánh cửa vuông góc. Chỉ là dấu hiệu ảnh; không tự vẽ Block cửa.")); }
                 if let Some(items)=proposal["pairedWallOpeningCandidates"].as_array() {
                     for (index,item) in items.iter().take(8).enumerate() {
                         let t=item["wallThicknessCAD"].as_f64().unwrap_or(0.0);
-                        ui.small(format!("Vùng {}: bề dày {:.3} đơn vị CAD; hai mép có khoảng hở tương ứng.",index+1,t));
+                        ui.small(format!("Vùng {}: bề dày {:.3} đơn vị CAD; hai mép có khoảng hở tương ứng.{}",index+1,t,
+                            if item["doorLeafCandidate"]==true {" Có thêm nét giống cánh cửa."} else {""}));
                     }
                 }
             }
