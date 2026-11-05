@@ -838,3 +838,45 @@ Nội dung nâng cấp kết nối hai phân tích **chỉ xem trước** trên 
 7. Đối chiếu hành vi khi tắt cả hai chức năng mới: bản vẽ phải giữ đúng LINE/PLINE theo phương thức cũ, không tự thêm hay xóa geometry.
 
 **Phạm vi:** Đã đưa mã nguồn, GUI, MCP và CI cho ứng viên giao tường và khoảng mở vào repository. Chưa có bằng chứng Windows CI PASS. Việc nhận dạng chính xác cửa/cửa sổ, OCR kích thước, phân tách tường/cột và tạo mô hình BIM là công việc chưa hoàn thiện.
+
+
+## 32. Đợt 192 — Bảo vệ khoảng mở cửa khi AI vector hóa bản vẽ
+
+Đợt 192 tập trung vào việc tránh tự nối nhầm khoảng mở cửa trên mặt bằng scan. Trong công cụ MCP `raster_to_cad_lines`, chế độ **`openingGapHints=true`** gợi ý các khoảng trống chưa xác minh, còn **`maxGapPixels>0`** có chức năng nối các nét ngắt ngắn. Hai tác vụ này có mục đích trái nhau và từ đợt 192 được **chặn dùng đồng thời**. Muốn xem vị trí nghi là cửa phải để **`maxGapPixels=0`**.
+
+### Bài 45 — Giữ nguyên khoảng hở cửa từ ảnh PNG
+
+1. Tạo một bản vẽ mới `BT45_AI_GiuKhoangMo.dxf` để tránh ảnh hưởng hồ sơ công trình.
+2. Chuẩn bị ảnh PNG nền trắng kích thước 110 × 40 pixel; vẽ nét thứ nhất từ x=5 đến x=39, nét thứ hai từ x=51 đến x=95, cùng cao độ y=17. Có một khoảng hở theo tâm nét dài **12 pixel**.
+3. Chọn AI TỪ ẢNH → CAD. Đặt `minLengthPixels=16`, bỏ chọn nét góc nếu không có, và bật **Gợi ý khoảng hở có thể là cửa (chỉ Preview)**.
+4. Trong cấu hình MCP, dùng `openingGapHints=true` và `maxGapPixels=0`.
+5. Nhấn **Nhận dạng và xem trước**, kiểm tra **2 LINE** còn tách biệt và **1 khoảng hở chưa xác minh**.
+6. Chỉ tạo đối tượng CAD sau khi người dùng kiểm tra hình học. Không tự sinh Block cửa hoặc nối hai đoạn thành một tường liên tục.
+7. Dùng DIST đo chiều rộng khoảng trống theo tỷ lệ CAD/pixel đã hiệu chuẩn. Ghi kết quả là *khoảng mở nghi vấn*, không ghi *cửa đi chính xác*.
+
+### Bài 46 — Ngăn xung đột hai chế độ của AI
+
+1. Giữ nguyên ảnh bài 45 và yêu cầu `openingGapHints=true`, `maxGapPixels=12`.
+2. Phần mềm phải **trả lỗi trước khi ghi bản vẽ** với thông báo chế độ nhận biết khoảng mở yêu cầu `maxGapPixels=0`.
+3. Nếu muốn nối các nét bị đứt do scan, tắt chế độ gợi ý khoảng mở và chỉ thực hiện trên bản vẽ thử đã biết rõ không có cửa đi/cửa sổ.
+4. Nếu cần tìm cửa, giữ `maxGapPixels=0`, dùng thao tác kiểm tra thủ công để xác định vị trí mở. Không đánh đồng đoạn nét bị mờ với cửa thật.
+5. Kiểm tra **Undo**, số lượng LINE/PLINE và độ mở trên DXF sau khi tạo. Việc chuyển DWG phải được kiểm chứng độc lập.
+
+### Bài 47 — Kiểm thử Rust, MCP và nghiệm thu bộ cài
+
+1. Từ ZIP mã nguồn đúng commit, tại `CADTBT360_V1.000`, chạy `cargo test --locked -p cadcraft-mcp --lib ai_opening_gap_real_png_refuses_to_bridge_possible_door -- --nocapture`.
+2. Bài test tự tạo ảnh PNG RGB với 2 nét ngang, xác nhận Preview có **2 LINE**, **1 khoảng hở**, rồi bắt buộc từ chối khi bật đồng thời `maxGapPixels=12`.
+3. Chạy các test `ai_opening_gap_hints_`, `ai_wall_junction_` và `ai_wall_centerline_` để kiểm tra không làm hỏng chức năng đã có.
+4. Xác minh Windows CI thực sự ở trạng thái **Success** trên commit phù hợp. Chỉ sau đó chạy Setup EXE và Portable, nạp cùng ảnh, chụp màn hình thực tế và thử lưu/mở lại DXF/DWG.
+5. Nếu CI chưa PASS hoặc chưa có bằng chứng GUI thực tế, ghi **Chưa nghiệm thu**, không coi đây là chức năng sản xuất hoàn thiện.
+
+### Bảng tình huống an toàn AI
+
+| Trạng thái nhập | Cách xử lý bắt buộc | Có được tự nối cửa? |
+|---|---|---|
+| openingGapHints=true, maxGapPixels=0 | Preview khoảng hở và giữ LINE gốc | Không |
+| openingGapHints=true, maxGapPixels=12 | Từ chối thao tác, báo lỗi rõ ràng | Không |
+| openingGapHints=false, maxGapPixels=12 | Có thể ghép nét ngắt ngắn theo điều kiện | Chỉ thử nghiệm, cần kỹ sư duyệt |
+| Hai nét khác hàng hoặc chỉ chạm đầu | Không nhận là khoảng mở hợp lệ | Không |
+
+**Giới hạn:** Đây là cải tiến bảo vệ hình học trong công cụ vector hóa, không phải AI OCR hoặc mô hình ngữ nghĩa xác định chắc chắn tường, cửa, cột. Chưa xác minh Windows CI PASS hoặc bộ cài EXE mới.
