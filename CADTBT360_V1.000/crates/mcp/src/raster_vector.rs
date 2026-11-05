@@ -357,6 +357,33 @@ fn wall_centerline_candidates(lines: &[Line], pairs: &[Value], excluded: &[bool]
     output
 }
 
+/// Detect crossings and T-junctions among already proposed wall centre lines.
+/// This is a Preview-only QA hint; no lines are extended, trimmed or modified.
+/// A margin ensures tiny endpoint noise is not classified as a true junction.
+fn wall_centerline_junctions(axes: &[Line]) -> Vec<Value> {
+    if axes.len() > 128 { return Vec::new(); }
+    let horizontal = |l: &Line| (l.y0-l.y1).abs() <= 0.25 && l.x1-l.x0 >= 16.0;
+    let vertical = |l: &Line| (l.x0-l.x1).abs() <= 0.25 && l.y1-l.y0 >= 16.0;
+    let mut result=Vec::new();
+    for (i,a) in axes.iter().enumerate() {
+        for (j,b) in axes.iter().enumerate().skip(i+1) {
+            let (h,v)=if horizontal(a) && vertical(b) {(a,b)}
+                else if vertical(a) && horizontal(b) {(b,a)}
+                else {continue};
+            let x=v.x0; let y=h.y0;
+            let margin=1.0;
+            if x < h.x0-margin || x > h.x1+margin || y < v.y0-margin || y > v.y1+margin {continue;}
+            let h_end=(x-h.x0).abs()<=margin || (x-h.x1).abs()<=margin;
+            let v_end=(y-v.y0).abs()<=margin || (y-v.y1).abs()<=margin;
+            if h_end && v_end {continue;} // two tips touching are not a guaranteed junction
+            result.push(json!({"centerlineIndices":[i,j],"pointPixels":[x,y],
+                "kind":if h_end || v_end {"T-candidate"} else {"cross-candidate"}}));
+            if result.len()>=128 {return result;}
+        }
+    }
+    result
+}
+
 /// Shared non-mutating vectorization used by MCP and the desktop GUI.
 pub fn preview(args: &Value) -> Result<Value, String> {
     let path = args["path"].as_str().filter(|s| !s.trim().is_empty()).ok_or("path is required")?;
@@ -428,6 +455,7 @@ pub fn preview(args: &Value) -> Result<Value, String> {
         return Err("createWallCenterlines requires wallPairHints=true to review candidate pairs".into());
     }
     let axes=if create_axes {wall_centerline_candidates(&lines,&wall_hints,&replacement)} else {Vec::new()};
+    let junctions=wall_centerline_junctions(&axes);
     let count = lines.len();
     if count > max_lines as usize {
         return Err(format!("Found {count} strokes, exceeding maxLines={max_lines}; increase minLengthPixels or limit the input region, no CAD changes made"));
@@ -463,6 +491,7 @@ pub fn preview(args: &Value) -> Result<Value, String> {
         "wallPairHints":wall_hints,"wallPairCandidateCount":wall_hints.len(),
         "minWallSpacingPixels":min_wall_spacing,"maxWallSpacingPixels":max_wall_spacing,
         "wallCenterlines":world_axes,"wallCenterlinesProposed":axes.len(),
+        "wallCenterlineJunctions":junctions,"wallCenterlineJunctionCount":junctions.len(),
         "lines":world,"closedPolylines":world_rectangles,"rectanglesDetected":candidates.len(),
         "closedRectangles":args["closedRectangles"].as_bool().unwrap_or(false),
         "editableEntitiesCreated":0,
@@ -710,6 +739,32 @@ mod tests {
             assert!(e.contains("pixel spacing"),"unexpected validation error: {e}");
         }
         let _=std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn ai_wall_junction_preview_finds_t_and_cross_candidates_without_drawing() {
+        let axes=vec![
+            Line{x0:10.0,y0:20.0,x1:110.0,y1:20.0},
+            Line{x0:60.0,y0:0.0,x1:60.0,y1:70.0},
+            Line{x0:90.0,y0:20.0,x1:90.0,y1:70.0},
+        ];
+        let junctions=wall_centerline_junctions(&axes);
+        assert_eq!(junctions.len(),2);
+        assert_eq!(junctions[0]["kind"],"cross-candidate");
+        assert_eq!(junctions[0]["pointPixels"],json!([60.0,20.0]));
+        assert_eq!(junctions[1]["kind"],"T-candidate");
+        assert_eq!(junctions[1]["pointPixels"],json!([90.0,20.0]));
+    }
+
+    #[test]
+    fn ai_wall_junction_refuses_disjoint_and_tip_only_lines() {
+        let axes=vec![
+            Line{x0:10.0,y0:20.0,x1:50.0,y1:20.0},
+            Line{x0:60.0,y0:0.0,x1:60.0,y1:70.0},
+            Line{x0:50.0,y0:20.0,x1:50.0,y1:50.0},
+        ];
+        assert!(wall_centerline_junctions(&axes).is_empty(),
+            "Nearby or tip-only geometry must not be treated as a confirmed wall junction");
     }
 
     #[test]
