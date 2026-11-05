@@ -486,9 +486,28 @@ fn wall_panel_junction_qa(panels: &[Value], openings: &[Value], columns: &[Value
     wall_centerline_junctions(&lines).into_iter().filter_map(|j| {
         if openings.iter().chain(columns).any(|region|inside(&j["pointPixels"],region)) {return None;}
         let indices=j["centerlineIndices"].as_array()?;
-        let original_indices:Vec<usize>=indices.iter().map(|v|v.as_u64().and_then(|i|source_panel_indices.get(i as usize).copied())).collect::<Option<_>>()?;
+        let center_indices:Vec<usize>=indices.iter().map(|v|v.as_u64().and_then(|i|usize::try_from(i).ok())).collect::<Option<_>>()?;
+        let original_indices:Vec<usize>=center_indices.iter().map(|&i|source_panel_indices.get(i).copied()).collect::<Option<_>>()?;
+        let (x,y)=(j["pointPixels"][0].as_f64()?,j["pointPixels"][1].as_f64()?);
+        // Stage 225 provides bounded, read-only edit *advice*, not a geometry operation.
+        // Every endpoint is measured against the observed centreline, never synthesized.
+        let mut endpoint_distances=Vec::new();
+        for &index in &center_indices {
+            let line=lines.get(index)?;
+            let start=(line.x0-x).hypot(line.y0-y);
+            let end=(line.x1-x).hypot(line.y1-y);
+            endpoint_distances.push(start.min(end));
+        }
+        let is_t=j["kind"]=="T-candidate";
+        let touches=endpoint_distances.iter().any(|&distance|distance<=1.0);
+        let advised=if is_t && touches {"review-endpoint-snap-without-edit"}
+            else if is_t {"manual-geometry-review-required"}
+            else {"review-crossing-overlap-without-edit"};
         Some(json!({"panelIndices":original_indices,"pointPixels":j["pointPixels"],
             "kind":j["kind"],"classification":"observed-wall-panel-junction-preview-only",
+            "endpointDistancesPixels":endpoint_distances,
+            "proposedEditAction":advised,"canAutoApply":false,
+            "guardrails":["no-opening-bridge","no-column-overwrite","no-unconfirmed-trim-or-extend"],
             "requiresHumanReview":true}))
     }).collect()
 }
@@ -1909,6 +1928,11 @@ mod tests {
         let t=wall_panel_junction_qa(&[horizontal.clone(),vertical_t.clone()],&[],&[]);
         assert_eq!(t.len(),1);
         assert_eq!(t[0]["kind"],"T-candidate");
+        assert_eq!(t[0]["canAutoApply"],false);
+        assert_eq!(t[0]["proposedEditAction"],"review-endpoint-snap-without-edit");
+        assert_eq!(t[0]["endpointDistancesPixels"].as_array().map(Vec::len),Some(2));
+        assert_eq!(cross[0]["proposedEditAction"],"review-crossing-overlap-without-edit");
+        assert_eq!(cross[0]["canAutoApply"],false);
         let opening=panel([[40.0,18.0],[60.0,18.0],[60.0,32.0],[40.0,32.0]]);
         assert!(wall_panel_junction_qa(&[horizontal.clone(),vertical_t.clone()],&[opening],&[]).is_empty());
         let column=panel([[43.0,18.0],[57.0,18.0],[57.0,32.0],[43.0,32.0]]);
