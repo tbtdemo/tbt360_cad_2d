@@ -11,6 +11,7 @@ on:
       - 'scripts/validate_mcp_smoke_fixture.py'
       - 'scripts/verify_source_bundle.py'
       - 'scripts/validate_full_user_guide.py'
+      - 'scripts/validate_word_guide.py'
       - 'docs/user-guide/**'
   push:
     branches:
@@ -24,6 +25,7 @@ on:
       - 'scripts/validate_mcp_smoke_fixture.py'
       - 'scripts/verify_source_bundle.py'
       - 'scripts/validate_full_user_guide.py'
+      - 'scripts/validate_word_guide.py'
       - 'docs/user-guide/**'
 
 permissions:
@@ -274,6 +276,8 @@ jobs:
           if ($LASTEXITCODE -ne 0 -or !(Test-Path 'dist/v1025/CADTBT360_V1.025_HUONG_DAN_AI_TU_ANH_THANH_CAD.docx')) { throw 'Cannot build required Word user manual' }
           python docs/user-guide/build_word_guide.py docs/user-guide/CADTBT360_V1.025_GIAO_TRINH_TONG_HOP_TAT_CA_TINH_NANG.md dist/v1025/CADTBT360_V1.025_GIAO_TRINH_TONG_HOP.docx
           if ($LASTEXITCODE -ne 0 -or !(Test-Path 'dist/v1025/CADTBT360_V1.025_GIAO_TRINH_TONG_HOP.docx')) { throw 'Cannot build whole-product Word curriculum; AI-only guide is insufficient' }
+          python scripts/validate_word_guide.py dist/v1025/CADTBT360_V1.025_GIAO_TRINH_TONG_HOP.docx
+          if ($LASTEXITCODE -ne 0) { throw 'Whole-product Word guide failed real table/15-lesson acceptance' }
 
       - name: Package new Setup and Portable
         id: package
