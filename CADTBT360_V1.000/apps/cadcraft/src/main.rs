@@ -657,7 +657,7 @@ mod tests {
     #[test]
     fn complete_user_manual_is_found_in_setup_and_portable_paths() {
         let root = std::path::Path::new("C:/CADTBT360");
-        let paths = full_user_guide_candidates(root);
+        let paths = super::full_user_guide_candidates(root);
         assert_eq!(paths[0], root.join("HuongDan/GIAO_TRINH_TONG_HOP_CAD360.docx"));
         assert_eq!(paths[1], root.join("GIAO_TRINH_TONG_HOP_CAD360.docx"));
         assert_ne!(paths[0], paths[1]);
