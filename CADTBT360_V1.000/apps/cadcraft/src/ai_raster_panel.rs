@@ -368,6 +368,28 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
                             }
                         }
                     }
+                    // Draw the exact native ARC proposal in purple before committing.
+                    // CAD uses CCW degrees; preview samples its short CCW sweep.
+                    if state.create_door_swing_arcs {
+                        if let Some(arcs)=proposal["doorSwingArcs"].as_array() {
+                            for arc in arcs {
+                                let (Some(cx),Some(cy),Some(radius),Some(start),Some(end))=
+                                    (arc["center"][0].as_f64(),arc["center"][1].as_f64(),
+                                     arc["radius"].as_f64(),arc["start"].as_f64(),arc["end"].as_f64()) else {continue};
+                                let sweep=(end-start).rem_euclid(360.0);
+                                if sweep<1.0 || sweep>180.0 {continue;}
+                                let mut points=Vec::new();
+                                for n in 0..=24 {
+                                    let angle=(start+sweep*f64::from(n)/24.0).to_radians();
+                                    points.push(to_screen(cx+radius*angle.cos(),cy+radius*angle.sin()));
+                                }
+                                for segment in points.windows(2) {
+                                    painter.line_segment([segment[0],segment[1]],
+                                        egui::Stroke::new(2.0,egui::Color32::from_rgb(216,125,255)));
+                                }
+                            }
+                        }
+                    }
                     // Two amber endpoint markers identify a *possible* opening.
                     // Never draw a connecting segment: that might look like a
                     // closed doorway, while the image itself is unverified.
@@ -574,6 +596,23 @@ mod tests {
         assert!(calibrated_units_per_pixel(f64::INFINITY, 500.0).is_err());
         assert!(calibrated_units_per_pixel(0.0000001, 500.0).is_err());
         assert!(calibrated_units_per_pixel(100000000.0, 0.1).is_err());
+    }
+
+    #[test]
+    fn ai_door_swing_arc_gui_requires_explicit_two_step_confirmation() {
+        let mut state=State::default();
+        state.open();
+        assert_eq!(state.params()["createDoorSwingArcs"],false);
+        assert_eq!(state.params()["confirmDoorSwingArcs"],false);
+        state.opening_gap_hints=true;
+        state.paired_wall_opening_hints=true;
+        state.door_leaf_hints=true;
+        state.create_door_swing_arcs=true;
+        assert_eq!(state.params()["createDoorSwingArcs"],true);
+        assert_eq!(state.params()["confirmDoorSwingArcs"],false);
+        state.confirm_door_swing_arcs=true;
+        assert_eq!(state.params()["confirmDoorSwingArcs"],true);
+        assert_eq!(state.params()["preview"],true);
     }
 
     #[test]
