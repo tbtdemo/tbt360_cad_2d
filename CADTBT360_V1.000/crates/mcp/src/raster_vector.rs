@@ -142,6 +142,74 @@ fn diagonal_strokes(img: &GrayImage, threshold: u8, min_length: u32, falling: bo
     }).collect()
 }
 
+/// Extract long, isolated strokes at arbitrary angles using 8-connected
+/// dark-pixel components and principal-component (PCA) line fitting. Complex
+/// branched/crossed components are intentionally refused (not guessed as walls).
+/// Axis-aligned and 45-degree components remain handled by the legacy scans.
+fn arbitrary_angle_strokes(img: &GrayImage, threshold: u8, min_length: u32) -> Vec<Line> {
+    use std::collections::VecDeque;
+    let (width, height) = img.dimensions();
+    let Some(n) = (width as usize).checked_mul(height as usize) else { return Vec::new() };
+    let mut visited = vec![false; n];
+    let mut result = Vec::new();
+    for y in 0..height {
+        for x in 0..width {
+            let index = y as usize * width as usize + x as usize;
+            if visited[index] { continue; }
+            visited[index] = true;
+            if img.get_pixel(x,y)[0] > threshold { continue; }
+            let mut queue = VecDeque::new();
+            queue.push_back((x,y));
+            let mut pts: Vec<(f64,f64)> = Vec::new();
+            while let Some((cx,cy)) = queue.pop_front() {
+                pts.push((f64::from(cx)+0.5, f64::from(cy)+0.5));
+                for dy in -1_i32..=1 {
+                    for dx in -1_i32..=1 {
+                        if dx == 0 && dy == 0 { continue; }
+                        let nx = i64::from(cx) + i64::from(dx);
+                        let ny = i64::from(cy) + i64::from(dy);
+                        if nx < 0 || ny < 0 || nx >= i64::from(width) || ny >= i64::from(height) { continue; }
+                        let next = ny as usize * width as usize + nx as usize;
+                        if visited[next] { continue; }
+                        visited[next] = true;
+                        if img.get_pixel(nx as u32,ny as u32)[0] <= threshold {
+                            queue.push_back((nx as u32,ny as u32));
+                        }
+                    }
+                }
+            }
+            if pts.len() < min_length as usize || pts.len() > 200_000 { continue; }
+            let count = pts.len() as f64;
+            let (sum_x,sum_y) = pts.iter().fold((0.0,0.0),|(sx,sy),p|(sx+p.0,sy+p.1));
+            let center = (sum_x/count,sum_y/count);
+            let (xx,yy,xy) = pts.iter().fold((0.0,0.0,0.0),|(xx,yy,xy),p|{
+                let dx=p.0-center.0; let dy=p.1-center.1;
+                (xx+dx*dx, yy+dy*dy, xy+dx*dy)
+            });
+            let angle = 0.5 * (2.0*xy).atan2(xx-yy);
+            let (ux,uy) = (angle.cos(),angle.sin());
+            let mut min_t=f64::INFINITY; let mut max_t=f64::NEG_INFINITY;
+            let mut max_deviation=0.0_f64;
+            for (px,py) in &pts {
+                let dx=*px-center.0; let dy=*py-center.1;
+                let t=dx*ux+dy*uy;
+                min_t=min_t.min(t); max_t=max_t.max(t);
+                max_deviation=max_deviation.max((-dx*uy+dy*ux).abs());
+            }
+            let length=max_t-min_t;
+            if length < f64::from(min_length.saturating_sub(1)) || max_deviation > 2.5 { continue; }
+            // Avoid duplicate lines already recognized at 0°, 45° or 90°.
+            let principal=(angle.to_degrees().rem_euclid(180.0));
+            if [0.0_f64,45.0,90.0,135.0,180.0].iter().any(|v|(principal-v).abs()<5.0) { continue; }
+            result.push(Line {
+                x0:center.0+min_t*ux, y0:center.1+min_t*uy,
+                x1:center.0+max_t*ux, y1:center.1+max_t*uy
+            });
+        }
+    }
+    result
+}
+
 pub fn run(b: &mut dyn Backend, args: &Value) -> Result<Value, String> {
     let path = args["path"].as_str().filter(|s| !s.trim().is_empty()).ok_or("path is required")?;
     let file = Path::new(path);
@@ -179,6 +247,9 @@ pub fn run(b: &mut dyn Backend, args: &Value) -> Result<Value, String> {
     if args["includeDiagonals"].as_bool().unwrap_or(true) {
         lines.extend(diagonal_strokes(&gray, threshold, min_length as u32, true));
         lines.extend(diagonal_strokes(&gray, threshold, min_length as u32, false));
+    }
+    if args["includeArbitraryAngles"].as_bool().unwrap_or(false) {
+        lines.extend(arbitrary_angle_strokes(&gray, threshold, min_length as u32));
     }
     let count = lines.len();
     if count > max_lines as usize {
@@ -234,6 +305,25 @@ mod tests {
         let lines = diagonal_strokes(&img, 160, 12, false);
         assert_eq!(lines.len(), 1);
         assert!(lines[0].x1 > lines[0].x0 && lines[0].y1 < lines[0].y0);
+    }
+    #[test]
+    fn raster_vector_detects_thirty_degree_line_with_pca() {
+        let mut img = GrayImage::from_pixel(120, 120, image::Luma([255]));
+        for x in 12..=100 {
+            let y=20+(f64::from(x-12)*0.577350269).round() as u32;
+            img.put_pixel(x,y,image::Luma([0]));
+        }
+        let result=arbitrary_angle_strokes(&img,160,20);
+        assert_eq!(result.len(),1,"30-degree isolated stroke should become one vector");
+        let l=result[0];
+        assert!((l.y1-l.y0).abs()>40.0);
+        assert!((l.x1-l.x0).abs()>80.0);
+    }
+    #[test]
+    fn raster_vector_does_not_misclassify_solid_rectangle_as_thin_line() {
+        let mut img=GrayImage::from_pixel(100,100,image::Luma([255]));
+        for y in 20..=45 { for x in 10..=85 {img.put_pixel(x,y,image::Luma([0]));} }
+        assert!(arbitrary_angle_strokes(&img,160,20).is_empty());
     }
     #[test]
     fn raster_vector_detects_one_thick_horizontal_stroke_as_one_line() {
