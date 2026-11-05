@@ -137,6 +137,26 @@ fn validated_trace(b: &mut dyn Backend, args: &Value, command: &str) -> Result<V
     if let Some(map) = params.as_object_mut() {
         map.remove("minSegmentLength");
     }
+    // The image pixels can be geometrically sound while an invalid calibration
+    // or perspective transformation creates degenerate or crossing CAD geometry.
+    // Always ask the engine for a non-mutating mapped-world preview before edit.
+    params["preview"] = json!(true);
+    let preview = b.call("engine.execute", json!({"command":command,"params":params.clone()}))?;
+    let Some(world_points) = preview["worldPoints"].as_array() else {
+        return Err("AI trace rejected: the engine preview has no worldPoints; no drawing edit attempted".to_string());
+    };
+    if world_points.len() != args["points"].as_array().map_or(0, Vec::len) {
+        return Err("AI trace rejected: transformed point count does not match input".to_string());
+    }
+    let mapped = json!({"points":world_points,"closed":args["closed"].as_bool().unwrap_or(false),"minSegmentLength":0.0});
+    let world_quality = check_trace_quality(&mapped);
+    if world_quality["safeToCommit"] != true {
+        return Err(format!("AI trace rejected after world-coordinate projection, before CAD edit: {world_quality}"));
+    }
+    if args["preview"].as_bool().unwrap_or(false) {
+        return Ok(preview);
+    }
+    params["preview"] = json!(false);
     b.call("engine.execute", json!({"command":command,"params":params}))
 }
 
