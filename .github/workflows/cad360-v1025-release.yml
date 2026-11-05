@@ -311,29 +311,37 @@ jobs:
         shell: pwsh
         working-directory: CADTBT360_V1.000
         run: |
-          $ErrorActionPreference = 'Stop'
-          # Run the engine's real XREF integration tests. An older Windows run
-          # failed at compile time by calling EntityStore.first(), since fixed
-          # to model.iter().next(); protect that interface against regression.
-          cargo test --locked -p cadcraft-engine --test xref -- --test-threads=2
-          if ($LASTEXITCODE -ne 0) { throw 'Native XREF tests failed on Windows, see cargo output' }
-          cargo test --locked -p cadcraft-io --test it xref_roundtrip -- --nocapture
-          if ($LASTEXITCODE -ne 0) { throw 'Xref DXF/DWG persistence regression failure' }
-          cargo test --locked -p cadcraft-io --test it large_dwg_v1025 -- --nocapture
-          if ($LASTEXITCODE -ne 0) { throw 'Large DWG regression failure' }
-          # Older Windows run 41608879566 failed five BIM workspace
-          # persistence/recovery tests on Access is denied (os error 5).
-          # The current source opens the copied backup writable before sync_all.
-          cargo test --locked -p cadcraft --bin cadcraft bim_collab::tests::safe_workspace_save_preserves_previous_file_as_backup -- --nocapture
-          if ($LASTEXITCODE -ne 0) { throw 'Windows BIM workspace backup access permissions regressed' }
-          cargo test --locked -p cadcraft --bin cadcraft bim_collab::tests::corrupted_workspace_recovers_previous_valid_backup -- --nocapture
-          if ($LASTEXITCODE -ne 0) { throw 'Windows BIM workspace corruption recovery regressed' }
-          cargo test --locked -p cadcraft --bin cadcraft bim_collab::tests::repeated_workspace_saves_replace_existing_main_and_backup -- --nocapture
-          if ($LASTEXITCODE -ne 0) { throw 'Windows repeated BIM workspace save/backup regressed' }
-          cargo test --locked -p cadcraft --bin cadcraft bim_collab::tests::save_after_corrupted_main_does_not_destroy_last_valid_backup -- --nocapture
-          if ($LASTEXITCODE -ne 0) { throw 'Windows corrupted-main last-valid-backup preservation regressed' }
-          cargo test --locked -p cadcraft --bin cadcraft bim_collab::tests::workspace_recovery_does_not_discard_unsynced_in_memory_changes -- --nocapture
-          if ($LASTEXITCODE -ne 0) { throw 'Windows BIM unsynced changes recovery regressed' }
+          $ErrorActionPreference = 'Continue'
+          $logDir = '../dist/v1025/diagnostics'
+          New-Item -ItemType Directory -Force $logDir | Out-Null
+          # Capture output from each historic Windows regression individually.
+          # Xref tests share filesystem/IO hooks: one thread avoids races
+          # that can make a valid binary appear broken in a Windows CI run.
+          function Invoke-ReleaseGate([string]$name, [string[]]$testArgs) {
+            $logFile = Join-Path $logDir "$name.log"
+            Write-Host "Checking $name; diagnostic log: $logFile"
+            & cargo @testArgs 2>&1 | Out-String -Stream | Tee-Object -FilePath $logFile | Out-Host
+            $code = $LASTEXITCODE
+            if ($code -ne 0) {
+              throw "$name failed with exit code $code; inspect $logFile in CADTBT360_V1.025_Windows_x64_Failure_Diagnostics"
+            }
+          }
+          Invoke-ReleaseGate 'XREF_ENGINE_WINDOWS' @('test','--locked','-p','cadcraft-engine','--test','xref','--','--test-threads=1','--nocapture')
+          Invoke-ReleaseGate 'XREF_IO_ROUNDTRIP' @('test','--locked','-p','cadcraft-io','--test','it','xref_roundtrip','--','--nocapture')
+          Invoke-ReleaseGate 'DWG_LARGE_V1025' @('test','--locked','-p','cadcraft-io','--test','it','large_dwg_v1025','--','--nocapture')
+          # Historical run 41608879566 had five Windows Access Denied errors;
+          # check each exact regression after the writable-backup sync fix.
+          $bimCases = @(
+            'safe_workspace_save_preserves_previous_file_as_backup',
+            'corrupted_workspace_recovers_previous_valid_backup',
+            'repeated_workspace_saves_replace_existing_main_and_backup',
+            'save_after_corrupted_main_does_not_destroy_last_valid_backup',
+            'workspace_recovery_does_not_discard_unsynced_in_memory_changes'
+          )
+          foreach ($case in $bimCases) {
+            Invoke-ReleaseGate "BIM_$case" @('test','--locked','-p','cadcraft','--bin','cadcraft',"bim_collab::tests::$case",'--','--nocapture')
+          }
+          'XREF/DWG/BIM persisted-storage gates: all passed on Windows' | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
 
       - name: Build native Windows GUI and CLI (not copied from old release)
         id: release_build
