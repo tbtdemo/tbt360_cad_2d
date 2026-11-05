@@ -269,3 +269,29 @@ Trong GitHub Actions, mở workflow **CAD 360 V1.025 - Windows Setup Portable**.
 Windows CI kiểm tra bản ZIP mã nguồn bằng `scripts/verify_source_bundle.py`: so khớp nội dung các file trọng yếu trong ZIP với nội dung Git của commit `HEAD`, kiểm tra có tài liệu hướng dẫn và không vô tình đưa các tệp EXE/DLL build vào gói mã nguồn. Thiếu một tệp bắt buộc hoặc sai mã nguồn thì **dừng phát hành**.
 
 **Phạm vi giới hạn:** `Full_Source.zip` là toàn bộ **các file được Git theo dõi tại commit phát hành**, không bao gồm thư mục `.git`, bộ thư viện tải về bởi Cargo, hoặc tệp untracked chưa được commit. Word là asset phát hành riêng và đồng thời nằm trong bộ cài/Portable. Chỉ coi bộ bàn giao đầy đủ sau khi Windows CI PASS và các asset xuất hiện thật; tại thời điểm soạn hướng dẫn chưa có xác nhận điều kiện đó.
+
+
+## 16. Đợt nâng cấp 177 — Chống dùng Preview AI lỗi thời khi chuyển qua lại bản vẽ
+
+**Lỗi cần phòng ngừa:** Trước đây cửa sổ **AI từ ảnh → CAD** chỉ kiểm tra `documentUid` và `revision`. Khi người dùng đã Preview trên bản vẽ A, chuyển sang bản vẽ B rồi quay lại A mà không sửa nội dung, cả hai giá trị có thể giữ nguyên. Preview cũ có thể bị nhầm là còn hợp lệ.
+
+**Đã cập nhật mã nguồn:** GUI ghi thêm `documentEpoch` tại thời điểm Preview. Trước khi tạo đối tượng `LINE`, hệ thống chỉ chấp nhận khi cả **ID tài liệu + revision + epoch** trùng khớp và không có lệnh khác/nhóm Undo xung đột. Đổi ảnh nguồn, Preview lỗi hoặc hoàn thành tạo nét sẽ xóa thông tin epoch của Preview trước đó.
+
+### Hướng dẫn kiểm thử từng bước
+
+1. Mở CAD 360 V1.025 và tạo bản vẽ A. Mở chức năng **AI TỪ ẢNH → CAD**.
+2. Chọn ảnh PNG có nét ngang, thiết lập tỷ lệ rồi nhấn **1. Nhận dạng và xem trước**.
+3. Chưa nhấn tạo LINE. Chuyển sang bản vẽ B, sau đó quay lại bản vẽ A, **không chỉnh sửa A**.
+4. Quay lại cửa sổ AI, nhấn **2. Tạo LINE chỉnh sửa trong CAD**. Kết quả mong đợi: phần mềm từ chối Preview cũ, yêu cầu nhận dạng và xem trước lại. Không tạo thêm LINE.
+5. Nhấn **Nhận dạng và xem trước** lần nữa trên đúng bản vẽ A, rồi nhấn tạo LINE. Lúc này việc ghi chỉ được phép nếu toàn bộ điều kiện an toàn vẫn phù hợp.
+6. Kiểm tra số đối tượng vừa tạo và UNDO; lưu một bản DXF/DWG mới để thử mở lại.
+
+### Kiểm thử tự động đi kèm
+
+Bài kiểm thử `ai_raster_preview_refuses_switch_away_and_back_with_unchanged_revision` xác nhận rằng tăng `documentEpoch` phải khiến Preview cũ bị từ chối, ngay cả khi `documentUid` và `revision` không đổi. Windows CI được yêu cầu khám phá và chạy bài kiểm thử này trước khi đóng gói.
+
+### Bàn giao đủ mã nguồn và hướng dẫn
+
+Mỗi lượt phát hành Windows thành công được cấu hình để kèm `CADTBT360_V1.025_Full_Source.zip`, Setup, Portable, bản Word hướng dẫn và bảng SHA256. Khi chưa có GitHub Actions Success, có thể tải **ZIP mã nguồn tại commit cố định** và bản Word hướng dẫn được cung cấp riêng; đây là mã nguồn và tài liệu, **không phải** xác nhận EXE đã đạt.
+
+**Chưa nghiệm thu:** Windows CI PASS, ảnh chụp thật từ GUI phát hành, tính đúng đắn với mặt bằng thực tế và khả năng tương thích DWG hai chiều với AutoCAD độc lập.
