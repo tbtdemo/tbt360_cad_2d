@@ -1136,3 +1136,25 @@ Mục tiêu quan trọng nhất của đợt này là chuyển từ việc **ch�
 5. Sau đó đối chiếu cùng commit giữa Setup, Portable, giáo trình, SHA256SUMS và hình ảnh nghiệm thu Windows. Không coi kiểm tra biên dịch là chứng minh tương thích AutoCAD hai chiều.
 
 **Trạng thái đợt 202:** Đã sửa ba vị trí gây lỗi biên dịch Xref đã được chứng minh trong run 42034172599 và bổ sung gate test-target sớm. Chưa có bằng chứng toàn bộ Windows CI thành công, Setup EXE hoạt động hoặc AI dựng hoàn chỉnh tường, cửa, cột từ ảnh thực tế.
+
+
+## 43. Đợt 203 — Lưu log khi bài kiểm thử Windows không được phát hiện
+
+### Bài 68 — Kiểm tra nguồn lỗi ở bước `Verify required named regression tests exist before running them`
+
+1. Mở `.github/workflows/cad360-v1025-release.yml` trên nhánh `feature/CADTBT360_V1.025_xref-regression`.
+2. Bước `discover` dùng `cargo test --locked ... -- --list` để bảo đảm bài kiểm thử có tồn tại và biên dịch được; việc tìm thấy test **không** chứng minh test đã PASS.
+3. Khi Cargo trả mã lỗi hoặc không phát hiện dòng `: test`, workflow tạo `dist/v1025/diagnostics/DISCOVERY_<package>_<target>_<test>.log` (tên được làm sạch ký tự đặc biệt). Log giữ nguyên thông báo Cargo để phân biệt lỗi compile, sai tên bài test và lỗi phụ thuộc.
+4. Mở artifact `CADTBT360_V1.025_Windows_x64_Failure_Diagnostics` của **đúng run/SHA**, đọc tệp `DISCOVERY_*.log`, sửa lỗi ở nguồn rồi chạy lại. Không bỏ `--list` hoặc giảm số bài test bắt buộc để có build xanh.
+5. Khi tất cả bài test được phát hiện, CI tiếp tục chạy kiểm thử AI, Xref/DWG, BIM, đóng gói và cài/gỡ. Kiểm tra trạng thái của từng bước để biết test nào đã chạy thực sự.
+6. Bản bổ sung này bắt đầu ở commit `9a339a7b18e357dd45b9a77feee7d3755b0f0d41`. Trạng thái CI chưa được công bố PASS khi chưa có bằng chứng run thành công.
+
+### Bài 69 — Phân biệt lỗi phát hiện, lỗi kiểm thử và lỗi nghiệm thu GUI
+
+1. **Discovery**: chỉ xác nhận tên test có mặt và binary kiểm thử biên dịch được. Nếu lỗi, xem `DISCOVERY_*.log`.
+2. **Regression**: bài test thực thi và kiểm tra các khẳng định, bao gồm ảnh→CAD, Xref/DWG và BIM. Nếu lỗi, xem tên test và các artifact chẩn đoán tương ứng.
+3. **Packaging**: Windows tạo Setup và Portable từ cùng SHA; kiểm tra `BUILD_INFO.txt`, SHA256 và giáo trình toàn bộ phần mềm.
+4. **GUI Acceptance**: người dùng kiểm tra CAD Free không bắt buộc đăng nhập; thử Layer/Block/Xref, QTO, giao thông, IFC, AI trên ảnh thực tế và thao tác Undo.
+5. **DWG**: kiểm thử trao đổi hai chiều với AutoCAD độc lập trước khi tuyên bố tương thích hoàn toàn.
+
+**Trạng thái đợt 203:** Đã bổ sung lưu log chẩn đoán cho bước khám phá bài kiểm thử. Chưa có xác nhận Setup EXE, Portable hoặc AI dựng kiến trúc hoàn chỉnh đã nghiệm thu.
