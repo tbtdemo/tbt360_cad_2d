@@ -34,7 +34,7 @@ Kết quả trả về `imageSize`, `strokes` và `lines` (mỗi đoạn gồm h
 
 Sau khi kiểm tra đoạn nét và tỷ lệ, gọi lại với `preview:false` và các tham số giống nhau. Công cụ đưa từng đoạn vào engine bằng lệnh `line`, tạo đối tượng CAD thật, có thể chọn, sửa hoặc đo. Sau đó sử dụng công cụ MCP `save` để lưu DXF/DWG.
 
-Lưu ý: hiện bước ghi nhiều đối tượng **chưa phải giao dịch tất cả-hoặc-không**. Nếu engine từ chối một đoạn giữa quá trình, các đoạn đã ghi trước đó có thể còn trong bản vẽ; nên thao tác trên bản sao và kiểm tra `editableEntitiesCreated` trước khi lưu.
+Lưu ý: đường MCP đã được bổ sung cơ chế nhóm UNDO và tự yêu cầu hoàn tác các nét đã tạo nếu có lỗi giữa quá trình. Trước khi ghi, công cụ kiểm tra chế độ UNDO, nhóm UNDO đang mở, trạng thái lệnh CAD và ID/phiên bản bản vẽ. **Đây vẫn là cơ chế rollback best-effort**, không phải transaction ACID: nếu điều khiển CAD mất kết nối hoặc UNDO thất bại thì các nét có thể còn tồn tại. Hãy thao tác trên bản sao và kiểm tra kết quả trước khi lưu.
 
 ## Giới hạn và an toàn
 
