@@ -16,9 +16,16 @@ def validate(path: Path) -> None:
         if z.testzip() is not None:
             raise ValueError("Corrupt DOCX zip member")
         root = ET.fromstring(z.read("word/document.xml"))
+        core = ET.fromstring(z.read("docProps/core.xml"))
+        dc = "{http://purl.org/dc/elements/1.1/}"
+        titles = [(e.text or "") for e in core.iter(dc+"title")]
+        if not any("Giao trinh tong hop" in title for title in titles):
+            raise ValueError(f"General CAD 360 manual has incorrect Word document title: {titles}")
     paragraphs = ["".join(t.text or "" for t in p.iter(W+"t")) for p in root.iter(W+"p")]
     all_text = "\n".join(paragraphs)
     tables = list(root.iter(W+"tbl"))
+    if not any((p.find(W+"pPr") is not None and p.find(W+"pPr").find(W+"pStyle") is not None and p.find(W+"pPr").find(W+"pStyle").get(W+"val") == "Heading3") for p in root.iter(W+"p")):
+        raise ValueError("Word manual has no third-level instructional heading styles")
     if len(tables) < 2:
         raise ValueError(f"Expected at least two native Word tables; got {len(tables)}")
     for n in range(1,16):
