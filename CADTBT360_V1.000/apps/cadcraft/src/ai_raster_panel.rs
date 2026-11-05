@@ -22,6 +22,7 @@ pub struct State {
     arbitrary_angles: bool,
     closed_rectangles: bool,
     wall_pair_hints: bool,
+    create_wall_centerlines: bool,
 }
 
 /// Compute world units per pixel from a known measured dimension.
@@ -60,7 +61,7 @@ impl State {
         json!({"path":self.path,"preview":true,"minLengthPixels":self.min_length,
             "unitsPerPixel":self.scale,"includeDiagonals":self.include_diagonals,
             "includeArbitraryAngles":self.arbitrary_angles,"closedRectangles":self.closed_rectangles,
-            "wallPairHints":self.wall_pair_hints,"maxLines":250})
+            "wallPairHints":self.wall_pair_hints,"createWallCenterlines":self.create_wall_centerlines,"maxLines":250})
     }
 }
 
@@ -138,7 +139,13 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
             ui.horizontal(|ui| {
                 if ui.checkbox(&mut state.include_diagonals, "Nét 45°").changed() { state.preview = None; }
                 if ui.checkbox(&mut state.arbitrary_angles, "Góc bất kỳ (thử nghiệm)").changed() { state.preview = None; }
-                if ui.checkbox(&mut state.wall_pair_hints, "Gợi ý cặp nét tường song song (chỉ Preview)").changed() { state.preview = None; }
+                if ui.checkbox(&mut state.wall_pair_hints, "Gợi ý cặp nét tường song song (chỉ Preview)").changed() {
+                    if !state.wall_pair_hints { state.create_wall_centerlines = false; }
+                    state.preview = None;
+                }
+                if ui.add_enabled(state.wall_pair_hints, egui::Checkbox::new(&mut state.create_wall_centerlines, "Tạo tim tường từ cặp nét duy nhất (tùy chọn)")).changed() {
+                    state.preview = None;
+                }
                 if ui.checkbox(&mut state.closed_rectangles, "Đường bao chữ nhật kín → PLINE").changed() {
                     state.preview = None; state.preview_document_uid = None;
                     state.preview_revision = None; state.preview_document_epoch = None;
@@ -159,7 +166,13 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
             let rectangle_count = proposal["closedPolylines"].as_array().map_or(0,Vec::len);
             let wall_pairs = proposal["wallPairCandidateCount"].as_u64().unwrap_or(0);
             ui.label(format!("Đã nhận dạng: {count} nét nguồn, {rectangle_count} PLINE kín, {wall_pairs} cặp nét song song nghi là mép tường."));
-            if state.wall_pair_hints { ui.small("Gợi ý hình học, không phải tường BIM. Không thêm/xóa đối tượng; kỹ sư tự đối chiếu ảnh và kích thước."); }
+            if state.wall_pair_hints {
+                ui.small("Gợi ý hình học, không phải tường BIM. Nét nguồn luôn được giữ để đối chiếu.");
+            }
+            let centerline_count = proposal["wallCenterlinesProposed"].as_u64().unwrap_or(0);
+            if state.create_wall_centerlines {
+                ui.label(format!("Dự kiến tạo thêm {centerline_count} LINE tim tường, không xóa hai mép tường. Cặp 3 nét nhập nhằng bị loại."));
+            }
             if state.closed_rectangles {
                 ui.small("Chỉ nhận dạng hình chữ nhật có đủ 4 cạnh; không tự lấp cửa hoặc khoảng hở. Cạnh thuộc PLINE không tạo LINE trùng.");
             }
@@ -217,6 +230,9 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
             if let Some(rectangles) = proposal["closedPolylines"].as_array() {
                 ui.label(format!("Có {} PLINE kín (màu xanh lam), các LINE còn lại màu xanh lá.", rectangles.len()));
             }
+            if let Some(axes) = proposal["wallCenterlines"].as_array() {
+                if !axes.is_empty() { ui.small(format!("Có {} đường tim tường dự kiến. Nét nguồn được giữ nguyên.", axes.len())); }
+            }
             ui.label("Bản xem trước chưa sửa dữ liệu CAD. Hãy lưu bản vẽ trước khi thực hiện một lô nét lớn.");
             if ui.add_enabled(count > 0, egui::Button::new("2. Tạo LINE / PLINE chỉnh sửa trong CAD")).clicked() {
                 // Keep the whole AI batch in a single user-visible Undo step. Do not
@@ -245,6 +261,14 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
                 }
                 if failure.is_none() && let Some(lines) = proposal["lines"].as_array() {
                     for line in lines {
+                        match cad.run("line", json!({"points":line})) {
+                            Ok(_) => created += 1,
+                            Err(e) => { failure = Some(e); break; }
+                        }
+                    }
+                }
+                if failure.is_none() && let Some(centerlines) = proposal["wallCenterlines"].as_array() {
+                    for line in centerlines {
                         match cad.run("line", json!({"points":line})) {
                             Ok(_) => created += 1,
                             Err(e) => { failure = Some(e); break; }
@@ -387,6 +411,18 @@ mod tests {
         assert!(state.include_diagonals);
         assert_eq!(state.params()["preview"], true);
         assert_eq!(state.params()["includeArbitraryAngles"], false);
+    }
+
+    #[test]
+    fn ai_raster_wall_centerline_creation_requires_explicit_user_opt_in() {
+        let mut state=State::default();
+        state.open();
+        assert_eq!(state.params()["createWallCenterlines"], false);
+        state.wall_pair_hints=true;
+        state.create_wall_centerlines=true;
+        assert_eq!(state.params()["wallPairHints"], true);
+        assert_eq!(state.params()["createWallCenterlines"], true);
+        assert_eq!(state.params()["preview"],true);
     }
 
     #[test]
