@@ -1199,3 +1199,26 @@ Mục tiêu quan trọng nhất của đợt này là chuyển từ việc **ch�
 5. Windows CI đã bổ sung phát hiện tên test và chạy bắt buộc. Chỉ kết luận PASS khi GitHub Actions của đúng SHA thành công.
 
 **Trạng thái đợt 205:** Đã cập nhật kiểm tra tham số hiệu chuẩn ảnh→CAD cùng test hồi quy và workflow Windows. Chưa xác nhận khả năng dựng tường/cửa/cột theo ngữ nghĩa, GUI chạy thực tế hoặc tương thích DWG AutoCAD hai chiều.
+
+
+## 46. Đợt 206 — Giữ đúng phiên bản BIM Xdata khi Reload Xref
+
+### Bài 74 — Phân biệt tạo bản sao CAD và nạp phần tử tham chiếu BIM
+
+1. Mở tệp `CADTBT360_V1.000/crates/engine/src/cmd/blocks/xref/load.rs`, tìm đoạn `adopt` trong hàm `import`.
+2. Trước đợt 206, Xref gọi `refresh_tbt360_bim_copy_identity`, làm lại `revision=1` ngay cả khi phần tử gốc trong `site.dxf` có `revision=7` hoặc `revision=9`.
+3. Cơ chế mới `rebind_xref_bim_identity` chỉ đổi `entity=<handle mới>`, giữ nguyên `revision`, `floor`, `discipline` và `owner`; đồng thời không làm thay đổi dữ liệu Xdata của ứng dụng khác.
+4. Quy tắc CAD COPY thông thường không đổi: một bản sao CAD mới có thể bắt đầu revision riêng. Không sử dụng quy tắc COPY cho Xref vì tham chiếu BIM phải phản ánh đúng trạng thái nguồn.
+5. Sau khi Reload Xref, kiểm tra phần tử thuộc bản tham chiếu mang revision mới của nguồn, không mặc định trở lại 1. Revision của bản vẽ chủ chỉ được cập nhật theo quy tắc thay đổi định nghĩa Block.
+6. Mã nguồn sửa được đẩy ở commit `a3b16bd2e04582c6a9c21162601ba136a14ecab7`.
+
+### Bài 75 — Kiểm thử dữ liệu BIM khi nạp và cập nhật Xref
+
+1. Mở bài kiểm thử `xref_reload_preserves_bim_xdata_repairs_member_identity_and_invalidates_root_revision` trong `crates/engine/tests/xref.rs`.
+2. Tạo file `site.dxf` có phần tử mang `floor=2;discipline=ELEC;owner=u1;revision=7`. Mở file chủ có Xref trỏ tới file đó và kiểm tra phần tử giữ revision 7 sau khi nạp.
+3. Sửa file nguồn với `revision=9`, Reload Xref, đối chiếu revision 9, mã `entity` khớp handle mới và bản vẽ chủ được tăng revision theo quy tắc có sẵn.
+4. Chạy hai bài test đơn vị `xref_bim_identity_rebind_preserves_source_revision_and_other_apps` và `xref_bim_identity_rebind_adds_missing_entity_without_resetting_revision`, để xác nhận dữ liệu Xdata của ứng dụng khác và trường hợp thiếu entity không bị thay đổi sai.
+5. Windows Preflight chạy `cargo test --locked -p cadcraft-engine --test xref xref_reload_preserves_bim_xdata_repairs_member_identity_and_invalidates_root_revision -- --test-threads=1 --nocapture`, lưu kết quả ở `dist/v1025/diagnostics/XREF_BIM_REVISION_PREFLIGHT.log`.
+6. Khi test thành công, tiếp tục toàn bộ kiểm thử Xref, DWG, BIM, AI, cài/gỡ Setup và Portable; chỉ kết luận đạt khi đúng lượt CI của bản nguồn đó thành công.
+
+**Trạng thái đợt 206:** Đã sửa cơ chế Xref bảo toàn revision và bổ sung unit test/CI preflight. Chưa có kết quả Windows CI PASS của đúng SHA mới, chưa nghiệm thu bộ cài EXE hoặc chức năng AI dựng kiến trúc hoàn chỉnh từ ảnh.
