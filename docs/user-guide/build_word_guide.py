@@ -19,14 +19,52 @@ def para(text: str, style: str = "Normal") -> str:
     return ('<w:p><w:pPr><w:pStyle w:val="' + style + '"/></w:pPr>'
             '<w:r><w:t xml:space="preserve">' + safe + '</w:t></w:r></w:p>')
 
+def table_xml(rows: list[list[str]]) -> str:
+    """Convert Markdown table rows to real Word table cells, never pipe-separated text."""
+    if not rows:
+        return ""
+    columns = max(len(row) for row in rows)
+    width = max(720, 9638 // columns)
+    grid = "".join(f'<w:gridCol w:w="{width}"/>' for _ in range(columns))
+    parts = ['<w:tbl><w:tblPr><w:tblW w:w="0" w:type="auto"/>'
+             '<w:tblBorders><w:top w:val="single" w:color="C6D3DF" w:sz="6"/>'
+             '<w:left w:val="single" w:color="C6D3DF" w:sz="4"/>'
+             '<w:bottom w:val="single" w:color="C6D3DF" w:sz="6"/>'
+             '<w:right w:val="single" w:color="C6D3DF" w:sz="4"/>'
+             '<w:insideH w:val="single" w:color="D9E3EB" w:sz="4"/>'
+             '<w:insideV w:val="single" w:color="D9E3EB" w:sz="4"/>'
+             '</w:tblBorders></w:tblPr><w:tblGrid>' + grid + '</w:tblGrid>']
+    for index, row in enumerate(rows):
+        parts.append('<w:tr>' + ('<w:trPr><w:tblHeader w:val="true"/></w:trPr>' if index == 0 else ''))
+        for col in range(columns):
+            value = row[col] if col < len(row) else ""
+            shade = '<w:shd w:fill="E8F1F8"/>' if index == 0 else ('<w:shd w:fill="F6F9FC"/>' if index % 2 == 0 else '')
+            parts.append(f'<w:tc><w:tcPr><w:tcW w:w="{width}" w:type="dxa"/>{shade}</w:tcPr>'
+                         + para(value, "TableHeader" if index == 0 else "TableText") + '</w:tc>')
+        parts.append('</w:tr>')
+    return "".join(parts) + '</w:tbl>'
+
 def document_xml(markdown: str) -> str:
     paragraphs: list[str] = []
+    pending_table: list[list[str]] = []
     in_code = False
+    def flush_table() -> None:
+        if pending_table:
+            paragraphs.append(table_xml(pending_table))
+            pending_table.clear()
     for raw in markdown.splitlines():
         line = raw.strip()
         if line.startswith("```"):
+            flush_table()
             in_code = not in_code
             continue
+        if line.startswith("|") and not in_code:
+            cells = [part.strip() for part in line.strip("|").split("|")]
+            if cells and all(re.fullmatch(r":?-{3,}:?", c) for c in cells):
+                continue
+            pending_table.append(cells)
+            continue
+        flush_table()
         if not line:
             paragraphs.append("<w:p/>")
             continue
@@ -43,16 +81,13 @@ def document_xml(markdown: str) -> str:
             paragraphs.append(para(line, "ListParagraph"))
         elif line.startswith("- ") or line.startswith("- ["):
             paragraphs.append(para("• " + line[2:], "ListParagraph"))
-        elif line.startswith("|"):
-            # Tables remain readable as rows; the original Markdown source is
-            # shipped alongside the Word file for exact column structure.
-            paragraphs.append(para(" | ".join(part.strip() for part in line.strip("|").split("|")), "Code"))
         elif line.startswith(">"):
             paragraphs.append(para(line[1:].strip(), "Quote"))
         elif line.startswith("---"):
             paragraphs.append("<w:p/>")
         else:
             paragraphs.append(para(line))
+    flush_table()
     body = "".join(paragraphs)
     return ('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
             '<w:document xmlns:w="' + MAIN_NS + '"><w:body>' + body
@@ -70,6 +105,8 @@ STYLES = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <w:style w:type="paragraph" w:styleId="ListParagraph"><w:name w:val="List Paragraph"/><w:basedOn w:val="Normal"/><w:pPr><w:ind w:left="320"/><w:spacing w:after="70"/></w:pPr></w:style>
 <w:style w:type="paragraph" w:styleId="Quote"><w:name w:val="Quote"/><w:basedOn w:val="Normal"/><w:pPr><w:ind w:left="350" w:right="280"/></w:pPr><w:rPr><w:i/><w:color w:val="52525B"/></w:rPr></w:style>
 <w:style w:type="paragraph" w:styleId="Code"><w:name w:val="Code"/><w:basedOn w:val="Normal"/><w:rPr><w:rFonts w:ascii="Consolas" w:hAnsi="Consolas"/><w:sz w:val="17"/></w:rPr></w:style>
+<w:style w:type="paragraph" w:styleId="TableHeader"><w:name w:val="Table Header"/><w:basedOn w:val="Normal"/><w:pPr><w:spacing w:after="40"/></w:pPr><w:rPr><w:b/><w:sz w:val="18"/></w:rPr></w:style>
+<w:style w:type="paragraph" w:styleId="TableText"><w:name w:val="Table Text"/><w:basedOn w:val="Normal"/><w:pPr><w:spacing w:after="40"/></w:pPr><w:rPr><w:sz w:val="18"/></w:rPr></w:style>
 </w:styles>"""
 
 CONTENT_TYPES = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -119,6 +156,9 @@ def build(source: Path, dest: Path) -> None:
         required_parts = {"[Content_Types].xml", "_rels/.rels", "word/document.xml", "word/styles.xml"}
         if bad or not required_parts.issubset(z.namelist()):
             raise ValueError(f"Invalid DOCX output: {bad}")
+        document = z.read("word/document.xml")
+        if "|" in markdown and "<w:tbl>" not in document.decode("utf-8"):
+            raise ValueError("Markdown contains table cells but DOCX contains no actual Word tables")
     if dest.stat().st_size < 2000:
         raise ValueError("Generated DOCX unexpectedly small")
 
