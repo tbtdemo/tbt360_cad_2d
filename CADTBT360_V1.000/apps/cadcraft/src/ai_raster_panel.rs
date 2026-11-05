@@ -132,8 +132,20 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
                 if let Err(e) = cad.session.state_mut().map(|d| d.end_undo_group()) {
                     failure.get_or_insert_with(|| format!("Không thể kết thúc nhóm UNDO: {e}"));
                 }
-                state.error = failure.map(|e| format!("Đã tạo {created} LINE trước khi gặp lỗi: {e}. Có thể dùng một lần UNDO để hoàn tác cả nhóm."));
-                if state.error.is_none() {
+                if let Some(problem) = failure {
+                    // Only the AI group was opened above. The first snapshot
+                    // of that group predates the entire operation. Roll back
+                    // automatically instead of leaving half a traced image.
+                    if created > 0 {
+                        match cad.run("undo", json!({"count":1})) {
+                            Ok(_) => state.error = Some(format!("Đã hoàn tác nhóm AI sau lỗi: {problem}")),
+                            Err(rollback) => state.error = Some(format!("Lỗi AI sau {created} LINE: {problem}. Hoàn tác tự động thất bại: {rollback}. Kiểm tra bản vẽ ngay.")),
+                        }
+                    } else {
+                        state.error = Some(format!("AI không tạo nét nào: {problem}"));
+                    }
+                } else {
+                    state.error = None;
                     cad.set_status(format!("AI ảnh → CAD: đã tạo {created} LINE trong một nhóm UNDO. Kiểm tra trước khi lưu DWG."));
                     state.preview = None;
                     state.open = false;
