@@ -53,6 +53,19 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Prepare Python for offline reproducible Word user manual and fixture checks
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Validate embedded image fixture before Rust compilation
+        id: validate_fixture
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python scripts/validate_mcp_smoke_fixture.py scripts/verify_mcp_executable.ps1
+          if ($LASTEXITCODE -ne 0) { throw 'PNG fixture invalid; stop before expensive Rust compilation' }
+
       - name: Prepare Rust
         uses: dtolnay/rust-toolchain@stable
 
@@ -236,11 +249,6 @@ jobs:
           Remove-Variable nativeGuiText
           Write-Host "Verified native Windows GUI embeds V1.025 and full source commit $env:GITHUB_SHA"
 
-      - name: Prepare Python for offline reproducible Word user manual
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-
       - name: Install Inno Setup and create version metadata
         id: prepare_installer
         shell: pwsh
@@ -250,8 +258,6 @@ jobs:
           if (!(Test-Path $iscc)) { throw 'Inno Setup compiler not installed' }
           New-Item -ItemType Directory -Force dist/v1025 | Out-Null
           @('Release=CADTBT360_V1.025', "SourceCommit=$env:GITHUB_SHA", 'Architecture=windows-x64', 'NativeBuild=true', 'GUIAcceptance=NOT_VERIFIED') | Set-Content dist/v1025/BUILD_INFO.txt -Encoding utf8
-          python scripts/validate_mcp_smoke_fixture.py scripts/verify_mcp_executable.ps1
-          if ($LASTEXITCODE -ne 0) { throw 'Embedded PNG MCP smoke fixture is corrupt or not a single-stroke test image' }
           python docs/user-guide/build_word_guide.py docs/user-guide/CADTBT360_V1.025_HUONG_DAN_AI_TU_ANH_THANH_CAD.md dist/v1025/CADTBT360_V1.025_HUONG_DAN_AI_TU_ANH_THANH_CAD.docx
           if ($LASTEXITCODE -ne 0 -or !(Test-Path 'dist/v1025/CADTBT360_V1.025_HUONG_DAN_AI_TU_ANH_THANH_CAD.docx')) { throw 'Cannot build required Word user manual' }
 
@@ -547,6 +553,7 @@ jobs:
             "RunId=$env:GITHUB_RUN_ID",
             "RunAttempt=$env:GITHUB_RUN_ATTEMPT",
             "RunnerOS=$env:RUNNER_OS",
+            'FixtureValidation=${{ steps.validate_fixture.outcome }}',
             'Preflight=${{ steps.preflight.outcome }}',
             'TestDiscovery=${{ steps.discover.outcome }}',
             'CliJsonContract=${{ steps.cli_contract.outcome }}',
