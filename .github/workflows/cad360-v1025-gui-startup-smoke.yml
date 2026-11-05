@@ -44,9 +44,9 @@ jobs:
           $tokens = $null
           $parseErrors = $null
           $null = [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $scriptPath).Path, [ref]$tokens, [ref]$parseErrors)
-          if (@($parseErrors).Count -gt 0) {
+          if ($null -ne $parseErrors -and $parseErrors.Count -gt 0) {
             $parseErrors | ForEach-Object { Write-Host "::error::$($_.Message) at line $($_.Extent.StartLineNumber)" }
-            throw "GUI smoke PowerShell script contains $(@($parseErrors).Count) syntax errors"
+            throw "GUI smoke PowerShell script contains $($parseErrors.Count) syntax errors"
           }
           Write-Host 'PowerShell GUI startup script syntax validated'
 
