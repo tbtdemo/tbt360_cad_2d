@@ -138,6 +138,8 @@ jobs:
             @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_wall_centerline_is_only_created_for_unique_parallel_pair' },
             @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_wall_spacing_range_filters_pairs_without_rescaling_source_geometry' },
             @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_wall_spacing_validation_refuses_impossible_values_before_preview' },
+            @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_wall_junction_preview_finds_t_and_cross_candidates_without_drawing' },
+            @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_wall_junction_refuses_disjoint_and_tip_only_lines' },
             @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_wall_centerline_real_png_keeps_both_edges_and_adds_editable_centerline' },
             @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_wall_centerline_rejects_creation_without_hint_review' },
             @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_parallel_wall_hints_refuse_disjoint_or_crossed_lines' },
@@ -199,6 +201,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'V1.025 AI DXF persistence failed' }
           cargo test --locked -p cadcraft-mcp --lib ai_mcp_rectangle_png_creates_closed_polyline_and_single_undo -- --nocapture
           if ($LASTEXITCODE -ne 0) { throw 'V1.025 MCP Agent failed to create/Undo editable closed rectangle polyline' }
+          cargo test --locked -p cadcraft-mcp --lib ai_wall_junction_ -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'AI wall junction preview regression failed' }
           cargo test --locked -p cadcraft-mcp --lib ai_wall_spacing_ -- --nocapture
           if ($LASTEXITCODE -ne 0) { throw 'AI wall spacing scale and input validation regression failed' }
           cargo test --locked -p cadcraft-mcp --lib ai_wall_centerline_ -- --nocapture
