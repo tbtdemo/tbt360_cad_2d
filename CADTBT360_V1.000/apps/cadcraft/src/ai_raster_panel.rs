@@ -250,6 +250,22 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
                                 egui::Stroke::new(2.5, egui::Color32::from_rgb(100,190,255)));
                         }
                     }
+                    // Two amber endpoint markers identify a *possible* opening.
+                    // Never draw a connecting segment: that might look like a
+                    // closed doorway, while the image itself is unverified.
+                    if state.opening_gap_hints {
+                        let height=proposal["imageSize"][1].as_f64().unwrap_or(0.0);
+                        if let Some(gaps)=proposal["openingGapCandidates"].as_array() {
+                            for gap in gaps {
+                                for key in ["fromPixels","toPixels"] {
+                                    if let (Some(x),Some(y))=(gap[key][0].as_f64(),gap[key][1].as_f64()) {
+                                        let point=to_screen(x*state.scale,(height-y)*state.scale);
+                                        painter.circle_stroke(point,4.0,egui::Stroke::new(2.0,egui::Color32::from_rgb(255,187,82)));
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
             if let Some(rectangles) = proposal["closedPolylines"].as_array() {
