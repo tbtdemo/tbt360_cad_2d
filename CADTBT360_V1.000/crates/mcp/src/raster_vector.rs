@@ -210,7 +210,8 @@ fn arbitrary_angle_strokes(img: &GrayImage, threshold: u8, min_length: u32) -> V
     result
 }
 
-pub fn run(b: &mut dyn Backend, args: &Value) -> Result<Value, String> {
+/// Shared non-mutating vectorization used by MCP and the desktop GUI.
+pub fn preview(args: &Value) -> Result<Value, String> {
     let path = args["path"].as_str().filter(|s| !s.trim().is_empty()).ok_or("path is required")?;
     let file = Path::new(path);
     let metadata = std::fs::metadata(file).map_err(|e| format!("Cannot inspect raster source: {e}"))?;
@@ -238,7 +239,6 @@ pub fn run(b: &mut dyn Backend, args: &Value) -> Result<Value, String> {
     if origin.len() != 2 { return Err("origin must be [x,y]".into()); }
     let (Some(ox), Some(oy)) = (origin[0].as_f64(), origin[1].as_f64()) else { return Err("origin coordinates must be numbers".into()); };
     if !ox.is_finite() || !oy.is_finite() || ox.abs() > 1.0e12 || oy.abs() > 1.0e12 { return Err("origin exceeds finite CAD coordinate limits".into()); }
-    let preview = args["preview"].as_bool().unwrap_or(true);
     let threshold = threshold as u8;
     let gray = decoded.to_luma8();
     let mut lines = strokes(&gray, threshold, min_length as u32, true);
@@ -268,20 +268,25 @@ pub fn run(b: &mut dyn Backend, args: &Value) -> Result<Value, String> {
         || v[1][1].as_f64().is_none_or(|n| !n.is_finite() || n.abs() > 1.0e12)) {
         return Err("Computed CAD coordinates are outside safety bounds; no changes made".into());
     }
-    if preview {
-        return Ok(json!({"preview":true,"recognition":"automatic-raster-axis-and-45deg-strokes","model":"deterministic-pixel-vectorization-not-neural-AI",
-            "imageSize":[width,height],"strokes":count,"lines":world,"editableEntitiesCreated":0}));
-    }
-    // Native LINE objects, not a screenshot, image overlay, or noneditable tracing.
+    Ok(json!({"preview":true,"recognition":"automatic-raster-line-strokes","model":"deterministic-pixel-vectorization-not-neural-AI",
+        "imageSize":[width,height],"strokes":count,"lines":world,"editableEntitiesCreated":0,
+        "source":path,"caution":"Review vectors before committing; line recognition is not semantic building interpretation"}))
+}
+
+/// MCP entry point. The same preview function powers the desktop's AI drawing panel.
+pub fn run(b: &mut dyn Backend, args: &Value) -> Result<Value, String> {
+    let proposal = preview(args)?;
+    if args["preview"].as_bool().unwrap_or(true) { return Ok(proposal); }
+    let Some(world) = proposal["lines"].as_array() else { return Err("Raster preview has no CAD lines".to_string()) };
     let mut handles = Vec::new();
-    for pts in &world {
+    for pts in world {
         let response = b.call("engine.execute", json!({"command":"line","params":{"points":pts}}))?;
         handles.push(response);
     }
-    Ok(json!({"preview":false,"recognition":"automatic-raster-axis-and-45deg-strokes",
-        "imageSize":[width,height],"strokes":count,"editableEntitiesCreated":handles.len(),
-        "entities":handles,"source":path,
-        "caution":"Axis-aligned stroke detection only; verify output against the image before saving DWG"}))
+    Ok(json!({"preview":false,"recognition":"automatic-raster-line-strokes",
+        "imageSize":proposal["imageSize"],"strokes":proposal["strokes"],"editableEntitiesCreated":handles.len(),
+        "entities":handles,"source":proposal["source"],
+        "caution":"Review generated LINE entities before saving DWG; the batch is not yet transactional"}))
 }
 
 #[cfg(test)]
