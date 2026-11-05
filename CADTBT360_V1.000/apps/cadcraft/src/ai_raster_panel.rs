@@ -27,6 +27,10 @@ impl State {
         }
     }
 
+    fn matches_document(&self, uid: u64) -> bool {
+        self.preview_document_uid == Some(uid)
+    }
+
     fn params(&self) -> Value {
         json!({"path":self.path,"preview":true,"minLengthPixels":self.min_length,
             "unitsPerPixel":self.scale,"includeDiagonals":self.include_diagonals,
@@ -112,7 +116,7 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
                 // unexpectedly close somebody else's active undo group.
                 let undo_ready = cad.session.state().map(|d| {
                     d.undo_ctl.control == cadcraft_engine::undoctl::Control::All && d.undo_ctl.group.is_none()
-                        && state.preview_document_uid == Some(d.uid) && cad.session.running.is_none()
+                        && state.matches_document(d.uid) && cad.session.running.is_none()
                 }).unwrap_or(false);
                 if !undo_ready {
                     state.error = Some("Không thể ghi nét AI: hãy mở đúng bản vẽ đã xem trước, kết thúc lệnh CAD đang chạy và bật UNDO Control All.".to_string());
@@ -192,6 +196,20 @@ mod tests {
         engine.state_mut().unwrap().end_undo_group();
         assert_eq!(engine.state().unwrap().undo.len(), before + 1);
         assert!(engine.state().unwrap().undo_ctl.group.is_none());
+    }
+
+    #[test]
+    fn ai_raster_preview_never_commits_to_another_open_drawing() {
+        let mut state = State::default();
+        let original = cadcraft_engine::Session::new();
+        let other = cadcraft_engine::Session::new();
+        let original_uid = original.state().unwrap().uid;
+        let other_uid = other.state().unwrap().uid;
+        assert_ne!(original_uid, other_uid);
+        assert!(!state.matches_document(original_uid), "no preview means no commit");
+        state.preview_document_uid = Some(original_uid);
+        assert!(state.matches_document(original_uid));
+        assert!(!state.matches_document(other_uid), "switching documents invalidates the AI preview binding");
     }
 
     #[test]
