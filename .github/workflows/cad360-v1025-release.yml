@@ -8,6 +8,7 @@ on:
       - '.github/workflows/cad360-v1025-release.yml'
       - 'CADTBT360_V1.000/**'
       - 'scripts/verify_mcp_executable.ps1'
+      - 'scripts/validate_mcp_smoke_fixture.py'
       - 'docs/user-guide/**'
   push:
     branches:
@@ -18,6 +19,7 @@ on:
       - '.github/workflows/cad360-v1025-release.yml'
       - '.github/workflows/cad360-v1025-desktop-reliability.yml'
       - 'scripts/verify_mcp_executable.ps1'
+      - 'scripts/validate_mcp_smoke_fixture.py'
       - 'docs/user-guide/**'
 
 permissions:
@@ -248,6 +250,8 @@ jobs:
           if (!(Test-Path $iscc)) { throw 'Inno Setup compiler not installed' }
           New-Item -ItemType Directory -Force dist/v1025 | Out-Null
           @('Release=CADTBT360_V1.025', "SourceCommit=$env:GITHUB_SHA", 'Architecture=windows-x64', 'NativeBuild=true', 'GUIAcceptance=NOT_VERIFIED') | Set-Content dist/v1025/BUILD_INFO.txt -Encoding utf8
+          python scripts/validate_mcp_smoke_fixture.py scripts/verify_mcp_executable.ps1
+          if ($LASTEXITCODE -ne 0) { throw 'Embedded PNG MCP smoke fixture is corrupt or not a single-stroke test image' }
           python docs/user-guide/build_word_guide.py docs/user-guide/CADTBT360_V1.025_HUONG_DAN_AI_TU_ANH_THANH_CAD.md dist/v1025/CADTBT360_V1.025_HUONG_DAN_AI_TU_ANH_THANH_CAD.docx
           if ($LASTEXITCODE -ne 0 -or !(Test-Path 'dist/v1025/CADTBT360_V1.025_HUONG_DAN_AI_TU_ANH_THANH_CAD.docx')) { throw 'Cannot build required Word user manual' }
 
