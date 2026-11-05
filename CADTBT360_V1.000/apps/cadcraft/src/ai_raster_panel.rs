@@ -439,13 +439,15 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
                 if state.column_hatch_hints {
                     ui.small("Chỉ là dấu hiệu hình học; không tự phân loại cột kết cấu hoặc thay thế nét ảnh.");
                     if ui.checkbox(&mut state.create_column_guides,"Thêm PLINE hướng dẫn tại ứng viên cột").changed() {
-                        if !state.create_column_guides {state.confirm_column_guides=false;}
+                        if state.create_column_guides {state.closed_rectangles=false;}
+                        else {state.confirm_column_guides=false;}
                         state.preview=None;
                     }
                     if state.create_column_guides && ui.checkbox(&mut state.confirm_column_guides,
                         "Tôi đã xem Preview và xác nhận vẽ PLINE cột").changed() {state.preview=None;}
                 }
                 if ui.checkbox(&mut state.closed_rectangles, "Đường bao chữ nhật kín → PLINE").changed() {
+                    if state.closed_rectangles {state.create_column_guides=false;state.confirm_column_guides=false;}
                     state.preview = None; state.preview_document_uid = None;
                     state.preview_revision = None; state.preview_document_epoch = None;
                 }
