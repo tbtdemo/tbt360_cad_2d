@@ -132,6 +132,7 @@ jobs:
             @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_automatic_raster_to_cad_lines_from_real_png' },
             @{ Package='cadcraft-mcp'; Target='lib'; Test='raster_vector_preview_real_png_has_exact_scaled_world_coordinates' },
             @{ Package='cadcraft-mcp'; Target='lib'; Test='raster_rectangular_png_preview_and_headless_commit_create_one_closed_polyline' },
+            @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_mcp_rectangle_png_creates_closed_polyline_and_single_undo' },
             @{ Package='cadcraft-mcp'; Target='lib'; Test='raster_rectangular_png_with_open_side_does_not_invent_wall' },
             @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_auto_raster_to_cad_dxf_roundtrip_preserves_editable_lines' },
             @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_auto_raster_mcp_failed_second_line_rolls_back_first_line' },
@@ -186,6 +187,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'V1.025 AI perspective tracing failed' }
           cargo test --locked -p cadcraft-mcp --lib ai_perspective_trace_remains_editable_after_dxf_save_reopen -- --nocapture
           if ($LASTEXITCODE -ne 0) { throw 'V1.025 AI DXF persistence failed' }
+          cargo test --locked -p cadcraft-mcp --lib ai_mcp_rectangle_png_creates_closed_polyline_and_single_undo -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'V1.025 MCP Agent failed to create/Undo editable closed rectangle polyline' }
           cargo test --locked -p cadcraft-mcp --lib raster_rectangular_png -- --nocapture
           if ($LASTEXITCODE -ne 0) { throw 'AI rectangle PLINE or open-wall safety regression failed' }
           cargo test --locked -p cadcraft-mcp --lib raster_vector_preview_real_png_has_exact_scaled_world_coordinates -- --nocapture
