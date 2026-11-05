@@ -1297,3 +1297,27 @@ Mục tiêu quan trọng nhất của đợt này là chuyển từ việc **ch�
 5. Cung quay ARC là hình học dựng theo quy tắc từ ảnh, chưa phải nhận dạng cửa bằng mô hình học sâu. Kiểm thử trên ảnh thực tế bị nhiễu, nhiều cửa cạnh nhau, ảnh nghiêng và trùng nét vẫn là công việc bắt buộc.
 
 **Trạng thái đợt 209:** Đã bổ sung thuật toán tạo ARC, tích hợp trực tiếp vào cửa sổ AI và các ca test PNG/GUI. Chưa xác minh Windows CI PASS và chưa tuyên bố AI nhận dạng kiến trúc hoàn chỉnh.
+
+
+## 50. Đợt 210 — AI gộp cánh LINE và cung quay ARC thành BLOCK CAD có thể chỉnh sửa
+
+### Bài 83 — Dựng một Block cửa dạng bản nháp từ ảnh mặt bằng
+
+1. Mở CAD 360, vào **AI từ ảnh → CAD**, chọn PNG/JPG có khoảng mở hai mép tường và dấu hiệu cánh cửa. Đặt tỷ lệ `unitsPerPixel` đã hiệu chuẩn.
+2. Bật lần lượt `openingGapHints`, `pairedWallOpeningHints`, `doorLeafHints`, `createDoorSwingArcs` và xác nhận `confirmDoorSwingArcs`. Giữ `maxGapPixels=0`.
+3. Bật tùy chọn mới **Gộp cánh LINE + cung ARC thành Block CAD bản nháp**, sau đó tích **Xác nhận tạo Block CAD bản nháp, giữ lại nét ảnh gốc**. Các tham số tương ứng là `createDoorBlocks=true` và `confirmDoorBlocks=true`.
+4. Nhấn Preview. Đọc `doorBlockDraftCount` và `doorBlockDrafts`; mỗi bản nháp chứa `base` (tọa độ bản lề), `leaf` (LINE cánh cửa CAD) và `arc` (ARC cung quay). Mặc định không có Block nào được tạo khi chưa xác nhận.
+5. Nhấn **Tạo LINE / PLINE chỉnh sửa trong CAD**. Với mỗi ứng viên đã xác nhận, GUI tạo LINE cánh cửa mới và ARC mới; chuyển **chỉ hai đối tượng mới** thành một `BLOCK` với `keep=convert`, kết quả là `INSERT` có thể chọn, di chuyển, sao chép và chỉnh sửa theo lệnh Block thông thường. Mã tên gợi ý: `TBT_AI_DOOR_<documentUid>_<revision>_<index>`.
+6. Các LINE gốc truy xuất từ ảnh vẫn được giữ độc lập để đối chiếu. Block này là **bản nháp hình học**, chưa nhận dạng chắc chắn loại cửa, vật liệu, hệ cửa hoặc thuộc tính BIM.
+7. Sau Commit, thử chọn Block INSERT, dùng Properties, các thao tác Block, Undo/Redo; kiểm tra bằng bản vẽ thử trước khi Save DWG và trao đổi AutoCAD.
+
+### Bài 84 — An toàn giao dịch, Undo và giới hạn MCP
+
+1. Bài test `ai_native_door_draft_block_contains_line_and_arc_and_can_undo_as_one_step` tạo một LINE và một ARC bằng engine CAD thật, sau đó chuyển thành Block với `keep=convert`.
+2. Kiểm tra bản vẽ còn một INSERT thay cho hai đối tượng mới, định nghĩa Block chứa đúng hai thành phần và một lần Undo phải loại bỏ cả INSERT lẫn định nghĩa Block.
+3. Bài test `ai_door_block_drafts_require_review_and_keep_traced_lines_separate` kiểm tra PNG, bộ khóa xác nhận và danh sách bản nháp. Dữ liệu nguồn phải còn nguyên sau Preview.
+4. **Phạm vi hiện tại:** Chỉ GUI desktop được phép Commit Block; MCP chỉ Preview Block. Nếu gửi `createDoorBlocks=true` và `preview=false` qua MCP, công cụ từ chối rõ ràng thay vì tự động thực hiện một chuỗi thay đổi thiếu cơ chế xác nhận và hoàn tác an toàn.
+5. Windows CI bổ sung chốt kiểm thử tạo Block/Undo và kiểm tra an toàn Preview. Chưa có xác nhận PASS toàn bộ Windows CI hay kết quả kiểm thử trong AutoCAD độc lập.
+6. Khi xem kết quả từ ảnh thật, người dùng phải xác minh bản lề, hướng mở, chiều rộng và bề dày tường. AI hiện chưa tạo Block cửa động có thông số BIM/kiến trúc hoàn chỉnh.
+
+**Trạng thái đợt 210:** Đã bổ sung mã tạo `BLOCK/INSERT` từ LINE+ARC có xác nhận trong GUI, Preview Block trong shared AI và kiểm thử Undo/CI. Chưa thể coi là hoàn thành AI kiến trúc hoặc Setup EXE đã nghiệm thu khi chưa có kết quả test thực tế thành công.
