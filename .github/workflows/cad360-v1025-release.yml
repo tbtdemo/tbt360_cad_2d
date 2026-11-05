@@ -306,15 +306,34 @@ jobs:
           cargo test --locked -p cadcraft-render --lib raster_image_display_off_omits_entire_frame -- --nocapture
           if ($LASTEXITCODE -ne 0) { throw 'V1.025 IMAGE visibility regression failed' }
 
-      - name: Verify Xref and DWG regression on release source
+      - name: Verify Xref, DWG, and Windows BIM workspace safety before Setup
         id: cad_tests
         shell: pwsh
         working-directory: CADTBT360_V1.000
         run: |
+          $ErrorActionPreference = 'Stop'
+          # Run the engine's real XREF integration tests. An older Windows run
+          # failed at compile time by calling EntityStore.first(), since fixed
+          # to model.iter().next(); protect that interface against regression.
+          cargo test --locked -p cadcraft-engine --test xref -- --test-threads=2
+          if ($LASTEXITCODE -ne 0) { throw 'Native XREF tests failed on Windows, see cargo output' }
           cargo test --locked -p cadcraft-io --test it xref_roundtrip -- --nocapture
-          if ($LASTEXITCODE -ne 0) { throw 'Xref regression failure' }
+          if ($LASTEXITCODE -ne 0) { throw 'Xref DXF/DWG persistence regression failure' }
           cargo test --locked -p cadcraft-io --test it large_dwg_v1025 -- --nocapture
           if ($LASTEXITCODE -ne 0) { throw 'Large DWG regression failure' }
+          # Older Windows run 41608879566 failed five BIM workspace
+          # persistence/recovery tests on Access is denied (os error 5).
+          # The current source opens the copied backup writable before sync_all.
+          cargo test --locked -p cadcraft --bin cadcraft bim_collab::tests::safe_workspace_save_preserves_previous_file_as_backup -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'Windows BIM workspace backup access permissions regressed' }
+          cargo test --locked -p cadcraft --bin cadcraft bim_collab::tests::corrupted_workspace_recovers_previous_valid_backup -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'Windows BIM workspace corruption recovery regressed' }
+          cargo test --locked -p cadcraft --bin cadcraft bim_collab::tests::repeated_workspace_saves_replace_existing_main_and_backup -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'Windows repeated BIM workspace save/backup regressed' }
+          cargo test --locked -p cadcraft --bin cadcraft bim_collab::tests::save_after_corrupted_main_does_not_destroy_last_valid_backup -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'Windows corrupted-main last-valid-backup preservation regressed' }
+          cargo test --locked -p cadcraft --bin cadcraft bim_collab::tests::workspace_recovery_does_not_discard_unsynced_in_memory_changes -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'Windows BIM unsynced changes recovery regressed' }
 
       - name: Build native Windows GUI and CLI (not copied from old release)
         id: release_build
