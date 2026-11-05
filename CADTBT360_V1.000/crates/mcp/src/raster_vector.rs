@@ -628,6 +628,49 @@ mod tests {
     }
 
     #[test]
+    fn ai_wall_centerline_real_png_keeps_both_edges_and_adds_editable_centerline() {
+        let mut img=image::RgbImage::from_pixel(128,64,image::Rgb([255,255,255]));
+        for x in 10..=110 {
+            img.put_pixel(x,12,image::Rgb([0,0,0]));
+            img.put_pixel(x,22,image::Rgb([0,0,0]));
+        }
+        let path=std::env::temp_dir().join(format!("cad360-wall-axis-{}-{}.png",std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        img.save(&path).unwrap();
+        let mut args=json!({"path":path.to_string_lossy(),"preview":true,"minLengthPixels":16,
+            "includeDiagonals":false,"wallPairHints":true,"createWallCenterlines":true,"unitsPerPixel":10.0});
+        let proposal=preview(&args).unwrap();
+        assert_eq!(proposal["wallPairCandidateCount"],1);
+        assert_eq!(proposal["wallCenterlinesProposed"],1);
+        assert_eq!(proposal["lines"].as_array().unwrap().len(),2,"original edges must be kept");
+        assert_eq!(proposal["wallCenterlines"],json!([[[105.0,465.0],[1105.0,465.0]]]));
+        let mut backend=crate::backend::Headless::default();
+        args["preview"]=json!(false);
+        let committed=run(&mut backend,&args).unwrap();
+        let _=std::fs::remove_file(&path);
+        assert_eq!(committed["wallCenterlinesCreated"],1);
+        assert_eq!(committed["editableEntitiesCreated"],3);
+        let inspected=backend.call("drawing.inspect",json!({"entities":false})).unwrap();
+        assert_eq!(inspected["entityCount"],3);
+        backend.call("engine.execute",json!({"command":"undo","params":{"count":1}})).unwrap();
+        let after=backend.call("drawing.inspect",json!({"entities":false})).unwrap();
+        assert_eq!(after["entityCount"],0,"undo must roll back both source edges and the new centerline");
+    }
+
+    #[test]
+    fn ai_wall_centerline_rejects_creation_without_hint_review() {
+        let img=image::RgbImage::from_pixel(32,16,image::Rgb([255,255,255]));
+        let path=std::env::temp_dir().join(format!("cad360-wall-gate-{}-{}.png",std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        img.save(&path).unwrap();
+        let args=json!({"path":path.to_string_lossy(),"preview":true,"minLengthPixels":12,
+            "includeDiagonals":false,"createWallCenterlines":true,"wallPairHints":false});
+        let err=preview(&args).unwrap_err();
+        let _=std::fs::remove_file(&path);
+        assert!(err.contains("requires wallPairHints=true"));
+    }
+
+    #[test]
     fn ai_wall_centerline_is_only_created_for_unique_parallel_pair() {
         let lines=vec![
             Line{x0:10.5,y0:10.5,x1:110.5,y1:10.5},
