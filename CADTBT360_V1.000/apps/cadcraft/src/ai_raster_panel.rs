@@ -503,7 +503,11 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
                         "Tôi đã xem Preview và đồng ý tạo BLOCK cột").changed() {state.preview=None;}
                 }
                 if ui.checkbox(&mut state.closed_rectangles, "Đường bao chữ nhật kín → PLINE").changed() {
-                    if state.closed_rectangles {state.create_column_guides=false;state.confirm_column_guides=false;state.create_column_blocks=false;state.confirm_column_blocks=false;}
+                    if state.closed_rectangles {
+                        state.create_column_guides=false;state.confirm_column_guides=false;
+                        state.create_column_blocks=false;state.confirm_column_blocks=false;
+                        state.create_wall_blocks=false;state.confirm_wall_blocks=false;
+                    }
                     state.preview = None; state.preview_document_uid = None;
                     state.preview_revision = None; state.preview_document_epoch = None;
                 }
