@@ -186,8 +186,10 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
                 ui.small("Gợi ý hình học, không phải tường BIM. Nét nguồn luôn được giữ để đối chiếu.");
             }
             let centerline_count = proposal["wallCenterlinesProposed"].as_u64().unwrap_or(0);
+            let junction_count = proposal["wallCenterlineJunctionCount"].as_u64().unwrap_or(0);
             if state.create_wall_centerlines {
                 ui.label(format!("Dự kiến tạo thêm {centerline_count} LINE tim tường, không xóa hai mép tường. Cặp 3 nét nhập nhằng bị loại."));
+                ui.small(format!("Phát hiện {junction_count} ứng viên giao tim tường T/chữ thập. Chỉ kiểm tra, không tự kéo dài hoặc cắt tường."));
             }
             if state.closed_rectangles {
                 ui.small("Chỉ nhận dạng hình chữ nhật có đủ 4 cạnh; không tự lấp cửa hoặc khoảng hở. Cạnh thuộc PLINE không tạo LINE trùng.");
