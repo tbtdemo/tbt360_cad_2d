@@ -30,6 +30,8 @@ pub struct State {
     wall_panel_hints: bool,
     create_wall_panel_guides: bool,
     confirm_wall_panel_guides: bool,
+    create_wall_blocks: bool,
+    confirm_wall_blocks: bool,
     min_wall_spacing: f64,
     max_wall_spacing: f64,
     create_wall_centerlines: bool,
@@ -148,6 +150,8 @@ impl State {
             "wallPanelHints":self.wall_panel_hints,
             "createWallPanelPolylines":self.create_wall_panel_guides,
             "confirmWallPanels":self.confirm_wall_panel_guides,
+            "createWallBlocks":self.create_wall_blocks,
+            "confirmWallBlocks":self.confirm_wall_blocks,
             "minWallSpacingPixels":self.min_wall_spacing,"maxWallSpacingPixels":self.max_wall_spacing,
             "openingGapHints":self.opening_gap_hints,
             "pairedWallOpeningHints":self.paired_wall_opening_hints,
@@ -268,22 +272,39 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
                         state.wall_panel_hints=false;
                         state.create_wall_panel_guides=false;
                         state.confirm_wall_panel_guides=false;
+                        state.create_wall_blocks=false;
+                        state.confirm_wall_blocks=false;
                     }
                     state.preview = None;
                 }
                 if state.wall_pair_hints {
                     if ui.checkbox(&mut state.wall_panel_hints,"Gợi ý dải tường từ hai mép quan sát được (không tự nối qua cửa)").changed() {
-                        if !state.wall_panel_hints {state.create_wall_panel_guides=false;state.confirm_wall_panel_guides=false;}
+                        if !state.wall_panel_hints {
+                            state.create_wall_panel_guides=false;state.confirm_wall_panel_guides=false;
+                            state.create_wall_blocks=false;state.confirm_wall_blocks=false;
+                        }
                         state.preview=None;
                     }
                     if state.wall_panel_hints {
                         ui.small("Chỉ tìm vùng tường từ hai mép có bằng chứng, bỏ qua vùng trùng khoảng mở/cột.");
                         if ui.checkbox(&mut state.create_wall_panel_guides,"Vẽ PLINE kín dải tường sau khi kiểm tra").changed() {
+                            if state.create_wall_panel_guides {state.create_wall_blocks=false;state.confirm_wall_blocks=false;}
                             if !state.create_wall_panel_guides {state.confirm_wall_panel_guides=false;}
                             state.preview=None;
                         }
                         if state.create_wall_panel_guides && ui.checkbox(&mut state.confirm_wall_panel_guides,
                             "Tôi xác nhận tạo PLINE dải tường").changed() {state.preview=None;}
+                        if ui.checkbox(&mut state.create_wall_blocks,"Tạo BLOCK CAD từ dải tường được xác nhận").changed() {
+                            if state.create_wall_blocks {
+                                state.create_wall_panel_guides=false;state.confirm_wall_panel_guides=false;
+                                state.closed_rectangles=false;
+                            } else {state.confirm_wall_blocks=false;}
+                            state.preview=None;
+                        }
+                        if state.create_wall_blocks {
+                            if ui.checkbox(&mut state.confirm_wall_blocks,"Tôi đồng ý tạo BLOCK dải tường sau khi xem Preview").changed() {state.preview=None;}
+                            ui.small("BLOCK là bản nháp PLINE có kích thước đo từ ảnh; không phải tường BIM hoặc BLOCK động.");
+                        }
                     }
                     ui.horizontal(|ui| {
                         ui.label("Mép tường (px): từ");
@@ -507,6 +528,7 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
             let column_block_count=proposal["columnBlockDraftCount"].as_u64().unwrap_or(0);
             let wall_pairs = proposal["wallPairCandidateCount"].as_u64().unwrap_or(0);
             let wall_panel_count=proposal["wallPanelCandidateCount"].as_u64().unwrap_or(0);
+            let wall_block_count=proposal["wallBlockDraftCount"].as_u64().unwrap_or(0);
             let opening_count = proposal["openingGapCandidateCount"].as_u64().unwrap_or(0);
             let paired_opening_count = proposal["pairedWallOpeningCandidateCount"].as_u64().unwrap_or(0);
             let door_leaf_count = proposal["doorLeafCandidateCount"].as_u64().unwrap_or(0);
@@ -523,6 +545,15 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
             if state.wall_pair_hints {
                 ui.small("Gợi ý hình học, không phải tường BIM. Nét nguồn luôn được giữ để đối chiếu.");
                 if state.wall_panel_hints {ui.small(format!("Có {wall_panel_count} dải tường quan sát được; đường bao Preview màu cam, không tự lấp khoảng cửa."));}
+                if state.create_wall_blocks {
+                    ui.small(format!("Dự kiến {wall_block_count} BLOCK dải tường CAD; mỗi Block là một PLINE kín chỉnh sửa được."));
+                    if let Some(drafts)=proposal["wallBlockDrafts"].as_array() {
+                        for (i,draft) in drafts.iter().take(12).enumerate() {
+                            ui.small(format!("Tường {}: dài {:.2}, dày {:.2} đơn vị CAD (chưa xác minh).",
+                                i+1,draft["lengthCAD"].as_f64().unwrap_or(0.0),draft["thicknessCAD"].as_f64().unwrap_or(0.0)));
+                        }
+                    }
+                }
             }
             if state.opening_gap_hints {
                 ui.small(format!("{opening_count} khoảng hở tiềm năng. Chưa xác nhận là cửa đi/cửa sổ; không tự đóng đoạn."));
@@ -827,6 +858,26 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
                         match cad.run("line", json!({"points":line})) {
                             Ok(_) => created += 1,
                             Err(e) => { failure = Some(e); break; }
+                        }
+                    }
+                }
+                if failure.is_none() && let Some(drafts)=proposal["wallBlockDrafts"].as_array() {
+                    let uid=cad.session.state().map(|d|d.uid).unwrap_or(0);
+                    let rev=cad.session.state().map(|d|d.revision).unwrap_or(0);
+                    for (index,draft) in drafts.iter().enumerate() {
+                        let outline=cad.run("pline",json!({"vertices":draft["outline"],"closed":true}));
+                        let handle=match outline {
+                            Ok(v)=>{created+=1;v["handle"].as_str().map(str::to_string)},
+                            Err(e)=>{failure=Some(e);break;}
+                        };
+                        let Some(handle)=handle else {failure=Some("AI Wall BLOCK: PLINE không trả Handle".into());break;};
+                        let name=format!("TBT_AI_WALL_{}_{}_{}",uid,rev,index+1);
+                        match cad.run("block",json!({"name":name,"base":draft["base"],"handles":[handle],
+                            "keep":"convert","description":format!("AI wall panel drafting Block, lengthCAD={:.3}, thicknessCAD={:.3}; not semantic/BIM",
+                                draft["lengthCAD"].as_f64().unwrap_or(0.0),draft["thicknessCAD"].as_f64().unwrap_or(0.0))})) {
+                            Ok(v) if v["insert"].as_str().is_some()=>created+=1,
+                            Ok(_)=>{failure=Some("AI Wall BLOCK: không tạo được INSERT".into());break;},
+                            Err(e)=>{failure=Some(e);break;}
                         }
                     }
                 }
@@ -1153,6 +1204,38 @@ mod tests {
         assert_eq!(state.params()["createWindowBlocks"],true);
         assert_eq!(state.params()["confirmWindowBlocks"],true);
         assert_eq!(state.params()["preview"],true);
+    }
+
+    #[test]
+    fn ai_wall_block_gui_is_opt_in_and_requires_separate_review() {
+        let mut state=State::default();state.open();
+        assert_eq!(state.params()["createWallBlocks"],false);
+        assert_eq!(state.params()["confirmWallBlocks"],false);
+        state.wall_pair_hints=true;state.wall_panel_hints=true;
+        state.create_wall_blocks=true;
+        assert_eq!(state.params()["confirmWallBlocks"],false);
+        state.confirm_wall_blocks=true;
+        assert_eq!(state.params()["createWallBlocks"],true);
+        assert_eq!(state.params()["confirmWallBlocks"],true);
+        assert_eq!(state.params()["preview"],true);
+    }
+
+    #[test]
+    fn ai_wall_block_native_insert_contains_one_closed_panel_and_undoes() {
+        let mut engine=cadcraft_engine::Session::new();
+        let before=engine.doc().unwrap().entity_count();
+        engine.state_mut().unwrap().begin_undo_group();
+        let poly=engine.execute("pline",&json!({"vertices":[[10.0,10.0],[80.0,10.0],[80.0,24.0],[10.0,24.0]],"closed":true})).unwrap();
+        let Some(handle)=poly["handle"].as_str() else {panic!("PLINE must return native CAD handle")};
+        let result=engine.execute("block",&json!({"name":"TBT_AI_WALL_TEST","base":[10.0,10.0],
+            "handles":[handle],"keep":"convert"})).unwrap();
+        assert!(result["insert"].as_str().is_some());
+        assert_eq!(engine.doc().unwrap().entity_count(),before+1);
+        assert_eq!(engine.doc().unwrap().block("TBT_AI_WALL_TEST").unwrap().entities.len(),1);
+        engine.state_mut().unwrap().end_undo_group();
+        engine.execute("undo",&json!({"count":1})).unwrap();
+        assert_eq!(engine.doc().unwrap().entity_count(),before);
+        assert!(engine.doc().unwrap().block("TBT_AI_WALL_TEST").is_none());
     }
 
     #[test]
