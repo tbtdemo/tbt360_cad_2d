@@ -369,3 +369,33 @@ fn a_lazy_bridge_starts_without_the_app_and_says_how_to_open_it() {
     assert_ne!(r["result"]["isError"], json!(true), "{r}");
     app.join().unwrap();
 }
+
+
+#[test]
+fn ai_trace_quality_gate_rejects_crossing_outline_without_modifying_drawing() {
+    let mut s = Server::new(Box::new(Headless::default()));
+    let defs = call(&mut s, 1, "tools/list", json!({}));
+    assert!(defs["result"]["tools"].as_array().unwrap().iter().any(|v| v["name"] == "trace_quality_check"));
+    let bad = tool(&mut s, "trace_quality_check", json!({"points":[[0,0],[10,10],[0,10],[10,0]],"closed":true}));
+    assert_eq!(bad["safeToCommit"], false);
+    assert_eq!(bad["selfIntersections"], json!([[0,2]]));
+    assert_eq!(tool(&mut s, "query_entities", json!({"type":"Polyline"}))["count"], 0);
+    let good = tool(&mut s, "trace_quality_check", json!({"points":[[0,0],[10,0],[10,10],[0,10]],"closed":true}));
+    assert_eq!(good["safeToCommit"], true);
+    assert_eq!(good["segmentCount"], 4);
+    assert_eq!(good["bounds"], json!([[0.0,0.0],[10.0,10.0]]));
+    assert_eq!(tool(&mut s, "query_entities", json!({"type":"Polyline"}))["count"], 0);
+}
+
+#[test]
+fn ai_trace_quality_gate_rejects_short_edges_and_invalid_closed_outline() {
+    let mut s = Server::new(Box::new(Headless::default()));
+    let short = tool(&mut s, "trace_quality_check", json!({"points":[[0,0],[0.001,0],[10,0]],"minSegmentLength":0.01}));
+    assert_eq!(short["safeToCommit"], false);
+    assert_eq!(short["shortSegments"], json!([0]));
+    let two_point_loop = tool(&mut s, "trace_quality_check", json!({"points":[[0,0],[10,0]],"closed":true}));
+    assert_eq!(two_point_loop["safeToCommit"], false);
+    assert_eq!(two_point_loop["tooFewPointsForClosedOutline"], true);
+    let malformed = call(&mut s, 66, "tools/call", json!({"name":"trace_quality_check","arguments":{"points":[[0,0]]}}));
+    assert_eq!(malformed["error"]["code"], -32602);
+}
