@@ -290,6 +290,7 @@ pub fn run(b: &mut dyn Backend, args: &Value) -> Result<Value, String> {
         return Err("Finish the active CAD command before importing image vectors".into());
     }
     let Some(document_uid) = state["documentUid"].as_u64() else { return Err("CAD document identity unavailable; no edits made".into()) };
+    let Some(document_epoch) = state["documentEpoch"].as_u64() else { return Err("CAD document epoch unavailable; no edits made".into()) };
     let Some(revision) = state["revision"].as_u64() else { return Err("CAD document revision unavailable; no edits made".into()) };
     let group = |backend: &mut dyn Backend, mode: &str| backend.call("engine.execute", json!({"command":"undo","params":{"mode":mode}}));
     group(b, "begin")?;
@@ -301,7 +302,8 @@ pub fn run(b: &mut dyn Backend, args: &Value) -> Result<Value, String> {
         let latest = b.call("drawing.inspect", json!({"entities":false}));
         match latest {
             Ok(st) if st["documentUid"].as_u64() == Some(document_uid)
-                && st["revision"].as_u64() == Some(revision + handles.len() as u64) => {}
+                && st["documentEpoch"].as_u64() == Some(document_epoch)
+                && st["revision"].as_u64() == revision.checked_add(handles.len() as u64) => {}
             Ok(_) => { failure = Some("CAD document changed during AI image import".to_string()); break; }
             Err(e) => { failure = Some(format!("Cannot verify active CAD document: {e}")); break; }
         }
@@ -316,6 +318,7 @@ pub fn run(b: &mut dyn Backend, args: &Value) -> Result<Value, String> {
     let ownership = b.call("drawing.inspect", json!({"entities":false}));
     let owned = ownership.as_ref().is_ok_and(|st|
         st["documentUid"].as_u64() == Some(document_uid)
+        && st["documentEpoch"].as_u64() == Some(document_epoch)
         && st["revision"].as_u64() == revision.checked_add(handles.len() as u64)
         && st["undoGroupOpen"] == true
         && st["undoControl"] == "all"
@@ -332,6 +335,7 @@ pub fn run(b: &mut dyn Backend, args: &Value) -> Result<Value, String> {
             // between the END call and this rollback.
             let safe_to_undo = b.call("drawing.inspect", json!({"entities":false})).is_ok_and(|st|
                 st["documentUid"].as_u64() == Some(document_uid)
+                && st["documentEpoch"].as_u64() == Some(document_epoch)
                 && st["revision"].as_u64() == revision.checked_add(handles.len() as u64)
                 && st["undoGroupOpen"] == false
             );
