@@ -537,6 +537,7 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
             let wall_pairs = proposal["wallPairCandidateCount"].as_u64().unwrap_or(0);
             let wall_panel_count=proposal["wallPanelCandidateCount"].as_u64().unwrap_or(0);
             let wall_block_count=proposal["wallBlockDraftCount"].as_u64().unwrap_or(0);
+            let wall_boundary_contacts=proposal["wallPanelContactCount"].as_u64().unwrap_or(0);
             let opening_count = proposal["openingGapCandidateCount"].as_u64().unwrap_or(0);
             let paired_opening_count = proposal["pairedWallOpeningCandidateCount"].as_u64().unwrap_or(0);
             let door_leaf_count = proposal["doorLeafCandidateCount"].as_u64().unwrap_or(0);
@@ -552,7 +553,20 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
             }
             if state.wall_pair_hints {
                 ui.small("Gợi ý hình học, không phải tường BIM. Nét nguồn luôn được giữ để đối chiếu.");
-                if state.wall_panel_hints {ui.small(format!("Có {wall_panel_count} dải tường quan sát được; đường bao Preview màu cam, không tự lấp khoảng cửa."));}
+                if state.wall_panel_hints {
+                    ui.small(format!("Có {wall_panel_count} dải tường quan sát được; đường bao Preview màu cam, không tự lấp khoảng cửa."));
+                    ui.small(format!("QA đầu mút: {wall_boundary_contacts} lần chạm ứng viên khoảng mở/cột; CHỈ cảnh báo, không nối hoặc cắt tường."));
+                    if let Some(rows)=proposal["wallPanelBoundaryContacts"].as_array() {
+                        for item in rows.iter().take(12) {
+                            let index=item["panelIndex"].as_u64().unwrap_or(0)+1;
+                            let start=item["startContacts"].as_array().map_or(0,Vec::len);
+                            let end=item["endContacts"].as_array().map_or(0,Vec::len);
+                            if start+end>0 {
+                                ui.small(format!("Tường {index}: đầu 1 có {start} tiếp xúc; đầu 2 có {end} tiếp xúc. Cần đối chiếu ảnh gốc."));
+                            }
+                        }
+                    }
+                }
                 if state.create_wall_blocks {
                     ui.small(format!("Dự kiến {wall_block_count} BLOCK dải tường CAD; mỗi Block là một PLINE kín chỉnh sửa được."));
                     if let Some(drafts)=proposal["wallBlockDrafts"].as_array() {
