@@ -692,3 +692,19 @@ fn ai_auto_raster_mcp_rejects_existing_undo_group_without_changes() {
     backend.session.state_mut().unwrap().end_undo_group();
     let _=std::fs::remove_file(file);
 }
+
+
+#[test]
+fn ai_image_mcp_inspect_exposes_revision_and_undo_safety_state() {
+    let mut server=Server::new(Box::new(Headless::default()));
+    let before=tool(&mut server,"inspect_drawing",json!({"entities":false}));
+    assert_eq!(before["undoControl"],"all");
+    assert_eq!(before["undoGroupOpen"],false);
+    let uid=before["documentUid"].as_u64().expect("stable document uid");
+    let revision=before["revision"].as_u64().expect("document revision");
+    tool(&mut server,"execute",json!({"command":"line","params":{"points":[[10,10],[20,10]]}}));
+    let after=tool(&mut server,"inspect_drawing",json!({"entities":false}));
+    assert_eq!(after["documentUid"],uid);
+    assert_eq!(after["revision"],revision+1);
+    assert_eq!(after["undoGroupOpen"],false);
+}
