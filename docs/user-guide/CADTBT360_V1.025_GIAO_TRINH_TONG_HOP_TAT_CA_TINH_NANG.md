@@ -722,3 +722,44 @@ Chế độ **Gợi ý cặp nét tường song song (chỉ Preview)** bổ sung
 **Giới hạn quan trọng:** Chỉ là phát hiện **ứng viên cặp mép tường từ nét song song**. Chưa có semantic AI phân loại vật liệu, cửa, cửa sổ, cầu thang, chưa gán Layer tường, và chưa sinh mô hình BIM. Không được dùng số ứng viên như khối lượng tường để quyết toán nếu chưa kiểm tra bằng kỹ sư.
 
 **Trạng thái đợt 188:** Đã đưa mã nguồn phát hiện ứng viên, giao diện xem trước, mô tả MCP và kiểm thử CI vào repository. Chưa có xác nhận Windows Build PASS và ảnh GUI từ EXE được nghiệm thu.
+
+
+## 29. Đợt 189 — Tạo đường tim tường CAD từ hai mép tường song song đã kiểm tra
+
+Nâng cấp trực tiếp trên giao diện AI ảnh → CAD và MCP: từ **hai LINE ứng viên mép tường** có khoảng cách và chiều dài chồng lấn phù hợp, phần mềm có thể đề xuất **LINE tim tường**. Người dùng phải bật riêng `Gợi ý cặp nét tường song song (chỉ Preview)` rồi mới được bật `Tạo tim tường từ cặp nét duy nhất (tùy chọn)`. Chế độ mặc định tắt; hệ thống **giữ nguyên các LINE mép tường gốc** và **không sinh BIM Wall**.
+
+### Bài 36 — Thực hành từ ảnh tường đôi thành LINE tim tường
+
+1. Trong tab **CAD**, tạo bản vẽ `BT36_TimTuongTuAnh.dxf`; chọn **AI TỪ ẢNH → CAD**, tải PNG có hai nét đen ngang dài và song song.
+2. Dùng ảnh mẫu có hai đoạn ngang cùng chạy từ **x=10 đến x=110**, tại **y=12** và **y=22**, trong ảnh **128×64 pixel**. Mỗi đoạn có 101 điểm đen, khoảng cách hai tâm đường là 10 pixel.
+3. Đặt ngưỡng nhận dạng và **Đơn vị CAD/pixel = 10** sau hiệu chuẩn; tắt chế độ nhận dạng nét góc nếu ảnh chỉ có hai đoạn ngang.
+4. Bật **Gợi ý cặp nét tường song song (chỉ Preview)**. Kiểm tra có 01 cặp ứng viên và khoảng cách 10 pixel; người dùng xác nhận đây thực sự là hai mép tường.
+5. Tích thêm **Tạo tim tường từ cặp nét duy nhất (tùy chọn)**; bấm **Nhận dạng và xem trước** để xem đề xuất.
+6. Đối chiếu ba LINE sẽ xuất hiện khi tạo: **hai LINE mép** và **một LINE tim**. Với gốc (0,0), tâm nét tim theo ảnh mẫu phải có tọa độ CAD **(105,465) → (1105,465)**, dài **1000 đơn vị CAD**.
+7. Chọn **Tạo LINE / PLINE chỉnh sửa trong CAD**. Chọn từng LINE trong bản vẽ, kiểm tra tim là hình học native, đo `DIST` và lưu bản DXF.
+8. Nhấn **UNDO một lần** để hoàn tác cả ba LINE của nhóm AI. Sau đó tạo lại và lưu DXF/DWG bản sao; kiểm tra độc lập trong AutoCAD trước khi nghiệm thu tương thích DWG hai chiều.
+
+**Điều kiện đạt trên EXE:** Chỉ tạo LINE tim khi có hai mép hợp lệ và tùy chọn được bật. Giữ hai LINE gốc và Undo hoàn tác tất cả đối tượng AI vừa tạo. Đây là tim tường hình học, chưa có vật liệu, độ dày BIM, tên phòng hay quan hệ không gian.
+
+### Bài 37 — Tự từ chối ghép nhầm khi nhiều mép tường
+
+1. Tạo ảnh/nét với ba đoạn thẳng ngang song song gần nhau, ví dụ y=10, y=20 và y=30, chồng lấn dọc theo cùng khoảng x.
+2. Mở AI, bật gợi ý cặp mép và tùy chọn tim tường. Trường hợp này có **nhiều cách bắt cặp**, vì một nét có thể tham gia hơn một ứng viên.
+3. Kiểm tra thuật toán **không tạo LINE tim tường** từ cặp nhập nhằng; chỉ giữ các LINE gốc cho người dùng chỉnh sửa.
+4. Kiểm tra thêm hai đoạn rời không chồng lấn và hai đoạn vuông góc: chúng không được hiểu là hai mép của cùng một tường.
+5. Tạo một đường bao chữ nhật đã chuyển sang PLINE; các cạnh đã đưa vào PLINE không được đồng thời dùng làm tim tường từ các LINE nguồn đã loại.
+6. Lưu màn hình Preview và bản vẽ kiểm tra, ghi tỷ lệ, số cặp ứng viên và số tim tường tạo ra.
+
+**Điều kiện đạt:** Không phán đoán từ ba hoặc nhiều nét song song nhập nhằng; tránh tự tạo tường giả trên mặt bằng xây dựng.
+
+### Bài 38 — Nghiệm thu Rust, MCP và GUI của chức năng tim tường
+
+1. Tại thư mục `CADTBT360_V1.000`, chạy `cargo test --locked -p cadcraft-mcp --lib ai_wall_centerline_ -- --nocapture`.
+2. Xem bài thử **`ai_wall_centerline_real_png_keeps_both_edges_and_adds_editable_centerline`**: ảnh PNG RGB thật, 2 mép nguồn + 1 tim tường, sau Undo còn 0 entity.
+3. Xem bài thử **`ai_wall_centerline_is_only_created_for_unique_parallel_pair`**: một cặp duy nhất được tạo tim; ba nét song song nhập nhằng và cạnh đã chuyển PLINE không được tạo.
+4. Xem bài thử **`ai_wall_centerline_rejects_creation_without_hint_review`**: từ chối bật `createWallCenterlines=true` nếu `wallPairHints=false`.
+5. Chạy `cargo test --locked -p cadcraft --bin cadcraft ai_raster_wall_centerline_creation_requires_explicit_user_opt_in -- --nocapture`.
+6. Với MCP `raster_to_cad_lines`: `wallPairHints=true` trả thông tin cặp ứng viên, `createWallCenterlines=true` đề xuất `wallCenterlines` và khi `preview=false` tạo LINE thực tế trong một Undo group.
+7. Chạy Windows CI với đúng commit và thử lại **Setup/Portable**. Nếu không có build Success hoặc ảnh chụp GUI thực tế, trạng thái vẫn là **Chưa kiểm chứng**.
+
+**Trạng thái:** Mã nguồn, tùy chọn GUI/MCP và bài kiểm thử Rust/CI đã được bổ sung trong đợt 189, chưa xác minh Windows CI PASS và chưa nghiệm thu bộ cài mới. Chức năng AI hiểu tường/cửa/cột, OCR kích thước, tạo BIM Wall vẫn chưa hoàn thiện.
