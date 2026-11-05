@@ -812,6 +812,42 @@ mod tests {
     }
 
     #[test]
+    fn ai_real_png_paired_wall_opening_preview_and_editable_guide() {
+        let mut img=image::RgbImage::from_pixel(110,48,image::Rgb([255,255,255]));
+        for y in [15,22] {
+            for x in 5..=39 {img.put_pixel(x,y,image::Rgb([0,0,0]));}
+            for x in 51..=95 {img.put_pixel(x,y,image::Rgb([0,0,0]));}
+        }
+        let path=std::env::temp_dir().join(format!("cad360-paired-opening-{}-{}.png",std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        img.save(&path).unwrap();
+        let mut args=json!({"path":path.to_string_lossy(),"preview":true,
+            "minLengthPixels":16,"includeDiagonals":false,"openingGapHints":true,
+            "pairedWallOpeningHints":true,"maxGapPixels":0,"unitsPerPixel":2.0,
+            "origin":[100.0,200.0]});
+        let proposal=preview(&args).unwrap();
+        assert_eq!(proposal["openingGapCandidateCount"],2);
+        assert_eq!(proposal["pairedWallOpeningCandidateCount"],1);
+        assert_eq!(proposal["pairedWallOpeningCandidates"][0]["wallThicknessCAD"],14.0);
+        assert_eq!(proposal["pairedWallOpeningCandidates"][0]["classification"],"paired-through-wall-gap-unverified");
+        assert_eq!(proposal["lines"].as_array().unwrap().len(),4,"source wall edges must not be joined");
+        assert_eq!(proposal["openingGuidePolylines"].as_array().unwrap().len(),0,"preview has no guide without opt-in");
+        args["createOpeningGuidePolylines"]=json!(true);
+        assert!(preview(&args).unwrap_err().contains("confirmOpeningGuides=true"));
+        args["confirmOpeningGuides"]=json!(true);
+        let confirmed=preview(&args).unwrap();
+        assert_eq!(confirmed["openingGuidePolylines"].as_array().unwrap().len(),1);
+        let mut backend=crate::backend::Headless::default();
+        args["preview"]=json!(false);
+        let result=run(&mut backend,&args).unwrap();
+        assert_eq!(result["openingGuidePolylinesCreated"],1);
+        assert_eq!(result["editableEntitiesCreated"],5,"four original LINEs and one human-confirmed PLINE guide");
+        let inspected=backend.call("drawing.inspect",json!({"entities":false})).unwrap();
+        assert_eq!(inspected["entityCount"],5);
+        let _=std::fs::remove_file(&path);
+    }
+
+    #[test]
     fn ai_two_aligned_wall_edge_gaps_propose_one_opening_outline() {
         let gap=|y:f64|json!({"fromPixels":[25.0,y],"toPixels":[35.0,y],"gapPixels":10.0});
         let result=paired_wall_openings(&[gap(10.0),gap(16.0)],2.0,40.0);
