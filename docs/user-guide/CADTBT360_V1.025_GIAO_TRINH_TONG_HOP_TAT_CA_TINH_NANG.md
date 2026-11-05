@@ -1073,3 +1073,23 @@ Mục tiêu quan trọng nhất của đợt này là chuyển từ việc **ch�
 6. Mỗi lượt phát hành phải giữ nguyên số phiên bản V1.025 cho đến khi có quyết định tăng phiên bản; số đợt 199 là số đợt công việc, không phải phiên bản sản phẩm mới.
 
 **Trạng thái nghiệm thu đợt 199:** Đã cập nhật mã kiểm tra CI. Chưa ghi nhận Windows Setup/Portable và AI GUI PASS trước khi có kết quả đầy đủ trên đúng SHA và kiểm thử Windows độc lập.
+
+
+## 40. Đợt 200 — Xác nhận giáo trình trong Setup trùng bản nguồn phát hành
+
+### Bài 62 — Đối chiếu tài liệu đã cài với tài liệu tạo cùng SHA
+
+1. Mở workflow `.github/workflows/cad360-v1025-release.yml` của nhánh V1.025 và xác định bước `Smoke test installed application, uninstall and binary identity`.
+2. Sau khi chạy Inno Setup ở Windows, kiểm tra tệp giáo trình tổng hợp tại `HuongDan/GIAO_TRINH_TONG_HOP_CAD360.docx`, giáo trình AI tại `HuongDan/HUONG_DAN_AI_TU_ANH_THANH_CAD.docx` và hướng dẫn Markdown AI.
+3. Dùng `Get-FileHash -Algorithm SHA256` so sánh các file đã cài với tài liệu tạo trong `dist/v1025/` cùng lượt build; không nhận một tệp Word cũ dù tệp còn mở được.
+4. Chạy `python scripts/validate_word_guide.py` trên **chính giáo trình tổng hợp vừa cài**; nếu nội dung hoặc bảng biểu bị thiếu, không cho quy trình phát hành vượt qua smoke test.
+5. Kiểm tra workflow commit `e4e795aa09914cc796e29cc854be3e0a2c0c2c70`; thay đổi này chỉ bổ sung chốt kiểm thử, chưa chứng minh GUI/AI/DWG đã PASS.
+
+### Bài 63 — Kiểm soát thống nhất Setup và Portable
+
+1. Dùng artifact đúng SHA nguồn để so sánh `BUILD_INFO.txt`, giá trị SHA256 của ứng dụng và các tệp giáo trình.
+2. Bản Portable có bài kiểm tra riêng cho giáo trình tổng hợp; cả Setup và Portable phải có giáo trình CAD toàn phần, không được chỉ kèm phần AI.
+3. Thực hành kiểm tra GUI, Xref, đo bóc, IFC, đường nét từ ảnh và DWG trong phần mềm đã cài; chỉ nghiệm thu nếu tất cả kiểm thử thực tế đạt.
+4. Đối với DWG, phải kiểm tra mở–chỉnh sửa–lưu bằng AutoCAD độc lập. Kiểm tra header `AC1032` không đủ để xác nhận tương thích hai chiều.
+
+**Trạng thái đợt 200:** Đã sửa workflow kiểm tra toàn vẹn giáo trình sau khi cài Setup. Chưa khẳng định Windows CI PASS, bản Setup/Portable chạy ổn định hoặc AI tự dựng toàn bộ tường, cột, cửa. Giữ nguyên số phiên bản V1.025 đến khi quyết định phát hành mới.
