@@ -365,11 +365,11 @@ pub fn preview(args: &Value) -> Result<Value, String> {
     }
     let gap_pixels = args["maxGapPixels"].as_u64().unwrap_or(0);
     if gap_pixels > 12 { return Err("maxGapPixels must be 0..12; larger gaps may represent doors or openings".into()); }
+    let source_strokes = lines.len();
+    let bridged_gaps = bridge_collinear_gaps(&mut lines, gap_pixels as f64);
     let wall_hints = if args["wallPairHints"].as_bool().unwrap_or(false) {
         parallel_wall_candidates(&lines, 2.0, 40.0)
     } else { Vec::new() };
-    let source_strokes = lines.len();
-    let bridged_gaps = bridge_collinear_gaps(&mut lines, gap_pixels as f64);
     let candidates = if args["closedRectangles"].as_bool().unwrap_or(false) { closed_rectangles(&lines) } else { Vec::new() };
     let mut replacement = vec![false; lines.len()];
     for outline in &candidates { for &index in &outline.edges { replacement[index] = true; } }
