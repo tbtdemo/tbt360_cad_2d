@@ -63,6 +63,33 @@ enum MainTab {
     BimCollab,
 }
 
+/// Find the complete guide installed by Setup or bundled next to the Portable EXE.
+/// Keep the file name stable across releases so the CAD toolbar opens the same manual.
+fn full_user_guide_candidates(exe_dir: &std::path::Path) -> [std::path::PathBuf; 2] {
+    [
+        exe_dir.join("HuongDan").join("GIAO_TRINH_TONG_HOP_CAD360.docx"),
+        exe_dir.join("GIAO_TRINH_TONG_HOP_CAD360.docx"),
+    ]
+}
+
+#[cfg(target_os = "windows")]
+fn open_full_user_guide() -> Result<(), String> {
+    let exe = std::env::current_exe().map_err(|e| format!("Không tìm thấy vị trí CAD 360: {e}"))?;
+    let dir = exe.parent().ok_or("Không tìm thấy thư mục cài đặt CAD 360")?;
+    let candidates = full_user_guide_candidates(dir);
+    let guide = candidates.iter().find(|path| path.is_file()).ok_or_else(||
+        format!("Chưa có giáo trình tổng hợp trong bộ cài. Kiểm tra {} hoặc {}", candidates[0].display(), candidates[1].display()))?;
+    std::process::Command::new("rundll32.exe")
+        .arg("url.dll,FileProtocolHandler").arg(guide)
+        .spawn().map_err(|e| format!("Không thể mở tài liệu Word: {e}"))?;
+    Ok(())
+}
+
+#[cfg(not(target_os = "windows"))]
+fn open_full_user_guide() -> Result<(), String> {
+    Err("Giáo trình Word được đóng gói cho bản phát hành Windows; trên hệ điều hành này hãy mở tài liệu trong repository.".into())
+}
+
 struct App {
     cad: CadApp,
     active_tab: MainTab,
@@ -161,6 +188,12 @@ impl eframe::App for App {
             ui.selectable_value(&mut self.active_tab, MainTab::BimCollab, "BIM CỘNG TÁC");
             if self.active_tab == MainTab::Cad && ui.button("AI TỪ ẢNH → CAD").on_hover_text("Chọn PNG/JPEG, xem trước nét tự động và tạo LINE chỉnh sửa trực tiếp vào bản vẽ").clicked() {
                 self.ai_raster_state.open();
+            }
+            if ui.button("HƯỚNG DẪN CAD 360").on_hover_text("Mở giáo trình Word từ cài đặt đến CAD 2D, QTO, BIM, IFC, AI và MCP").clicked() {
+                match open_full_user_guide() {
+                    Ok(()) => self.cad.set_status("Đã yêu cầu mở giáo trình tổng hợp CAD 360".to_string()),
+                    Err(error) => self.cad.set_status(error),
+                }
             }
             if self.active_tab == MainTab::Cad && ui.button("HƯỚNG DẪN AI").on_hover_text("Mở hướng dẫn sử dụng AI từ ảnh thành CAD ngay trong phần mềm, kể cả khi offline").clicked() {
                 self.ai_raster_state.open_help();
@@ -619,6 +652,15 @@ mod tests {
             config_dir_from(env(&[("APPDATA", "C:\\Users\\u\\AppData\\Roaming")])),
             Some(PathBuf::from("C:\\Users\\u\\AppData\\Roaming").join("TBT360"))
         );
+    }
+
+    #[test]
+    fn complete_user_manual_is_found_in_setup_and_portable_paths() {
+        let root = std::path::Path::new("C:/CADTBT360");
+        let paths = full_user_guide_candidates(root);
+        assert_eq!(paths[0], root.join("HuongDan/GIAO_TRINH_TONG_HOP_CAD360.docx"));
+        assert_eq!(paths[1], root.join("GIAO_TRINH_TONG_HOP_CAD360.docx"));
+        assert_ne!(paths[0], paths[1]);
     }
 
     /// View ▸ Theme ▸ System on Linux: winit reports no theme, so the desktop's answer stands in;
