@@ -1022,3 +1022,30 @@ Mục tiêu quan trọng nhất của đợt này là chuyển từ việc **ch�
 9. Muốn khẳng định DWG tương thích AutoCAD hai chiều phải thử mở/chỉnh sửa/lưu lại bằng AutoCAD độc lập, không chỉ kiểm tra header `AC1032`.
 
 **Điều kiện kết luận:** Nguồn V1.025 hiện đã có thêm gate cho các lỗi Xref và BIM cũ, nhưng chưa có xác nhận Windows CI Success và GUI Acceptance. Giữ trạng thái **Chưa nghiệm thu EXE** cho tới khi có bằng chứng.
+
+
+## 37. Đợt 197 — Bắt lỗi Windows Build bằng log riêng, không phát hành bản chưa qua kiểm thử
+
+Đợt 197 tiếp tục ưu tiên **Setup/Portable thực sự chạy được** hơn là bổ sung thêm nút AI. Workflow `.github/workflows/cad360-v1025-release.yml` đã bổ sung hàm `Invoke-ReleaseGate` cho kiểm thử Xref, DWG và BIM Workspace. Từng nhóm kiểm thử được lưu vào log riêng trong `dist/v1025/diagnostics/` và có thể tải về qua artifact **CADTBT360_V1.025_Windows_x64_Failure_Diagnostics** khi một bước thất bại.
+
+### Bài 58 — Phân tích log lỗi Windows chính xác
+
+1. Vào GitHub repository `tbtdemo/tbt360_cad_2d` → **Actions** → `CAD 360 V1.025 - Windows Setup Portable`.
+2. Tìm lượt chạy tương ứng SHA nguồn; **không lấy log của run cũ rồi kết luận là lỗi hiện tại**.
+3. Khi bước `Verify Xref, DWG, and Windows BIM workspace safety before Setup` thất bại, mở trang run và tải artifact `CADTBT360_V1.025_Windows_x64_Failure_Diagnostics`.
+4. Kiểm tra các file log `XREF_ENGINE_WINDOWS.log`, `XREF_IO_ROUNDTRIP.log`, `DWG_LARGE_V1025.log`, và các file `BIM_*.log` có sẵn trong artifact.
+5. Nếu thấy `Access is denied (os error 5)` ở BIM, truy nguồn vào `save_workspace_safely`, thao tác `backup_temp`, `sync_all` và quy trình thay tệp trên Windows; không xóa bài kiểm thử.
+6. Nếu Xref fail, kiểm tra đường dẫn file tham chiếu, test `--test xref`, vấn đề race giữa các test và phiên bản nguồn. Đợt 197 chuyển nhóm Xref sang `--test-threads=1` để tránh tranh chấp bộ hook I/O dùng chung.
+7. Khi test thành công, trong GitHub Step Summary sẽ có dòng `XREF/DWG/BIM persisted-storage gates: all passed on Windows`. Dòng này chỉ xác nhận **nhóm kiểm thử tương ứng**, chưa đủ để coi toàn bộ Setup/Portable PASS.
+
+### Bài 59 — Quy trình xác nhận Setup/Portable đã thực sự sẵn sàng
+
+1. Kiểm tra toàn bộ lượt run được đánh dấu **Success**, bao gồm Rust preflight, AI regression, Xref/DWG/BIM regression, release build, Inno Setup, cài/gỡ và kiểm tra Portable.
+2. Chỉ tải artifact Setup/Portable của **cùng SHA**; kiểm tra `BUILD_INFO.txt` và SHA256.
+3. Cài trên Windows sạch, mở `CADTBT360.exe`; chạy lệnh CAD cơ bản, thử Layer/Block/Xref, thao tác Undo và nạp PNG/JPEG vào AI Preview.
+4. Thử `CADTBT360_CLI.exe` tạo, đọc lại, sửa và lưu DXF/DWG; kiểm tra độc lập bằng AutoCAD đối với yêu cầu trao đổi DWG hai chiều.
+5. Thử phần BIM Workspace lưu/khôi phục từ `.bak` và xác nhận không mất dữ liệu đang chỉnh sửa.
+6. Thử AI chuyển ảnh thành LINE/PLINE, hiển thị tim tường/khoảng mở chưa xác minh, bảo vệ khoảng hở và hoàn tác nhóm đúng cách.
+7. Lưu ảnh chụp GUI thật, biên bản từng ca nghiệm thu và mã SHA. Nếu chưa có bằng chứng này, ghi **Chưa nghiệm thu GUI**, ngay cả khi workflow Success.
+
+**Trạng thái đợt 197:** Mã nguồn workflow đã sửa để tăng khả năng chẩn đoán và xác nhận hồi quy Xref/DWG/BIM. Chưa có bằng chứng GitHub Actions Success mới, chưa có Setup/Portable được xác nhận chạy trên Windows sạch. Không gọi bản nguồn này là bản EXE đã hoàn thiện.
