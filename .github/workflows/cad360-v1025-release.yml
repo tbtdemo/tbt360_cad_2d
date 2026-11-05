@@ -134,6 +134,8 @@ jobs:
           New-Item -ItemType Directory -Force $discoveryLogDir | Out-Null
           $required = @(
             @{ Package='cadcraft-cli'; Target='bin'; Test='image_trace_entity_json_matches_windows_installer_smoke_contract' },
+            @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_vietnamese_plan_parses_four_native_commands' },
+            @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_vietnamese_plan_is_atomic_on_parser_validation' },
             @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_vietnamese_draft_parses_native_line_and_circle' },
             @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_vietnamese_draft_rejects_missing_or_unsafe_coordinates' },
             @{ Package='cadcraft-mcp'; Target='lib'; Test='agent_traces_an_image_into_editable_cad_via_mcp' },
@@ -271,6 +273,8 @@ jobs:
           if ($namedTests.Count -lt 4) { $imageTests | Out-Host; throw "V1.025 image test discovery unexpectedly found only $($namedTests.Count) tests" }
           cargo test --locked -p cadcraft-engine --lib image -- --nocapture
           if ($LASTEXITCODE -ne 0) { throw 'V1.025 IMAGE engine regression failed' }
+          cargo test --locked -p cadcraft-mcp --lib ai_vietnamese_plan_ -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'AI Vietnamese multi-command plan regression failed' }
           cargo test --locked -p cadcraft-mcp --lib ai_vietnamese_draft_ -- --nocapture
           if ($LASTEXITCODE -ne 0) { throw 'AI Vietnamese natural-language drafting regression failed' }
           cargo test --locked -p cadcraft-mcp --lib raster_vector_rejects_malformed_gap_bridging_options_before_cad_creation -- --nocapture
