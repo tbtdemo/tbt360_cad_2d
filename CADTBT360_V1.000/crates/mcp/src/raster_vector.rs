@@ -877,6 +877,39 @@ pub fn preview(args: &Value) -> Result<Value, String> {
                 "classification":"human-confirmed-cad-drafting-block-not-semantic-door"}));
         }
     }
+    let create_window_blocks=args["createWindowBlocks"].as_bool().unwrap_or(false);
+    if create_window_blocks && (!args["windowSashHints"].as_bool().unwrap_or(false) ||
+        !args["confirmWindowBlocks"].as_bool().unwrap_or(false)) {
+        return Err("createWindowBlocks requires windowSashHints=true and confirmWindowBlocks=true; no CAD changes made".into());
+    }
+    if create_window_blocks && args["createWindowGuidePolylines"].as_bool().unwrap_or(false) {
+        return Err("Choose window Block or window PLINE guide, not both, to avoid duplicate geometry; no CAD changes made".into());
+    }
+    // The source raster lines stay separate. Only the NEW closed frame and two
+    // sash LINEs are grouped into a human-confirmed CAD BLOCK/INSERT.
+    let mut window_block_drafts=Vec::new();
+    if create_window_blocks {
+        for opening in paired_openings.iter().filter(|o|o["windowSashCandidate"]==true) {
+            let Some(frame)=opening["outlineCAD"].as_array() else {continue};
+            if frame.len()!=4 {continue;}
+            let Some(indices)=opening["windowSashEvidence"]["sourceLineIndices"].as_array() else {continue};
+            if indices.len()!=2 {continue;}
+            let mut rails=Vec::new();
+            for index in indices {
+                let Some(source)=index.as_u64().and_then(|i|usize::try_from(i).ok()).and_then(|i|lines.get(i)) else {
+                    return Err("Window sash source line index changed; no CAD edits made".into());
+                };
+                let points=[[source.x0,source.y0],[source.x1,source.y1]];
+                let world:Vec<[f64;2]>=points.iter().map(|p|[ox+p[0]*scale,oy+(f64::from(height)-p[1])*scale]).collect();
+                if world.iter().flatten().any(|x|!x.is_finite()||x.abs()>1.0e12) {
+                    return Err("Window sash coordinates exceed safe CAD bounds; no edits made".into());
+                }
+                rails.push(json!(world));
+            }
+            window_block_drafts.push(json!({"base":frame[0],"frame":frame,"rails":rails,
+                "classification":"human-confirmed-window-drafting-block-not-semantic-window"}));
+        }
+    }
     let create_window_guides=args["createWindowGuidePolylines"].as_bool().unwrap_or(false);
     if create_window_guides && (!args["windowSashHints"].as_bool().unwrap_or(false)
         || !args["confirmWindowGuides"].as_bool().unwrap_or(false)) {
@@ -968,6 +1001,9 @@ pub fn preview(args: &Value) -> Result<Value, String> {
         "windowGuidePolylineCount":window_guides.len(),
         "windowGuidePolylinesRequested":create_window_guides,
         "windowGuidePolylines":window_guides,
+        "windowBlockDraftCount":window_block_drafts.len(),
+        "windowBlocksRequested":create_window_blocks,
+        "windowBlockDrafts":window_block_drafts,
         "doorSwingArcsProposed":door_arcs.len(),"doorSwingArcsRequested":create_door_arcs,
         "doorSwingArcs":door_arcs,
         "doorBlockDraftCount":door_blocks.len(),"doorBlocksRequested":create_door_blocks,
@@ -997,6 +1033,9 @@ pub fn preview(args: &Value) -> Result<Value, String> {
 /// MCP entry point. The same preview function powers the desktop's AI drawing panel.
 pub fn run(b: &mut dyn Backend, args: &Value) -> Result<Value, String> {
     let proposal = preview(args)?;
+    if args["createWindowBlocks"].as_bool().unwrap_or(false) {
+        return Err("createWindowBlocks is currently supported only by the desktop AI panel; MCP Block commit requires transaction ownership validation".into());
+    }
     if args["createDoorBlocks"].as_bool().unwrap_or(false) {
         return Err("createDoorBlocks is currently supported by the desktop AI panel; MCP must use ARC drafts until block transaction ownership is implemented".into());
     }
@@ -1476,6 +1515,38 @@ mod tests {
         window_sash_evidence(&mut door,&[leaf,rail1,rail2]);
         assert_eq!(door[0]["doorLeafCandidate"],true);
         assert_ne!(door[0]["windowSashCandidate"],true,"door evidence must suppress window guesses");
+    }
+
+    #[test]
+    fn ai_real_png_confirmed_window_block_draft_preserves_source_lines_and_rejects_mcp_commit() {
+        let mut img=image::RgbImage::from_pixel(110,48,image::Rgb([255,255,255]));
+        for y in [15,22] {for x in 5..=39 {img.put_pixel(x,y,image::Rgb([0,0,0]));}
+            for x in 51..=95 {img.put_pixel(x,y,image::Rgb([0,0,0]));}}
+        for y in [17,20] {for x in 39..=51 {img.put_pixel(x,y,image::Rgb([0,0,0]));}}
+        let path=std::env::temp_dir().join(format!("cad360-window-block-{}-{}.png",std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        img.save(&path).unwrap();
+        let mut args=json!({"path":path.to_string_lossy(),"minLengthPixels":8,"includeDiagonals":false,
+            "openingGapHints":true,"pairedWallOpeningHints":true,"windowSashHints":true,
+            "maxGapPixels":0,"unitsPerPixel":2.0,"createWindowBlocks":true});
+        assert!(preview(&args).unwrap_err().contains("confirmWindowBlocks=true"));
+        args["confirmWindowBlocks"]=json!(true);
+        let proposal=preview(&args).unwrap();
+        assert_eq!(proposal["windowBlockDraftCount"],1);
+        let draft=&proposal["windowBlockDrafts"][0];
+        assert_eq!(draft["frame"].as_array().unwrap().len(),4);
+        assert_eq!(draft["rails"].as_array().unwrap().len(),2);
+        assert_eq!(draft["classification"],"human-confirmed-window-drafting-block-not-semantic-window");
+        assert!(proposal["lines"].as_array().unwrap().len()>=6,"original raster sash and wall lines remain");
+        assert_eq!(proposal["editableEntitiesCreated"],0);
+        let mut backend=crate::backend::Headless::default();
+        args["preview"]=json!(false);
+        assert!(run(&mut backend,&args).unwrap_err().contains("desktop AI panel"));
+        assert_eq!(backend.session.doc().unwrap().entity_count(),0);
+        args["createWindowGuidePolylines"]=json!(true);
+        args["confirmWindowGuides"]=json!(true);
+        assert!(preview(&args).unwrap_err().contains("not both"));
+        let _=std::fs::remove_file(path);
     }
 
     #[test]
