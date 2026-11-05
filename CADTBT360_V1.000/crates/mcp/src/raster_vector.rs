@@ -948,32 +948,50 @@ pub fn preview(args: &Value) -> Result<Value, String> {
         || v[1][1].as_f64().is_none_or(|n| !n.is_finite() || n.abs() > 1.0e12)) {
         return Err("Computed CAD coordinates are outside safety bounds; no changes made".into());
     }
-    Ok(json!({"preview":true,"recognition":"automatic-raster-line-strokes","model":"deterministic-pixel-vectorization-not-neural-AI",
+    // Separate small JSON objects avoid serde_json::json! expansion beyond
+    // Rust's default macro recursion limit as AI preview fields grow.
+    let mut result=json!({
+        "preview":true,"recognition":"automatic-raster-line-strokes",
+        "model":"deterministic-pixel-vectorization-not-neural-AI",
         "imageSize":[width,height],"strokes":count,"sourceStrokes":source_strokes,
         "bridgedGaps":bridged_gaps,"maxGapPixels":gap_pixels,
-        "openingGapCandidates":gaps_hint,"openingGapCandidateCount":gaps_hint.len(),
-        "pairedWallOpeningCandidates":paired_openings,"pairedWallOpeningCandidateCount":paired_openings.len(),
+        "openingGapCandidateCount":gaps_hint.len(),"openingGapCandidates":gaps_hint,
+        "pairedWallOpeningCandidateCount":paired_openings.len(),
         "doorLeafCandidateCount":paired_openings.iter().filter(|v|v["doorLeafCandidate"]==true).count(),
+        "windowSashCandidateCount":paired_openings.iter().filter(|v|v["windowSashCandidate"]==true).count()
+    });
+    let opening_guides_preview=if create_opening_guides {paired_openings.iter().map(|v|v["outlineCAD"].clone()).collect::<Vec<_>>()} else {Vec::new()};
+    let architectural=json!({
+        "pairedWallOpeningCandidates":paired_openings,
         "doorLeafHintsRequested":args["doorLeafHints"].as_bool().unwrap_or(false),
-        "windowSashCandidateCount":paired_openings.iter().filter(|v|v["windowSashCandidate"]==true).count(),
         "windowSashHintsRequested":args["windowSashHints"].as_bool().unwrap_or(false),
-        "windowGuidePolylines":window_guides,"windowGuidePolylineCount":window_guides.len(),
+        "windowGuidePolylineCount":window_guides.len(),
         "windowGuidePolylinesRequested":create_window_guides,
-        "doorSwingArcs":door_arcs,"doorSwingArcsProposed":door_arcs.len(),
-        "doorSwingArcsRequested":create_door_arcs,
-        "doorBlockDrafts":door_blocks,"doorBlockDraftCount":door_blocks.len(),
-        "doorBlocksRequested":create_door_blocks,
-        "openingGuidePolylines":if create_opening_guides {paired_openings.iter().map(|v|v["outlineCAD"].clone()).collect::<Vec<_>>()} else {Vec::new()},
+        "windowGuidePolylines":window_guides,
+        "doorSwingArcsProposed":door_arcs.len(),"doorSwingArcsRequested":create_door_arcs,
+        "doorSwingArcs":door_arcs,
+        "doorBlockDraftCount":door_blocks.len(),"doorBlocksRequested":create_door_blocks,
+        "doorBlockDrafts":door_blocks
+    });
+    let geometry=json!({
+        "openingGuidePolylines":opening_guides_preview,
         "openingGuidePolylinesRequested":create_opening_guides,
         "minOpeningGapPixels":opening_min,"maxOpeningGapPixels":opening_max,
-        "wallPairHints":wall_hints,"wallPairCandidateCount":wall_hints.len(),
+        "wallPairCandidateCount":wall_hints.len(),"wallPairHints":wall_hints,
         "minWallSpacingPixels":min_wall_spacing,"maxWallSpacingPixels":max_wall_spacing,
-        "wallCenterlines":world_axes,"wallCenterlinesProposed":axes.len(),
-        "wallCenterlineJunctions":junctions,"wallCenterlineJunctionCount":junctions.len(),
+        "wallCenterlinesProposed":axes.len(),"wallCenterlines":world_axes,
+        "wallCenterlineJunctionCount":junctions.len(),"wallCenterlineJunctions":junctions,
         "lines":world,"closedPolylines":world_rectangles,"rectanglesDetected":candidates.len(),
         "closedRectangles":args["closedRectangles"].as_bool().unwrap_or(false),
-        "editableEntitiesCreated":0,
-        "source":path,"caution":"Review vectors before committing; line recognition is not semantic building interpretation"}))
+        "editableEntitiesCreated":0,"source":path,
+        "caution":"Review vectors before committing; line recognition is not semantic building interpretation"
+    });
+    let Some(dst)=result.as_object_mut() else {unreachable!("preview JSON is an object")};
+    for extra in [architectural,geometry] {
+        let Value::Object(fields)=extra else {unreachable!("preview JSON section is an object")};
+        dst.extend(fields);
+    }
+    Ok(result)
 }
 
 /// MCP entry point. The same preview function powers the desktop's AI drawing panel.
