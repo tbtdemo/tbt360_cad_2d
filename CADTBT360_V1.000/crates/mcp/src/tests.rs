@@ -708,3 +708,44 @@ fn ai_image_mcp_inspect_exposes_revision_and_undo_safety_state() {
     assert_eq!(after["revision"],revision+1);
     assert_eq!(after["undoGroupOpen"],false);
 }
+
+
+#[test]
+fn ai_auto_raster_mcp_document_switch_must_not_undo_unrelated_new_drawing() {
+    use crate::Backend;
+    use image::{GrayImage, Luma};
+    struct SwitchAfterFirstLine { inner: Headless, first_line: bool, switched: bool }
+    impl Backend for SwitchAfterFirstLine {
+        fn call(&mut self, method: &str, params: Value) -> Result<Value, String> {
+            if method == "drawing.inspect" && self.first_line && !self.switched {
+                self.switched = true;
+                self.inner.call("engine.execute", json!({"command":"new","params":{"metric":true}}))?;
+                self.inner.call("engine.execute", json!({"command":"line","params":{"points":[[100,100],[200,100]]}}))?;
+            }
+            let r = self.inner.call(method, params.clone());
+            if method == "engine.execute" && params["command"] == "line" && !self.switched && r.is_ok() {
+                self.first_line = true;
+            }
+            r
+        }
+        fn has_ui(&self) -> bool { false }
+        fn describe(&self) -> String { "injected document switch during AI import".into() }
+    }
+    let mut image = GrayImage::from_pixel(90,70,Luma([255]));
+    for x in 10..=72 { image.put_pixel(x,15,Luma([0])); }
+    for x in 10..=72 { image.put_pixel(x,45,Luma([0])); }
+    let filename = format!("cad360-ai-switch-{}-{}.png",std::process::id(),
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos());
+    let file = std::env::temp_dir().join(filename);
+    image.save(&file).unwrap();
+    let mut backend = SwitchAfterFirstLine { inner:Headless::default(),first_line:false,switched:false };
+    let original_uid = backend.inner.session.state().unwrap().uid;
+    let result = crate::raster_vector::run(&mut backend,&json!({"path":file.to_string_lossy(),
+        "preview":false,"minLengthPixels":12,"includeDiagonals":false}));
+    assert!(result.as_ref().is_err_and(|e| e.contains("no END or UNDO")), "{result:?}");
+    assert!(backend.switched);
+    assert_ne!(backend.inner.session.state().unwrap().uid,original_uid);
+    assert_eq!(backend.inner.session.doc().unwrap().entity_count(),1,
+        "switching to another drawing must not erase the unrelated LINE");
+    let _ = std::fs::remove_file(file);
+}
