@@ -503,9 +503,34 @@ fn wall_panel_junction_qa(panels: &[Value], openings: &[Value], columns: &[Value
         let advised=if is_t && touches {"review-endpoint-snap-without-edit"}
             else if is_t {"manual-geometry-review-required"}
             else {"review-crossing-overlap-without-edit"};
+        // Show before/after evidence for a short, unambiguous endpoint correction.
+        // Never infer a long extension, move a crossing wall or write CAD entities here.
+        let mut edit_preview=Vec::<Value>::new();
+        if is_t {
+            for (position,&index) in center_indices.iter().enumerate() {
+                let line=lines.get(index)?;
+                let tips=[[line.x0,line.y0],[line.x1,line.y1]];
+                let distances=[(tips[0][0]-x).hypot(tips[0][1]-y),(tips[1][0]-x).hypot(tips[1][1]-y)];
+                let endpoint=if distances[0]<distances[1] {0} else {1};
+                let distance=distances[endpoint];
+                if distance<=0.05 || distance>1.0 || (distances[0]-distances[1]).abs()<=0.05 {continue;}
+                let before=tips[endpoint];let after=[x,y];
+                // Reject even short preview strokes that intersect a protected region.
+                let blocked=openings.iter().chain(columns).any(|region| {
+                    inside(&json!(before),region) || inside(&json!([(before[0]+x)*0.5,(before[1]+y)*0.5]),region) || inside(&json!(after),region)
+                });
+                if blocked {continue;}
+                edit_preview.push(json!({"panelIndex":original_indices[position],
+                    "endpoint":if endpoint==0 {"start"} else {"end"},
+                    "beforePixels":before,"afterPixels":after,
+                    "distancePixels":distance,"operation":"endpoint-snap-preview-only",
+                    "canAutoApply":false}));
+            }
+        }
         Some(json!({"panelIndices":original_indices,"pointPixels":j["pointPixels"],
             "kind":j["kind"],"classification":"observed-wall-panel-junction-preview-only",
             "endpointDistancesPixels":endpoint_distances,
+            "editPreview":edit_preview,
             "proposedEditAction":advised,"canAutoApply":false,
             "guardrails":["no-opening-bridge","no-column-overwrite","no-unconfirmed-trim-or-extend"],
             "requiresHumanReview":true}))
@@ -1349,6 +1374,21 @@ pub fn preview(args: &Value) -> Result<Value, String> {
     // Provide CAD coordinates for selecting junctions in the native Preview.
     // These values are evidence only; they are never submitted as mutation commands.
     for junction in &mut wall_panel_junctions {
+        if let Some(previews)=junction["editPreview"].as_array().cloned() {
+            let mut enriched=Vec::new();
+            for mut item in previews {
+                let convert=|pixels:&Value|->Option<Value> {
+                    let (x,y)=(pixels[0].as_f64()?,pixels[1].as_f64()?);
+                    let (wx,wy)=(ox+x*scale,oy+(f64::from(height)-y)*scale);
+                    (wx.is_finite() && wy.is_finite() && wx.abs()<=1.0e12 && wy.abs()<=1.0e12).then(||json!([wx,wy]))
+                };
+                let (Some(before),Some(after))=(convert(&item["beforePixels"]),convert(&item["afterPixels"])) else {continue;};
+                item["beforeCAD"]=before;item["afterCAD"]=after;
+                item["distanceCAD"]=json!(item["distancePixels"].as_f64().unwrap_or(0.0)*scale);
+                enriched.push(item);
+            }
+            junction["editPreview"]=json!(enriched);
+        }
         let (Some(x),Some(y))=(junction["pointPixels"][0].as_f64(),junction["pointPixels"][1].as_f64()) else {continue;};
         let (wx,wy)=(ox+x*scale,oy+(f64::from(height)-y)*scale);
         if wx.is_finite() && wy.is_finite() && wx.abs()<=1.0e12 && wy.abs()<=1.0e12 {
@@ -1931,6 +1971,14 @@ mod tests {
         assert_eq!(t[0]["canAutoApply"],false);
         assert_eq!(t[0]["proposedEditAction"],"review-endpoint-snap-without-edit");
         assert_eq!(t[0]["endpointDistancesPixels"].as_array().map(Vec::len),Some(2));
+        assert_eq!(t[0]["editPreview"].as_array().map(Vec::len),Some(0),"already aligned endpoint must not create a phantom change");
+        let offset_t=panel([[45.0,24.5],[55.0,24.5],[55.0,60.0],[45.0,60.0]]);
+        let plan=wall_panel_junction_qa(&[horizontal.clone(),offset_t],&[],&[]);
+        assert_eq!(plan.len(),1);
+        assert_eq!(plan[0]["editPreview"].as_array().map(Vec::len),Some(1));
+        assert_eq!(plan[0]["editPreview"][0]["panelIndex"],1);
+        assert_eq!(plan[0]["editPreview"][0]["canAutoApply"],false);
+        assert_eq!(plan[0]["editPreview"][0]["distancePixels"],0.5);
         assert_eq!(cross[0]["proposedEditAction"],"review-crossing-overlap-without-edit");
         assert_eq!(cross[0]["canAutoApply"],false);
         let opening=panel([[40.0,18.0],[60.0,18.0],[60.0,32.0],[40.0,32.0]]);
