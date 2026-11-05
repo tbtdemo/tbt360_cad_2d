@@ -550,3 +550,27 @@ fn ai_auto_raster_to_cad_refuses_missing_file_without_mutation() {
     assert_eq!(rejected["result"]["isError"], true);
     assert_eq!(tool(&mut s, "query_entities", json!({"type":"Line"}))["count"], 0);
 }
+
+
+#[test]
+fn ai_auto_raster_diagonal_png_creates_editable_line_without_pixel_coordinates() {
+    use image::{GrayImage, Luma};
+    let mut pixels = GrayImage::from_pixel(64, 64, Luma([255]));
+    for x in 8..=48 { pixels.put_pixel(x, x, Luma([0])); }
+    let name = format!("cad360-ai-diagonal-{}-{}.png", std::process::id(),
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos());
+    let path = std::env::temp_dir().join(name);
+    pixels.save(&path).unwrap();
+    let filename = path.to_string_lossy().to_string();
+    let mut s = Server::new(Box::new(Headless::default()));
+    let disabled = tool(&mut s, "raster_to_cad_lines", json!({"path":filename,"includeDiagonals":false,"minLengthPixels":12}));
+    assert_eq!(disabled["strokes"], 0, "45-degree stroke should not be falsely classified as horizontal/vertical");
+    let preview = tool(&mut s, "raster_to_cad_lines", json!({"path":filename,"includeDiagonals":true,"minLengthPixels":12}));
+    assert_eq!(preview["strokes"], 1, "diagonal should be recognized automatically: {preview}");
+    assert_eq!(preview["editableEntitiesCreated"], 0);
+    assert_eq!(tool(&mut s, "query_entities", json!({"type":"Line"}))["count"], 0);
+    let applied = tool(&mut s, "raster_to_cad_lines", json!({"path":filename,"includeDiagonals":true,"preview":false,"minLengthPixels":12}));
+    assert_eq!(applied["editableEntitiesCreated"], 1);
+    assert_eq!(tool(&mut s, "query_entities", json!({"type":"Line"}))["count"], 1);
+    let _ = std::fs::remove_file(path);
+}
