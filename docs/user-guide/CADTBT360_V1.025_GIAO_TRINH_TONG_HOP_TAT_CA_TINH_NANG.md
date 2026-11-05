@@ -1049,3 +1049,27 @@ Mục tiêu quan trọng nhất của đợt này là chuyển từ việc **ch�
 7. Lưu ảnh chụp GUI thật, biên bản từng ca nghiệm thu và mã SHA. Nếu chưa có bằng chứng này, ghi **Chưa nghiệm thu GUI**, ngay cả khi workflow Success.
 
 **Trạng thái đợt 197:** Mã nguồn workflow đã sửa để tăng khả năng chẩn đoán và xác nhận hồi quy Xref/DWG/BIM. Chưa có bằng chứng GitHub Actions Success mới, chưa có Setup/Portable được xác nhận chạy trên Windows sạch. Không gọi bản nguồn này là bản EXE đã hoàn thiện.
+
+
+## 38. Đợt 198 — Sửa lỗi Rust E0425 trong bài kiểm thử hướng dẫn
+
+**Bài 60 — Kiểm tra import trong module `#[cfg(test)]`**
+
+1. Mở `CADTBT360_V1.000/apps/cadcraft/src/main.rs`, tìm bài test `complete_user_manual_is_found_in_setup_and_portable_paths`.
+2. Bản trước có câu lệnh `let paths = full_user_guide_candidates(root);`, khiến biên dịch test thất bại `E0425` vì hàm ở module cha không nằm trong phạm vi hiện tại.
+3. Bản sửa: `let paths = super::full_user_guide_candidates(root);`. Giữ các assertion kiểm tra vị trí giáo trình trong thư mục Setup/Portable.
+4. Chạy tại `CADTBT360_V1.000`: `cargo check --locked -p cadcraft --tests`. Sau đó chạy `cargo test --locked -p cadcraft --bin cadcraft complete_user_manual_is_found_in_setup_and_portable_paths -- --nocapture`.
+5. Đối chiếu GitHub run 42031101855 (SHA 32ec8c80) để nhận diện lỗi gốc. Bản sửa đã được đẩy ở commit `7ada49a7832974154ab700f644bedaa398eee3eb`. Việc đẩy mã không đồng nghĩa Windows test đã PASS.
+
+## 39. Đợt 199 — Bắt lỗi biên dịch bài test từ Preflight Windows
+
+**Bài 61 — Đọc và khắc phục lỗi Cargo test-target trước khi đóng gói**
+
+1. Workflow: `.github/workflows/cad360-v1025-release.yml`, nhánh `feature/CADTBT360_V1.025_xref-regression`.
+2. Ở Preflight, sau khi `cargo check --locked -p cadcraft --bin cadcraft` thành công, chạy thêm `cargo check --locked -p cadcraft --tests`.
+3. Kết quả được ghi riêng vào `dist/v1025/diagnostics/CARGO_CHECK_GUI_TESTS.log`; nếu mã kiểm thử không biên dịch, workflow phải dừng ngay với thông báo chỉ tới tệp log.
+4. Khi có lỗi `E0425`, đọc đường dẫn và số dòng, kiểm tra `use super::...` hoặc tham chiếu `super::function_name(...)`. Không vô hiệu hóa bài kiểm thử để qua CI.
+5. Khi các bài test biên dịch được, tiếp tục kiểm tra AI ảnh→CAD, DWG/Xref, BIM Workspace và bộ cài; Preflight PASS chỉ chứng minh biên dịch mã, **không** chứng minh GUI, AI hay DWG đã nghiệm thu.
+6. Mỗi lượt phát hành phải giữ nguyên số phiên bản V1.025 cho đến khi có quyết định tăng phiên bản; số đợt 199 là số đợt công việc, không phải phiên bản sản phẩm mới.
+
+**Trạng thái nghiệm thu đợt 199:** Đã cập nhật mã kiểm tra CI. Chưa ghi nhận Windows Setup/Portable và AI GUI PASS trước khi có kết quả đầy đủ trên đúng SHA và kiểm thử Windows độc lập.
