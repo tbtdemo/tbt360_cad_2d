@@ -16,8 +16,22 @@ pub struct State {
     error: Option<String>,
     min_length: u32,
     scale: f64,
+    calibration_pixels: f64,
+    calibration_length: f64,
     include_diagonals: bool,
     arbitrary_angles: bool,
+}
+
+/// Compute world units per pixel from a known measured dimension.
+fn calibrated_units_per_pixel(pixel_distance: f64, cad_length: f64) -> Result<f64, &'static str> {
+    if !pixel_distance.is_finite() || !cad_length.is_finite() || pixel_distance <= 0.0 || cad_length <= 0.0 {
+        return Err("Khoảng pixel và chiều dài CAD phải là các số hữu hạn lớn hơn 0.");
+    }
+    let value = cad_length / pixel_distance;
+    if !value.is_finite() || !(0.000001..=1_000_000.0).contains(&value) {
+        return Err("Tỷ lệ CAD/pixel vượt phạm vi cho phép (0.000001 đến 1000000).");
+    }
+    Ok(value)
 }
 
 impl State {
@@ -91,6 +105,32 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
                 if ui.add(egui::DragValue::new(&mut state.min_length).range(2..=4096)).changed() { state.preview = None; }
                 ui.label("Đơn vị CAD/pixel");
                 if ui.add(egui::DragValue::new(&mut state.scale).speed(0.01).range(0.000001..=1_000_000.0)).changed() { state.preview = None; }
+            });
+            ui.group(|ui| {
+                ui.label("Hiệu chuẩn tỷ lệ theo chiều dài đã biết (không tự nhận dạng kích thước):");
+                ui.horizontal(|ui| {
+                    ui.label("Khoảng cách trên ảnh (pixel)");
+                    ui.add(egui::DragValue::new(&mut state.calibration_pixels).speed(1.0).range(0.0..=1_000_000.0));
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Chiều dài thực (đơn vị CAD)");
+                    ui.add(egui::DragValue::new(&mut state.calibration_length).speed(1.0).range(0.0..=1_000_000_000.0));
+                });
+                if ui.button("Tính tỷ lệ từ đoạn chuẩn").clicked() {
+                    match calibrated_units_per_pixel(state.calibration_pixels, state.calibration_length) {
+                        Ok(value) => {
+                            state.scale = value;
+                            state.preview = None;
+                            state.preview_document_uid = None;
+                            state.preview_revision = None;
+                            state.preview_document_epoch = None;
+                            state.error = None;
+                            cad.set_status(format!("Đã hiệu chuẩn AI: 1 pixel = {value:.6} đơn vị CAD. Nhấn Preview lại."));
+                        }
+                        Err(error) => state.error = Some(error.to_string()),
+                    }
+                }
+                ui.small("Đo khoảng pixel giữa hai điểm tham chiếu trong ảnh; nhập chiều dài thực cùng đơn vị bản vẽ. Tỷ lệ = chiều dài thực / số pixel.");
             });
             ui.horizontal(|ui| {
                 if ui.checkbox(&mut state.include_diagonals, "Nét 45°").changed() { state.preview = None; }
@@ -268,6 +308,27 @@ mod tests {
         assert!(state.open);
         assert!(state.show_help);
         assert_eq!(state.params()["preview"], true);
+    }
+
+    #[test]
+    fn ai_raster_calibration_uses_known_length_and_pixel_distance() {
+        let scale = calibrated_units_per_pixel(50.0, 500.0).unwrap();
+        assert!((scale - 10.0).abs() < 1.0e-12);
+        let mut state = State::default();
+        state.open();
+        state.scale = scale;
+        assert_eq!(state.params()["unitsPerPixel"], 10.0);
+        assert_eq!(state.params()["preview"], true);
+    }
+
+    #[test]
+    fn ai_raster_calibration_rejects_zero_nan_and_oversize_ratio() {
+        assert!(calibrated_units_per_pixel(0.0, 500.0).is_err());
+        assert!(calibrated_units_per_pixel(-2.0, 500.0).is_err());
+        assert!(calibrated_units_per_pixel(50.0, f64::NAN).is_err());
+        assert!(calibrated_units_per_pixel(f64::INFINITY, 500.0).is_err());
+        assert!(calibrated_units_per_pixel(0.0000001, 500.0).is_err());
+        assert!(calibrated_units_per_pixel(100000000.0, 0.1).is_err());
     }
 
     #[test]
