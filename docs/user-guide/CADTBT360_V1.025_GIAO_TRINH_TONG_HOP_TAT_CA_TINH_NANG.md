@@ -1179,3 +1179,23 @@ Mục tiêu quan trọng nhất của đợt này là chuyển từ việc **ch�
 5. Windows CI có thêm bước phát hiện tên test và bắt buộc chạy test trước khi đóng gói. Cần kiểm tra log đúng SHA, không đồng nhất "đã viết test" với "test đã PASS".
 
 **Trạng thái đợt 204:** Đã sửa xử lý tham số và bổ sung kiểm thử tự động trong mã nguồn/CI. Đây là xác thực tham số vector hóa, **không phải** chức năng AI nhận dạng ngữ nghĩa tường, cửa hoặc cột hoàn chỉnh. Setup EXE và tương thích DWG AutoCAD hai chiều vẫn cần nghiệm thu thực tế.
+
+
+## 45. Đợt 205 — Chống sai tỷ lệ CAD khi AI đọc ảnh PNG/JPEG
+
+### Bài 72 — Kiểm soát đơn vị CAD trên mỗi pixel
+
+1. Trong công cụ AI raster-to-CAD hoặc MCP, đặt `unitsPerPixel` theo tỷ lệ hiệu chuẩn bản vẽ. Ví dụ `0.5` tạo một nửa đơn vị CAD cho mỗi pixel; `2.0` tạo hai đơn vị CAD cho mỗi pixel.
+2. Nếu không khai báo tham số, hệ thống vẫn mặc định `1.0` để duy trì tương thích cũ. Trước khi Commit phải xác nhận tỷ lệ dự kiến.
+3. Nếu khai báo `"2"` (chuỗi), `null`, `false`, `0` hoặc số âm, AI từ chối với thông báo `unitsPerPixel`, không tự biến thành `1.0` vì có thể tạo các đối tượng CAD sai kích thước.
+4. Nhận dạng khoảng mở, kích thước theo đơn vị CAD và kết quả LINE/PLINE đều phải dùng cùng hệ số hiệu chuẩn hợp lệ; kiểm tra kích thước thực tế trước khi lưu DWG.
+
+### Bài 73 — Kiểm thử dữ liệu tỷ lệ sai trước khi tạo CAD
+
+1. Tạo PNG thử nghiệm 64×32, dùng bài test `raster_vector_rejects_invalid_explicit_cad_scale_before_geometry` trong `crates/mcp/src/raster_vector.rs`.
+2. Thử `"2"`, `null`, `false`, `0` và `-1`: tất cả phải bị từ chối trước khi tạo bản vẽ.
+3. Thử số hợp lệ `0.5`, `2.0` và xác nhận AI Preview tiếp tục hoạt động.
+4. Chạy `cargo test --locked -p cadcraft-mcp --lib raster_vector_rejects_invalid_explicit_cad_scale_before_geometry -- --nocapture`.
+5. Windows CI đã bổ sung phát hiện tên test và chạy bắt buộc. Chỉ kết luận PASS khi GitHub Actions của đúng SHA thành công.
+
+**Trạng thái đợt 205:** Đã cập nhật kiểm tra tham số hiệu chuẩn ảnh→CAD cùng test hồi quy và workflow Windows. Chưa xác nhận khả năng dựng tường/cửa/cột theo ngữ nghĩa, GUI chạy thực tế hoặc tương thích DWG AutoCAD hai chiều.
