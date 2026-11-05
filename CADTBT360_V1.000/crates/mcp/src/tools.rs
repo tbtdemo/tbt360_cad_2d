@@ -112,9 +112,12 @@ fn trace_segments_intersect(a: (f64, f64), b: (f64, f64), c: (f64, f64), d: (f64
         (b.0 - a.0) * (c.1 - a.1) - (b.1 - a.1) * (c.0 - a.0)
     }
     fn between(a: (f64,f64), b: (f64,f64), p: (f64,f64)) -> bool {
-        let tolerance = 1.0e-10 * (a.0.abs().max(a.1.abs()).max(b.0.abs()).max(b.1.abs()).max(1.0));
-        p.0 >= a.0.min(b.0) - tolerance && p.0 <= a.0.max(b.0) + tolerance
-            && p.1 >= a.1.min(b.1) - tolerance && p.1 <= a.1.max(b.1) + tolerance
+        // Use exact segment bounds for collinear overlap. A tolerance based on
+        // absolute drawing coordinates can exceed a whole CAD unit near 1e12
+        // and falsely reject two separate traced objects as overlapping.
+        // Near-zero segment lengths are already rejected by the quality gate.
+        p.0 >= a.0.min(b.0) && p.0 <= a.0.max(b.0)
+            && p.1 >= a.1.min(b.1) && p.1 <= a.1.max(b.1)
     }
     let o1 = orient(a,b,c); let o2 = orient(a,b,d);
     let o3 = orient(c,d,a); let o4 = orient(c,d,b);
