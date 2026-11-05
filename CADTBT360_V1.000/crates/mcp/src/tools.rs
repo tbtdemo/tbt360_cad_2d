@@ -31,6 +31,8 @@ pub fn tool_definitions(has_ui: bool) -> Value {
         json!({"name":"fit_image_controls","description":"Fit raster IMAGE to 3-32 measured pixel/world control points using least-squares scale, rotation and translation. Returns RMS/max residual. Set maxResidual to block inaccurate commits; use preview:true first. Does not correct perspective.", "inputSchema":{"type":"object","properties":{"handle":{"type":"string"},"pixels":{"type":"array","items":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":2},"minItems":3,"maxItems":32},"world":{"type":"array","items":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":2},"minItems":3,"maxItems":32},"preview":{"type":"boolean"},"maxResidual":{"type":"number","minimum":0}},"required":["handle","pixels","world"]}}),
         json!({"name": "trace_quality_check", "description": "Quality-gate a candidate vector trace from image AI BEFORE sending it to trace_image/trace_perspective_image. Geometry only: detect short or duplicate edges and self-intersections, report bounds and segment lengths, without modifying CAD. This does NOT perform visual recognition or prove the trace matches the pixels.", "inputSchema": {"type": "object", "properties": {"points": {"type": "array", "items": {"type": "array", "items": {"type": "number"}, "minItems": 2, "maxItems": 2}, "minItems": 2, "maxItems": 2048}, "closed": {"type": "boolean"}, "minSegmentLength": {"type": "number", "minimum": 0}}, "required": ["points"]}}),
         json!({"name": "trace_image", "description": "Convert points in an attached IMAGE pixel coordinate system into a real editable CAD polyline. Vision inference must happen outside CAD.", "inputSchema": {"type": "object", "properties": {"handle": {"type": "string"}, "points": {"type": "array", "items": {"type": "array", "items": {"type": "number"}, "minItems": 2, "maxItems": 2}, "minItems": 2, "maxItems": 2048}, "closed": {"type": "boolean"}, "preview": {"type": "boolean"}}, "required": ["handle", "points"]}}),
+        json!({"name":"trace_image_validated","description":"AI-safe IMAGE pixel-to-editable-CAD polyline: performs geometry quality checks and rejects malformed, short-segment, or self-crossing traces BEFORE any drawing edit. Supports preview:true; vision recognition must happen outside CAD. minSegmentLength is measured in input IMAGE pixels.", "inputSchema":{"type":"object","properties":{"handle":{"type":"string"},"points":{"type":"array","items":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":2},"minItems":2,"maxItems":2048},"closed":{"type":"boolean"},"preview":{"type":"boolean"},"minSegmentLength":{"type":"number","minimum":0}},"required":["handle","points"]}}),
+        json!({"name":"trace_perspective_image_validated","description":"AI-safe perspective-photo trace: quality-check pixel-space outline before mapping into editable CAD using 4 control pairs. Rejects invalid geometry without modifying CAD, supports preview:true. minSegmentLength uses input pixels; preview and world-space inspection remain recommended.", "inputSchema":{"type":"object","properties":{"handle":{"type":"string"},"pixels":{"type":"array","items":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":2},"minItems":4,"maxItems":4},"world":{"type":"array","items":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":2},"minItems":4,"maxItems":4},"points":{"type":"array","items":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":2},"minItems":2,"maxItems":2048},"closed":{"type":"boolean"},"preview":{"type":"boolean"},"minSegmentLength":{"type":"number","minimum":0}},"required":["handle","pixels","world","points"]}}),
         json!({"name": "find_text", "description": "Read the drawing's texts: TEXT, MTEXT (formatting removed), block attributes and multileaders, each with its text, insertion point `at`, height, rotation, style, layer and handle. Filter by `contains` (any case), `layer` and/or `window` [[x0,y0],[x1,y1]] around the insertion points; page with offset and limit (default 200). Use it to find room names, sheet titles and notes without reading all the geometry.",
             "inputSchema": {"type": "object", "properties": {"contains": {"type": "string"}, "layer": {"type": "string"},
                 "window": {"type": "array", "items": {"type": "array", "items": {"type": "number"}, "minItems": 2, "maxItems": 2}, "minItems": 2, "maxItems": 2},
@@ -122,6 +124,22 @@ fn trace_segments_intersect(a: (f64, f64), b: (f64, f64), c: (f64, f64), d: (f64
         || (o3 == 0.0 && between(c,d,a)) || (o4 == 0.0 && between(c,d,b))
 }
 
+/// An atomic quality gate at the MCP dispatch boundary: no engine command is sent
+/// when AI-generated pixel geometry fails. Preserve ordinary trace commands for
+/// backwards compatibility; agents should prefer the validated variants.
+fn validated_trace(b: &mut dyn Backend, args: &Value, command: &str) -> Result<Value, String> {
+    let quality = check_trace_quality(args);
+    if quality["safeToCommit"] != true {
+        return Err(format!("AI trace rejected before CAD edit: {quality}"));
+    }
+    // This threshold is a quality-gate parameter, not a CAD engine command field.
+    let mut params = args.clone();
+    if let Some(map) = params.as_object_mut() {
+        map.remove("minSegmentLength");
+    }
+    b.call("engine.execute", json!({"command":command,"params":params}))
+}
+
 /// Wrap a JSON value as a successful MCP result containing pretty-printed text.
 fn text(v: &Value) -> Value {
     json!({"content": [{"type": "text", "text": serde_json::to_string_pretty(v).unwrap_or_default()}]})
@@ -211,6 +229,8 @@ pub fn call_tool(b: &mut dyn Backend, name: &str, args: &Value) -> Result<Value,
         "fit_image_controls" => b.call("engine.execute", json!({"command": "imagecalibratefit", "params": a})),
         "calibrate_image" => b.call("engine.execute", json!({"command": "imagecalibrate", "params": a})),
         "trace_quality_check" => return Ok(text(&check_trace_quality(&a))),
+        "trace_image_validated" => validated_trace(b, &a, "imagetrace"),
+        "trace_perspective_image_validated" => validated_trace(b, &a, "imageprojecttrace"),
         "trace_image" => b.call("engine.execute", json!({"command": "imagetrace", "params": a})),
         "find_text" => b.call("engine.execute", json!({"command": "texts", "params": a})),
         "new_drawing" => b.call("engine.execute", json!({"command": "new", "params": a})),
