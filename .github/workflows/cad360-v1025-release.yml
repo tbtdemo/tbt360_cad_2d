@@ -9,6 +9,7 @@ on:
       - 'CADTBT360_V1.000/**'
       - 'scripts/verify_mcp_executable.ps1'
       - 'scripts/validate_mcp_smoke_fixture.py'
+      - 'scripts/verify_source_bundle.py'
       - 'docs/user-guide/**'
   push:
     branches:
@@ -481,8 +482,17 @@ jobs:
           if ($portableDxfDrawing.entityCount -le 0 -or $portableDwgDrawing.entityCount -ne $portableDxfDrawing.entityCount) {
             throw "Portable DXF/DWG entity roundtrip mismatch: DXF=$($portableDxfDrawing.entityCount), DWG=$($portableDwgDrawing.entityCount)"
           }
+          # Release exactly the same committed source as the binaries and guide,
+          # rather than leaving users to reconstruct a moving branch snapshot.
+          $sourceZip = 'dist/v1025/CADTBT360_V1.025_Full_Source.zip'
+          $headSha = (git rev-parse HEAD).Trim()
+          if ($LASTEXITCODE -ne 0 -or $headSha -ne $env:GITHUB_SHA) { throw 'Source checkout SHA differs from release build' }
+          git archive --format=zip --output=$sourceZip HEAD
+          if ($LASTEXITCODE -ne 0 -or !(Test-Path $sourceZip)) { throw 'Failed to archive complete CAD 360 source at release commit' }
+          python scripts/verify_source_bundle.py $sourceZip
+          if ($LASTEXITCODE -ne 0) { throw 'Full source ZIP missing files or differs from the exact release SHA' }
           $hashes = @()
-          foreach ($name in @('CADTBT360_V1.025_Setup_Windows_x64.exe', 'CADTBT360_V1.025_Portable_Windows_x64.zip')) {
+          foreach ($name in @('CADTBT360_V1.025_Setup_Windows_x64.exe', 'CADTBT360_V1.025_Portable_Windows_x64.zip', 'CADTBT360_V1.025_Full_Source.zip')) {
             $h = Get-FileHash (Join-Path 'dist/v1025' $name) -Algorithm SHA256
             $hashes += "$($h.Hash)  $name"
           }
@@ -495,6 +505,7 @@ jobs:
           path: |
             dist/v1025/CADTBT360_V1.025_Setup_Windows_x64.exe
             dist/v1025/CADTBT360_V1.025_Portable_Windows_x64.zip
+            dist/v1025/CADTBT360_V1.025_Full_Source.zip
             dist/v1025/BUILD_INFO.txt
             dist/v1025/SHA256SUMS.txt
             dist/v1025/HUONG_DAN_AI_TU_ANH_THANH_CAD.md
@@ -512,13 +523,14 @@ jobs:
           $assets = @(
             'dist/v1025/CADTBT360_V1.025_Setup_Windows_x64.exe',
             'dist/v1025/CADTBT360_V1.025_Portable_Windows_x64.zip',
+            'dist/v1025/CADTBT360_V1.025_Full_Source.zip',
             'dist/v1025/BUILD_INFO.txt',
             'dist/v1025/SHA256SUMS.txt',
             'dist/v1025/HUONG_DAN_AI_TU_ANH_THANH_CAD.md',
             'dist/v1025/CADTBT360_V1.025_HUONG_DAN_AI_TU_ANH_THANH_CAD.docx'
           )
           foreach ($asset in $assets) { if (!(Test-Path $asset)) { throw "Verified release asset missing: $asset" } }
-          $notes = "CAD 360 Viet Nam V1.025 Windows x64 - verified automated build `nSource commit: $env:GITHUB_SHA`nRun: $env:GITHUB_RUN_ID`nSetup install/uninstall, CLI DXF/DWG roundtrips, real-PNG IMAGE attachment with supplied trace vertices, and Portable hashes checked. Setup/Portable MCP smoke checks real-PNG LINE recognition, grouped Undo, and save/reopen of AI-generated DXF/DWG R2018 using the shipped CLI. Independent AutoCAD interoperability, real-world AI accuracy and manual GUI acceptance are not verified."
+          $notes = "CAD 360 Viet Nam V1.025 Windows x64 - verified automated build `nSource commit: $env:GITHUB_SHA`nRun: $env:GITHUB_RUN_ID`nSetup install/uninstall, CLI DXF/DWG roundtrips, real-PNG IMAGE attachment with supplied trace vertices, and Portable hashes checked. Setup/Portable MCP smoke checks real-PNG LINE recognition, grouped Undo, and save/reopen of AI-generated DXF/DWG R2018 using the shipped CLI. The release also bundles a full-source ZIP from the exact build commit and the editable Vietnamese Word user guide. Independent AutoCAD interoperability, real-world AI accuracy and manual GUI acceptance are not verified."
           gh release create $tag @assets --title "CAD 360 Viet Nam V1.025 - Build $env:GITHUB_RUN_NUMBER" --target $env:GITHUB_SHA --prerelease --notes $notes
           if ($LASTEXITCODE -ne 0) { throw "Failed to publish verified Windows prerelease $tag" }
           # Verify what GitHub actually accepted, not just the local files and
