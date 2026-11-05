@@ -9,6 +9,13 @@ $exe = (Resolve-Path -LiteralPath $Executable).Path
 $report = Join-Path $EvidenceDirectory 'gui-startup-result.json'
 $stdout = Join-Path $EvidenceDirectory 'gui-stdout.log'
 $stderr = Join-Path $EvidenceDirectory 'gui-stderr.log'
+# The native Windows GUI writes diagnostic records to its own settings/logs folder,
+# not only stdout/stderr. Isolate the settings path so this run's log is captured
+# in the evidence artifact without mixing it with prior user or runner data.
+$previousConfigDir = [Environment]::GetEnvironmentVariable('TBT360_CONFIG_DIR', 'Process')
+$appSettingsDir = Join-Path (Resolve-Path -LiteralPath $EvidenceDirectory).Path 'app-settings'
+$appLogPath = Join-Path $appSettingsDir 'logs/cadcraft.log'
+New-Item -ItemType Directory -Path $appSettingsDir -Force | Out-Null
 $p = $null
 $started = [DateTimeOffset]::UtcNow
 $status = 'NOT_VERIFIED'
@@ -24,6 +31,7 @@ $windowRect = $null
 $windowStable = $false
 $executableIdentity = 'NOT_VERIFIED'
 try {
+    [Environment]::SetEnvironmentVariable('TBT360_CONFIG_DIR', $appSettingsDir, 'Process')
     $p = Start-Process -FilePath $exe -WorkingDirectory (Split-Path $exe -Parent) -RedirectStandardOutput $stdout -RedirectStandardError $stderr -PassThru
     $processId = $p.Id
     $sessionId = $p.SessionId
@@ -108,6 +116,7 @@ public static class Cad360GuiEvidence {
     $detail = $_.Exception.Message
     throw
 } finally {
+    [Environment]::SetEnvironmentVariable('TBT360_CONFIG_DIR', $previousConfigDir, 'Process')
     if ($null -ne $p) {
         try {
             $p.Refresh()
@@ -139,6 +148,8 @@ public static class Cad360GuiEvidence {
         windowBounds = $windowRect
         screenshotStatus = $screenshotStatus
         screenshotPixelContentVerified = $false
+        nativeApplicationLog = $appLogPath
+        nativeApplicationLogPresent = (Test-Path -LiteralPath $appLogPath)
         exitCode = $exitCode
         manualGuiAcceptance = 'NOT_VERIFIED'
         independentAutocadInterop = 'NOT_VERIFIED'
