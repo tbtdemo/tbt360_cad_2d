@@ -1060,6 +1060,41 @@ mod tests {
     }
 
     #[test]
+    fn ai_two_png_doors_have_independent_widths_and_validate_stale_review() {
+        let mut img=image::RgbImage::from_pixel(245,48,image::Rgb([255,255,255]));
+        for y in [15,22] {
+            for (begin,end) in [(5,39),(51,95),(135,169),(181,225)] {
+                for x in begin..=end {img.put_pixel(x,y,image::Rgb([0,0,0]));}
+            }
+        }
+        for x in [39,169] {for y in 3..=15 {img.put_pixel(x,y,image::Rgb([0,0,0]));}}
+        let path=std::env::temp_dir().join(format!("cad360-two-door-widths-{}-{}.png",std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        img.save(&path).unwrap();
+        let mut args=json!({"path":path.to_string_lossy(),"minLengthPixels":8,"includeDiagonals":false,
+            "openingGapHints":true,"pairedWallOpeningHints":true,"doorLeafHints":true,
+            "maxGapPixels":0,"maxOpeningGapPixels":20.0,"unitsPerPixel":2.0,
+            "createDoorSwingArcs":true,"confirmDoorSwingArcs":true,"createDoorBlocks":true,"confirmDoorBlocks":true});
+        let original=preview(&args).unwrap();
+        assert_eq!(original["doorBlockDraftCount"],2,"expect exactly two independent openings");
+        let original_lines=original["lines"].clone();
+        args["doorWidthOverridesCAD"]=json!({"1":36.0});
+        let changed=preview(&args).unwrap();
+        assert_eq!(changed["doorBlockDraftCount"],2);
+        assert_eq!(changed["doorBlockDrafts"][0]["widthCAD"],24.0);
+        assert_eq!(changed["doorBlockDrafts"][0]["widthOverridden"],false);
+        assert_eq!(changed["doorBlockDrafts"][1]["widthCAD"],36.0);
+        assert_eq!(changed["doorBlockDrafts"][1]["arc"]["radius"],36.0);
+        assert_eq!(changed["doorBlockDrafts"][1]["sourceOpeningWidthCAD"],24.0);
+        assert_eq!(changed["lines"],original_lines,"reviewed dimensions must not alter vectorized wall/door source strokes");
+        for invalid in [json!({"2":30}),json!({"-1":30}),json!({"01":30}),json!({"0":null}),json!({"0":-2}),json!([30.0])] {
+            args["doorWidthOverridesCAD"]=invalid;
+            assert!(preview(&args).is_err(),"invalid or stale per-door width must fail closed");
+        }
+        let _=std::fs::remove_file(path);
+    }
+
+    #[test]
     fn ai_per_door_width_override_changes_only_selected_door_geometry_and_rejects_stale_indices() {
         let gap=|start:f64,end:f64,y:f64|json!({"fromPixels":[start,y],"toPixels":[end,y]});
         let mut openings=paired_wall_openings(&[
