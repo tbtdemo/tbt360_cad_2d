@@ -613,3 +613,32 @@ Bảng này là **bản đồ học lệnh**, không thay thế bảng **Help �
 | Bản Word thiếu bảng/tên file | Bộ sinh DOCX, kiểm tra định dạng | Thiếu tính năng CAD |
 
 **Giới hạn hiện tại:** Kiểm thử ảnh đơn sắc chỉ xác nhận vector hóa một nét. AI hiểu tường/cửa/cột, chuẩn DWG tương thích AutoCAD, đầy đủ nội dung PDF và chức năng Cloud BIM đều cần bài kiểm thử riêng. Chưa có bằng chứng Windows CI PASS hoặc ảnh chụp giao diện từ EXE mới cho đợt 185.
+
+
+## 26. Đợt 186 — Hiệu chuẩn AI từ ảnh thành CAD theo kích thước đã biết
+
+### Bài 28 — Người mới hiệu chuẩn AI từ khoảng pixel và chiều dài thực
+
+1. Mở bản vẽ thực hành `BT28_AI_HieuChuan.dxf` trong tab **CAD**, chọn **AI TỪ ẢNH → CAD** và nạp ảnh PNG/JPEG đường nét rõ.
+2. Xác định hai điểm chuẩn trên ảnh và **đo khoảng cách giữa hai điểm theo pixel** bằng một công cụ xem ảnh có hiển thị tọa độ; đó là khoảng cách giữa hai vị trí, không phải số pixel tô đen tính cả hai đầu.
+3. Xác định chiều dài thực của cùng đoạn chuẩn theo đơn vị dùng trong bản CAD. Ví dụ hai điểm cách **50 px**, chiều dài thật là **500 mm**.
+4. Trong nhóm **Hiệu chuẩn tỷ lệ theo chiều dài đã biết**, nhập **Khoảng cách trên ảnh (pixel) = 50**, **Chiều dài thực (đơn vị CAD) = 500**, nhấn **Tính tỷ lệ từ đoạn chuẩn**.
+5. CAD 360 tính tỷ lệ **10 CAD unit/pixel** và yêu cầu **Nhận dạng và xem trước** lại. Tỷ lệ được sử dụng cho lần Preview tiếp theo; Preview cũ bị loại để tránh ghi vào sai kích thước.
+6. Quan sát kích thước một nét chuẩn trong Preview; chỉ nhấn **Tạo LINE chỉnh sửa trong CAD** sau khi xác nhận chiều dài và vị trí hợp lý.
+7. Dùng **DIST** hoặc Properties kiểm tra chiều dài đoạn vừa vẽ; ví dụ hai tâm pixel cách nhau 50 px phải cho **500 đơn vị CAD**.
+8. Thử nhập **0 pixel**, **chiều dài 0**, giá trị quá nhỏ/quá lớn hoặc vô hạn bằng dữ liệu thử nghiệm. Phần mềm phải báo từ chối tỷ lệ không hợp lệ và không tự thay đổi nét đã tạo.
+9. Lưu bản sao DXF/DWG và mở lại. Khi kiểm chứng DWG tương thích đầy đủ phải thử bằng AutoCAD độc lập, không chỉ dùng CLI của CAD 360.
+
+**Phạm vi chính xác:** Phương pháp hiệu chuẩn này nhận **hai con số do người dùng đo và nhập**. Đây là bổ sung tương tác để đặt tỷ lệ hình học; **không phải** OCR đọc chữ kích thước và **không phải** AI tự nhận dạng tường, cửa, cột hoặc bản vẽ kiến trúc.
+
+### Bài 29 — Kiểm tra tự động hiệu chuẩn và bộ cài
+
+1. Trong ZIP mã nguồn tại commit đợt 186, vào `CADTBT360_V1.000`, dùng Cargo và Rust toolchain tương thích.
+2. Chạy `cargo test --locked -p cadcraft --bin cadcraft ai_raster_calibration -- --nocapture`.
+3. Kiểm tra bài `ai_raster_calibration_uses_known_length_and_pixel_distance` xác minh **50 px × 10 CAD/pixel = 500 CAD units**, và Preview vẫn không chỉnh sửa bản vẽ.
+4. Kiểm tra bài `ai_raster_calibration_rejects_zero_nan_and_oversize_ratio` từ chối chia cho 0, NaN, Infinity, tỷ lệ quá nhỏ/quá lớn.
+5. Sau khi Rust test đạt, kiểm tra bước tương ứng trong Windows GitHub Actions **CAD 360 V1.025 - Windows Setup Portable**.
+6. Chạy **Setup EXE** và **Portable** từ cùng một lượt build Success, mở nút AI trên GUI thật, nhập số hiệu chuẩn và chụp màn hình kiểm chứng.
+7. So sánh kết quả đo trên DXF/DWG, ghi rõ mã commit và dùng giáo trình Word tổng hợp để đối chiếu.
+
+**Giới hạn nghiệm thu:** Chưa có kết quả Windows CI PASS cho commit đợt 186. Code hiệu chuẩn đã đưa vào giao diện và CI nhưng chưa có ảnh chụp GUI Windows thực tế, chưa xác nhận tất cả thiết bị chạy được.
