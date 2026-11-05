@@ -37,6 +37,8 @@ pub struct State {
     selected_door_number: usize,
     selected_door_width_cad: f64,
     door_width_overrides: std::collections::BTreeMap<usize,f64>,
+    door_hinge_flips: std::collections::BTreeSet<usize>,
+    door_swing_flips: std::collections::BTreeSet<usize>,
     create_opening_guides: bool,
     confirm_opening_guides: bool,
     min_opening_gap: f64,
@@ -97,6 +99,8 @@ impl State {
             "confirmDoorBlocks":self.confirm_door_blocks,
             "doorWidthOverrideCAD":if self.create_door_blocks && self.override_door_width {Some(self.door_width_cad)} else {None},
             "doorWidthOverridesCAD":if self.create_door_blocks && !self.door_width_overrides.is_empty() {Some(&self.door_width_overrides)} else {None},
+            "doorHingeFlips":if self.create_door_blocks && !self.door_hinge_flips.is_empty() {Some(&self.door_hinge_flips)} else {None},
+            "doorSwingFlips":if self.create_door_blocks && !self.door_swing_flips.is_empty() {Some(&self.door_swing_flips)} else {None},
             "createOpeningGuidePolylines":self.create_opening_guides,
             "confirmOpeningGuides":self.confirm_opening_guides,
             "minOpeningGapPixels":self.min_opening_gap,
@@ -106,6 +110,10 @@ impl State {
         }
         if !(self.create_door_blocks && !self.door_width_overrides.is_empty()) {
             params.as_object_mut().expect("AI settings JSON object").remove("doorWidthOverridesCAD");
+        }
+        for (key,enabled) in [("doorHingeFlips",self.create_door_blocks && !self.door_hinge_flips.is_empty()),
+                               ("doorSwingFlips",self.create_door_blocks && !self.door_swing_flips.is_empty())] {
+            if !enabled {params.as_object_mut().expect("AI settings JSON object").remove(key);}
         }
         params
     }
@@ -213,6 +221,8 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
                         state.confirm_door_blocks=false;
                         state.override_door_width=false;
                         state.door_width_overrides.clear();
+                        state.door_hinge_flips.clear();
+                        state.door_swing_flips.clear();
                         state.create_opening_guides=false;
                         state.confirm_opening_guides=false;
                     }
@@ -239,6 +249,8 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
                             state.confirm_door_blocks=false;
                             state.override_door_width=false;
                             state.door_width_overrides.clear();
+                            state.door_hinge_flips.clear();
+                            state.door_swing_flips.clear();
                         }
                         state.preview=None;
                     }
@@ -257,7 +269,10 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
                                 if ui.checkbox(&mut state.confirm_door_swing_arcs, "Tôi xác nhận các cung quay ARC này sau khi xem trước").changed() {state.preview=None;}
                                 ui.small("Cung quay chỉ là hình học có bằng chứng; chưa được xác nhận là cửa BIM.");
                                 if ui.checkbox(&mut state.create_door_blocks, "Gộp cánh LINE + cung ARC thành Block CAD bản nháp").changed() {
-                                    if !state.create_door_blocks {state.confirm_door_blocks=false;state.override_door_width=false;state.door_width_overrides.clear();}
+                                    if !state.create_door_blocks {
+                                        state.confirm_door_blocks=false;state.override_door_width=false;
+                                        state.door_width_overrides.clear();state.door_hinge_flips.clear();state.door_swing_flips.clear();
+                                    }
                                     state.preview=None;
                                 }
                                 if state.create_door_blocks {
@@ -292,6 +307,22 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
                                             ui.small(format!("Cửa số {}: {:.3} đơn vị CAD (đã hiệu chỉnh)",index+1,width));
                                         }
                                         ui.small("Sau khi áp dụng, nhấn Preview lại. Cửa không chọn giữ chiều rộng gốc hoặc chiều rộng chung nếu đã bật.");
+                                        let idx=state.selected_door_number.saturating_sub(1);
+                                        ui.horizontal(|ui| {
+                                            let mut flip_hinge=state.door_hinge_flips.contains(&idx);
+                                            if ui.checkbox(&mut flip_hinge,"Đảo bản lề cửa đã chọn").changed() {
+                                                if flip_hinge {state.door_hinge_flips.insert(idx);}
+                                                else {state.door_hinge_flips.remove(&idx);}
+                                                state.preview=None;
+                                            }
+                                            let mut flip_swing=state.door_swing_flips.contains(&idx);
+                                            if ui.checkbox(&mut flip_swing,"Đảo phía mở cửa đã chọn").changed() {
+                                                if flip_swing {state.door_swing_flips.insert(idx);}
+                                                else {state.door_swing_flips.remove(&idx);}
+                                                state.preview=None;
+                                            }
+                                        });
+                                        ui.small("Đảo bản lề hoặc hướng mở chỉ thay đổi LINE/ARC trong Block bản nháp, không sửa nét từ ảnh.");
                                     });
                                     ui.small("Block tạo bằng LINE và ARC CAD gốc, không phải Block cửa kiến trúc đã kiểm chứng. MCP chưa hỗ trợ commit Block.");
                                 }
@@ -712,6 +743,22 @@ mod tests {
         assert!(calibrated_units_per_pixel(f64::INFINITY, 500.0).is_err());
         assert!(calibrated_units_per_pixel(0.0000001, 500.0).is_err());
         assert!(calibrated_units_per_pixel(100000000.0, 0.1).is_err());
+    }
+
+    #[test]
+    fn ai_door_hinge_swing_gui_requires_door_block_and_preserves_selected_indices() {
+        let mut state=State::default();state.open();
+        assert!(state.params().get("doorHingeFlips").is_none());
+        assert!(state.params().get("doorSwingFlips").is_none());
+        state.create_door_blocks=true;
+        state.door_hinge_flips.insert(1);
+        state.door_swing_flips.insert(0);
+        assert_eq!(state.params()["doorHingeFlips"],json!([1]));
+        assert_eq!(state.params()["doorSwingFlips"],json!([0]));
+        state.create_door_blocks=false;
+        assert!(state.params().get("doorHingeFlips").is_none());
+        assert!(state.params().get("doorSwingFlips").is_none());
+        assert_eq!(state.params()["preview"],true);
     }
 
     #[test]
