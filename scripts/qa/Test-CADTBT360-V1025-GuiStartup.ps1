@@ -29,7 +29,7 @@ try {
     $sessionId = $p.SessionId
     # Confirm the observed process points to the released executable, not a pre-existing CAD process.
     $actualExecutable = $p.MainModule.FileName
-    if ([IO.Path]::GetFullPath($actualExecutable) -ne [IO.Path]::GetFullPath($exe)) { $failureKind = 'EXECUTABLE_IDENTITY_MISMATCH'; throw "Started process executable differs from expected binary: $actualExecutable" }
+    if (-not [string]::Equals([IO.Path]::GetFullPath($actualExecutable), [IO.Path]::GetFullPath($exe), [StringComparison]::OrdinalIgnoreCase)) { $failureKind = 'EXECUTABLE_IDENTITY_MISMATCH'; throw "Started process executable differs from expected binary: $actualExecutable" }
     $executableIdentity = 'MATCHED'
     $deadline = (Get-Date).AddSeconds($WaitSeconds)
     while ((Get-Date) -lt $deadline) {
