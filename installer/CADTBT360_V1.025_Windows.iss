@@ -32,6 +32,7 @@ Source: "..\dist\v1025\CADTBT360_V1.025_HUONG_DAN_AI_TU_ANH_THANH_CAD.docx"; Des
 
 [Icons]
 Name: "{autoprograms}\CAD 360 Viet Nam - TBT"; Filename: "{app}\CADTBT360.exe"
+Name: "{autoprograms}\CAD 360 Viet Nam - TBT - Huong dan AI"; Filename: "{app}\HuongDan\HUONG_DAN_AI_TU_ANH_THANH_CAD.docx"
 Name: "{autodesktop}\CAD 360 Viet Nam - TBT"; Filename: "{app}\CADTBT360.exe"; Tasks: desktopicon
 
 [Tasks]
