@@ -491,3 +491,28 @@ fn ai_trace_quality_large_survey_coordinates_do_not_create_false_overlaps() {
     assert_eq!(overlap["safeToCommit"], false, "truly overlapping segments still fail: {overlap}");
     assert_eq!(overlap["selfIntersections"], json!([[0,2]]));
 }
+
+
+#[test]
+fn ai_trace_quality_large_2048_point_image_trace_filters_disjoint_segments() {
+    let mut s = Server::new(Box::new(Headless::default()));
+    let points: Vec<Value> = (0..2048).map(|i| json!([i as f64, (i % 2) as f64])).collect();
+    let result = tool(&mut s, "trace_quality_check", json!({"points":points,"closed":false,"minSegmentLength":0.001}));
+    assert_eq!(result["safeToCommit"], true, "large AI stroke must remain valid: {result}");
+    assert_eq!(result["pointCount"], 2048);
+    assert_eq!(result["segmentCount"], 2047);
+    assert_eq!(result["selfIntersections"], json!([]));
+    assert_eq!(result["intersectionCandidatePairsTested"], 0, "sweep must skip disjoint segment bounding boxes");
+    assert_eq!(tool(&mut s, "query_entities", json!({"type":"Polyline"}))["count"], 0);
+}
+
+#[test]
+fn ai_trace_quality_broad_phase_preserves_nonadjacent_crossings() {
+    let mut s = Server::new(Box::new(Headless::default()));
+    let result = tool(&mut s, "trace_quality_check", json!({
+        "points":[[0,0],[10,10],[0,10],[10,0]],"closed":true
+    }));
+    assert_eq!(result["safeToCommit"], false);
+    assert_eq!(result["selfIntersections"], json!([[0,2]]));
+    assert!(result["intersectionCandidatePairsTested"].as_u64().is_some_and(|n| n >= 1));
+}
