@@ -265,6 +265,8 @@ jobs:
           @('Release=CADTBT360_V1.025', "SourceCommit=$env:GITHUB_SHA", 'Architecture=windows-x64', 'NativeBuild=true', 'GUIAcceptance=NOT_VERIFIED') | Set-Content dist/v1025/BUILD_INFO.txt -Encoding utf8
           python docs/user-guide/build_word_guide.py docs/user-guide/CADTBT360_V1.025_HUONG_DAN_AI_TU_ANH_THANH_CAD.md dist/v1025/CADTBT360_V1.025_HUONG_DAN_AI_TU_ANH_THANH_CAD.docx
           if ($LASTEXITCODE -ne 0 -or !(Test-Path 'dist/v1025/CADTBT360_V1.025_HUONG_DAN_AI_TU_ANH_THANH_CAD.docx')) { throw 'Cannot build required Word user manual' }
+          python docs/user-guide/build_word_guide.py docs/user-guide/CADTBT360_V1.025_GIAO_TRINH_TONG_HOP_TAT_CA_TINH_NANG.md dist/v1025/CADTBT360_V1.025_GIAO_TRINH_TONG_HOP.docx
+          if ($LASTEXITCODE -ne 0 -or !(Test-Path 'dist/v1025/CADTBT360_V1.025_GIAO_TRINH_TONG_HOP.docx')) { throw 'Cannot build whole-product Word curriculum; AI-only guide is insufficient' }
 
       - name: Package new Setup and Portable
         id: package
@@ -285,6 +287,7 @@ jobs:
           Copy-Item $guide dist/v1025/portable/HUONG_DAN_AI_TU_ANH_THANH_CAD.md
           Copy-Item $guide dist/v1025/HUONG_DAN_AI_TU_ANH_THANH_CAD.md
           Copy-Item dist/v1025/CADTBT360_V1.025_HUONG_DAN_AI_TU_ANH_THANH_CAD.docx dist/v1025/portable/HUONG_DAN_AI_TU_ANH_THANH_CAD.docx
+          Copy-Item dist/v1025/CADTBT360_V1.025_GIAO_TRINH_TONG_HOP.docx dist/v1025/portable/GIAO_TRINH_TONG_HOP_CAD360.docx
           Compress-Archive -Path dist/v1025/portable/* -DestinationPath dist/v1025/CADTBT360_V1.025_Portable_Windows_x64.zip -Force
 
       - name: Smoke test installed application, uninstall and binary identity
@@ -298,7 +301,7 @@ jobs:
           $dirArgument = '/DIR="{0}"' -f $dest
           $proc = Start-Process -FilePath $setup -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', $dirArgument) -Wait -PassThru
           if ($proc.ExitCode -ne 0) { throw "Installer failed with code $($proc.ExitCode)" }
-          foreach ($n in @('CADTBT360.exe', 'CADTBT360_CLI.exe', 'BUILD_INFO.txt', 'HuongDan/HUONG_DAN_AI_TU_ANH_THANH_CAD.md', 'HuongDan/HUONG_DAN_AI_TU_ANH_THANH_CAD.docx')) {
+          foreach ($n in @('CADTBT360.exe', 'CADTBT360_CLI.exe', 'BUILD_INFO.txt', 'HuongDan/HUONG_DAN_AI_TU_ANH_THANH_CAD.md', 'HuongDan/HUONG_DAN_AI_TU_ANH_THANH_CAD.docx', 'HuongDan/GIAO_TRINH_TONG_HOP_CAD360.docx')) {
             if (!(Test-Path (Join-Path $dest $n))) { throw "Installed file missing: $n" }
           }
           $srcGui = (Get-FileHash 'CADTBT360_V1.000/target/release/cadcraft.exe' -Algorithm SHA256).Hash
@@ -415,6 +418,8 @@ jobs:
           if ($installedBuildInfo -notcontains 'Release=CADTBT360_V1.025' -or $installedBuildInfo -notcontains "SourceCommit=$env:GITHUB_SHA" -or $installedBuildInfo -notcontains 'NativeBuild=true') {
             throw "Installed build metadata does not identify this native release commit: $($installedBuildInfo -join '; ')"
           }
+          $installedGeneralGuide = Join-Path $dest 'HuongDan/GIAO_TRINH_TONG_HOP_CAD360.docx'
+          if ((Get-FileHash $installedGeneralGuide -Algorithm SHA256).Hash -ne (Get-FileHash 'dist/v1025/CADTBT360_V1.025_GIAO_TRINH_TONG_HOP.docx' -Algorithm SHA256).Hash) { throw 'Installed full-product curriculum differs from release manual' }
           $installedDocx = Join-Path $dest 'HuongDan/HUONG_DAN_AI_TU_ANH_THANH_CAD.docx'
           $sourceDocx = 'dist/v1025/CADTBT360_V1.025_HUONG_DAN_AI_TU_ANH_THANH_CAD.docx'
           if ((Get-FileHash $installedDocx -Algorithm SHA256).Hash -ne (Get-FileHash $sourceDocx -Algorithm SHA256).Hash) {
@@ -436,7 +441,7 @@ jobs:
           $zip = 'dist/v1025/CADTBT360_V1.025_Portable_Windows_x64.zip'
           $tmp = Join-Path $env:RUNNER_TEMP 'CADTBT360_V1025_PortableTest'
           Expand-Archive $zip -DestinationPath $tmp -Force
-          foreach ($n in @('CADTBT360.exe', 'CADTBT360_CLI.exe', 'BUILD_INFO.txt', 'HUONG_DAN_AI_TU_ANH_THANH_CAD.md', 'HUONG_DAN_AI_TU_ANH_THANH_CAD.docx')) {
+          foreach ($n in @('CADTBT360.exe', 'CADTBT360_CLI.exe', 'BUILD_INFO.txt', 'HUONG_DAN_AI_TU_ANH_THANH_CAD.md', 'HUONG_DAN_AI_TU_ANH_THANH_CAD.docx', 'GIAO_TRINH_TONG_HOP_CAD360.docx')) {
             if (!(Test-Path (Join-Path $tmp $n))) { throw "Portable archive missing $n" }
           }
           $guideHash = (Get-FileHash (Join-Path $tmp 'HUONG_DAN_AI_TU_ANH_THANH_CAD.md') -Algorithm SHA256).Hash
@@ -444,6 +449,11 @@ jobs:
           $docxHash = (Get-FileHash (Join-Path $tmp 'HUONG_DAN_AI_TU_ANH_THANH_CAD.docx') -Algorithm SHA256).Hash
           $releaseDocxHash = (Get-FileHash 'dist/v1025/CADTBT360_V1.025_HUONG_DAN_AI_TU_ANH_THANH_CAD.docx' -Algorithm SHA256).Hash
           if ($docxHash -ne $releaseDocxHash) { throw 'Portable Word manual differs from the packaged release manual' }
+          $fullGuideSource = 'dist/v1025/CADTBT360_V1.025_GIAO_TRINH_TONG_HOP.docx'
+          $fullGuidePortable = Join-Path $tmp 'GIAO_TRINH_TONG_HOP_CAD360.docx'
+          if ((Get-FileHash $fullGuideSource -Algorithm SHA256).Hash -ne (Get-FileHash $fullGuidePortable -Algorithm SHA256).Hash) { throw 'Full-product user guide in Portable differs from published guide' }
+          python -c "import sys,zipfile,xml.etree.ElementTree as ET; z=zipfile.ZipFile(sys.argv[1]); assert z.testzip() is None; x=ET.fromstring(z.read('word/document.xml')); assert len(z.read('word/document.xml')) > 8000" $fullGuidePortable
+          if ($LASTEXITCODE -ne 0) { throw 'Whole-product Word curriculum is damaged or empty' }
           python -c "import sys,zipfile,xml.etree.ElementTree as ET; p=sys.argv[1]; z=zipfile.ZipFile(p); assert z.testzip() is None; ET.fromstring(z.read('word/document.xml')); assert len(z.read('word/document.xml')) > 1500" (Join-Path $tmp 'HUONG_DAN_AI_TU_ANH_THANH_CAD.docx')
           if ($LASTEXITCODE -ne 0) { throw 'Portable Word manual is damaged or invalid' }
           if ($guideHash -ne $sourceGuideHash) { throw 'Portable user guide differs from release source' }
@@ -514,6 +524,7 @@ jobs:
             dist/v1025/SHA256SUMS.txt
             dist/v1025/HUONG_DAN_AI_TU_ANH_THANH_CAD.md
             dist/v1025/CADTBT360_V1.025_HUONG_DAN_AI_TU_ANH_THANH_CAD.docx
+            dist/v1025/CADTBT360_V1.025_GIAO_TRINH_TONG_HOP.docx
           if-no-files-found: error
           retention-days: 30
 
@@ -531,7 +542,8 @@ jobs:
             'dist/v1025/BUILD_INFO.txt',
             'dist/v1025/SHA256SUMS.txt',
             'dist/v1025/HUONG_DAN_AI_TU_ANH_THANH_CAD.md',
-            'dist/v1025/CADTBT360_V1.025_HUONG_DAN_AI_TU_ANH_THANH_CAD.docx'
+            'dist/v1025/CADTBT360_V1.025_HUONG_DAN_AI_TU_ANH_THANH_CAD.docx',
+            'dist/v1025/CADTBT360_V1.025_GIAO_TRINH_TONG_HOP.docx'
           )
           foreach ($asset in $assets) { if (!(Test-Path $asset)) { throw "Verified release asset missing: $asset" } }
           $notes = "CAD 360 Viet Nam V1.025 Windows x64 - verified automated build `nSource commit: $env:GITHUB_SHA`nRun: $env:GITHUB_RUN_ID`nSetup install/uninstall, CLI DXF/DWG roundtrips, real-PNG IMAGE attachment with supplied trace vertices, and Portable hashes checked. Setup/Portable MCP smoke checks real-PNG LINE recognition, grouped Undo, and save/reopen of AI-generated DXF/DWG R2018 using the shipped CLI. The release also bundles a full-source ZIP from the exact build commit and the editable Vietnamese Word user guide. Independent AutoCAD interoperability, real-world AI accuracy and manual GUI acceptance are not verified."
