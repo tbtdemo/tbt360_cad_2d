@@ -572,3 +572,44 @@ Bảng này là **bản đồ học lệnh**, không thay thế bảng **Help �
 **Thay đổi trong mã nguồn đợt 184:** Bộ sinh `docs/user-guide/build_word_guide.py` không còn xóa ký tự gạch dưới `_` trong tên file khi chuyển Markdown thành DOCX. `scripts/validate_word_guide.py` bắt buộc tìm được các tên tệp chính xác trước khi cho phép đóng gói Windows.
 
 **Giới hạn nghiệm thu:** Chưa có xác nhận Windows CI PASS cho các commit mới và chưa có ảnh chụp thao tác thực tế từ EXE đã phát hành. Phải tiếp tục kiểm tra DWG hai chiều bằng AutoCAD độc lập trước khi tuyên bố tương thích hoàn toàn.
+
+
+## 25. Đợt 185 — Chẩn đoán lỗi ảnh thành nét CAD và xác minh độc lập bằng hai tầng kiểm thử
+
+**Mục đích:** Không còn kết luận “AI đúng” chỉ vì lệnh MCP trả về một LINE. Tách riêng (a) kiểm tra thuật toán Rust giải mã ảnh và quy đổi hình học, (b) kiểm tra CLI/MCP của chính file EXE trong Setup và Portable.
+
+### 25.1. Bài 26 — Kiểm tra hình học ảnh PNG ngay ở lõi Rust
+
+1. Mở thư mục mã nguồn ZIP của đúng commit đang thử, vào thư mục `CADTBT360_V1.000`.
+2. Kiểm tra có Rust toolchain phù hợp Cargo.lock, sau đó chạy:
+   `cargo test --locked -p cadcraft-mcp --lib raster_vector_preview_real_png_has_exact_scaled_world_coordinates -- --nocapture`
+3. Bài kiểm thử tự tạo **ảnh RGB PNG 64×32** với một nét đen ngang từ `x=6` đến `x=56` tại `y=15`. Ảnh không có khung hoặc nét phụ.
+4. Luồng thực hiện đi qua hàm `preview` thật: giải mã PNG, tìm nét đậm, quy đổi `unitsPerPixel=10`, đảo trục Y theo chiều cao ảnh.
+5. Đối chiếu kết quả kỳ vọng: `imageSize=[64,32]`, `strokes=1`, `editableEntitiesCreated=0`, `lines=[[[65,165],[565,165]]]`.
+6. Độ dài là **500 đơn vị CAD** do 51 pixel tạo thành 50 khoảng giữa tâm pixel. Nếu khác, lỗi thuộc nhận dạng/tọa độ trước khi xét đến đóng gói Windows.
+7. Lưu toàn bộ log lệnh. Không thay giá trị kỳ vọng để ép PASS nếu chưa kiểm tra lại ảnh nguồn và thuật toán.
+
+**Đạt ở mức lõi:** Rust test PASS đúng trị số. Điều này **chưa** chứng minh DLL/EXE Windows và giao diện dùng tốt.
+
+### 25.2. Bài 27 — Kiểm tra MCP trên EXE đã cài và Portable
+
+1. Sau khi GitHub Actions **Success**, tải đúng Setup và Portable của cùng run/commit.
+2. Xác nhận `CADTBT360_CLI.exe` tồn tại trong cả thư mục Setup và thư mục Portable giải nén.
+3. Trên Windows PowerShell, tại gốc mã nguồn chạy `./scripts/verify_mcp_executable.ps1 -Exe "ĐƯỜNG_DẪN_ĐẾN_CADTBT360_CLI.exe"` cho **từng** bản.
+4. Script tự chạy JSON-RPC `initialize`, `tools/list`, kiểm thử ảnh không tồn tại được từ chối an toàn, Preview ảnh thật, tạo LINE, UNDO, tạo lại LINE, lưu DXF, chuyển sang DWG và mở lại cả hai qua CLI.
+5. Kiểm tra Preview của cả hai bản đều là `(65,165) → (565,165)`, chiều dài 500, số entity sau tạo 1, sau UNDO 0, sau tạo lại 1.
+6. Đối chiếu `BUILD_INFO.txt`, `SHA256SUMS.txt`, file mã nguồn và tài liệu Word. Nếu hai bản có kết quả khác nhau, không thể ghi nghiệm thu Setup = Portable.
+7. Kiểm tra tiếp trên **GUI**: mở DXF, chọn LINE và điều chỉnh được; thử một bản DWG bằng AutoCAD độc lập để xác nhận tương thích hai chiều.
+
+### 25.3. Bảng xác định nhóm lỗi
+
+| Bước lỗi | Nhóm nguyên nhân cần điều tra | Không nên kết luận |
+|---|---|---|
+| Xác thực PNG thất bại | Base64, CRC, kích thước hoặc pixel | Thuật toán CAD sai |
+| Rust preview sai tọa độ | Tỷ lệ, dấu trục Y, tâm pixel, trích nét | Setup/Portable hỏng |
+| Rust PASS nhưng MCP thất bại | JSON-RPC, CLI, đường dẫn/phiên bản chạy | AI nhận dạng tường/cửa/cột sai |
+| MCP PASS nhưng DXF/DWG mở lại lỗi | Writer, parser, bảo toàn entities | Đạt DWG tương thích AutoCAD |
+| CLI PASS nhưng GUI không mở được | Giao diện, driver, tài nguyên, cài đặt | Toàn bộ phần mềm đã đạt |
+| Bản Word thiếu bảng/tên file | Bộ sinh DOCX, kiểm tra định dạng | Thiếu tính năng CAD |
+
+**Giới hạn hiện tại:** Kiểm thử ảnh đơn sắc chỉ xác nhận vector hóa một nét. AI hiểu tường/cửa/cột, chuẩn DWG tương thích AutoCAD, đầy đủ nội dung PDF và chức năng Cloud BIM đều cần bài kiểm thử riêng. Chưa có bằng chứng Windows CI PASS hoặc ảnh chụp giao diện từ EXE mới cho đợt 185.
