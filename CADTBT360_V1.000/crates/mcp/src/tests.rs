@@ -600,3 +600,35 @@ fn ai_arbitrary_angle_raster_to_cad_png_creates_editable_line() {
     assert_eq!(tool(&mut server,"query_entities",json!({"type":"Line"}))["count"],1);
     let _=std::fs::remove_file(file);
 }
+
+
+#[test]
+fn ai_auto_raster_to_cad_dxf_roundtrip_preserves_editable_lines() {
+    use image::{GrayImage, Luma};
+    let mut pixels = GrayImage::from_pixel(96, 64, Luma([255]));
+    for x in 8..=80 { pixels.put_pixel(x, 14, Luma([0])); }
+    for y in 30..=55 { pixels.put_pixel(30, y, Luma([0])); }
+    let suffix = format!("{}-{}", std::process::id(), std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos());
+    let png = std::env::temp_dir().join(format!("cad360-auto-image-{suffix}.png"));
+    let dxf = std::env::temp_dir().join(format!("cad360-auto-vector-{suffix}.dxf"));
+    pixels.save(&png).unwrap();
+    let png_path = png.to_string_lossy().to_string();
+    let dxf_path = dxf.to_string_lossy().to_string();
+    let mut server = Server::new(Box::new(Headless::default()));
+    let preview = tool(&mut server, "raster_to_cad_lines", json!({"path":png_path,"preview":true,"minLengthPixels":12,"includeDiagonals":false}));
+    assert_eq!(preview["strokes"], 2);
+    assert_eq!(tool(&mut server, "query_entities", json!({"type":"Line"}))["count"], 0);
+    let result = tool(&mut server, "raster_to_cad_lines", json!({"path":png_path,"preview":false,"minLengthPixels":12,"includeDiagonals":false}));
+    assert_eq!(result["editableEntitiesCreated"], 2);
+    assert_eq!(tool(&mut server, "query_entities", json!({"type":"Line"}))["count"], 2);
+    tool(&mut server, "save", json!({"path":dxf_path}));
+    assert!(dxf.exists(), "AI output must be saved as real DXF file");
+    tool(&mut server, "new_drawing", json!({"metric":true}));
+    assert_eq!(tool(&mut server, "query_entities", json!({"type":"Line"}))["count"], 0);
+    tool(&mut server, "open", json!({"path":dxf_path}));
+    assert_eq!(tool(&mut server, "query_entities", json!({"type":"Line"}))["count"], 2,
+        "automatic image trace must survive save/reopen as two editable LINE entities");
+    let _ = std::fs::remove_file(png);
+    let _ = std::fs::remove_file(dxf);
+}
