@@ -253,6 +253,47 @@ fn bridge_collinear_gaps(lines: &mut Vec<Line>, max_gap: f64) -> usize {
     merged
 }
 
+#[derive(Clone, Copy, Debug)]
+struct RectangleOutline {
+    edges: [usize; 4],
+    corners: [[f64; 2]; 4],
+}
+
+/// Identify only four complete, axis-aligned edges that meet at corners.
+/// Missing walls, gaps or intersections are deliberately not inferred.
+/// Detection is capped to prevent quadratic growth on large drawings.
+fn closed_rectangles(lines: &[Line]) -> Vec<RectangleOutline> {
+    if lines.len() > 256 { return Vec::new(); }
+    let mut result = Vec::new();
+    let mut used = vec![false; lines.len()];
+    let near = |a: f64, b: f64| (a-b).abs() <= 1.5;
+    for (top_idx, top) in lines.iter().enumerate() {
+        if used[top_idx] || !near(top.y0, top.y1) || top.x1-top.x0 < 4.0 { continue; }
+        for (bottom_idx, bottom) in lines.iter().enumerate().skip(top_idx+1) {
+            if used[bottom_idx] || !near(bottom.y0, bottom.y1) || bottom.x1-bottom.x0 < 4.0 { continue; }
+            if !near(top.x0,bottom.x0) || !near(top.x1,bottom.x1) || (bottom.y0-top.y0).abs() < 4.0 { continue; }
+            let (lo_y,hi_y) = if top.y0 <= bottom.y0 { (top.y0,bottom.y0) } else { (bottom.y0,top.y0) };
+            let lo_x = (top.x0+bottom.x0)/2.0;
+            let hi_x = (top.x1+bottom.x1)/2.0;
+            let vertical = |x: f64| lines.iter().enumerate().find(|(i,l)| {
+                !used[*i] && *i != top_idx && *i != bottom_idx
+                    && near(l.x0,l.x1) && near(l.x0,x)
+                    && near(l.y0,lo_y) && near(l.y1,hi_y)
+            }).map(|(i,_)|i);
+            let (Some(left_idx),Some(right_idx)) = (vertical(lo_x),vertical(hi_x)) else { continue };
+            if left_idx == right_idx { continue; }
+            used[top_idx] = true; used[bottom_idx] = true;
+            used[left_idx] = true; used[right_idx] = true;
+            result.push(RectangleOutline {
+                edges:[top_idx,bottom_idx,left_idx,right_idx],
+                corners:[[lo_x,lo_y],[hi_x,lo_y],[hi_x,hi_y],[lo_x,hi_y]]
+            });
+            break;
+        }
+    }
+    result
+}
+
 /// Shared non-mutating vectorization used by MCP and the desktop GUI.
 pub fn preview(args: &Value) -> Result<Value, String> {
     let path = args["path"].as_str().filter(|s| !s.trim().is_empty()).ok_or("path is required")?;
@@ -298,18 +339,28 @@ pub fn preview(args: &Value) -> Result<Value, String> {
     if gap_pixels > 12 { return Err("maxGapPixels must be 0..12; larger gaps may represent doors or openings".into()); }
     let source_strokes = lines.len();
     let bridged_gaps = bridge_collinear_gaps(&mut lines, gap_pixels as f64);
+    let candidates = if args["closedRectangles"].as_bool().unwrap_or(false) { closed_rectangles(&lines) } else { Vec::new() };
+    let mut replacement = vec![false; lines.len()];
+    for outline in &candidates { for &index in &outline.edges { replacement[index] = true; } }
     let count = lines.len();
     if count > max_lines as usize {
         return Err(format!("Found {count} strokes, exceeding maxLines={max_lines}; increase minLengthPixels or limit the input region, no CAD changes made"));
     }
     // Build and validate *all* CAD coordinates before any mutation.
-    let world: Vec<Value> = lines.iter().map(|l| {
+    let world_rectangles: Vec<Value> = candidates.iter().map(|outline| {
+        let vertices: Vec<Value> = outline.corners.iter().map(|[x,y]| json!([ox + x * scale, oy + (f64::from(height)-y)*scale])).collect();
+        json!(vertices)
+    }).collect();
+    let world: Vec<Value> = lines.iter().enumerate().filter(|(i,_)| !replacement[*i]).map(|(_,l)| {
         let convert = |x: f64, y: f64| (ox + x * scale, oy + (f64::from(height) - y) * scale);
         let (x0, y0) = convert(l.x0, l.y0);
         let (x1, y1) = convert(l.x1, l.y1);
         json!([[x0,y0],[x1,y1]])
     }).collect();
-    if world.iter().any(|v| v[0][0].as_f64().is_none_or(|n| !n.is_finite() || n.abs() > 1.0e12)
+    if world_rectangles.iter().flat_map(|v| v.as_array().into_iter().flatten()).any(|p|
+        p[0].as_f64().is_none_or(|n| !n.is_finite() || n.abs() > 1.0e12)
+        || p[1].as_f64().is_none_or(|n| !n.is_finite() || n.abs() > 1.0e12))
+        || world.iter().any(|v| v[0][0].as_f64().is_none_or(|n| !n.is_finite() || n.abs() > 1.0e12)
         || v[0][1].as_f64().is_none_or(|n| !n.is_finite() || n.abs() > 1.0e12)
         || v[1][0].as_f64().is_none_or(|n| !n.is_finite() || n.abs() > 1.0e12)
         || v[1][1].as_f64().is_none_or(|n| !n.is_finite() || n.abs() > 1.0e12)) {
@@ -318,7 +369,9 @@ pub fn preview(args: &Value) -> Result<Value, String> {
     Ok(json!({"preview":true,"recognition":"automatic-raster-line-strokes","model":"deterministic-pixel-vectorization-not-neural-AI",
         "imageSize":[width,height],"strokes":count,"sourceStrokes":source_strokes,
         "bridgedGaps":bridged_gaps,"maxGapPixels":gap_pixels,
-        "lines":world,"editableEntitiesCreated":0,
+        "lines":world,"closedPolylines":world_rectangles,"rectanglesDetected":candidates.len(),
+        "closedRectangles":args["closedRectangles"].as_bool().unwrap_or(false),
+        "editableEntitiesCreated":0,
         "source":path,"caution":"Review vectors before committing; line recognition is not semantic building interpretation"}))
 }
 
@@ -327,7 +380,8 @@ pub fn run(b: &mut dyn Backend, args: &Value) -> Result<Value, String> {
     let proposal = preview(args)?;
     if args["preview"].as_bool().unwrap_or(true) { return Ok(proposal); }
     let Some(world) = proposal["lines"].as_array() else { return Err("Raster preview has no CAD lines".to_string()) };
-    if world.is_empty() { return Err("No vector strokes detected; no CAD changes made".into()); }
+    let rectangles = proposal["closedPolylines"].as_array().cloned().unwrap_or_default();
+    if world.is_empty() && rectangles.is_empty() { return Err("No vector strokes detected; no CAD changes made".into()); }
     // Never end a group that another command/user already opened. The caller
     // must have a clean command prompt and full Undo support.
     let state = b.call("drawing.inspect", json!({"entities":false}))?;
@@ -345,7 +399,9 @@ pub fn run(b: &mut dyn Backend, args: &Value) -> Result<Value, String> {
     group(b, "begin")?;
     let mut handles = Vec::new();
     let mut failure = None;
-    for pts in world {
+    let operations: Vec<(&str, Value)> = rectangles.iter().map(|v| ("pline", json!({"vertices":v,"closed":true})))
+        .chain(world.iter().map(|v| ("line",json!({"points":v})))).collect();
+    for (command_id, params) in operations {
         // Guard against an asynchronous document switch or external edit in a
         // connected GUI while the MCP agent is sending its line commands.
         let latest = b.call("drawing.inspect", json!({"entities":false}));
@@ -356,7 +412,7 @@ pub fn run(b: &mut dyn Backend, args: &Value) -> Result<Value, String> {
             Ok(_) => { failure = Some("CAD document changed during AI image import".to_string()); break; }
             Err(e) => { failure = Some(format!("Cannot verify active CAD document: {e}")); break; }
         }
-        match b.call("engine.execute", json!({"command":"line","params":{"points":pts}})) {
+        match b.call("engine.execute", json!({"command":command_id,"params":params})) {
             Ok(response) => handles.push(response),
             Err(e) => { failure = Some(e); break; }
         }
@@ -399,7 +455,9 @@ pub fn run(b: &mut dyn Backend, args: &Value) -> Result<Value, String> {
         return Err(format!("AI image import stopped without creating LINE entities: {problem}"));
     }
     Ok(json!({"preview":false,"recognition":"automatic-raster-line-strokes",
-        "imageSize":proposal["imageSize"],"strokes":proposal["strokes"],"editableEntitiesCreated":handles.len(),
+        "imageSize":proposal["imageSize"],"strokes":proposal["strokes"],
+        "rectanglesDetected":proposal["rectanglesDetected"],"closedPolylinesCreated":rectangles.len(),
+        "editableEntitiesCreated":handles.len(),
         "entities":handles,"source":proposal["source"],
         "caution":"Lines are grouped in one Undo action; review before saving DWG"}))
 }
@@ -434,6 +492,24 @@ mod tests {
         ];
         assert_eq!(bridge_collinear_gaps(&mut lines, 4.0), 0);
         assert_eq!(lines.len(), 4);
+    }
+
+    #[test]
+    fn raster_closed_rectangles_recognizes_four_edges_and_refuses_missing_side() {
+        let full = vec![
+            Line{x0:10.5,y0:10.5,x1:70.5,y1:10.5},
+            Line{x0:10.5,y0:50.5,x1:70.5,y1:50.5},
+            Line{x0:10.5,y0:10.5,x1:10.5,y1:50.5},
+            Line{x0:70.5,y0:10.5,x1:70.5,y1:50.5}
+        ];
+        let outlines=closed_rectangles(&full);
+        assert_eq!(outlines.len(),1);
+        assert_eq!(outlines[0].edges,[0,1,2,3]);
+        assert_eq!(outlines[0].corners,[[10.5,10.5],[70.5,10.5],[70.5,50.5],[10.5,50.5]]);
+        assert!(closed_rectangles(&full[..3]).is_empty(), "three edges are not a closed room");
+        let mut broken=full;
+        broken[3].y1=42.5;
+        assert!(closed_rectangles(&broken).is_empty(), "a gap may be a doorway; never silently close it");
     }
 
     #[test]
