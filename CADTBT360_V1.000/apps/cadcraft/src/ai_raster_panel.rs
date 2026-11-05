@@ -25,6 +25,7 @@ pub struct State {
     min_wall_spacing: f64,
     max_wall_spacing: f64,
     create_wall_centerlines: bool,
+    opening_gap_hints: bool,
 }
 
 /// Compute world units per pixel from a known measured dimension.
@@ -66,7 +67,8 @@ impl State {
             "unitsPerPixel":self.scale,"includeDiagonals":self.include_diagonals,
             "includeArbitraryAngles":self.arbitrary_angles,"closedRectangles":self.closed_rectangles,
             "wallPairHints":self.wall_pair_hints,"createWallCenterlines":self.create_wall_centerlines,
-            "minWallSpacingPixels":self.min_wall_spacing,"maxWallSpacingPixels":self.max_wall_spacing,"maxLines":250})
+            "minWallSpacingPixels":self.min_wall_spacing,"maxWallSpacingPixels":self.max_wall_spacing,
+            "openingGapHints":self.opening_gap_hints,"maxLines":250})
     }
 }
 
@@ -162,6 +164,7 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
                 if ui.add_enabled(state.wall_pair_hints, egui::Checkbox::new(&mut state.create_wall_centerlines, "Tạo tim tường từ cặp nét duy nhất (tùy chọn)")).changed() {
                     state.preview = None;
                 }
+                if ui.checkbox(&mut state.opening_gap_hints, "Gợi ý khoảng hở có thể là cửa (chỉ Preview)").changed() {state.preview=None;}
                 if ui.checkbox(&mut state.closed_rectangles, "Đường bao chữ nhật kín → PLINE").changed() {
                     state.preview = None; state.preview_document_uid = None;
                     state.preview_revision = None; state.preview_document_epoch = None;
@@ -181,9 +184,13 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
             ui.separator();
             let rectangle_count = proposal["closedPolylines"].as_array().map_or(0,Vec::len);
             let wall_pairs = proposal["wallPairCandidateCount"].as_u64().unwrap_or(0);
+            let opening_count = proposal["openingGapCandidateCount"].as_u64().unwrap_or(0);
             ui.label(format!("Đã nhận dạng: {count} nét nguồn, {rectangle_count} PLINE kín, {wall_pairs} cặp nét song song nghi là mép tường."));
             if state.wall_pair_hints {
                 ui.small("Gợi ý hình học, không phải tường BIM. Nét nguồn luôn được giữ để đối chiếu.");
+            }
+            if state.opening_gap_hints {
+                ui.small(format!("{opening_count} khoảng hở tiềm năng. Chưa xác nhận là cửa đi/cửa sổ; không tự đóng đoạn."));
             }
             let centerline_count = proposal["wallCenterlinesProposed"].as_u64().unwrap_or(0);
             let junction_count = proposal["wallCenterlineJunctionCount"].as_u64().unwrap_or(0);
@@ -453,6 +460,15 @@ mod tests {
         state.create_wall_centerlines=true;
         assert_eq!(state.params()["wallPairHints"], true);
         assert_eq!(state.params()["createWallCenterlines"], true);
+        assert_eq!(state.params()["preview"],true);
+    }
+
+    #[test]
+    fn ai_opening_gap_hints_are_disabled_by_default_and_preview_only() {
+        let mut state=State::default(); state.open();
+        assert_eq!(state.params()["openingGapHints"],false);
+        state.opening_gap_hints=true;
+        assert_eq!(state.params()["openingGapHints"],true);
         assert_eq!(state.params()["preview"],true);
     }
 
