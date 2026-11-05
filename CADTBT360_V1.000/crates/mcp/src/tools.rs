@@ -14,6 +14,7 @@ pub fn tool_definitions(has_ui: bool) -> Value {
             "inputSchema": {"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]}}),
         json!({"name": "execute", "description": "Run any command with JSON parameters (no prompts or dialogs). Use list_commands to find ids and parameter docs. Examples: line {points:[[0,0],[10,0]]}, circle {center:[0,0], radius:5}, layer.new {name:\"Walls\", color:\"red\", current:true}, move {handles:[\"10A\"], delta:[5,0]}, zoom {mode:\"extents\"}.",
             "inputSchema": {"type": "object", "properties": {"command": {"type": "string"}, "params": {"type": "object"}}, "required": ["command"]}}),
+        json!({"name":"ai_draw_vietnamese","description":"CAD 360 Vietnamese drafting bridge (bounded deterministic grammar, not a general LLM). Supports: 'vẽ đường thẳng từ 0,0 đến 100,0' and 'vẽ hình tròn tâm 0,0 bán kính 25'. Preview by default; to commit, set preview:false, confirm:true and expectedDocumentUid, expectedDocumentEpoch, expectedRevision obtained from a fresh preview. Executes exactly one native CAD engine command, never saves or modifies DWG structure.","inputSchema":{"type":"object","properties":{"text":{"type":"string"},"preview":{"type":"boolean"},"confirm":{"type":"boolean"},"expectedDocumentUid":{"type":"integer","minimum":0},"expectedDocumentEpoch":{"type":"integer","minimum":0},"expectedRevision":{"type":"integer","minimum":0}},"required":["text"]}}),
         json!({"name": "list_commands", "description": "List commands with ids, labels, menu paths, aliases and parameter docs. Optional filter: a substring of the command id, label or an alias.",
             "inputSchema": {"type": "object", "properties": {"filter": {"type": "string"}}}}),
         json!({"name": "inspect_drawing", "description": "Summary of the active drawing: entity counts, extents, layers, styles, blocks, layouts, selection, undo history and (optionally) entities with handles and geometry.",
@@ -183,6 +184,56 @@ fn validated_trace(b: &mut dyn Backend, args: &Value, command: &str) -> Result<V
     b.call("engine.execute", json!({"command":command,"params":params}))
 }
 
+/// Strict natural-language bridge: only explicit coordinates can become native CAD commands.
+/// No generative guessing, no background state, and no silent edit on the preview path.
+fn parse_vietnamese_draft(text: &str) -> Result<(String,Value),String> {
+    if text.len()>500 {return Err("AI CAD: lệnh vượt 500 ký tự".into());}
+    let cleaned=text.trim().to_lowercase();
+    let words:Vec<&str>=cleaned.split_whitespace().collect();
+    let parse_point=|value:&str|->Option<[f64;2]> {
+        let (x,y)=value.split_once(',')?;
+        let (x,y)=(x.parse::<f64>().ok()?,y.parse::<f64>().ok()?);
+        (x.is_finite()&&y.is_finite()&&x.abs()<=1.0e9&&y.abs()<=1.0e9).then_some([x,y])
+    };
+    let argument=|keyword:&str|->Option<&str> {words.iter().position(|w|*w==keyword).and_then(|i|words.get(i+1).copied())};
+    if (cleaned.starts_with("vẽ đường thẳng ") || cleaned.starts_with("ve duong thang ")) && words.len()==7 {
+        let start=argument("từ").or_else(||argument("tu")).and_then(parse_point).ok_or("AI CAD: cần tọa độ bắt đầu dạng x,y")?;
+        let end=argument("đến").or_else(||argument("den")).and_then(parse_point).ok_or("AI CAD: cần tọa độ kết thúc dạng x,y")?;
+        if (start[0]-end[0]).hypot(start[1]-end[1])<1.0e-9 {return Err("AI CAD: đường thẳng không được có chiều dài bằng 0".into());}
+        return Ok(("line".into(),json!({"points":[start,end]})));
+    }
+    if (cleaned.starts_with("vẽ hình tròn ") || cleaned.starts_with("ve hinh tron ")) && words.len()==8 {
+        let center=argument("tâm").or_else(||argument("tam")).and_then(parse_point).ok_or("AI CAD: cần tọa độ tâm dạng x,y")?;
+        let radius=argument("kính").and_then(|v|v.parse::<f64>().ok()).ok_or("AI CAD: cần bán kính dạng số dương")?;
+        if !radius.is_finite()||radius<=0.0||radius>1.0e9 {return Err("AI CAD: bán kính không hợp lệ".into());}
+        return Ok(("circle".into(),json!({"center":center,"radius":radius})));
+    }
+    Err("AI CAD: chưa hỗ trợ câu lệnh này; chỉ chấp nhận 'vẽ đường thẳng từ x,y đến x,y' hoặc 'vẽ hình tròn tâm x,y bán kính r'".into())
+}
+
+fn ai_draw_vietnamese(b: &mut dyn Backend, args: &Value) -> Result<Value,String> {
+    let prompt=args["text"].as_str().ok_or("AI CAD: thiếu nội dung lệnh")?;
+    let (command,params)=parse_vietnamese_draft(prompt)?;
+    let drawing=b.call("drawing.inspect",json!({"entities":false}))?;
+    let uid=drawing["documentUid"].as_u64().ok_or("AI CAD: không lấy được documentUid")?;
+    let epoch=drawing["documentEpoch"].as_u64().ok_or("AI CAD: không lấy được documentEpoch")?;
+    let rev=drawing["revision"].as_u64().ok_or("AI CAD: không lấy được revision")?;
+    let plan=json!({"mode":"native-engine-command","command":command,"params":params,
+        "documentUid":uid,"documentEpoch":epoch,"revision":rev,
+        "requiresConfirmation":true,"canUndo":true,"source":"bounded-vietnamese-command-parser"});
+    if args["preview"].as_bool().unwrap_or(true) {return Ok(json!({"previewOnly":true,"editableEntitiesCreated":0,"plan":plan}));}
+    if args["confirm"]!=true {return Err("AI CAD: cần confirm=true để thực hiện lệnh đã xem trước".into());}
+    if args["expectedDocumentUid"].as_u64()!=Some(uid)||args["expectedDocumentEpoch"].as_u64()!=Some(epoch)||args["expectedRevision"].as_u64()!=Some(rev) {
+        return Err("AI CAD: bản vẽ đã thay đổi hoặc thiếu dấu phiên bản; hãy Preview lại trước khi thực hiện".into());
+    }
+    if drawing["undoControl"]!="all"||drawing["undoGroupOpen"]!=false {return Err("AI CAD: Undo chưa sẵn sàng hoặc đang có nhóm Undo khác".into());}
+    let cmdline=b.call("cmdline.state",json!({}))?;
+    if cmdline["running"].as_str().is_some() {return Err("AI CAD: hãy kết thúc lệnh CAD đang chạy".into());}
+    let result=b.call("engine.execute",json!({"command":command,"params":params}))?;
+    Ok(json!({"previewOnly":false,"executed":true,"command":command,"result":result,
+        "documentUid":uid,"previousRevision":rev,"undo":"Use native CAD UNDO for this single command"}))
+}
+
 /// Wrap a JSON value as a successful MCP result containing pretty-printed text.
 fn text(v: &Value) -> Value {
     json!({"content": [{"type": "text", "text": serde_json::to_string_pretty(v).unwrap_or_default()}]})
@@ -259,6 +310,7 @@ pub fn call_tool(b: &mut dyn Backend, name: &str, args: &Value) -> Result<Value,
             "engine.execute",
             json!({"command": a.get("command").cloned().unwrap_or(Value::Null), "params": a.get("params").cloned().unwrap_or(json!({}))}),
         ),
+        "ai_draw_vietnamese" => ai_draw_vietnamese(b, &a),
         "list_commands" => b.call("engine.commands", json!({})).map(|v| {
             let f = a.get("filter").and_then(Value::as_str).map(str::to_ascii_lowercase);
             match (v, f) {
@@ -299,4 +351,25 @@ pub fn call_tool(b: &mut dyn Backend, name: &str, args: &Value) -> Result<Value,
         Ok(v) => text(&v),
         Err(e) => err_text(&e),
     })
+}
+
+#[cfg(test)]
+mod ai_draft_vietnamese_tests {
+    use super::parse_vietnamese_draft;
+    use serde_json::json;
+
+    #[test]
+    fn ai_vietnamese_draft_parses_native_line_and_circle() {
+        assert_eq!(parse_vietnamese_draft("vẽ đường thẳng từ 0,0 đến 100,50").unwrap(),("line".to_string(),json!({"points":[[0.0,0.0],[100.0,50.0]]})));
+        assert_eq!(parse_vietnamese_draft("vẽ hình tròn tâm 10,20 bán kính 25").unwrap(),("circle".to_string(),json!({"center":[10.0,20.0],"radius":25.0})));
+    }
+
+    #[test]
+    fn ai_vietnamese_draft_rejects_missing_or_unsafe_coordinates() {
+        for prompt in ["vẽ đường thẳng từ 0,0 đến 0,0","vẽ đường thẳng từ 0,0 đến NaN,2",
+            "vẽ hình tròn tâm 0,0 bán kính -5","vẽ hình tròn tâm 0,0 bán kính 0",
+            "vẽ tất cả tường và xóa bản vẽ","vẽ đường thẳng từ 0,0 đến 100000000000,0"] {
+            assert!(parse_vietnamese_draft(prompt).is_err(),"{prompt} must be refused");
+        }
+    }
 }
