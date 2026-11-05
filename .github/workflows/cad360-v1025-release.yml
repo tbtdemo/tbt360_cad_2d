@@ -74,6 +74,19 @@ jobs:
           python scripts/validate_full_user_guide.py docs/user-guide/CADTBT360_V1.025_GIAO_TRINH_TONG_HOP_TAT_CA_TINH_NANG.md
           if ($LASTEXITCODE -ne 0) { throw 'Full CAD 360 user guide incomplete; do not ship an AI-only manual' }
 
+      - name: Build and validate both Word manuals before Rust compile
+        id: manuals
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force 'dist/v1025' | Out-Null
+          python docs/user-guide/build_word_guide.py docs/user-guide/CADTBT360_V1.025_HUONG_DAN_AI_TU_ANH_THANH_CAD.md dist/v1025/CADTBT360_V1.025_HUONG_DAN_AI_TU_ANH_THANH_CAD.docx
+          if ($LASTEXITCODE -ne 0 -or !(Test-Path 'dist/v1025/CADTBT360_V1.025_HUONG_DAN_AI_TU_ANH_THANH_CAD.docx')) { throw 'Cannot build AI Word supplement before Rust compile' }
+          python docs/user-guide/build_word_guide.py docs/user-guide/CADTBT360_V1.025_GIAO_TRINH_TONG_HOP_TAT_CA_TINH_NANG.md dist/v1025/CADTBT360_V1.025_GIAO_TRINH_TONG_HOP.docx
+          if ($LASTEXITCODE -ne 0 -or !(Test-Path 'dist/v1025/CADTBT360_V1.025_GIAO_TRINH_TONG_HOP.docx')) { throw 'Cannot build complete CAD 360 Word guide before Rust compile' }
+          python scripts/validate_word_guide.py dist/v1025/CADTBT360_V1.025_GIAO_TRINH_TONG_HOP.docx
+          if ($LASTEXITCODE -ne 0) { throw 'Full-product manual missing native tables, heading hierarchy or 21 lessons' }
+
       - name: Prepare Rust
         uses: dtolnay/rust-toolchain@stable
 
@@ -272,12 +285,7 @@ jobs:
           if (!(Test-Path $iscc)) { throw 'Inno Setup compiler not installed' }
           New-Item -ItemType Directory -Force dist/v1025 | Out-Null
           @('Release=CADTBT360_V1.025', "SourceCommit=$env:GITHUB_SHA", 'Architecture=windows-x64', 'NativeBuild=true', 'GUIAcceptance=NOT_VERIFIED') | Set-Content dist/v1025/BUILD_INFO.txt -Encoding utf8
-          python docs/user-guide/build_word_guide.py docs/user-guide/CADTBT360_V1.025_HUONG_DAN_AI_TU_ANH_THANH_CAD.md dist/v1025/CADTBT360_V1.025_HUONG_DAN_AI_TU_ANH_THANH_CAD.docx
-          if ($LASTEXITCODE -ne 0 -or !(Test-Path 'dist/v1025/CADTBT360_V1.025_HUONG_DAN_AI_TU_ANH_THANH_CAD.docx')) { throw 'Cannot build required Word user manual' }
-          python docs/user-guide/build_word_guide.py docs/user-guide/CADTBT360_V1.025_GIAO_TRINH_TONG_HOP_TAT_CA_TINH_NANG.md dist/v1025/CADTBT360_V1.025_GIAO_TRINH_TONG_HOP.docx
-          if ($LASTEXITCODE -ne 0 -or !(Test-Path 'dist/v1025/CADTBT360_V1.025_GIAO_TRINH_TONG_HOP.docx')) { throw 'Cannot build whole-product Word curriculum; AI-only guide is insufficient' }
-          python scripts/validate_word_guide.py dist/v1025/CADTBT360_V1.025_GIAO_TRINH_TONG_HOP.docx
-          if ($LASTEXITCODE -ne 0) { throw 'Whole-product Word guide failed real table/15-lesson acceptance' }
+          if (!(Test-Path 'dist/v1025/CADTBT360_V1.025_HUONG_DAN_AI_TU_ANH_THANH_CAD.docx') -or !(Test-Path 'dist/v1025/CADTBT360_V1.025_GIAO_TRINH_TONG_HOP.docx')) { throw 'Preflight-generated Word manuals missing at packaging time' }
 
       - name: Package new Setup and Portable
         id: package
@@ -593,6 +601,7 @@ jobs:
             "RunAttempt=$env:GITHUB_RUN_ATTEMPT",
             "RunnerOS=$env:RUNNER_OS",
             'FixtureValidation=${{ steps.validate_fixture.outcome }}',
+            'FullManuals=${{ steps.manuals.outcome }}',
             'Preflight=${{ steps.preflight.outcome }}',
             'TestDiscovery=${{ steps.discover.outcome }}',
             'CliJsonContract=${{ steps.cli_contract.outcome }}',
