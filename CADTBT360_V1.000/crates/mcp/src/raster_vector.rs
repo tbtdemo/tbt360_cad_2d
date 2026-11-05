@@ -495,6 +495,58 @@ mod tests {
     }
 
     #[test]
+    fn raster_rectangular_png_preview_and_headless_commit_create_one_closed_polyline() {
+        let mut img = image::RgbImage::from_pixel(96, 72, image::Rgb([255,255,255]));
+        for x in 10..=70 {
+            img.put_pixel(x,10,image::Rgb([0,0,0]));
+            img.put_pixel(x,50,image::Rgb([0,0,0]));
+        }
+        for y in 10..=50 {
+            img.put_pixel(10,y,image::Rgb([0,0,0]));
+            img.put_pixel(70,y,image::Rgb([0,0,0]));
+        }
+        let path=std::env::temp_dir().join(format!("cad360-rect-{}-{}.png",std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        img.save(&path).unwrap();
+        let args=json!({"path":path.to_string_lossy(),"closedRectangles":true,"includeDiagonals":false,
+            "minLengthPixels":16,"unitsPerPixel":10.0,"preview":true});
+        let value=preview(&args).unwrap();
+        assert_eq!(value["rectanglesDetected"],1,"must find exactly one closed rectangular outline: {value}");
+        assert_eq!(value["lines"].as_array().unwrap().len(),0,"outline edges must not duplicate the PLINE");
+        assert_eq!(value["closedPolylines"],json!([[[105.0,615.0],[705.0,615.0],[705.0,215.0],[105.0,215.0]]]));
+        let mut backend=crate::backend::Headless::default();
+        let mut commit=args;
+        commit["preview"]=json!(false);
+        let outcome=run(&mut backend,&commit).unwrap();
+        let _=std::fs::remove_file(&path);
+        assert_eq!(outcome["closedPolylinesCreated"],1);
+        assert_eq!(outcome["editableEntitiesCreated"],1);
+        let current=backend.call("drawing.inspect",json!({"entities":false})).unwrap();
+        assert_eq!(current["entityCount"],1,"closed outline must become one editable CAD entity");
+    }
+
+    #[test]
+    fn raster_rectangular_png_with_open_side_does_not_invent_wall() {
+        let mut img = image::RgbImage::from_pixel(96, 72, image::Rgb([255,255,255]));
+        for x in 10..=70 {
+            img.put_pixel(x,10,image::Rgb([0,0,0]));
+            img.put_pixel(x,50,image::Rgb([0,0,0]));
+        }
+        for y in 10..=50 { img.put_pixel(10,y,image::Rgb([0,0,0])); }
+        // The right-hand edge is intentionally missing.
+        let path=std::env::temp_dir().join(format!("cad360-open-rect-{}-{}.png",std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        img.save(&path).unwrap();
+        let args=json!({"path":path.to_string_lossy(),"closedRectangles":true,"includeDiagonals":false,
+            "minLengthPixels":16,"preview":true});
+        let value=preview(&args).unwrap();
+        let _=std::fs::remove_file(&path);
+        assert_eq!(value["rectanglesDetected"],0);
+        assert_eq!(value["closedPolylines"].as_array().unwrap().len(),0);
+        assert_eq!(value["lines"].as_array().unwrap().len(),3,"retain three source strokes as LINE");
+    }
+
+    #[test]
     fn raster_closed_rectangles_recognizes_four_edges_and_refuses_missing_side() {
         let full = vec![
             Line{x0:10.5,y0:10.5,x1:70.5,y1:10.5},
