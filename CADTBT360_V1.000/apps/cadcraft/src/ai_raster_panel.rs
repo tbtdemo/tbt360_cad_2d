@@ -145,35 +145,39 @@ impl State {
             "createColumnGuidePolylines":self.create_column_guides,
             "confirmColumnGuides":self.confirm_column_guides,
             "createColumnBlocks":self.create_column_blocks,
-            "confirmColumnBlocks":self.confirm_column_blocks,
-            "wallPairHints":self.wall_pair_hints,"createWallCenterlines":self.create_wall_centerlines,
+            "confirmColumnBlocks":self.confirm_column_blocks});
+        let group1=json!({"wallPairHints":self.wall_pair_hints,"createWallCenterlines":self.create_wall_centerlines,
             "wallPanelHints":self.wall_panel_hints,
             "createWallPanelPolylines":self.create_wall_panel_guides,
             "confirmWallPanels":self.confirm_wall_panel_guides,
             "createWallBlocks":self.create_wall_blocks,
             "confirmWallBlocks":self.confirm_wall_blocks,
-            "minWallSpacingPixels":self.min_wall_spacing,"maxWallSpacingPixels":self.max_wall_spacing,
-            "openingGapHints":self.opening_gap_hints,
+            "minWallSpacingPixels":self.min_wall_spacing,"maxWallSpacingPixels":self.max_wall_spacing});
+        let group2=json!({"openingGapHints":self.opening_gap_hints,
             "pairedWallOpeningHints":self.paired_wall_opening_hints,
             "windowSashHints":self.window_sash_hints,
             "createWindowGuidePolylines":self.create_window_guides,
             "confirmWindowGuides":self.confirm_window_guides,
             "createWindowBlocks":self.create_window_blocks,
-            "confirmWindowBlocks":self.confirm_window_blocks,
-            "doorLeafHints":self.door_leaf_hints,
+            "confirmWindowBlocks":self.confirm_window_blocks});
+        let group3=json!({"doorLeafHints":self.door_leaf_hints,
             "createDoorSwingArcs":self.create_door_swing_arcs,
             "confirmDoorSwingArcs":self.confirm_door_swing_arcs,
             "createDoorBlocks":self.create_door_blocks,
-            "confirmDoorBlocks":self.confirm_door_blocks,
-            "doorWidthOverrideCAD":if self.create_door_blocks && self.override_door_width {Some(self.door_width_cad)} else {None},
+            "confirmDoorBlocks":self.confirm_door_blocks});
+        let group4=json!({"doorWidthOverrideCAD":if self.create_door_blocks && self.override_door_width {Some(self.door_width_cad)} else {None},
             "doorWidthOverridesCAD":if self.create_door_blocks && !self.door_width_overrides.is_empty() {Some(&self.door_width_overrides)} else {None},
             "doorHingeFlips":if self.create_door_blocks && !self.door_hinge_flips.is_empty() {Some(&self.door_hinge_flips)} else {None},
             "doorSwingFlips":if self.create_door_blocks && !self.door_swing_flips.is_empty() {Some(&self.door_swing_flips)} else {None},
-            "expectedDoorSourceKeys":if self.create_door_blocks && self.has_individual_door_review() {Some(&self.last_door_source_keys)} else {None},
-            "createOpeningGuidePolylines":self.create_opening_guides,
+            "expectedDoorSourceKeys":if self.create_door_blocks && self.has_individual_door_review() {Some(&self.last_door_source_keys)} else {None}});
+        let group5=json!({"createOpeningGuidePolylines":self.create_opening_guides,
             "confirmOpeningGuides":self.confirm_opening_guides,
             "minOpeningGapPixels":self.min_opening_gap,
             "maxOpeningGapPixels":self.max_opening_gap,"maxLines":250});
+        for group in [group1,group2,group3,group4,group5] {
+            let Value::Object(fields)=group else {unreachable!("AI settings JSON groups are objects")};
+            params.as_object_mut().expect("AI settings JSON object").extend(fields);
+        }
         if !(self.create_door_blocks && self.override_door_width) {
             params.as_object_mut().expect("AI settings JSON object").remove("doorWidthOverrideCAD");
         }
