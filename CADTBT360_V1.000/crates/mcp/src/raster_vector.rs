@@ -1013,6 +1013,39 @@ pub fn preview(args: &Value) -> Result<Value, String> {
         candidate["widthCAD"]=json!(candidate["widthPixels"].as_f64().unwrap_or(0.0)*scale);
         candidate["heightCAD"]=json!(candidate["heightPixels"].as_f64().unwrap_or(0.0)*scale);
     }
+    let create_column_blocks=args["createColumnBlocks"].as_bool().unwrap_or(false);
+    if create_column_blocks && (!column_hints || !args["confirmColumnBlocks"].as_bool().unwrap_or(false)) {
+        return Err("createColumnBlocks requires columnHatchHints=true and confirmColumnBlocks=true; no CAD changes made".into());
+    }
+    if create_column_blocks && (args["closedRectangles"].as_bool().unwrap_or(false) ||
+        args["createColumnGuidePolylines"].as_bool().unwrap_or(false)) {
+        return Err("Choose column Block, general rectangles or column PLINE guide, not both; no CAD changes made".into());
+    }
+    // Draft BLOCK geometry only; do not mutate source LINEs or infer structural BIM.
+    let mut column_block_drafts=Vec::new();
+    if create_column_blocks {
+        for candidate in &column_candidates {
+            let Some(frame)=candidate["outlineCAD"].as_array() else {continue};
+            if frame.len()!=4 {continue;}
+            let Some(hatches)=candidate["sourceHatchEdges"].as_array() else {continue};
+            if hatches.len()!=2 {continue;}
+            let mut rails=Vec::new();
+            for index in hatches {
+                let Some(line)=index.as_u64().and_then(|v|usize::try_from(v).ok()).and_then(|i|lines.get(i)) else {
+                    return Err("Column hatch source indices no longer valid; no edits made".into());
+                };
+                let points=[[ox+line.x0*scale,oy+(f64::from(height)-line.y0)*scale],
+                    [ox+line.x1*scale,oy+(f64::from(height)-line.y1)*scale]];
+                if points.iter().flatten().any(|p|!p.is_finite() || p.abs()>1.0e12) {
+                    return Err("Column hatch CAD coordinates outside safe bounds; no edits made".into());
+                }
+                rails.push(json!(points));
+            }
+            column_block_drafts.push(json!({"base":frame[0],"frame":frame,"hatches":rails,
+                "widthCAD":candidate["widthCAD"],"heightCAD":candidate["heightCAD"],
+                "classification":"human-reviewed-column-like-cad-block-not-structural-column"}));
+        }
+    }
     let create_column_guides=args["createColumnGuidePolylines"].as_bool().unwrap_or(false);
     if create_column_guides && (!column_hints || !args["confirmColumnGuides"].as_bool().unwrap_or(false)) {
         return Err("createColumnGuidePolylines requires columnHatchHints=true and confirmColumnGuides=true; no CAD changes made".into());
@@ -1090,6 +1123,9 @@ pub fn preview(args: &Value) -> Result<Value, String> {
         "columnGuidePolylineCount":column_guide_polylines.len(),
         "columnGuidePolylines":column_guide_polylines,
         "columnGuidePolylinesRequested":create_column_guides,
+        "columnBlockDraftCount":column_block_drafts.len(),
+        "columnBlockDrafts":column_block_drafts,
+        "columnBlocksRequested":create_column_blocks,
         "closedRectangles":args["closedRectangles"].as_bool().unwrap_or(false),
         "editableEntitiesCreated":0,"source":path,
         "caution":"Review vectors before committing; line recognition is not semantic building interpretation"
@@ -1105,6 +1141,9 @@ pub fn preview(args: &Value) -> Result<Value, String> {
 /// MCP entry point. The same preview function powers the desktop's AI drawing panel.
 pub fn run(b: &mut dyn Backend, args: &Value) -> Result<Value, String> {
     let proposal = preview(args)?;
+    if args["createColumnBlocks"].as_bool().unwrap_or(false) {
+        return Err("createColumnBlocks is currently supported only in the desktop AI panel; MCP Block commit is disabled until rollback ownership is proven".into());
+    }
     if args["createWindowBlocks"].as_bool().unwrap_or(false) {
         return Err("createWindowBlocks is currently supported only by the desktop AI panel; MCP Block commit requires transaction ownership validation".into());
     }
@@ -1605,6 +1644,39 @@ mod tests {
         assert_eq!(columns[0]["sourceHatchEdges"],json!([4,5]));
         with_cross.push(Line{x0:19.0,y0:27.0,x1:33.0,y1:27.0});
         assert!(column_hatch_candidates(&[box_rect],&with_cross).is_empty(),"multiple hatch interpretations must not guess");
+    }
+
+    #[test]
+    fn ai_column_block_png_is_reviewed_not_semantic_and_rejects_remote_commit() {
+        let mut img=image::RgbImage::from_pixel(90,80,image::Rgb([255,255,255]));
+        for x in 20..=52 {for y in [16,48] {img.put_pixel(x,y,image::Rgb([0,0,0]));}}
+        for y in 16..=48 {for x in [20,52] {img.put_pixel(x,y,image::Rgb([0,0,0]));}}
+        for x in 31..=41 {img.put_pixel(x,32,image::Rgb([0,0,0]));}
+        for y in 27..=37 {img.put_pixel(36,y,image::Rgb([0,0,0]));}
+        let path=std::env::temp_dir().join(format!("cad360-column-block-{}-{}.png",std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        img.save(&path).unwrap();
+        let mut args=json!({"path":path.to_string_lossy(),"minLengthPixels":8,"includeDiagonals":false,
+            "columnHatchHints":true,"maxGapPixels":0,"unitsPerPixel":2.0,"createColumnBlocks":true});
+        assert!(preview(&args).unwrap_err().contains("confirmColumnBlocks=true"));
+        args["confirmColumnBlocks"]=json!(true);
+        let draft=preview(&args).unwrap();
+        assert_eq!(draft["columnBlockDraftCount"],1);
+        assert_eq!(draft["columnBlockDrafts"][0]["frame"].as_array().unwrap().len(),4);
+        assert_eq!(draft["columnBlockDrafts"][0]["hatches"].as_array().unwrap().len(),2);
+        assert_eq!(draft["columnBlockDrafts"][0]["widthCAD"],64.0);
+        assert_eq!(draft["columnBlockDrafts"][0]["classification"],
+            "human-reviewed-column-like-cad-block-not-structural-column");
+        assert!(draft["lines"].as_array().unwrap().len()>=6);
+        assert_eq!(draft["editableEntitiesCreated"],0);
+        let mut backend=crate::backend::Headless::default();
+        args["preview"]=json!(false);
+        assert!(run(&mut backend,&args).unwrap_err().contains("desktop AI panel"));
+        assert_eq!(backend.session.doc().unwrap().entity_count(),0);
+        args["createColumnGuidePolylines"]=json!(true);
+        args["confirmColumnGuides"]=json!(true);
+        assert!(preview(&args).unwrap_err().contains("not both"));
+        let _=std::fs::remove_file(path);
     }
 
     #[test]
