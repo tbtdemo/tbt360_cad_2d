@@ -1321,3 +1321,27 @@ Mục tiêu quan trọng nhất của đợt này là chuyển từ việc **ch�
 6. Khi xem kết quả từ ảnh thật, người dùng phải xác minh bản lề, hướng mở, chiều rộng và bề dày tường. AI hiện chưa tạo Block cửa động có thông số BIM/kiến trúc hoàn chỉnh.
 
 **Trạng thái đợt 210:** Đã bổ sung mã tạo `BLOCK/INSERT` từ LINE+ARC có xác nhận trong GUI, Preview Block trong shared AI và kiểm thử Undo/CI. Chưa thể coi là hoàn thành AI kiến trúc hoặc Setup EXE đã nghiệm thu khi chưa có kết quả test thực tế thành công.
+
+
+## 51. Đợt 211 — AI hiệu chỉnh chiều rộng cửa trước khi dựng Block CAD
+
+### Bài 85 — Nhập chiều rộng cửa thủ công, giữ nguyên nét ảnh gốc
+
+1. Trong **AI từ ảnh → CAD**, chọn ảnh mặt bằng, xác lập `unitsPerPixel`, bật nhận diện khoảng mở hai mép tường, nét giống cánh cửa, tạo cung ARC và hai xác nhận cần thiết.
+2. Bật **Gộp cánh LINE + cung ARC thành Block CAD bản nháp**, xác nhận tạo Block, sau đó bật **Đặt chiều rộng cửa thủ công (CAD units)**.
+3. Nhập chiều rộng đã kiểm chứng, ví dụ `850` theo đơn vị của bản vẽ; kiểm tra đơn vị CAD là mm hay đơn vị khác trước khi đặt kích thước. Giá trị được gửi qua `doorWidthOverrideCAD`.
+4. Nhấn Preview lại. Bộ dựng Block thay đổi **chỉ LINE cánh và bán kính ARC của Block mới**, giữ nguyên `base` bản lề, hướng quay và tất cả LINE trích xuất từ ảnh. Xem `widthCAD`, `sourceOpeningWidthCAD`, `widthOverridden` trong `doorBlockDrafts`.
+5. Nếu không bật điều chỉnh chiều rộng, GUI không gửi `doorWidthOverrideCAD`; AI sử dụng chiều rộng suy ra từ ảnh như trước. Đây là cải tiến quan trọng để không gửi `null` cho đầu vào kiểm tra kiểu chặt chẽ.
+6. Hệ thống từ chối chiều rộng không phải số, không hữu hạn, không dương hoặc ngoài `0.000001..1000000000` CAD units. Việc dùng độ rộng khác khoảng mở ảnh có thể tạo hình học không khớp tường: người dùng phải xác nhận vị trí trước khi Commit.
+7. Nhấn Commit để tạo Block CAD bản nháp dạng INSERT, thử đo kích thước cánh và cung quay. Thực hiện Undo nếu hình học không chính xác; kiểm thử độc lập việc lưu DWG và trao đổi AutoCAD.
+
+### Bài 86 — Kiểm thử bảo toàn nét nguồn và kiểm tra cài đặt GUI
+
+1. Kiểm thử MCP Preview `ai_reviewed_door_width_changes_only_new_block_leaf_and_arc_not_image_strokes` tạo PNG mẫu, so sánh Block trước/sau khi đặt `doorWidthOverrideCAD=30` và xác minh `widthCAD=30`, `sourceOpeningWidthCAD=24`.
+2. Đối chiếu `lines` và `openingGapCandidates` giữa hai kết quả: phải giống hệt nhau vì không được phép kéo giãn nét ảnh nguồn.
+3. Thử `"30"`, `null`, `0`, `-1`, giá trị quá lớn: tất cả phải trả lỗi trước khi thay đổi CAD.
+4. Kiểm thử desktop `ai_door_width_override_gui_requires_block_opt_in_and_defaults_to_unmodified_draft`: mặc định không gửi tham số hiệu chỉnh, chỉ gửi sau khi bật tạo Block và hiệu chỉnh.
+5. Các bài kiểm thử được gắn vào Windows CI; cần xem trạng thái PASS của đúng commit trước khi khẳng định dùng được trong EXE.
+6. Block ở đây vẫn là bản nháp CAD sau khi người dùng xác nhận, chưa phải đối tượng cửa kiến trúc thông minh hoặc nhận dạng ngữ nghĩa bằng học sâu.
+
+**Trạng thái đợt 211:** Đã bổ sung hiệu chỉnh chiều rộng Block cửa cùng kiểm thử bảo toàn nét gốc và GUI. Chưa xác nhận CI Windows PASS, chưa hoàn thiện chỉnh chiều bản lề/hướng mở bằng AI.
