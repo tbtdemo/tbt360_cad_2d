@@ -151,6 +151,13 @@ jobs:
         run: |
           $ErrorActionPreference = 'Continue'
           New-Item -ItemType Directory -Force '../dist/v1025/diagnostics' | Out-Null
+          # Embed the exact GitHub commit in the desktop GUI build badge and
+          # version output; otherwise the released GUI silently displays DEV.
+          $env:CAD360_BUILD_SHA = $env:GITHUB_SHA
+          $env:CADCRAFT_BUILD_SHA = $env:GITHUB_SHA
+          if ($env:CAD360_BUILD_SHA -notmatch '^[0-9a-fA-F]{40}$') { throw 'Missing full GITHUB_SHA for GUI build identity' }
+          $desktopSource = Get-Content 'apps/cadcraft/src/main.rs' -Raw
+          if ($desktopSource -notmatch 'CADTBT360_V1[.]025' -or $desktopSource -match 'CAD TBT 360 — V1[.]000') { throw 'Desktop GUI source does not display the requested V1.025 release identity' }
           # Check and release builds differ: capture compiler/linker output from the
           # actual Windows x64 EXE build rather than only saving preflight logs.
           cargo build --release --locked -p cadcraft -p cadcraft-cli 2>&1 | Out-String -Stream | Tee-Object -FilePath '../dist/v1025/diagnostics/CARGO_RELEASE_BUILD.log' | Out-Host
