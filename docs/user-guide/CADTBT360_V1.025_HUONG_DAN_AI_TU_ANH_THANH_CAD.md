@@ -130,3 +130,41 @@ CI có bước kiểm tra tệp Word là gói DOCX hợp lệ, bản Word trong 
 **Kiểm thử nguồn bổ sung:** `ai_raster_help_is_accessible_offline_without_external_links`; Windows CI kiểm tra tồn tại và yêu cầu thực thi bài kiểm thử này trước khi phát hành.
 
 **Trạng thái nghiệm thu:** Đã có mã nút và nội dung hướng dẫn trong GUI, cùng shortcut hướng dẫn của Inno Setup. Chưa xác minh Windows CI PASS, bản EXE hoạt động thực tế hay ảnh chụp màn hình từ chính bản cài. Cần kiểm tra và bổ sung ảnh chụp chuẩn từ phần mềm sau khi build đạt.
+
+
+## 10. Nâng cấp đợt 171 — Kiểm tra AI Agent/MCP từ bộ cài thật
+
+**Mục tiêu:** Bản cài Windows và Portable ZIP phải thực sự chạy được `CADTBT360_CLI.exe mcp`, không chỉ biên dịch mã MCP.
+
+### Bước 1 — Kiểm tra MCP trên máy Windows
+
+Với bản Setup: mở **PowerShell** tại thư mục cài CAD 360 (thường ở `%LOCALAPPDATA%\Programs\CADTBT360`). Với Portable: mở PowerShell ngay trong thư mục đã giải nén.
+
+Chạy lệnh:
+
+```powershell
+.\CADTBT360_CLI.exe mcp
+```
+
+MCP sử dụng giao thức JSON-RPC dạng từng dòng qua **stdin/stdout**. Khi chạy trực tiếp trong cửa sổ PowerShell, chương trình sẽ chờ yêu cầu từ client MCP; đây không phải lệnh vẽ tự động và không có giao diện riêng. Nhấn **Ctrl+C** để kết thúc.
+
+### Bước 2 — Kết nối bằng ứng dụng MCP client
+
+Trong cấu hình MCP client hỗ trợ công cụ qua stdio, chọn **Command** là đường dẫn đầy đủ tới `CADTBT360_CLI.exe` và **Arguments** là `["mcp"]`. Sau khi kết nối, kiểm tra trong danh sách công cụ có `raster_to_cad_lines`.
+
+Để xử lý ảnh trong một phiên CAD đang mở, cần cấu hình đúng **Remote** hoặc kênh điều khiển kết nối đến phiên GUI. Nếu chạy `mcp` không có tham số kết nối, công cụ hoạt động ở chế độ **Headless** với bản vẽ riêng, không tự động sửa bản vẽ đang hiển thị trên GUI.
+
+### Bước 3 — Nhận dạng ảnh an toàn
+
+Đầu tiên gọi công cụ `raster_to_cad_lines` với `preview: true`; cung cấp đường dẫn ảnh hợp lệ và tỷ lệ CAD/pixel. Kiểm tra danh sách tọa độ `lines` và số lượng `strokes`. Chỉ dùng `preview: false` khi xác nhận kết quả và đúng bản vẽ cần chỉnh sửa. Sau đó kiểm tra LINE đã tạo, Undo và lưu bản vẽ mới.
+
+### Bước 4 — Đọc kết quả tự kiểm tra phát hành
+
+Trên GitHub Actions, workflow **CAD 360 V1.025 - Windows Setup Portable** dùng script `scripts/verify_mcp_executable.ps1` chạy trên cả EXE đã cài và EXE giải nén từ Portable ZIP. Script phải xác minh:
+
+1. MCP `initialize` trả phiên bản giao thức tương thích.
+2. `tools/list` chứa công cụ `raster_to_cad_lines`.
+3. Lời gọi công cụ đối với tệp ảnh không tồn tại trả lỗi có kiểm soát.
+4. Tiến trình MCP thoát sạch, không bị treo hoặc thất bại.
+
+**Phân biệt:** Smoke test không chứng minh AI nhận dạng mọi bản vẽ thực tế hay Windows GUI đã được người dùng nghiệm thu. Chỉ khi workflow PASS và có biên bản thử GUI/ảnh xây dựng thực mới được ghi trạng thái đạt sử dụng.
