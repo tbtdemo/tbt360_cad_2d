@@ -483,7 +483,12 @@ pub fn preview(args: &Value) -> Result<Value, String> {
     if args["includeArbitraryAngles"].as_bool().unwrap_or(false) {
         lines.extend(arbitrary_angle_strokes(&gray, threshold, min_length as u32));
     }
-    let gap_pixels = args["maxGapPixels"].as_u64().unwrap_or(0);
+    // Reject malformed optional values instead of silently interpreting e.g. -1 or "4" as zero.
+    // Zero disables bridging and must be intentional, especially around possible door openings.
+    let gap_pixels = match args.get("maxGapPixels") {
+        None => 0,
+        Some(value) => value.as_u64().ok_or("maxGapPixels must be an integer from 0..12; no CAD changes made")?,
+    };
     if gap_pixels > 12 { return Err("maxGapPixels must be 0..12; larger gaps may represent doors or openings".into()); }
     // Never display a possible doorway and simultaneously fill the same span.
     // Reject contradictory options before any editable geometry is proposed.
@@ -693,6 +698,22 @@ pub fn run(b: &mut dyn Backend, args: &Value) -> Result<Value, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn raster_vector_rejects_malformed_gap_bridging_options_before_cad_creation() {
+        let path=std::env::temp_dir().join(format!("cad360-gap-options-{}-{}.png",std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        let img=GrayImage::from_pixel(64,32,image::Luma([255]));
+        img.save(&path).unwrap();
+        for invalid in [json!(-1),json!(2.5),json!("4"),json!(null),json!(true)] {
+            let args=json!({"path":path.to_string_lossy(),"maxGapPixels":invalid});
+            let error=preview(&args).expect_err("invalid bridging options must not silently become zero");
+            assert!(error.contains("maxGapPixels must be an integer"),"bad value={invalid}, error={error}");
+        }
+        let valid=preview(&json!({"path":path.to_string_lossy(),"maxGapPixels":0}));
+        let _=std::fs::remove_file(path);
+        assert!(valid.is_ok(),"explicit zero must still disable bridging: {valid:?}");
+    }
+
     #[test]
     fn raster_vector_bridges_only_short_collinear_interruptions() {
         let mut image = GrayImage::from_pixel(80, 40, image::Luma([255]));
