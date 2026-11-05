@@ -68,7 +68,7 @@ Bên cạnh MCP, desktop đã bổ sung nút **AI TỪ ẢNH → CAD** trên tha
 
 **Trạng thái nghiệm thu:** Các bước trên đã được lập trình, nhưng chưa có chứng cứ CI Windows PASS hoặc ảnh chụp xác nhận bản EXE mới chạy đạt yêu cầu. Không nhầm hình xem trước trong cửa sổ AI với lớp phủ trực tiếp lên canvas; phần overlay tương tác/chọn vùng ngay trên canvas vẫn cần triển khai.
 
-**Bảo vệ bản vẽ:** Preview gắn với ID bản vẽ đang mở. Nếu người dùng chuyển sang bản vẽ khác hoặc đang thực hiện một lệnh CAD chưa kết thúc, giao diện từ chối ghi các nét AI; cần xem trước lại trên đúng bản vẽ.
+**Bảo vệ bản vẽ:** Preview gắn với cả ID và số phiên bản sửa đổi (revision) của bản vẽ đang mở. Nếu người dùng chuyển tài liệu, chỉnh sửa bản vẽ sau khi Preview hoặc vẫn đang chạy lệnh CAD khác, giao diện từ chối ghi các nét AI; cần nhận dạng và xem trước lại trên phiên bản hiện hành.
 
 **Hoàn tác:** Cửa sổ AI nhóm toàn bộ LINE của một lần xác nhận vào một bước UNDO. Yêu cầu UNDO Control All và không có nhóm UNDO khác đang mở. Nếu một nét bị engine từ chối giữa chừng, giao diện thử tự gọi UNDO để phục hồi bản vẽ trước lô AI; nếu hoàn tác cũng lỗi, hệ thống hiển thị cảnh báo để người dùng kiểm tra. Đã bổ sung kiểm thử lỗi giữa lô, nhưng chưa xác minh CI PASS.
 
