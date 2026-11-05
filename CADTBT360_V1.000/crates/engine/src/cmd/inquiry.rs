@@ -627,6 +627,10 @@ fn run_inspect(s: &mut Session, p: &Value) -> Result<Value> {
         "layouts": d.layouts.iter().map(|l| l.name.clone()).collect::<Vec<_>>(),
         "selection": st.selection.iter().map(|h| h.hex()).collect::<Vec<_>>(),
         "undo": st.undo.iter().rev().take(20).map(|u| u.label.clone()).collect::<Vec<_>>(),
+        "undoControl": match st.undo_ctl.control { crate::undoctl::Control::All => "all", crate::undoctl::Control::One => "one", crate::undoctl::Control::None => "none" },
+        "undoGroupOpen": st.undo_ctl.group.is_some(),
+        "documentUid": st.uid,
+        "revision": st.revision,
         "view": { "center": [st.view().center.x, st.view().center.y], "height": st.view().height },
         // Records of the file the drawing came from that the reader could not place.
         "skipped": { "count": d.skipped_records.values().fold(0usize, |a, n| a.saturating_add(*n)), "sections": d.skipped_records },
