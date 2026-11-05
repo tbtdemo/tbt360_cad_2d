@@ -763,3 +763,40 @@ Nâng cấp trực tiếp trên giao diện AI ảnh → CAD và MCP: từ **hai
 7. Chạy Windows CI với đúng commit và thử lại **Setup/Portable**. Nếu không có build Success hoặc ảnh chụp GUI thực tế, trạng thái vẫn là **Chưa kiểm chứng**.
 
 **Trạng thái:** Mã nguồn, tùy chọn GUI/MCP và bài kiểm thử Rust/CI đã được bổ sung trong đợt 189, chưa xác minh Windows CI PASS và chưa nghiệm thu bộ cài mới. Chức năng AI hiểu tường/cửa/cột, OCR kích thước, tạo BIM Wall vẫn chưa hoàn thiện.
+
+
+## 30. Đợt 190 — Hiệu chỉnh khoảng cách hai mép tường theo độ phân giải ảnh
+
+Ở các ảnh scan độ phân giải khác nhau, cùng một bề dày tường thực tế có thể chiếm số pixel khác nhau. Đợt 190 bổ sung **Mép tường (px): từ ... đến ...** để kỹ sư chủ động giới hạn cặp đường song song mà AI được phép gợi ý. Tính năng có trong **CAD → AI TỪ ẢNH → CAD**, đồng thời cung cấp tham số MCP `minWallSpacingPixels` và `maxWallSpacingPixels`. Mặc định từ **2–40 px**; giới hạn hợp lệ **1 ≤ min ≤ max ≤ 80 px**. Thay thông số làm hủy Preview cũ và bắt buộc xem trước lại.
+
+### Bài 39 — Tự điều chỉnh ngưỡng nhận dạng hai mép tường
+
+1. Tạo bản vẽ thử `BT39_AIMepTuongTheoTyLe.dxf`, giữ nguyên bản sản xuất.
+2. Nạp PNG có hai nét ngang cách nhau 10 pixel; dùng chức năng hiệu chuẩn theo chiều dài đã biết để nhập đơn vị CAD/pixel.
+3. Bật **Gợi ý cặp nét tường song song (chỉ Preview)**; phần mềm hiển thị hai trường khoảng cách **từ** và **đến**, mặc định 2–40 px.
+4. Giữ 2–40 px và Preview: hai nét đủ dài, có chồng lấn phù hợp sẽ được gợi ý là ứng viên.
+5. Đổi thành **11–40 px** rồi Preview lại: cặp cách nhau 10 pixel phải bị loại.
+6. Đổi thành **1–9 px** rồi Preview lại: cặp vẫn bị loại do vượt giới hạn 9 pixel.
+7. Đặt **8–18 px**, Preview lại: cặp 10 pixel có thể được gợi ý trở lại.
+8. Nếu muốn sinh LINE tim tường, tích thêm **Tạo tim tường từ cặp nét duy nhất (tùy chọn)**; không kích hoạt khi nhiều mép tường nhập nhằng.
+9. Kiểm tra **hai mép LINE gốc vẫn được giữ nguyên** và Undo có thể hoàn tác nhóm AI.
+
+### Bài 40 — Ngăn nhập ngưỡng sai và bảo vệ bản vẽ
+
+1. Nhập **từ 30 px đến 10 px**. Phần mềm phải báo khoảng min/max không hợp lệ; không được xác nhận Preview tạo tim với dữ liệu sai.
+2. Nếu gọi qua MCP, thử `minWallSpacingPixels=0`, `maxWallSpacingPixels=81`, giá trị âm, ký tự thay cho số hoặc `min > max`. Kết quả phải trả về lỗi rõ ràng và không ghi CAD.
+3. Thử bật tính năng tim tường nhưng không bật **Gợi ý cặp nét tường song song**: hệ thống phải từ chối đề xuất tim để người dùng xem xét ứng viên trước.
+4. Thay đổi ngưỡng sau một lần Preview và kiểm tra Preview cũ đã mất hiệu lực; phải nhấn **Nhận dạng và xem trước** lại.
+5. Thử ảnh có ba nét gần nhau. Không được tạo LINE tim tường ở vùng nhập nhằng, dù ngưỡng cho phép.
+6. Thử lưu file, hoàn tác một lần, và so sánh đối tượng CAD trước/sau; giữ bản sao khi thử Undo.
+
+### Bài 41 — Kiểm thử Rust và phát hành Windows
+
+1. Mở thư mục `CADTBT360_V1.000` ở ZIP mã nguồn tương ứng commit.
+2. Chạy `cargo test --locked -p cadcraft-mcp --lib ai_wall_spacing_ -- --nocapture` và kiểm tra cả bộ lọc 2–40/11–40/1–9 và các trường hợp min/max không hợp lệ.
+3. Chạy `cargo test --locked -p cadcraft --bin cadcraft ai_raster_wall_spacing_can_be_set_by_user_without_mutating_drawing -- --nocapture`.
+4. Chạy các kiểm thử tim tường đã bổ sung ở đợt 189 để xác nhận không làm hỏng khả năng tạo LINE tim từ cặp duy nhất và Undo.
+5. Trên GitHub Actions kiểm tra run Success theo **đúng commit**, sau đó cài Setup/giải nén Portable và thao tác ngưỡng trên giao diện Windows thật.
+6. Ghi kết quả, đường dẫn bản DXF/DWG, SHA256, ảnh chụp giao diện thực tế; nếu chưa thực hiện bước này thì để trạng thái **Chưa kiểm chứng**.
+
+**Giới hạn:** Đây là điều chỉnh bộ lọc **hình học pixel**, không phải AI ngữ nghĩa nhận diện tường, cửa, cột hay vật liệu; không thay thế kiểm tra kích thước thực bằng kỹ sư và không tự tạo BIM Wall. Chưa có bằng chứng Windows CI PASS hoặc bộ cài mới đã nghiệm thu.
