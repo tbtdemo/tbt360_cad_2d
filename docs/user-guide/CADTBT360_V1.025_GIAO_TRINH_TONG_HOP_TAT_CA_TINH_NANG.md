@@ -495,3 +495,36 @@ Giáo trình **không chỉ hướng dẫn đọc**, mà cần phục vụ kiể
 Trong CI, ảnh PNG test được kiểm tra trước; tiếp đó hệ thống **xác minh đủ 21 bài trong Markdown**, **tạo cả Word tổng hợp lẫn Word chuyên đề**, rồi **kiểm tra Word tổng hợp có bảng thật, tiêu đề đúng cấu trúc và đủ 21 bài**. Nếu sai, dừng trước khi biên dịch Rust và trước bước tạo Setup/Portable.
 
 **Lưu ý về phiên bản:** V1.025 vẫn là định danh nhánh phát triển hiện tại; các đợt 179–182 là các lần cập nhật mã nguồn/tài liệu, chưa phải bằng chứng phiên bản EXE phát hành mới. Chưa có kết quả Windows CI PASS được xác minh cho commit này và chưa có bộ ảnh chụp thực tế từ EXE để đưa vào giáo trình.
+
+
+## 23. Đợt 183 — Kiểm chứng tỷ lệ và tọa độ AI trên EXE trong bộ cài
+
+### Vì sao phải kiểm tra tọa độ thay vì chỉ đếm số LINE?
+
+Việc ảnh PNG tạo ra một đối tượng LINE chưa đủ để kết luận đúng. Một nét có thể bị lệch vị trí, ngược chiều trục Y hoặc sai tỷ lệ CAD/pixel. Từ đợt 183, bài smoke test Windows dùng **ảnh thực có 51 pixel đen**, nằm ngang từ **x=6 đến x=56**, tại **y=15**, trong ảnh **64 × 32 pixel**, với `unitsPerPixel=10`. Đoạn thẳng nối tâm pixel đầu và cuối có chiều dài hình học **50 khoảng pixel**; kết quả đúng là **500 đơn vị CAD**, không phải 510.
+
+### Bài 23 — Tự thực hành kiểm tra ảnh, tỷ lệ và tọa độ trong CAD 360
+
+1. Tạo bản vẽ mới `BT23_KiemTraTyLeAI.dxf`, dùng đơn vị CAD phù hợp với ví dụ, không mở một file sản xuất đang có đối tượng khác.
+2. Chuẩn bị ảnh PNG **64 × 32 px**, nền trắng, một đường đen ngang từ pixel x=6 đến x=56 tại y=15. Không vẽ thêm chữ, viền hay điểm đen thừa.
+3. Trong tab **CAD** chọn **AI TỪ ẢNH → CAD**, nạp ảnh PNG. Đặt **Nét tối thiểu = 16 px** và **Đơn vị CAD/pixel = 10**.
+4. Nhấn **Nhận dạng và xem trước**. Chờ kết quả chỉ có **01 nét**. Nếu nhận dạng ra nhiều hơn hoặc không có nét, kiểm tra ảnh và ngưỡng; không tạo ngay.
+5. Đối chiếu hệ tọa độ của nét khi dùng gốc (0,0): **điểm đầu (65,165)** và **điểm cuối (565,165)**. Công thức gốc sử dụng tâm pixel: `(x+0.5)×10` cho X; `(32-y-0.5)×10` cho Y.
+6. Chọn **Tạo LINE chỉnh sửa trong CAD**. Dùng Properties hoặc công cụ `DIST` đo lại đúng **500 đơn vị CAD**, nằm ngang.
+7. Thử **UNDO**: đoạn AI vừa tạo phải biến mất. Nhận dạng lại, tạo lại, lưu DXF rồi đóng/mở lại kiểm tra.
+8. Thực hiện thử xuất DWG từ bản sao và mở bằng CAD 360; muốn kết luận DWG chuẩn tương thích AutoCAD phải mở/chỉnh sửa/lưu bằng **AutoCAD độc lập**.
+
+### Bài 24 — Kiểm tra Setup và Portable có cùng kết quả MCP
+
+1. Vào GitHub Actions của workflow **CAD 360 V1.025 - Windows Setup Portable**, chọn run có trạng thái **Success** thuộc đúng commit.
+2. Tải **Setup EXE** và **Portable ZIP** cùng run. Không trộn file từ run khác.
+3. Trên bản Setup, chạy `scripts/verify_mcp_executable.ps1` với `-Exe` trỏ tới **CADTBT360_CLI.exe** của thư mục cài đặt. Bài thử tự tạo ảnh và kiểm chứng Preview, LINE, tọa độ, chiều dài, UNDO, lưu DXF/DWG.
+4. Giải nén Portable, lặp lại lệnh cùng script nhưng trỏ `-Exe` vào **CADTBT360_CLI.exe** ở thư mục Portable.
+5. Cả hai phải trả về `MCP smoke PASS` và có kết quả **500 CAD units**. Nếu một bên sai, không được công bố hai gói cài đặt tương đương.
+6. Đối chiếu `BUILD_INFO.txt`, `SHA256SUMS.txt` và ZIP mã nguồn đầy đủ. Trạng thái lệnh lỗi hoặc thiếu file hướng dẫn đều phải ghi trong phiếu nghiệm thu.
+
+### Kiểm soát dữ liệu kiểm thử
+
+Script `scripts/validate_mcp_smoke_fixture.py` kiểm tra PNG tới **từng tọa độ pixel x=6…56, y=15**. Script `scripts/verify_mcp_executable.ps1` kiểm tra LINE đã quy đổi là **(65,165) → (565,165)**, chiều dài 500. Windows CI tiếp tục yêu cầu giáo trình Word tổng hợp có **đủ 21 bài cơ bản/nâng cao**, bảng Word thật và tài liệu chuyên đề. Đây là **điều kiện kiểm thử được bổ sung trong mã nguồn**, chưa phải xác nhận lượt Windows CI đã PASS.
+
+**Giới hạn:** Bộ thử ảnh này là một nét đơn, chưa chứng minh AI nhận dạng tường/cửa/cột, chữ kích thước hoặc mặt bằng kiến trúc thực tế. Không tự nâng trạng thái chức năng AI ngữ nghĩa lên Đạt.
