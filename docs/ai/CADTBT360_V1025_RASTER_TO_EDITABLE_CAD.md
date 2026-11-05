@@ -68,6 +68,6 @@ Bên cạnh MCP, desktop đã bổ sung nút **AI TỪ ẢNH → CAD** trên tha
 
 **Trạng thái nghiệm thu:** Các bước trên đã được lập trình, nhưng chưa có chứng cứ CI Windows PASS hoặc ảnh chụp xác nhận bản EXE mới chạy đạt yêu cầu. Không nhầm hình xem trước trong cửa sổ AI với lớp phủ trực tiếp lên canvas; phần overlay tương tác/chọn vùng ngay trên canvas vẫn cần triển khai.
 
-**Hoàn tác:** Cửa sổ AI đã được bổ sung nhóm UNDO cho toàn bộ các LINE tạo trong một lần xác nhận. Yêu cầu UNDO Control All và không có nhóm UNDO khác đang mở. Một lệnh UNDO có thể hoàn tác cả lô khi engine ghi nhận nhóm thành công. Bước này đã được bổ sung kiểm thử nguồn nhưng chưa xác minh CI PASS.
+**Hoàn tác:** Cửa sổ AI nhóm toàn bộ LINE của một lần xác nhận vào một bước UNDO. Yêu cầu UNDO Control All và không có nhóm UNDO khác đang mở. Nếu một nét bị engine từ chối giữa chừng, giao diện thử tự gọi UNDO để phục hồi bản vẽ trước lô AI; nếu hoàn tác cũng lỗi, hệ thống hiển thị cảnh báo để người dùng kiểm tra. Đã bổ sung kiểm thử lỗi giữa lô, nhưng chưa xác minh CI PASS.
 
 **Giới hạn:** Quá trình tạo nhiều LINE hiện chưa bảo đảm tính nguyên tử toàn bộ. Hãy thực hiện trên bản sao bản vẽ và kiểm tra kết quả trước khi lưu. Không nhận diện ngữ nghĩa tường, cửa, cột, phòng hoặc kích thước như phần mềm AI thị giác chuyên dụng.
