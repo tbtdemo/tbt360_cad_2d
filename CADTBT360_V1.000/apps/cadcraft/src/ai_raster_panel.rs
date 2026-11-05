@@ -27,6 +27,9 @@ pub struct State {
     create_column_blocks: bool,
     confirm_column_blocks: bool,
     wall_pair_hints: bool,
+    wall_panel_hints: bool,
+    create_wall_panel_guides: bool,
+    confirm_wall_panel_guides: bool,
     min_wall_spacing: f64,
     max_wall_spacing: f64,
     create_wall_centerlines: bool,
@@ -142,6 +145,9 @@ impl State {
             "createColumnBlocks":self.create_column_blocks,
             "confirmColumnBlocks":self.confirm_column_blocks,
             "wallPairHints":self.wall_pair_hints,"createWallCenterlines":self.create_wall_centerlines,
+            "wallPanelHints":self.wall_panel_hints,
+            "createWallPanelPolylines":self.create_wall_panel_guides,
+            "confirmWallPanels":self.confirm_wall_panel_guides,
             "minWallSpacingPixels":self.min_wall_spacing,"maxWallSpacingPixels":self.max_wall_spacing,
             "openingGapHints":self.opening_gap_hints,
             "pairedWallOpeningHints":self.paired_wall_opening_hints,
@@ -257,10 +263,28 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
                 if ui.checkbox(&mut state.include_diagonals, "Nét 45°").changed() { state.preview = None; }
                 if ui.checkbox(&mut state.arbitrary_angles, "Góc bất kỳ (thử nghiệm)").changed() { state.preview = None; }
                 if ui.checkbox(&mut state.wall_pair_hints, "Gợi ý cặp nét tường song song (chỉ Preview)").changed() {
-                    if !state.wall_pair_hints { state.create_wall_centerlines = false; }
+                    if !state.wall_pair_hints {
+                        state.create_wall_centerlines=false;
+                        state.wall_panel_hints=false;
+                        state.create_wall_panel_guides=false;
+                        state.confirm_wall_panel_guides=false;
+                    }
                     state.preview = None;
                 }
                 if state.wall_pair_hints {
+                    if ui.checkbox(&mut state.wall_panel_hints,"Gợi ý dải tường từ hai mép quan sát được (không tự nối qua cửa)").changed() {
+                        if !state.wall_panel_hints {state.create_wall_panel_guides=false;state.confirm_wall_panel_guides=false;}
+                        state.preview=None;
+                    }
+                    if state.wall_panel_hints {
+                        ui.small("Chỉ tìm vùng tường từ hai mép có bằng chứng, bỏ qua vùng trùng khoảng mở/cột.");
+                        if ui.checkbox(&mut state.create_wall_panel_guides,"Vẽ PLINE kín dải tường sau khi kiểm tra").changed() {
+                            if !state.create_wall_panel_guides {state.confirm_wall_panel_guides=false;}
+                            state.preview=None;
+                        }
+                        if state.create_wall_panel_guides && ui.checkbox(&mut state.confirm_wall_panel_guides,
+                            "Tôi xác nhận tạo PLINE dải tường").changed() {state.preview=None;}
+                    }
                     ui.horizontal(|ui| {
                         ui.label("Mép tường (px): từ");
                         if ui.add(egui::DragValue::new(&mut state.min_wall_spacing).speed(1.0).range(1.0..=80.0)).changed() { state.preview = None; }
@@ -482,6 +506,7 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
             let column_hint_count=proposal["columnHatchCandidateCount"].as_u64().unwrap_or(0);
             let column_block_count=proposal["columnBlockDraftCount"].as_u64().unwrap_or(0);
             let wall_pairs = proposal["wallPairCandidateCount"].as_u64().unwrap_or(0);
+            let wall_panel_count=proposal["wallPanelCandidateCount"].as_u64().unwrap_or(0);
             let opening_count = proposal["openingGapCandidateCount"].as_u64().unwrap_or(0);
             let paired_opening_count = proposal["pairedWallOpeningCandidateCount"].as_u64().unwrap_or(0);
             let door_leaf_count = proposal["doorLeafCandidateCount"].as_u64().unwrap_or(0);
@@ -497,6 +522,7 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
             }
             if state.wall_pair_hints {
                 ui.small("Gợi ý hình học, không phải tường BIM. Nét nguồn luôn được giữ để đối chiếu.");
+                if state.wall_panel_hints {ui.small(format!("Có {wall_panel_count} dải tường quan sát được; đường bao Preview màu cam, không tự lấp khoảng cửa."));}
             }
             if state.opening_gap_hints {
                 ui.small(format!("{opening_count} khoảng hở tiềm năng. Chưa xác nhận là cửa đi/cửa sổ; không tự đóng đoạn."));
@@ -677,6 +703,24 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
                             }
                         }
                     }
+                    // Orange outlines are observed two-edge wall panels only.
+                    // A visible gap remains a gap; there is no automatic closure.
+                    if state.wall_panel_hints {
+                        if let Some(panels)=proposal["wallPanelCandidates"].as_array() {
+                            for panel in panels {
+                                let Some(points)=panel["outlineCAD"].as_array() else {continue};
+                                if points.len()!=4 {continue;}
+                                for i in 0..4 {
+                                    let a=&points[i];let b=&points[(i+1)%4];
+                                    if let (Some(x0),Some(y0),Some(x1),Some(y1))=
+                                        (a[0].as_f64(),a[1].as_f64(),b[0].as_f64(),b[1].as_f64()) {
+                                        painter.line_segment([to_screen(x0,y0),to_screen(x1,y1)],
+                                            egui::Stroke::new(2.0,egui::Color32::from_rgb(240,152,66)));
+                                    }
+                                }
+                            }
+                        }
+                    }
                     // Draw the exact native ARC proposal in purple before committing.
                     // CAD uses CCW degrees; preview samples its short CCW sweep.
                     if state.create_door_swing_arcs {
@@ -783,6 +827,14 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
                         match cad.run("line", json!({"points":line})) {
                             Ok(_) => created += 1,
                             Err(e) => { failure = Some(e); break; }
+                        }
+                    }
+                }
+                if failure.is_none() && let Some(panels) = proposal["wallPanelPolylines"].as_array() {
+                    for polygon in panels {
+                        match cad.run("pline",json!({"vertices":polygon,"closed":true})) {
+                            Ok(_) => created+=1,
+                            Err(e)=>{failure=Some(e);break;}
                         }
                     }
                 }
@@ -1100,6 +1152,22 @@ mod tests {
         state.confirm_window_blocks=true;
         assert_eq!(state.params()["createWindowBlocks"],true);
         assert_eq!(state.params()["confirmWindowBlocks"],true);
+        assert_eq!(state.params()["preview"],true);
+    }
+
+    #[test]
+    fn ai_wall_panel_gui_defaults_to_preview_with_separate_confirmation() {
+        let mut state=State::default();state.open();
+        assert_eq!(state.params()["wallPanelHints"],false);
+        assert_eq!(state.params()["createWallPanelPolylines"],false);
+        assert_eq!(state.params()["confirmWallPanels"],false);
+        state.wall_pair_hints=true;state.wall_panel_hints=true;
+        assert_eq!(state.params()["wallPanelHints"],true);
+        state.create_wall_panel_guides=true;
+        assert_eq!(state.params()["confirmWallPanels"],false);
+        state.confirm_wall_panel_guides=true;
+        assert_eq!(state.params()["createWallPanelPolylines"],true);
+        assert_eq!(state.params()["confirmWallPanels"],true);
         assert_eq!(state.params()["preview"],true);
     }
 
