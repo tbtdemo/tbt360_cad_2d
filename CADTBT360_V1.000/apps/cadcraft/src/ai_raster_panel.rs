@@ -22,6 +22,8 @@ pub struct State {
     arbitrary_angles: bool,
     closed_rectangles: bool,
     wall_pair_hints: bool,
+    min_wall_spacing: f64,
+    max_wall_spacing: f64,
     create_wall_centerlines: bool,
 }
 
@@ -44,6 +46,8 @@ impl State {
             self.min_length = 16;
             self.scale = 1.0;
             self.include_diagonals = true;
+            self.min_wall_spacing = 2.0;
+            self.max_wall_spacing = 40.0;
         }
     }
 
@@ -61,7 +65,8 @@ impl State {
         json!({"path":self.path,"preview":true,"minLengthPixels":self.min_length,
             "unitsPerPixel":self.scale,"includeDiagonals":self.include_diagonals,
             "includeArbitraryAngles":self.arbitrary_angles,"closedRectangles":self.closed_rectangles,
-            "wallPairHints":self.wall_pair_hints,"createWallCenterlines":self.create_wall_centerlines,"maxLines":250})
+            "wallPairHints":self.wall_pair_hints,"createWallCenterlines":self.create_wall_centerlines,
+            "minWallSpacingPixels":self.min_wall_spacing,"maxWallSpacingPixels":self.max_wall_spacing,"maxLines":250})
     }
 }
 
@@ -142,6 +147,17 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
                 if ui.checkbox(&mut state.wall_pair_hints, "Gợi ý cặp nét tường song song (chỉ Preview)").changed() {
                     if !state.wall_pair_hints { state.create_wall_centerlines = false; }
                     state.preview = None;
+                }
+                if state.wall_pair_hints {
+                    ui.horizontal(|ui| {
+                        ui.label("Mép tường (px): từ");
+                        if ui.add(egui::DragValue::new(&mut state.min_wall_spacing).speed(1.0).range(1.0..=80.0)).changed() { state.preview = None; }
+                        ui.label("đến");
+                        if ui.add(egui::DragValue::new(&mut state.max_wall_spacing).speed(1.0).range(1.0..=80.0)).changed() { state.preview = None; }
+                    });
+                    if state.min_wall_spacing > state.max_wall_spacing {
+                        ui.colored_label(egui::Color32::RED,"Khoảng cách mép tường: giá trị từ phải nhỏ hơn hoặc bằng giá trị đến.");
+                    }
                 }
                 if ui.add_enabled(state.wall_pair_hints, egui::Checkbox::new(&mut state.create_wall_centerlines, "Tạo tim tường từ cặp nét duy nhất (tùy chọn)")).changed() {
                     state.preview = None;
@@ -411,6 +427,19 @@ mod tests {
         assert!(state.include_diagonals);
         assert_eq!(state.params()["preview"], true);
         assert_eq!(state.params()["includeArbitraryAngles"], false);
+    }
+
+    #[test]
+    fn ai_raster_wall_spacing_can_be_set_by_user_without_mutating_drawing() {
+        let mut state=State::default();
+        state.open();
+        assert_eq!(state.params()["minWallSpacingPixels"],2.0);
+        assert_eq!(state.params()["maxWallSpacingPixels"],40.0);
+        state.min_wall_spacing=8.0;
+        state.max_wall_spacing=18.0;
+        assert_eq!(state.params()["minWallSpacingPixels"],8.0);
+        assert_eq!(state.params()["maxWallSpacingPixels"],18.0);
+        assert_eq!(state.params()["preview"],true);
     }
 
     #[test]
