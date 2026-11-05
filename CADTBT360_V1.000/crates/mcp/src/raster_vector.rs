@@ -444,6 +444,51 @@ fn wall_panel_boundary_contacts(panels: &[Value], openings: &[Value], columns: &
     output
 }
 
+/// Preview-only T/X junction evidence from distinct observed wall-panel centrelines.
+/// A junction is suppressed if it falls within a door/window opening or column
+/// candidate. No wall source, CAD entity, BLOCK or topology is modified.
+fn wall_panel_junction_qa(panels: &[Value], openings: &[Value], columns: &[Value]) -> Vec<Value> {
+    if panels.len()>64 {return Vec::new();}
+    let mut lines=Vec::new();
+    for panel in panels {
+        let Some(points)=panel["outlinePixels"].as_array() else {continue};
+        if points.len()!=4 {continue;}
+        let mut b=[f64::INFINITY,f64::INFINITY,f64::NEG_INFINITY,f64::NEG_INFINITY];
+        let mut valid=true;
+        for p in points {
+            if let (Some(x),Some(y))=(p[0].as_f64(),p[1].as_f64()) {
+                if !x.is_finite()||!y.is_finite(){valid=false;break;}
+                b[0]=b[0].min(x);b[1]=b[1].min(y);b[2]=b[2].max(x);b[3]=b[3].max(y);
+            } else {valid=false;break;}
+        }
+        if !valid {continue;}
+        let width=b[2]-b[0];let height=b[3]-b[1];
+        if width<1.0||height<1.0 {continue;}
+        let center=if width>=height {
+            Line{x0:b[0],y0:(b[1]+b[3])*0.5,x1:b[2],y1:(b[1]+b[3])*0.5}
+        } else {
+            Line{x0:(b[0]+b[2])*0.5,y0:b[1],x1:(b[0]+b[2])*0.5,y1:b[3]}
+        };
+        lines.push(center);
+    }
+    let inside=|point:&Value,region:&Value|->bool {
+        let (Some(x),Some(y),Some(vertices))=(point[0].as_f64(),point[1].as_f64(),region["outlinePixels"].as_array()) else {return false;};
+        if vertices.len()!=4 {return false;}
+        let mut b=[f64::INFINITY,f64::INFINITY,f64::NEG_INFINITY,f64::NEG_INFINITY];
+        for v in vertices {
+            let (Some(a),Some(c))=(v[0].as_f64(),v[1].as_f64()) else {return false;};
+            b[0]=b[0].min(a);b[1]=b[1].min(c);b[2]=b[2].max(a);b[3]=b[3].max(c);
+        }
+        x>=b[0]-0.5 && x<=b[2]+0.5 && y>=b[1]-0.5 && y<=b[3]+0.5
+    };
+    wall_centerline_junctions(&lines).into_iter().filter_map(|j| {
+        if openings.iter().chain(columns).any(|region|inside(&j["pointPixels"],region)) {return None;}
+        Some(json!({"panelIndices":j["centerlineIndices"],"pointPixels":j["pointPixels"],
+            "kind":j["kind"],"classification":"observed-wall-panel-junction-preview-only",
+            "requiresHumanReview":true}))
+    }).collect()
+}
+
 /// Construct centre lines only for unambiguous one-to-one edge pairs.
 /// Existing source edges are kept; these are editable draft centre lines, not BIM walls.
 fn wall_centerline_candidates(lines: &[Line], pairs: &[Value], excluded: &[bool]) -> Vec<Line> {
@@ -1087,6 +1132,9 @@ pub fn preview(args: &Value) -> Result<Value, String> {
     let wall_panel_contacts=if wall_panel_hints {
         wall_panel_boundary_contacts(&wall_panels,&paired_openings,&column_candidates)
     } else {Vec::new()};
+    let wall_panel_junctions=if wall_panel_hints {
+        wall_panel_junction_qa(&wall_panels,&paired_openings,&column_candidates)
+    } else {Vec::new()};
     let count = lines.len();
     if count > max_lines as usize {
         return Err(format!("Found {count} strokes, exceeding maxLines={max_lines}; increase minLengthPixels or limit the input region, no CAD changes made"));
@@ -1279,6 +1327,8 @@ pub fn preview(args: &Value) -> Result<Value, String> {
         "wallPanelContactCount":wall_panel_contacts.iter().map(|v|
             v["startContacts"].as_array().map_or(0,Vec::len)+v["endContacts"].as_array().map_or(0,Vec::len)).sum::<usize>(),
         "wallPanelBoundaryContacts":wall_panel_contacts,
+        "wallPanelJunctionCount":wall_panel_junctions.len(),
+        "wallPanelJunctionCandidates":wall_panel_junctions,
         "wallTopologyStatus":"preview-only-unverified-no-geometry-joining"
     });
     let Some(dst)=result.as_object_mut() else {unreachable!("preview JSON is an object")};
@@ -1826,6 +1876,26 @@ mod tests {
         assert_eq!(result["editableEntitiesCreated"],0);
         assert_eq!(result["wallPanelPolylineCount"],0);
         let _=std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn ai_wall_panel_junction_qa_detects_t_and_cross_and_ignores_opening_or_column() {
+        let panel=|coords: [[f64;2];4]|json!({"outlinePixels":coords});
+        let horizontal=panel([[0.0,20.0],[100.0,20.0],[100.0,30.0],[0.0,30.0]]);
+        let vertical_cross=panel([[45.0,0.0],[55.0,0.0],[55.0,60.0],[45.0,60.0]]);
+        let vertical_t=panel([[45.0,25.0],[55.0,25.0],[55.0,60.0],[45.0,60.0]]);
+        let cross=wall_panel_junction_qa(&[horizontal.clone(),vertical_cross],&[],&[]);
+        assert_eq!(cross.len(),1);
+        assert_eq!(cross[0]["kind"],"cross-candidate");
+        assert_eq!(cross[0]["panelIndices"],json!([0,1]));
+        let t=wall_panel_junction_qa(&[horizontal.clone(),vertical_t.clone()],&[],&[]);
+        assert_eq!(t.len(),1);
+        assert_eq!(t[0]["kind"],"T-candidate");
+        let opening=panel([[40.0,18.0],[60.0,18.0],[60.0,32.0],[40.0,32.0]]);
+        assert!(wall_panel_junction_qa(&[horizontal.clone(),vertical_t.clone()],&[opening],&[]).is_empty());
+        let column=panel([[43.0,18.0],[57.0,18.0],[57.0,32.0],[43.0,32.0]]);
+        assert!(wall_panel_junction_qa(&[horizontal.clone(),vertical_t],&[],&[column]).is_empty());
+        assert!(wall_panel_junction_qa(&[horizontal],&[],&[]).is_empty());
     }
 
     #[test]
