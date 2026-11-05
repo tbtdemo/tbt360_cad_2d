@@ -453,6 +453,11 @@ pub fn preview(args: &Value) -> Result<Value, String> {
     }
     let gap_pixels = args["maxGapPixels"].as_u64().unwrap_or(0);
     if gap_pixels > 12 { return Err("maxGapPixels must be 0..12; larger gaps may represent doors or openings".into()); }
+    // Never display a possible doorway and simultaneously fill the same span.
+    // Reject contradictory options before any editable geometry is proposed.
+    if args["openingGapHints"].as_bool().unwrap_or(false) && gap_pixels > 0 {
+        return Err("openingGapHints=true requires maxGapPixels=0 to preserve possible door/opening gaps; no CAD changes made".into());
+    }
     let gaps_hint=if args["openingGapHints"].as_bool().unwrap_or(false) {
         opening_gap_candidates(&lines,3.0,40.0)
     } else {Vec::new()};
@@ -768,6 +773,26 @@ mod tests {
             let e=preview(&args).expect_err("invalid wall spacing must be rejected");
             assert!(e.contains("pixel spacing"),"unexpected validation error: {e}");
         }
+        let _=std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn ai_opening_gap_real_png_refuses_to_bridge_possible_door() {
+        let mut img=image::RgbImage::from_pixel(110,40,image::Rgb([255,255,255]));
+        for x in 5..=39 {img.put_pixel(x,17,image::Rgb([0,0,0]));}
+        for x in 51..=95 {img.put_pixel(x,17,image::Rgb([0,0,0]));}
+        let path=std::env::temp_dir().join(format!("cad360-keep-opening-{}-{}.png",std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        img.save(&path).unwrap();
+        let base=json!({"path":path.to_string_lossy(),"preview":true,
+            "minLengthPixels":16,"includeDiagonals":false,"openingGapHints":true,"maxGapPixels":0});
+        let proposed=preview(&base).expect("non-mutating preview");
+        assert_eq!(proposed["openingGapCandidateCount"],1,"should mark a single potential opening");
+        assert_eq!(proposed["lines"].as_array().unwrap().len(),2,"never bridge a possible doorway");
+        let mut wrong=base;
+        wrong["maxGapPixels"]=json!(12);
+        let err=preview(&wrong).expect_err("cannot request both opening detection and auto-bridge");
+        assert!(err.contains("requires maxGapPixels=0"),"{err}");
         let _=std::fs::remove_file(&path);
     }
 
