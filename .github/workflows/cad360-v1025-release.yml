@@ -167,6 +167,8 @@ jobs:
             @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_wall_panels_preserve_door_gap_and_reject_column_overlap_or_ambiguous_edges' },
             @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_real_png_wall_panels_require_confirmation_before_native_cad_plines' },
             @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_wall_blocks_from_real_png_preserve_openings_and_require_confirmed_desktop_commit' },
+            @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_wall_panel_contact_qa_reports_both_sides_of_opening_without_joining_wall_geometry' },
+            @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_real_png_wall_opening_contact_qa_is_preview_only' },
             @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_real_png_door_leaf_hint_is_preview_only_and_preserves_native_geometry' },
             @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_confirmed_door_swing_arc_is_editable_and_refuses_missing_confirmation' },
             @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_real_png_door_arc_commit_creates_native_arc_after_confirmation' },
@@ -291,6 +293,10 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'AI confirmed wall panel raster-to-native-PLINE regression failed' }
           cargo test --locked -p cadcraft-mcp --lib ai_wall_blocks_from_real_png_preserve_openings_and_require_confirmed_desktop_commit -- --nocapture
           if ($LASTEXITCODE -ne 0) { throw 'AI wall Block PNG preview and source preservation failed' }
+          cargo test --locked -p cadcraft-mcp --lib ai_wall_panel_contact_qa_reports_both_sides_of_opening_without_joining_wall_geometry -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'AI wall contact QA joined or retargeted opening/column geometry' }
+          cargo test --locked -p cadcraft-mcp --lib ai_real_png_wall_opening_contact_qa_is_preview_only -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'AI real PNG wall-to-opening preview topology test failed' }
           cargo test --locked -p cadcraft --bin cadcraft ai_wall_block_gui_is_opt_in_and_requires_separate_review -- --nocapture
           if ($LASTEXITCODE -ne 0) { throw 'AI wall Block confirmation GUI failed' }
           cargo test --locked -p cadcraft --bin cadcraft ai_wall_block_native_insert_contains_one_closed_panel_and_undoes -- --nocapture
