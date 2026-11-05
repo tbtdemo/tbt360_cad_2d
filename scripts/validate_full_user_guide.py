@@ -6,10 +6,10 @@ import sys
 from pathlib import Path
 
 CHAPTERS = {
-    1: "CÀI ĐẶT", 2: "GIAO DIỆN", 3: "VẼ", 4: "SỬA",
-    5: "LAYER", 6: "KÍCH THƯỚC", 7: "ĐO BÓC", 8: "ĐO BÓC",
-    9: "EXCEL", 10: "IFC", 11: "BIM", 12: "AI", 13: "MCP",
-    14: "PHỤC HỒI", 15: "DỰ ÁN",
+    1: "Bắt đầu", 2: "Môi trường CAD", 3: "Vẽ 2D", 4: "Sửa CAD",
+    5: "Tổ chức hồ sơ", 6: "Chữ và in", 7: "QTO cơ bản", 8: "QTO chuyên sâu",
+    9: "QTO báo cáo", 10: "IFC/3D", 11: "BIM cộng tác", 12: "AI ảnh",
+    13: "CLI/MCP", 14: "Phục hồi", 15: "Dự án tổng hợp",
 }
 REQUIRED_TERMS = (
     "LINE", "OFFSET", "TRIM", "Layer", "BLOCK", "XREF",
