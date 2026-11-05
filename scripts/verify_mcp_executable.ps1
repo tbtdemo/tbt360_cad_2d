@@ -37,8 +37,10 @@ try {
         '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}',
         '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"raster_to_cad_lines","arguments":{"path":"__CAD360_NONEXISTENT_TEST_IMAGE__.png","preview":true}}}'
     )
-    $previewArgs = @{ path=$png; preview=$true; minLengthPixels=16; includeDiagonals=$false }
-    $commitArgs = @{ path=$png; preview=$false; minLengthPixels=16; includeDiagonals=$false }
+    # 51 black pixels from x=6..56 at y=15. Centerline spans 50 pixel intervals,
+    # yielding LINE (65,165) -> (565,165) when unitsPerPixel=10.
+    $previewArgs = @{ path=$png; preview=$true; minLengthPixels=16; unitsPerPixel=10.0; includeDiagonals=$false }
+    $commitArgs = @{ path=$png; preview=$false; minLengthPixels=16; unitsPerPixel=10.0; includeDiagonals=$false }
     $requests += @(
         (@{ jsonrpc='2.0'; id=4; method='tools/call'; params=@{name='raster_to_cad_lines';arguments=$previewArgs}} | ConvertTo-Json -Depth 8 -Compress),
         (@{ jsonrpc='2.0'; id=5; method='tools/call'; params=@{name='raster_to_cad_lines';arguments=$commitArgs}} | ConvertTo-Json -Depth 8 -Compress),
@@ -82,6 +84,18 @@ try {
     if ($preview.preview -ne $true -or $preview.strokes -ne 1 -or $preview.editableEntitiesCreated -ne 0) {
         throw "Installed MCP real-PNG preview mismatch: $($preview | ConvertTo-Json -Compress)"
     }
+    if ($preview.lines.Count -ne 1) { throw 'AI Preview returned wrong vector geometry count' }
+    # Independently assert pixel center => CAD world transformation (not just a
+    # nonzero LINE count). Axis inversion must put row 15 at y=(32-15.5)*10.
+    $expected = @(65.0,165.0,565.0,165.0)
+    $observed = @([double]$preview.lines[0][0][0], [double]$preview.lines[0][0][1], [double]$preview.lines[0][1][0], [double]$preview.lines[0][1][1])
+    for ($k=0; $k -lt 4; $k++) {
+        if ([math]::Abs($observed[$k] - $expected[$k]) -gt 0.001) {
+            throw "AI vector coordinate or unitsPerPixel mismatch at index $k; expected $($expected[$k]), actual $($observed[$k])"
+        }
+    }
+    $length = [math]::Sqrt([math]::Pow($observed[2]-$observed[0],2) + [math]::Pow($observed[3]-$observed[1],2))
+    if ([math]::Abs($length - 500.0) -gt 0.001) { throw "AI LINE length must be 500 CAD units, got $length" }
     $commit = RequireToolReply 5
     if ($commit.editableEntitiesCreated -ne 1 -or $commit.strokes -ne 1) {
         throw "Installed MCP real-PNG-to-LINE commit mismatch: $($commit | ConvertTo-Json -Compress)"
@@ -110,7 +124,7 @@ try {
     if ($dxfInfo.entityCount -ne 1 -or $dwgInfo.entityCount -ne 1) {
         throw "AI-created LINE was lost during DXF/DWG roundtrip: DXF=$($dxfInfo.entityCount), DWG=$($dwgInfo.entityCount)"
     }
-    Write-Host "MCP smoke PASS: real PNG preview, editable LINE, Undo, AI DXF/DWG save-reopen ($exePath)"
+    Write-Host "MCP smoke PASS: real PNG, LINE geometry 500 CAD units, Undo, DXF/DWG save-reopen ($exePath)"
 } finally {
     if (-not $process.HasExited) { $process.Kill($true) }
     $process.Dispose()
