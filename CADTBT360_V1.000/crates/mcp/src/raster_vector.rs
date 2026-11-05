@@ -1037,6 +1037,13 @@ pub fn preview(args: &Value) -> Result<Value, String> {
     }
     let axes=if create_axes {wall_centerline_candidates(&lines,&wall_hints,&replacement)} else {Vec::new()};
     let junctions=wall_centerline_junctions(&axes);
+    let wall_panel_hints=args["wallPanelHints"].as_bool().unwrap_or(false);
+    if wall_panel_hints && !args["wallPairHints"].as_bool().unwrap_or(false) {
+        return Err("wallPanelHints requires wallPairHints=true; no CAD changes made".into());
+    }
+    let mut wall_panels=if wall_panel_hints {
+        wall_panel_candidates(&lines,&wall_hints,&paired_openings,&column_candidates)
+    } else {Vec::new()};
     let count = lines.len();
     if count > max_lines as usize {
         return Err(format!("Found {count} strokes, exceeding maxLines={max_lines}; increase minLengthPixels or limit the input region, no CAD changes made"));
@@ -1100,6 +1107,28 @@ pub fn preview(args: &Value) -> Result<Value, String> {
     let column_guide_polylines:Vec<Value>=if create_column_guides {
         column_candidates.iter().map(|v|v["outlineCAD"].clone()).collect()
     } else {Vec::new()};
+    for panel in &mut wall_panels {
+        let Some(points)=panel["outlinePixels"].as_array() else {continue};
+        let mut cad=Vec::new();
+        for point in points {
+            let (Some(x),Some(y))=(point[0].as_f64(),point[1].as_f64()) else {return Err("Invalid panel coordinates".into())};
+            let (wx,wy)=(ox+x*scale,oy+(f64::from(height)-y)*scale);
+            if !wx.is_finite() || !wy.is_finite() || wx.abs()>1.0e12 || wy.abs()>1.0e12 {
+                return Err("Wall panel exceeds safe CAD coordinate bounds; no CAD changes made".into());
+            }
+            cad.push(json!([wx,wy]));
+        }
+        panel["outlineCAD"]=json!(cad);
+        panel["thicknessCAD"]=json!(panel["thicknessPixels"].as_f64().unwrap_or(0.0)*scale);
+        panel["lengthCAD"]=json!(panel["lengthPixels"].as_f64().unwrap_or(0.0)*scale);
+    }
+    let create_wall_panels=args["createWallPanelPolylines"].as_bool().unwrap_or(false);
+    if create_wall_panels && (!wall_panel_hints || !args["confirmWallPanels"].as_bool().unwrap_or(false)) {
+        return Err("createWallPanelPolylines requires wallPanelHints=true and confirmWallPanels=true; no CAD changes made".into());
+    }
+    let wall_panel_polylines:Vec<Value>=if create_wall_panels {
+        wall_panels.iter().map(|p|p["outlineCAD"].clone()).collect()
+    } else {Vec::new()};
     let world_rectangles: Vec<Value> = candidates.iter().map(|outline| {
         let vertices: Vec<Value> = outline.corners.iter().map(|[x,y]| json!([ox + x * scale, oy + (f64::from(height)-y)*scale])).collect();
         json!(vertices)
@@ -1160,6 +1189,12 @@ pub fn preview(args: &Value) -> Result<Value, String> {
         "minWallSpacingPixels":min_wall_spacing,"maxWallSpacingPixels":max_wall_spacing,
         "wallCenterlinesProposed":axes.len(),"wallCenterlines":world_axes,
         "wallCenterlineJunctionCount":junctions.len(),"wallCenterlineJunctions":junctions,
+        "wallPanelCandidateCount":wall_panels.len(),
+        "wallPanelCandidates":wall_panels,
+        "wallPanelHintsRequested":wall_panel_hints,
+        "wallPanelPolylineCount":wall_panel_polylines.len(),
+        "wallPanelPolylines":wall_panel_polylines,
+        "wallPanelPolylinesRequested":create_wall_panels,
         "lines":world,"closedPolylines":world_rectangles,"rectanglesDetected":candidates.len(),
         "columnHatchCandidateCount":column_candidates.len(),
         "columnHatchCandidates":column_candidates,
@@ -1201,8 +1236,9 @@ pub fn run(b: &mut dyn Backend, args: &Value) -> Result<Value, String> {
     let opening_guides=proposal["openingGuidePolylines"].as_array().cloned().unwrap_or_default();
     let window_guides=proposal["windowGuidePolylines"].as_array().cloned().unwrap_or_default();
     let column_guides=proposal["columnGuidePolylines"].as_array().cloned().unwrap_or_default();
+    let wall_panel_guides=proposal["wallPanelPolylines"].as_array().cloned().unwrap_or_default();
     let door_arcs=proposal["doorSwingArcs"].as_array().cloned().unwrap_or_default();
-    if world.is_empty() && rectangles.is_empty() && axes.is_empty() && opening_guides.is_empty() && window_guides.is_empty() && column_guides.is_empty() && door_arcs.is_empty() { return Err("No vector strokes detected; no CAD changes made".into()); }
+    if world.is_empty() && rectangles.is_empty() && axes.is_empty() && opening_guides.is_empty() && window_guides.is_empty() && column_guides.is_empty() && wall_panel_guides.is_empty() && door_arcs.is_empty() { return Err("No vector strokes detected; no CAD changes made".into()); }
     // Never end a group that another command/user already opened. The caller
     // must have a clean command prompt and full Undo support.
     let state = b.call("drawing.inspect", json!({"entities":false}))?;
@@ -1226,6 +1262,7 @@ pub fn run(b: &mut dyn Backend, args: &Value) -> Result<Value, String> {
         .chain(opening_guides.iter().map(|v| ("pline",json!({"vertices":v,"closed":true}))))
         .chain(window_guides.iter().map(|v| ("pline",json!({"vertices":v,"closed":true}))))
         .chain(column_guides.iter().map(|v| ("pline",json!({"vertices":v,"closed":true}))))
+        .chain(wall_panel_guides.iter().map(|v| ("pline",json!({"vertices":v,"closed":true}))))
         .chain(door_arcs.iter().map(|v| ("arc",json!({"center":v["center"],"radius":v["radius"],"start":v["start"],"end":v["end"]})))).collect();
     for (command_id, params) in operations {
         // Guard against an asynchronous document switch or external edit in a
@@ -1282,7 +1319,7 @@ pub fn run(b: &mut dyn Backend, args: &Value) -> Result<Value, String> {
     }
     Ok(json!({"preview":false,"recognition":"automatic-raster-line-strokes",
         "imageSize":proposal["imageSize"],"strokes":proposal["strokes"],
-        "rectanglesDetected":proposal["rectanglesDetected"],"closedPolylinesCreated":rectangles.len(),"openingGuidePolylinesCreated":opening_guides.len(),"windowGuidePolylinesCreated":window_guides.len(),"columnGuidePolylinesCreated":column_guides.len(),"doorSwingArcsCreated":door_arcs.len(),
+        "rectanglesDetected":proposal["rectanglesDetected"],"closedPolylinesCreated":rectangles.len(),"openingGuidePolylinesCreated":opening_guides.len(),"windowGuidePolylinesCreated":window_guides.len(),"columnGuidePolylinesCreated":column_guides.len(),"wallPanelPolylinesCreated":wall_panel_guides.len(),"doorSwingArcsCreated":door_arcs.len(),
         "wallCenterlinesCreated":axes.len(),
         "editableEntitiesCreated":handles.len(),
         "entities":handles,"source":proposal["source"],
