@@ -404,6 +404,46 @@ fn wall_panel_candidates(lines: &[Line], pairs: &[Value], openings: &[Value], co
     panels
 }
 
+/// Preview-only QA: which observed wall-panel ends touch source opening/column
+/// regions? A contact NEVER extends, fuses or edits CAD geometry.
+fn wall_panel_boundary_contacts(panels: &[Value], openings: &[Value], columns: &[Value]) -> Vec<Value> {
+    let bounds=|item:&Value|->Option<[f64;4]> {
+        let points=item["outlinePixels"].as_array()?;
+        if points.len()!=4 {return None;}
+        let mut b=[f64::INFINITY,f64::INFINITY,f64::NEG_INFINITY,f64::NEG_INFINITY];
+        for point in points {
+            let x=point[0].as_f64()?;let y=point[1].as_f64()?;
+            if !x.is_finite()||!y.is_finite(){return None;}
+            b[0]=b[0].min(x);b[1]=b[1].min(y);b[2]=b[2].max(x);b[3]=b[3].max(y);
+        }
+        Some(b)
+    };
+    let mut output=Vec::new();
+    for (index,panel) in panels.iter().enumerate() {
+        let Some(b)=bounds(panel) else {continue;};
+        let horizontal=b[2]-b[0]>=b[3]-b[1];
+        let endpoints=if horizontal {[[b[0],(b[1]+b[3])*0.5],[b[2],(b[1]+b[3])*0.5]]}
+            else {[[(b[0]+b[2])*0.5,b[1]],[(b[0]+b[2])*0.5,b[3]]};
+        let mut contacts=[Vec::<Value>::new(),Vec::<Value>::new()];
+        for (side,point) in endpoints.iter().enumerate() {
+            for (kind,regions) in [("opening",openings),("column",columns)] {
+                for (other_index,region) in regions.iter().enumerate() {
+                    let Some(rb)=bounds(region) else {continue;};
+                    if point[0]>=rb[0]-1.0 && point[0]<=rb[2]+1.0 &&
+                        point[1]>=rb[1]-1.0 && point[1]<=rb[3]+1.0 {
+                        contacts[side].push(json!({"kind":kind,"candidateIndex":other_index,
+                            "classification":"boundary-touch-only-unverified"}));
+                    }
+                }
+            }
+        }
+        output.push(json!({"panelIndex":index,"startPixels":endpoints[0],"endPixels":endpoints[1],
+            "startContacts":contacts[0],"endContacts":contacts[1],
+            "classification":"preview-only-no-wall-joining","requiresHumanReview":true}));
+    }
+    output
+}
+
 /// Construct centre lines only for unambiguous one-to-one edge pairs.
 /// Existing source edges are kept; these are editable draft centre lines, not BIM walls.
 fn wall_centerline_candidates(lines: &[Line], pairs: &[Value], excluded: &[bool]) -> Vec<Line> {
@@ -1044,6 +1084,9 @@ pub fn preview(args: &Value) -> Result<Value, String> {
     let mut wall_panels=if wall_panel_hints {
         wall_panel_candidates(&lines,&wall_hints,&paired_openings,&column_candidates)
     } else {Vec::new()};
+    let wall_panel_contacts=if wall_panel_hints {
+        wall_panel_boundary_contacts(&wall_panels,&paired_openings,&column_candidates)
+    } else {Vec::new()};
     let count = lines.len();
     if count > max_lines as usize {
         return Err(format!("Found {count} strokes, exceeding maxLines={max_lines}; increase minLengthPixels or limit the input region, no CAD changes made"));
@@ -1210,6 +1253,9 @@ pub fn preview(args: &Value) -> Result<Value, String> {
         "wallCenterlinesProposed":axes.len(),"wallCenterlines":world_axes,
         "wallCenterlineJunctionCount":junctions.len(),"wallCenterlineJunctions":junctions,
         "wallPanelCandidateCount":wall_panels.len(),
+        "wallPanelContactCount":wall_panel_contacts.iter().map(|v|
+            v["startContacts"].as_array().map_or(0,Vec::len)+v["endContacts"].as_array().map_or(0,Vec::len)).sum::<usize>(),
+        "wallPanelBoundaryContacts":wall_panel_contacts,
         "wallPanelCandidates":wall_panels,
         "wallPanelHintsRequested":wall_panel_hints,
         "wallPanelPolylineCount":wall_panel_polylines.len(),
@@ -1751,6 +1797,26 @@ mod tests {
         assert_eq!(columns[0]["sourceHatchEdges"],json!([4,5]));
         with_cross.push(Line{x0:19.0,y0:27.0,x1:33.0,y1:27.0});
         assert!(column_hatch_candidates(&[box_rect],&with_cross).is_empty(),"multiple hatch interpretations must not guess");
+    }
+
+    #[test]
+    fn ai_wall_panel_contact_qa_reports_both_sides_of_opening_without_joining_wall_geometry() {
+        let left=json!({"outlinePixels":[[5.5,15.5],[39.5,15.5],[39.5,22.5],[5.5,22.5]]});
+        let right=json!({"outlinePixels":[[51.5,15.5],[95.5,15.5],[95.5,22.5],[51.5,22.5]]});
+        let opening=json!({"outlinePixels":[[39.5,15.5],[51.5,15.5],[51.5,22.5],[39.5,22.5]]});
+        let panels=[left.clone(),right.clone()];
+        let contacts=wall_panel_boundary_contacts(&panels,&[opening],&[]);
+        assert_eq!(contacts.len(),2);
+        assert_eq!(contacts[0]["startContacts"].as_array().unwrap().len(),0);
+        assert_eq!(contacts[0]["endContacts"][0]["kind"],"opening");
+        assert_eq!(contacts[1]["startContacts"][0]["kind"],"opening");
+        assert_eq!(contacts[1]["endContacts"].as_array().unwrap().len(),0);
+        assert_eq!(panels[0],left,"QA cannot modify source panel");
+        assert_eq!(panels[1],right,"QA cannot fill the observed opening");
+        let column=json!({"outlinePixels":[[5.5,15.5],[10.5,15.5],[10.5,22.5],[5.5,22.5]]});
+        let with_column=wall_panel_boundary_contacts(&[left],&[],&[column]);
+        assert_eq!(with_column[0]["startContacts"][0]["kind"],"column");
+        assert_eq!(with_column[0]["endContacts"].as_array().unwrap().len(),0);
     }
 
     #[test]
