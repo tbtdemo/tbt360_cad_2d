@@ -399,3 +399,46 @@ fn ai_trace_quality_gate_rejects_short_edges_and_invalid_closed_outline() {
     let malformed = call(&mut s, 66, "tools/call", json!({"name":"trace_quality_check","arguments":{"points":[[0,0]]}}));
     assert_eq!(malformed["error"]["code"], -32602);
 }
+
+
+#[test]
+fn ai_validated_image_trace_rejects_bad_geometry_before_cad_edit() {
+    let mut s = Server::new(Box::new(Headless::default()));
+    let image = tool(&mut s, "execute", json!({"command":"imageattach","params":{"path":"ai-photo.png","pixels":[200,100],"width":200,"height":100}}));
+    let rejected = call(&mut s, 81, "tools/call", json!({"name":"trace_image_validated","arguments":{
+        "handle":image["handle"],"points":[[0,0],[100,100],[0,100],[100,0]],"closed":true
+    }}));
+    assert_eq!(rejected["result"]["isError"], true, "bad AI polygon must be refused: {rejected}");
+    assert_eq!(tool(&mut s, "query_entities", json!({"type":"Polyline"}))["count"], 0);
+    let preview = tool(&mut s, "trace_image_validated", json!({"handle":image["handle"],
+        "points":[[0,100],[200,100],[200,0],[0,0]],"closed":true,"preview":true,"minSegmentLength":1}));
+    assert_eq!(preview["preview"], true);
+    assert_eq!(tool(&mut s, "query_entities", json!({"type":"Polyline"}))["count"], 0);
+    let committed = tool(&mut s, "trace_image_validated", json!({"handle":image["handle"],
+        "points":[[0,100],[200,100],[200,0],[0,0]],"closed":true,"minSegmentLength":1}));
+    assert!(committed["handle"].is_string(), "valid AI trace should create editable polyline: {committed}");
+    assert_eq!(tool(&mut s, "query_entities", json!({"type":"Polyline"}))["count"], 1);
+}
+
+#[test]
+fn ai_validated_perspective_trace_blocks_bad_trace_without_mutation() {
+    let mut s = Server::new(Box::new(Headless::default()));
+    let image = tool(&mut s, "execute", json!({"command":"imageattach","params":{"path":"tilted-ai-photo.png","pixels":[200,100],"width":200,"height":100}}));
+    let mut args = json!({"handle":image["handle"],
+        "pixels":[[0,0],[200,0],[200,100],[0,100]],
+        "world":[[10,20],[40,15],[35,45],[5,40]],
+        "points":[[0,0],[200,100],[0,100],[200,0]],
+        "closed":true,"preview":false,"minSegmentLength":0.25});
+    let rejected = call(&mut s, 82, "tools/call", json!({"name":"trace_perspective_image_validated","arguments":args.clone()}));
+    assert_eq!(rejected["result"]["isError"], true);
+    assert_eq!(tool(&mut s, "query_entities", json!({"type":"Polyline"}))["count"], 0);
+    args["points"] = json!([[0,0],[200,0],[200,100],[0,100]]);
+    args["preview"] = json!(true);
+    let preview = tool(&mut s, "trace_perspective_image_validated", args.clone());
+    assert_eq!(preview["preview"], true);
+    assert_eq!(tool(&mut s, "query_entities", json!({"type":"Polyline"}))["count"], 0);
+    args["preview"] = json!(false);
+    let committed = tool(&mut s, "trace_perspective_image_validated", args);
+    assert!(committed["handle"].is_string());
+    assert_eq!(tool(&mut s, "query_entities", json!({"type":"Polyline"}))["count"], 1);
+}
