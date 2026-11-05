@@ -115,6 +115,10 @@ jobs:
           # Catch EntityStore/Vec API mismatches before the full AI and release test sequence.
           cargo check --locked -p cadcraft-engine --test xref 2>&1 | Out-String -Stream | Tee-Object -FilePath '../dist/v1025/diagnostics/CARGO_CHECK_XREF_TEST.log' | Out-Host
           if ($LASTEXITCODE -ne 0) { throw 'V1.025 Xref integration test does not compile; inspect CARGO_CHECK_XREF_TEST.log' }
+          # The Xref test can compile yet fail because source BIM revision was reset on reference import.
+          # Run the precise data-integrity regression early, keeping the complete Xref suite later.
+          cargo test --locked -p cadcraft-engine --test xref xref_reload_preserves_bim_xdata_repairs_member_identity_and_invalidates_root_revision -- --test-threads=1 --nocapture 2>&1 | Out-String -Stream | Tee-Object -FilePath '../dist/v1025/diagnostics/XREF_BIM_REVISION_PREFLIGHT.log' | Out-Host
+          if ($LASTEXITCODE -ne 0) { throw 'Xref BIM revision integrity failed; inspect XREF_BIM_REVISION_PREFLIGHT.log' }
           cargo check --locked -p cadcraft-cli 2>&1 | Out-String -Stream | Tee-Object -FilePath '../dist/v1025/diagnostics/CARGO_CHECK_CLI.log' | Out-Host
           if ($LASTEXITCODE -ne 0) { throw 'V1.025 CLI compile failed; inspect CARGO_CHECK_CLI.log' }
           cargo check --locked -p cadcraft-mcp 2>&1 | Out-String -Stream | Tee-Object -FilePath '../dist/v1025/diagnostics/CARGO_CHECK_MCP.log' | Out-Host
