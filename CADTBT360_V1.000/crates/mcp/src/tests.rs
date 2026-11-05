@@ -516,3 +516,37 @@ fn ai_trace_quality_broad_phase_preserves_nonadjacent_crossings() {
     assert_eq!(result["selfIntersections"], json!([[0,2]]));
     assert!(result["intersectionCandidatePairsTested"].as_u64().is_some_and(|n| n >= 1));
 }
+
+
+#[test]
+fn ai_automatic_raster_to_cad_lines_from_real_png_without_manual_points() {
+    use image::{GrayImage, Luma};
+    let mut pixels = GrayImage::from_pixel(64, 48, Luma([255]));
+    for y in 10..=12 { for x in 6..=55 { pixels.put_pixel(x, y, Luma([0])); } }
+    for x in 25..=27 { for y in 18..=42 { pixels.put_pixel(x, y, Luma([0])); } }
+    let name = format!("cad360-ai-auto-vector-{}-{}.png", std::process::id(),
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos());
+    let path = std::env::temp_dir().join(name);
+    pixels.save(&path).unwrap();
+    let filename = path.to_string_lossy().to_string();
+    let mut s = Server::new(Box::new(Headless::default()));
+    let defs = call(&mut s, 1, "tools/list", json!({}));
+    assert!(defs["result"]["tools"].as_array().unwrap().iter().any(|v| v["name"] == "raster_to_cad_lines"));
+    let preview = tool(&mut s, "raster_to_cad_lines", json!({"path":filename,"minLengthPixels":12,"preview":true,"unitsPerPixel":0.5}));
+    assert_eq!(preview["strokes"], 2, "must find horizontal and vertical strokes in actual PNG: {preview}");
+    assert_eq!(preview["editableEntitiesCreated"], 0);
+    assert_eq!(tool(&mut s, "query_entities", json!({"type":"Line"}))["count"], 0);
+    let committed = tool(&mut s, "raster_to_cad_lines", json!({"path":filename,"minLengthPixels":12,"preview":false,"unitsPerPixel":0.5}));
+    assert_eq!(committed["editableEntitiesCreated"], 2);
+    assert_eq!(tool(&mut s, "query_entities", json!({"type":"Line"}))["count"], 2);
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
+fn ai_auto_raster_to_cad_refuses_missing_file_without_mutation() {
+    let mut s = Server::new(Box::new(Headless::default()));
+    let filename = format!("cad360-missing-raster-{}-nonexistent.png", std::process::id());
+    let rejected = call(&mut s, 99, "tools/call", json!({"name":"raster_to_cad_lines","arguments":{"path":filename,"preview":false}}));
+    assert_eq!(rejected["result"]["isError"], true);
+    assert_eq!(tool(&mut s, "query_entities", json!({"type":"Line"}))["count"], 0);
+}
