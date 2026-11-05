@@ -322,6 +322,41 @@ fn parallel_wall_candidates(lines: &[Line], min_spacing: f64, max_spacing: f64) 
     candidates
 }
 
+/// Construct centre lines only for unambiguous one-to-one edge pairs.
+/// Existing source edges are kept; these are editable draft centre lines, not BIM walls.
+fn wall_centerline_candidates(lines: &[Line], pairs: &[Value], excluded: &[bool]) -> Vec<Line> {
+    let mut uses=vec![0usize;lines.len()];
+    for p in pairs {
+        let Some(edges)=p["edges"].as_array() else { continue };
+        if edges.len()!=2 { continue; }
+        if let (Some(a),Some(b))=(edges[0].as_u64(),edges[1].as_u64()) {
+            if let (Some(a),Some(b))=(usize::try_from(a).ok(),usize::try_from(b).ok()) {
+                if a<lines.len() && b<lines.len() { uses[a]+=1; uses[b]+=1; }
+            }
+        }
+    }
+    let mut output=Vec::new();
+    for p in pairs {
+        let Some(edges)=p["edges"].as_array() else { continue };
+        if edges.len()!=2 { continue; }
+        let (Some(a),Some(b))=(edges[0].as_u64().and_then(|v|usize::try_from(v).ok()),
+                              edges[1].as_u64().and_then(|v|usize::try_from(v).ok())) else { continue };
+        if a>=lines.len() || b>=lines.len() || a==b || uses[a]!=1 || uses[b]!=1
+            || excluded.get(a).copied().unwrap_or(true) || excluded.get(b).copied().unwrap_or(true) { continue; }
+        let (left,right)=(lines[a],lines[b]);
+        let is_horizontal=(left.y0-left.y1).abs()<0.25 && (right.y0-right.y1).abs()<0.25;
+        let line=if is_horizontal {
+            Line{x0:left.x0.max(right.x0), y0:(left.y0+right.y0)*0.5,
+                 x1:left.x1.min(right.x1), y1:(left.y0+right.y0)*0.5}
+        } else {
+            Line{x0:(left.x0+right.x0)*0.5,y0:left.y0.max(right.y0),
+                 x1:(left.x0+right.x0)*0.5,y1:left.y1.min(right.y1)}
+        };
+        if (line.x1-line.x0).hypot(line.y1-line.y0)>=16.0 {output.push(line);}
+    }
+    output
+}
+
 /// Shared non-mutating vectorization used by MCP and the desktop GUI.
 pub fn preview(args: &Value) -> Result<Value, String> {
     let path = args["path"].as_str().filter(|s| !s.trim().is_empty()).ok_or("path is required")?;
@@ -373,6 +408,11 @@ pub fn preview(args: &Value) -> Result<Value, String> {
     let candidates = if args["closedRectangles"].as_bool().unwrap_or(false) { closed_rectangles(&lines) } else { Vec::new() };
     let mut replacement = vec![false; lines.len()];
     for outline in &candidates { for &index in &outline.edges { replacement[index] = true; } }
+    let create_axes=args["createWallCenterlines"].as_bool().unwrap_or(false);
+    if create_axes && !args["wallPairHints"].as_bool().unwrap_or(false) {
+        return Err("createWallCenterlines requires wallPairHints=true to review candidate pairs".into());
+    }
+    let axes=if create_axes {wall_centerline_candidates(&lines,&wall_hints,&replacement)} else {Vec::new()};
     let count = lines.len();
     if count > max_lines as usize {
         return Err(format!("Found {count} strokes, exceeding maxLines={max_lines}; increase minLengthPixels or limit the input region, no CAD changes made"));
@@ -382,13 +422,18 @@ pub fn preview(args: &Value) -> Result<Value, String> {
         let vertices: Vec<Value> = outline.corners.iter().map(|[x,y]| json!([ox + x * scale, oy + (f64::from(height)-y)*scale])).collect();
         json!(vertices)
     }).collect();
+    let world_axes: Vec<Value> = axes.iter().map(|l| json!([[ox+l.x0*scale,oy+(f64::from(height)-l.y0)*scale],
+        [ox+l.x1*scale,oy+(f64::from(height)-l.y1)*scale]])).collect();
     let world: Vec<Value> = lines.iter().enumerate().filter(|(i,_)| !replacement[*i]).map(|(_,l)| {
         let convert = |x: f64, y: f64| (ox + x * scale, oy + (f64::from(height) - y) * scale);
         let (x0, y0) = convert(l.x0, l.y0);
         let (x1, y1) = convert(l.x1, l.y1);
         json!([[x0,y0],[x1,y1]])
     }).collect();
-    if world_rectangles.iter().flat_map(|v| v.as_array().into_iter().flatten()).any(|p|
+    if world_axes.iter().flat_map(|v|v.as_array().into_iter().flatten()).any(|p|
+        p[0].as_f64().is_none_or(|n|!n.is_finite() || n.abs()>1.0e12)
+        || p[1].as_f64().is_none_or(|n|!n.is_finite() || n.abs()>1.0e12))
+        || world_rectangles.iter().flat_map(|v| v.as_array().into_iter().flatten()).any(|p|
         p[0].as_f64().is_none_or(|n| !n.is_finite() || n.abs() > 1.0e12)
         || p[1].as_f64().is_none_or(|n| !n.is_finite() || n.abs() > 1.0e12))
         || world.iter().any(|v| v[0][0].as_f64().is_none_or(|n| !n.is_finite() || n.abs() > 1.0e12)
@@ -401,6 +446,7 @@ pub fn preview(args: &Value) -> Result<Value, String> {
         "imageSize":[width,height],"strokes":count,"sourceStrokes":source_strokes,
         "bridgedGaps":bridged_gaps,"maxGapPixels":gap_pixels,
         "wallPairHints":wall_hints,"wallPairCandidateCount":wall_hints.len(),
+        "wallCenterlines":world_axes,"wallCenterlinesProposed":axes.len(),
         "lines":world,"closedPolylines":world_rectangles,"rectanglesDetected":candidates.len(),
         "closedRectangles":args["closedRectangles"].as_bool().unwrap_or(false),
         "editableEntitiesCreated":0,
@@ -413,7 +459,8 @@ pub fn run(b: &mut dyn Backend, args: &Value) -> Result<Value, String> {
     if args["preview"].as_bool().unwrap_or(true) { return Ok(proposal); }
     let Some(world) = proposal["lines"].as_array() else { return Err("Raster preview has no CAD lines".to_string()) };
     let rectangles = proposal["closedPolylines"].as_array().cloned().unwrap_or_default();
-    if world.is_empty() && rectangles.is_empty() { return Err("No vector strokes detected; no CAD changes made".into()); }
+    let axes=proposal["wallCenterlines"].as_array().cloned().unwrap_or_default();
+    if world.is_empty() && rectangles.is_empty() && axes.is_empty() { return Err("No vector strokes detected; no CAD changes made".into()); }
     // Never end a group that another command/user already opened. The caller
     // must have a clean command prompt and full Undo support.
     let state = b.call("drawing.inspect", json!({"entities":false}))?;
@@ -432,7 +479,8 @@ pub fn run(b: &mut dyn Backend, args: &Value) -> Result<Value, String> {
     let mut handles = Vec::new();
     let mut failure = None;
     let operations: Vec<(&str, Value)> = rectangles.iter().map(|v| ("pline", json!({"vertices":v,"closed":true})))
-        .chain(world.iter().map(|v| ("line",json!({"points":v})))).collect();
+        .chain(world.iter().map(|v| ("line",json!({"points":v}))))
+        .chain(axes.iter().map(|v| ("line",json!({"points":v})))).collect();
     for (command_id, params) in operations {
         // Guard against an asynchronous document switch or external edit in a
         // connected GUI while the MCP agent is sending its line commands.
@@ -489,6 +537,7 @@ pub fn run(b: &mut dyn Backend, args: &Value) -> Result<Value, String> {
     Ok(json!({"preview":false,"recognition":"automatic-raster-line-strokes",
         "imageSize":proposal["imageSize"],"strokes":proposal["strokes"],
         "rectanglesDetected":proposal["rectanglesDetected"],"closedPolylinesCreated":rectangles.len(),
+        "wallCenterlinesCreated":axes.len(),
         "editableEntitiesCreated":handles.len(),
         "entities":handles,"source":proposal["source"],
         "caution":"Lines are grouped in one Undo action; review before saving DWG"}))
@@ -576,6 +625,25 @@ mod tests {
         assert_eq!(value["rectanglesDetected"],0);
         assert_eq!(value["closedPolylines"].as_array().unwrap().len(),0);
         assert_eq!(value["lines"].as_array().unwrap().len(),3,"retain three source strokes as LINE");
+    }
+
+    #[test]
+    fn ai_wall_centerline_is_only_created_for_unique_parallel_pair() {
+        let lines=vec![
+            Line{x0:10.5,y0:10.5,x1:110.5,y1:10.5},
+            Line{x0:10.5,y0:20.5,x1:110.5,y1:20.5},
+        ];
+        let pairs=parallel_wall_candidates(&lines,2.0,40.0);
+        let center=wall_centerline_candidates(&lines,&pairs,&[false,false]);
+        assert_eq!(center.len(),1);
+        assert!((center[0].y0-15.5).abs()<1e-9);
+        assert!((center[0].x1-center[0].x0-100.0).abs()<1e-9);
+        assert!(wall_centerline_candidates(&lines,&pairs,&[true,false]).is_empty());
+        let mut ambiguous=lines;
+        ambiguous.push(Line{x0:10.5,y0:30.5,x1:110.5,y1:30.5});
+        let possible=parallel_wall_candidates(&ambiguous,2.0,40.0);
+        assert!(wall_centerline_candidates(&ambiguous,&possible,&[false;3]).is_empty(),
+            "Three nearby parallel edges are ambiguous; do not invent a wall centre line");
     }
 
     #[test]
