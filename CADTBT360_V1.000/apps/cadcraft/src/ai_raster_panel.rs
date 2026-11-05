@@ -21,6 +21,7 @@ pub struct State {
     include_diagonals: bool,
     arbitrary_angles: bool,
     closed_rectangles: bool,
+    wall_pair_hints: bool,
 }
 
 /// Compute world units per pixel from a known measured dimension.
@@ -58,7 +59,8 @@ impl State {
     fn params(&self) -> Value {
         json!({"path":self.path,"preview":true,"minLengthPixels":self.min_length,
             "unitsPerPixel":self.scale,"includeDiagonals":self.include_diagonals,
-            "includeArbitraryAngles":self.arbitrary_angles,"closedRectangles":self.closed_rectangles,"maxLines":250})
+            "includeArbitraryAngles":self.arbitrary_angles,"closedRectangles":self.closed_rectangles,
+            "wallPairHints":self.wall_pair_hints,"maxLines":250})
     }
 }
 
@@ -136,6 +138,7 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
             ui.horizontal(|ui| {
                 if ui.checkbox(&mut state.include_diagonals, "Nét 45°").changed() { state.preview = None; }
                 if ui.checkbox(&mut state.arbitrary_angles, "Góc bất kỳ (thử nghiệm)").changed() { state.preview = None; }
+                if ui.checkbox(&mut state.wall_pair_hints, "Gợi ý cặp nét tường song song (chỉ Preview)").changed() { state.preview = None; }
                 if ui.checkbox(&mut state.closed_rectangles, "Đường bao chữ nhật kín → PLINE").changed() {
                     state.preview = None; state.preview_document_uid = None;
                     state.preview_revision = None; state.preview_document_epoch = None;
@@ -154,7 +157,9 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
             let count = proposal["strokes"].as_u64().unwrap_or(0);
             ui.separator();
             let rectangle_count = proposal["closedPolylines"].as_array().map_or(0,Vec::len);
-            ui.label(format!("Đã nhận dạng: {count} nét nguồn, {rectangle_count} đường bao PLINE kín. Kiểm tra trước khi ghi vào bản vẽ."));
+            let wall_pairs = proposal["wallPairCandidateCount"].as_u64().unwrap_or(0);
+            ui.label(format!("Đã nhận dạng: {count} nét nguồn, {rectangle_count} PLINE kín, {wall_pairs} cặp nét song song nghi là mép tường."));
+            if state.wall_pair_hints { ui.small("Gợi ý hình học, không phải tường BIM. Không thêm/xóa đối tượng; kỹ sư tự đối chiếu ảnh và kích thước."); }
             if state.closed_rectangles {
                 ui.small("Chỉ nhận dạng hình chữ nhật có đủ 4 cạnh; không tự lấp cửa hoặc khoảng hở. Cạnh thuộc PLINE không tạo LINE trùng.");
             }
@@ -382,6 +387,16 @@ mod tests {
         assert!(state.include_diagonals);
         assert_eq!(state.params()["preview"], true);
         assert_eq!(state.params()["includeArbitraryAngles"], false);
+    }
+
+    #[test]
+    fn ai_raster_wall_pair_hints_are_opt_in_and_non_mutating() {
+        let mut state=State::default();
+        state.open();
+        assert_eq!(state.params()["wallPairHints"],false);
+        state.wall_pair_hints=true;
+        assert_eq!(state.params()["wallPairHints"],true);
+        assert_eq!(state.params()["preview"],true);
     }
 
     #[test]
