@@ -470,3 +470,24 @@ fn ai_world_projection_gate_rejects_crossing_preview_without_engine_commit() {
     assert!(result["content"][0]["text"].as_str().unwrap().contains("world-coordinate projection"));
     assert_eq!(backend.calls, 1, "no second engine commit should be sent after world-geometry rejection");
 }
+
+
+#[test]
+fn ai_trace_quality_large_survey_coordinates_do_not_create_false_overlaps() {
+    let mut s = Server::new(Box::new(Headless::default()));
+    // At 1e11, the old absolute-coordinate tolerance was 10 drawing units:
+    // nonadjacent segments separated by one unit were incorrectly reported
+    // as overlapping even though both segments are geometrically disjoint.
+    let sound = tool(&mut s, "trace_quality_check", json!({
+        "points":[[100000000000.0,0.0],[100000000001.0,0.0],[100000000002.0,0.0],[100000000003.0,0.0]],
+        "closed":false,"minSegmentLength":0.1
+    }));
+    assert_eq!(sound["safeToCommit"], true, "disjoint collinear segments must not be rejected: {sound}");
+    assert_eq!(sound["selfIntersections"], json!([]));
+    let overlap = tool(&mut s, "trace_quality_check", json!({
+        "points":[[100000000000.0,0.0],[100000000004.0,0.0],[100000000005.0,0.0],[100000000002.0,0.0]],
+        "closed":false,"minSegmentLength":0.1
+    }));
+    assert_eq!(overlap["safeToCommit"], false, "truly overlapping segments still fail: {overlap}");
+    assert_eq!(overlap["selfIntersections"], json!([[0,2]]));
+}
