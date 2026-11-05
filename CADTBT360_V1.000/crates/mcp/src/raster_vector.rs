@@ -81,17 +81,83 @@ fn strokes(img: &GrayImage, threshold: u8, min_length: u32, horizontal: bool) ->
     }).collect()
 }
 
+/// Detect dark strokes along the two 45-degree diagonals. Scan adjacent
+/// diagonal tracks, merge runs with matching endpoints, and emit their centerline.
+fn diagonal_strokes(img: &GrayImage, threshold: u8, min_length: u32, falling: bool) -> Vec<Line> {
+    let (width, height) = img.dimensions();
+    if width < 2 || height < 2 { return Vec::new(); }
+    let mut active: Vec<Stroke> = Vec::new();
+    let mut finished = Vec::new();
+    // Track coordinate is y-x for descending screen lines, y+x for ascending.
+    // Offset avoids signed indices in the scan loops.
+    for track in 0..width + height - 1 {
+        let mut runs = Vec::new();
+        let mut start = None;
+        for x in 0..=width {
+            let y = if falling {
+                i64::from(track) + i64::from(x) - i64::from(width - 1)
+            } else {
+                i64::from(track) - i64::from(x)
+            };
+            let dark = x < width && (0..i64::from(height)).contains(&y)
+                && img.get_pixel(x, y as u32)[0] <= threshold;
+            if dark {
+                if start.is_none() { start = Some(x); }
+            } else if let Some(beg) = start.take() {
+                if x - beg >= min_length { runs.push((beg, x - 1)); }
+            }
+        }
+        let mut matched = vec![false; active.len()];
+        for (start, end) in runs {
+            let candidate = active.iter().enumerate().find(|(idx, group)| {
+                !matched[*idx] && group.last + 1 == track
+                    && group.start.abs_diff(start) <= 2 && group.end.abs_diff(end) <= 2
+            }).map(|(idx, _)| idx);
+            if let Some(idx) = candidate {
+                let g = &mut active[idx];
+                g.last = track;
+                g.sum_axis += u64::from(track);
+                g.rows += 1;
+                g.start = g.start.min(start);
+                g.end = g.end.max(end);
+                matched[idx] = true;
+            } else {
+                active.push(Stroke { axis: track, start, end, last: track, sum_axis: u64::from(track), rows: 1 });
+                matched.push(true);
+            }
+        }
+        let mut idx = 0;
+        while idx < active.len() {
+            if matched[idx] { idx += 1; }
+            else { finished.push(active.swap_remove(idx)); matched.swap_remove(idx); }
+        }
+    }
+    finished.extend(active);
+    finished.into_iter().map(|g| {
+        let t = g.sum_axis as f64 / f64::from(g.rows);
+        let x0 = f64::from(g.start) + 0.5;
+        let x1 = f64::from(g.end) + 0.5;
+        let convert_y = |x: f64| if falling { t + x - f64::from(width - 1) } else { t - x + 1.0 };
+        Line { x0, y0: convert_y(x0), x1, y1: convert_y(x1) }
+    }).collect()
+}
+
 pub fn run(b: &mut dyn Backend, args: &Value) -> Result<Value, String> {
     let path = args["path"].as_str().filter(|s| !s.trim().is_empty()).ok_or("path is required")?;
     let file = Path::new(path);
     let metadata = std::fs::metadata(file).map_err(|e| format!("Cannot inspect raster source: {e}"))?;
     if !metadata.is_file() || metadata.len() > MAX_FILE_BYTES { return Err("Raster must be a file of at most 16 MiB".into()); }
     let bytes = std::fs::read(file).map_err(|e| format!("Cannot read raster source: {e}"))?;
-    let decoded = image::load_from_memory(&bytes).map_err(|e| format!("Cannot decode PNG/JPEG raster: {e}"))?;
-    let (width, height) = (decoded.width(), decoded.height());
+    // Read the image header first: rejecting oversized compressed images AFTER
+    // decoding could allocate huge buffers for a small, malicious PNG/JPEG file.
+    let format = image::guess_format(&bytes).map_err(|e| format!("Cannot identify PNG/JPEG format: {e}"))?;
+    if !matches!(format, image::ImageFormat::Png | image::ImageFormat::Jpeg) { return Err("Only PNG/JPEG input is supported".into()); }
+    let reader = image::ImageReader::with_format(std::io::Cursor::new(&bytes), format);
+    let (width, height) = reader.into_dimensions().map_err(|e| format!("Cannot read image dimensions: {e}"))?;
     if width == 0 || height == 0 || width > MAX_IMAGE_SIDE || height > MAX_IMAGE_SIDE || u64::from(width) * u64::from(height) > MAX_IMAGE_PIXELS {
         return Err("Raster dimensions must be 1..4096 with at most 12 million pixels".into());
     }
+    let decoded = image::load_from_memory_with_format(&bytes, format).map_err(|e| format!("Cannot decode PNG/JPEG raster: {e}"))?;
     let threshold = args["threshold"].as_u64().unwrap_or(160);
     if threshold > 254 { return Err("threshold must be 0..254".into()); }
     let min_length = args["minLengthPixels"].as_u64().unwrap_or(12);
@@ -109,6 +175,11 @@ pub fn run(b: &mut dyn Backend, args: &Value) -> Result<Value, String> {
     let gray = decoded.to_luma8();
     let mut lines = strokes(&gray, threshold, min_length as u32, true);
     lines.extend(strokes(&gray, threshold, min_length as u32, false));
+    // Optional: angled 45° screen strokes, including the opposite slope.
+    if args["includeDiagonals"].as_bool().unwrap_or(true) {
+        lines.extend(diagonal_strokes(&gray, threshold, min_length as u32, true));
+        lines.extend(diagonal_strokes(&gray, threshold, min_length as u32, false));
+    }
     let count = lines.len();
     if count > max_lines as usize {
         return Err(format!("Found {count} strokes, exceeding maxLines={max_lines}; increase minLengthPixels or limit the input region, no CAD changes made"));
@@ -127,7 +198,7 @@ pub fn run(b: &mut dyn Backend, args: &Value) -> Result<Value, String> {
         return Err("Computed CAD coordinates are outside safety bounds; no changes made".into());
     }
     if preview {
-        return Ok(json!({"preview":true,"recognition":"automatic-raster-straight-strokes","model":"deterministic-pixel-vectorization-not-neural-AI",
+        return Ok(json!({"preview":true,"recognition":"automatic-raster-axis-and-45deg-strokes","model":"deterministic-pixel-vectorization-not-neural-AI",
             "imageSize":[width,height],"strokes":count,"lines":world,"editableEntitiesCreated":0}));
     }
     // Native LINE objects, not a screenshot, image overlay, or noneditable tracing.
@@ -136,7 +207,7 @@ pub fn run(b: &mut dyn Backend, args: &Value) -> Result<Value, String> {
         let response = b.call("engine.execute", json!({"command":"line","params":{"points":pts}}))?;
         handles.push(response);
     }
-    Ok(json!({"preview":false,"recognition":"automatic-raster-straight-strokes",
+    Ok(json!({"preview":false,"recognition":"automatic-raster-axis-and-45deg-strokes",
         "imageSize":[width,height],"strokes":count,"editableEntitiesCreated":handles.len(),
         "entities":handles,"source":path,
         "caution":"Axis-aligned stroke detection only; verify output against the image before saving DWG"}))
@@ -145,6 +216,25 @@ pub fn run(b: &mut dyn Backend, args: &Value) -> Result<Value, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn raster_vector_detects_diagonal_stroke_without_manual_points() {
+        let mut img = GrayImage::from_pixel(64, 64, image::Luma([255]));
+        for x in 8..=48 { img.put_pixel(x,x,image::Luma([0])); }
+        let lines = diagonal_strokes(&img, 160, 12, true);
+        assert_eq!(lines.len(), 1, "45 degree down-right line should be recognized");
+        assert!(lines[0].x1 - lines[0].x0 > 35.0);
+        assert!(lines[0].y1 - lines[0].y0 > 35.0);
+        assert!(diagonal_strokes(&img, 160, 12, false).is_empty());
+    }
+
+    #[test]
+    fn raster_vector_detects_opposite_diagonal_stroke() {
+        let mut img = GrayImage::from_pixel(64, 64, image::Luma([255]));
+        for x in 8..=48 { img.put_pixel(x, 56-x, image::Luma([0])); }
+        let lines = diagonal_strokes(&img, 160, 12, false);
+        assert_eq!(lines.len(), 1);
+        assert!(lines[0].x1 > lines[0].x0 && lines[0].y1 < lines[0].y0);
+    }
     #[test]
     fn raster_vector_detects_one_thick_horizontal_stroke_as_one_line() {
         let mut img = GrayImage::from_pixel(48, 32, image::Luma([255]));
