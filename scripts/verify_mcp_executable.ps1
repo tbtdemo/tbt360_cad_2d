@@ -12,8 +12,13 @@ $psi.CreateNoWindow = $true
 $psi.RedirectStandardInput = $true
 $psi.RedirectStandardOutput = $true
 $psi.RedirectStandardError = $true
+# Self-contained, reproducible PNG fixture (64x32 white, one long black stroke).
+# It is created in a temporary location; neither the app nor a network is needed.
+$png = Join-Path ([System.IO.Path]::GetTempPath()) ("cad360-mcp-smoke-" + [guid]::NewGuid().ToString("N") + ".png")
+$pngBase64 = 'iVBORw0KGgoAAAANSUhEUgAAAEAAAAAgCAIAAAAt/+nTAAAAUUlEQVR4nO3WMQoAIAwEQU/8/5djL4iFxRLY6dJlu0tVjc4m/cAvA2gG0AygGUAzgLaOOwnyx9Nts8UxBzOAZgDNAJoBNANoBtAMoBlAax+wAU7iCTuV73xMAAAAAElFTkSuQmCC'
+[System.IO.File]::WriteAllBytes($png, [Convert]::FromBase64String($pngBase64))
 $process = [System.Diagnostics.Process]::Start($psi)
-if ($null -eq $process) { throw "Cannot launch installed MCP CLI: $exePath" }
+if ($null -eq $process) { Remove-Item -LiteralPath $png -ErrorAction SilentlyContinue; throw "Cannot launch installed MCP CLI: $exePath" }
 try {
     $stdoutTask = $process.StandardOutput.ReadToEndAsync()
     $stderrTask = $process.StandardError.ReadToEndAsync()
@@ -22,6 +27,15 @@ try {
         '{"jsonrpc":"2.0","method":"notifications/initialized","params":{}}',
         '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}',
         '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"raster_to_cad_lines","arguments":{"path":"__CAD360_NONEXISTENT_TEST_IMAGE__.png","preview":true}}}'
+    )
+    $previewArgs = @{ path=$png; preview=$true; minLengthPixels=16; includeDiagonals=$false }
+    $commitArgs = @{ path=$png; preview=$false; minLengthPixels=16; includeDiagonals=$false }
+    $requests += @(
+        (@{ jsonrpc='2.0'; id=4; method='tools/call'; params=@{name='raster_to_cad_lines';arguments=$previewArgs}} | ConvertTo-Json -Depth 8 -Compress),
+        (@{ jsonrpc='2.0'; id=5; method='tools/call'; params=@{name='raster_to_cad_lines';arguments=$commitArgs}} | ConvertTo-Json -Depth 8 -Compress),
+        (@{ jsonrpc='2.0'; id=6; method='tools/call'; params=@{name='query_entities';arguments=@{type='Line'}}} | ConvertTo-Json -Depth 8 -Compress),
+        (@{ jsonrpc='2.0'; id=7; method='tools/call'; params=@{name='execute';arguments=@{command='undo';params=@{count=1}}}} | ConvertTo-Json -Depth 8 -Compress),
+        (@{ jsonrpc='2.0'; id=8; method='tools/call'; params=@{name='query_entities';arguments=@{type='Line'}}} | ConvertTo-Json -Depth 8 -Compress)
     )
     foreach ($request in $requests) { $process.StandardInput.WriteLine($request) }
     $process.StandardInput.Close()
@@ -43,8 +57,32 @@ try {
     if ($errors.Count -ne 1 -or $errors[0].result.isError -ne $true) {
         throw 'Installed MCP image tool did not safely reject nonexistent image source'
     }
-    Write-Host "MCP smoke PASS: handshake, raster_to_cad_lines discovery and safe source rejection ($exePath)"
+    function RequireToolReply([int]$id) {
+        $match = @($replies | Where-Object { $_.id -eq $id })
+        if ($match.Count -ne 1 -or $match[0].result.isError -eq $true -or $match[0].error) {
+            throw "Installed MCP tool call $id failed or returned a protocol error: $($match | ConvertTo-Json -Depth 5 -Compress)"
+        }
+        if ($match[0].result.content.Count -lt 1 -or $match[0].result.content[0].type -ne 'text') {
+            throw "MCP tool call $id returned no JSON text"
+        }
+        return ($match[0].result.content[0].text | ConvertFrom-Json)
+    }
+    $preview = RequireToolReply 4
+    if ($preview.preview -ne $true -or $preview.strokes -ne 1 -or $preview.editableEntitiesCreated -ne 0) {
+        throw "Installed MCP real-PNG preview mismatch: $($preview | ConvertTo-Json -Compress)"
+    }
+    $commit = RequireToolReply 5
+    if ($commit.editableEntitiesCreated -ne 1 -or $commit.strokes -ne 1) {
+        throw "Installed MCP real-PNG-to-LINE commit mismatch: $($commit | ConvertTo-Json -Compress)"
+    }
+    $entitiesBeforeUndo = RequireToolReply 6
+    if ($entitiesBeforeUndo.count -ne 1) { throw 'Installed MCP did not create an editable LINE from the real PNG' }
+    $undoResult = RequireToolReply 7
+    $entitiesAfterUndo = RequireToolReply 8
+    if ($entitiesAfterUndo.count -ne 0) { throw 'Installed MCP failed to undo its raster-to-CAD batch' }
+    Write-Host "MCP smoke PASS: handshake, image tool, real PNG preview, 1 editable LINE, Undo and clean drawing ($exePath)"
 } finally {
     if (-not $process.HasExited) { $process.Kill($true) }
     $process.Dispose()
+    Remove-Item -LiteralPath $png -Force -ErrorAction SilentlyContinue
 }
