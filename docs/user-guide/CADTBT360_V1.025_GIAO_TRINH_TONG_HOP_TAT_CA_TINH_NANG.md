@@ -1093,3 +1093,24 @@ Mục tiêu quan trọng nhất của đợt này là chuyển từ việc **ch�
 4. Đối với DWG, phải kiểm tra mở–chỉnh sửa–lưu bằng AutoCAD độc lập. Kiểm tra header `AC1032` không đủ để xác nhận tương thích hai chiều.
 
 **Trạng thái đợt 200:** Đã sửa workflow kiểm tra toàn vẹn giáo trình sau khi cài Setup. Chưa khẳng định Windows CI PASS, bản Setup/Portable chạy ổn định hoặc AI tự dựng toàn bộ tường, cột, cửa. Giữ nguyên số phiên bản V1.025 đến khi quyết định phát hành mới.
+
+
+## 41. Đợt 201 — Kiểm tra giáo trình Portable như bản cài Setup
+
+### Bài 64 — Xác thực giáo trình Word sau giải nén Portable
+
+1. Mở `.github/workflows/cad360-v1025-release.yml` trên nhánh V1.025; tìm bước `Verify portable archive, create SHA256 checksums`.
+2. Giải nén `CADTBT360_V1.025_Portable_Windows_x64.zip` vào thư mục thử nghiệm và xác nhận tệp `GIAO_TRINH_TONG_HOP_CAD360.docx` có tồn tại.
+3. Kiểm tra SHA256 của Word trong Portable với `dist/v1025/CADTBT360_V1.025_GIAO_TRINH_TONG_HOP.docx` vừa dựng từ đúng commit.
+4. Chạy `python scripts/validate_word_guide.py $fullGuidePortable` trên tài liệu **sau giải nén**, không chỉ kiểm tra `ZipFile.testzip()` và XML hợp lệ.
+5. Nếu giáo trình thiếu phần CAD 2D, QTO, BIM, IFC, Xref, AI, MCP, bài hướng dẫn hoặc bảng, bộ xác thực phải từ chối và dừng phát hành.
+6. Xem commit `a1df508e060c2d7d37089ffbb58d70e1abdcd4e0` và nhật ký run GitHub tương ứng để biết kết quả; mã workflow được cập nhật chưa có nghĩa đã nghiệm thu bộ cài.
+
+### Bài 65 — Phân biệt bốn mức xác nhận
+
+- **Mức 1 — Source:** các thay đổi đã có trên GitHub; không đủ khẳng định sản phẩm hoạt động.
+- **Mức 2 — CI:** toàn bộ job Windows kết luận Success trên đúng SHA; bảo đảm các bước CI thực sự đã chạy.
+- **Mức 3 — Setup/Portable:** thử giải nén/cài/gỡ, các tệp và giáo trình khớp nguồn, các lệnh kiểm thử bắt buộc thành công.
+- **Mức 4 — Người dùng:** kiểm tra GUI trên Windows sạch, đối tượng AI chỉnh sửa được, DWG mở/sửa/lưu hai chiều qua AutoCAD độc lập và các chức năng CAD/QTO/BIM thực tế.
+
+**Trạng thái đợt 201:** Workflow đã bổ sung kiểm tra cấu trúc giáo trình Word trong Portable. Chưa xác nhận đạt Mức 2–4 khi không có bằng chứng Windows CI Success và nghiệm thu người dùng.
