@@ -111,6 +111,10 @@ jobs:
           # Compile test targets during preflight so missing imports are caught before full test discovery and release packaging.
           cargo check --locked -p cadcraft --tests 2>&1 | Out-String -Stream | Tee-Object -FilePath '../dist/v1025/diagnostics/CARGO_CHECK_GUI_TESTS.log' | Out-Host
           if ($LASTEXITCODE -ne 0) { throw 'V1.025 GUI test targets do not compile; inspect CARGO_CHECK_GUI_TESTS.log' }
+          # Xref regression is an integration test target, so GUI --tests does not compile it.
+          # Catch EntityStore/Vec API mismatches before the full AI and release test sequence.
+          cargo check --locked -p cadcraft-engine --test xref 2>&1 | Out-String -Stream | Tee-Object -FilePath '../dist/v1025/diagnostics/CARGO_CHECK_XREF_TEST.log' | Out-Host
+          if ($LASTEXITCODE -ne 0) { throw 'V1.025 Xref integration test does not compile; inspect CARGO_CHECK_XREF_TEST.log' }
           cargo check --locked -p cadcraft-cli 2>&1 | Out-String -Stream | Tee-Object -FilePath '../dist/v1025/diagnostics/CARGO_CHECK_CLI.log' | Out-Host
           if ($LASTEXITCODE -ne 0) { throw 'V1.025 CLI compile failed; inspect CARGO_CHECK_CLI.log' }
           cargo check --locked -p cadcraft-mcp 2>&1 | Out-String -Stream | Tee-Object -FilePath '../dist/v1025/diagnostics/CARGO_CHECK_MCP.log' | Out-Host
