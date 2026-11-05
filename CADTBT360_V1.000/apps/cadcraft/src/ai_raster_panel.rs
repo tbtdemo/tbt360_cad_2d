@@ -538,6 +538,7 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
             let wall_panel_count=proposal["wallPanelCandidateCount"].as_u64().unwrap_or(0);
             let wall_block_count=proposal["wallBlockDraftCount"].as_u64().unwrap_or(0);
             let wall_boundary_contacts=proposal["wallPanelContactCount"].as_u64().unwrap_or(0);
+            let wall_junctions=proposal["wallPanelJunctionCount"].as_u64().unwrap_or(0);
             let opening_count = proposal["openingGapCandidateCount"].as_u64().unwrap_or(0);
             let paired_opening_count = proposal["pairedWallOpeningCandidateCount"].as_u64().unwrap_or(0);
             let door_leaf_count = proposal["doorLeafCandidateCount"].as_u64().unwrap_or(0);
@@ -556,6 +557,15 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
                 if state.wall_panel_hints {
                     ui.small(format!("Có {wall_panel_count} dải tường quan sát được; đường bao Preview màu cam, không tự lấp khoảng cửa."));
                     ui.small(format!("QA đầu mút: {wall_boundary_contacts} lần chạm ứng viên khoảng mở/cột; CHỈ cảnh báo, không nối hoặc cắt tường."));
+                    ui.small(format!("QA nút giao: {wall_junctions} vị trí nghi giao T/X; KHÔNG nối, cắt hay tự kéo dài tường."));
+                    if let Some(junctions)=proposal["wallPanelJunctionCandidates"].as_array() {
+                        for (index,j) in junctions.iter().take(10).enumerate() {
+                            let a=j["panelIndices"][0].as_u64().unwrap_or(0)+1;
+                            let b=j["panelIndices"][1].as_u64().unwrap_or(0)+1;
+                            ui.small(format!("Nút {}: {} giữa tường {} và {}; kiểm tra ảnh, không tự tạo liên kết.",
+                                index+1,j["kind"].as_str().unwrap_or("chưa xác định"),a,b));
+                        }
+                    }
                     if let Some(rows)=proposal["wallPanelBoundaryContacts"].as_array() {
                         for item in rows.iter().take(12) {
                             let index=item["panelIndex"].as_u64().unwrap_or(0)+1;
@@ -1226,6 +1236,19 @@ mod tests {
         assert_eq!(state.params()["createWindowBlocks"],true);
         assert_eq!(state.params()["confirmWindowBlocks"],true);
         assert_eq!(state.params()["preview"],true);
+    }
+
+    #[test]
+    fn ai_wall_junction_preview_is_never_a_mutating_request() {
+        let mut state=State::default();state.open();
+        state.wall_pair_hints=true;state.wall_panel_hints=true;
+        let params=state.params();
+        assert_eq!(params["wallPanelHints"],true);
+        assert_eq!(params["createWallPanelPolylines"],false);
+        assert_eq!(params["createWallBlocks"],false);
+        assert_eq!(params["confirmWallPanels"],false);
+        assert_eq!(params["confirmWallBlocks"],false);
+        assert_eq!(params["preview"],true);
     }
 
     #[test]
