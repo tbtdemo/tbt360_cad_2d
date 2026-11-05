@@ -1251,3 +1251,26 @@ Mục tiêu quan trọng nhất của đợt này là chuyển từ việc **ch�
 5. Windows CI bắt buộc phát hiện và chạy các kiểm thử AI này trước bước đóng gói. Chỉ coi thành công khi đúng run/SHA xác nhận PASS.
 
 **Giới hạn được công bố:** Đã bổ sung thuật toán hình học và vẽ đường bao có xác nhận, nhưng chưa đạt AI nhận diện ngữ nghĩa cửa/cột/tường trên tập ảnh thực tế đa dạng. Không thay thế nghiệm thu ngoài thực tế bằng kết quả test tổng hợp.
+
+
+## 48. Đợt 208 — AI tìm dấu hiệu nét cánh cửa trên ảnh mặt bằng, không suy diễn cửa giả
+
+### Bài 79 — Phát hiện hình học nét giống cánh cửa đi
+
+1. Mở cửa sổ **AI từ ảnh → CAD**, chọn PNG/JPG mặt bằng có hai mép tường song song bị ngắt tại cùng vị trí. Hiệu chuẩn `unitsPerPixel` theo kích thước đã biết.
+2. Bật `openingGapHints=true` và `pairedWallOpeningHints=true`, giữ `maxGapPixels=0`. Bật tùy chọn mới **Gợi ý nét cánh cửa tại góc khoảng mở (chỉ Preview)** tương ứng tham số `doorLeafHints=true`.
+3. Nhấn **Nhận dạng và xem trước**. AI xem các LINE đã vector hóa, tìm một đoạn vuông góc gắn với đúng góc khoảng mở, kéo dài ra ngoài bề dày tường và có độ dài tương đối phù hợp với bề rộng khoảng mở.
+4. Kết quả trả về `doorLeafCandidateCount` và trường `doorLeafEvidence` của `pairedWallOpeningCandidates`. Thông tin kèm theo gồm `sourceLineIndex`, `hingePixels`, `leafLengthPixels`; phân loại `possible-door-leaf-stroke-unverified`.
+5. Bản chất kết quả chỉ là dấu hiệu hình học trên ảnh, **không phải nhận dạng chắc chắn cửa đi**. Một đoạn jamb nối hai mép tường hoặc các nét trùng/nhập nhằng không được dùng làm bằng chứng cửa.
+6. Chưa có thao tác nào tự tạo Block cửa, ký hiệu cửa, cung quay cánh hoặc đối tượng BIM. Nếu muốn tạo đường bao tham chiếu PLINE của khoảng mở, phải bật các tùy chọn xác nhận của Bài 77.
+
+### Bài 80 — Kiểm thử PNG và trường hợp không đủ bằng chứng
+
+1. Chạy `cargo test --locked -p cadcraft-mcp --lib ai_door_leaf_evidence_requires_a_perpendicular_outward_stroke_at_opening_corner -- --nocapture` để kiểm tra cách đối chiếu góc bản lề, bề dày tường và chiều dài nét.
+2. Kiểm tra ba tình huống: một nét vuông góc có bằng chứng → một ứng viên; chỉ có jamb ngắn qua chiều dày tường → không có ứng viên; hai nét giống cánh cửa cạnh tranh → báo mơ hồ và không chọn.
+3. Chạy `cargo test --locked -p cadcraft-mcp --lib ai_real_png_door_leaf_hint_is_preview_only_and_preserves_native_geometry -- --nocapture` với PNG tổng hợp có bốn đoạn tường và một nét cánh cửa vuông góc.
+4. Khi Preview, `editableEntitiesCreated` phải bằng 0, số guide mặc định bằng 0. Tắt `doorLeafHints` thì số ứng viên nét cánh cửa phải trở về 0; bốn mép nguồn vẫn được bảo toàn.
+5. Windows CI có chốt phát hiện và chạy hai bài test mới trước đóng gói. Chỉ xác nhận đạt nếu bài test thực sự PASS trên đúng SHA; không coi commit GitHub là bằng chứng nghiệm thu.
+6. Tiếp tục kiểm thử ảnh chụp thực tế bị nhiễu, tường nhiều lớp, cửa mở quay, cửa lùa; mô hình hiện tại là nhận dạng hình học quy tắc, chưa phải AI thị giác có đào tạo nhận thức kiến trúc.
+
+**Trạng thái đợt 208:** Đã bổ sung nhận biết hình học nét giống cánh cửa, dữ liệu Preview, điều khiển trong GUI và unit/regression tests. Chưa xác nhận Windows CI PASS, chưa tự tạo Block cửa đi, chưa hoàn thành AI hiểu và vẽ kiến trúc từ ảnh thực tế.
