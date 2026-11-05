@@ -35,6 +35,16 @@ def validate(path: Path) -> None:
     missing = [term for term in required if term.casefold() not in all_text.casefold()]
     if missing:
         raise ValueError(f"Missing whole-product features in Word manual: {missing}")
+    # Word is the primary end-user artifact: file names must survive
+    # Markdown conversion literally, especially underscores used by Windows releases.
+    exact_names = (
+        "GIAO_TRINH_TONG_HOP_CAD360.docx",
+        "CADTBT360_CLI.exe",
+        "BT01_CAD_CoBan.dxf",
+    )
+    lost = [name for name in exact_names if name not in all_text]
+    if lost:
+        raise ValueError(f"Whole-product DOCX altered required Windows filenames/paths: {lost}")
     if len(all_text) < 16000:
         raise ValueError(f"Word manual too short: {len(all_text)} characters")
     print(f"PASS: complete Word manual, {len(tables)} native tables, 21 unique hands-on lessons, {len(all_text)} chars")
