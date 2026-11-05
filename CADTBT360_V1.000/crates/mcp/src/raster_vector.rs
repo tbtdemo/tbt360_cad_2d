@@ -991,7 +991,7 @@ mod tests {
         args["preview"]=json!(false);
         let result=run(&mut backend,&args).unwrap();
         assert_eq!(result["doorSwingArcsCreated"],1);
-        assert_eq!(result["editableEntitiesCreated"],source_lines+1);
+        assert_eq!(result["editableEntitiesCreated"].as_u64(),Some((source_lines+1) as u64));
         let current=backend.call("drawing.inspect",json!({"entities":false})).unwrap();
         assert_eq!(current["entityCount"].as_u64(),Some((source_lines+1) as u64));
         let _=std::fs::remove_file(&path);
