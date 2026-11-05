@@ -1445,3 +1445,28 @@ Mục tiêu quan trọng nhất của đợt này là chuyển từ việc **ch�
 9. Chỉ xác nhận hệ thống đạt khi Windows CI của **đúng commit SHA** thành công; tiếp tục kiểm thử với ảnh chụp thực tế, nhiều lớp tường và cửa sổ có hình học khác.
 
 **Trạng thái đợt 215:** Đã cập nhật mã Rust thuật toán, GUI và kiểm thử PNG cho gợi ý cửa sổ và PLINE hướng dẫn có xác nhận. Chưa có bằng chứng Windows CI PASS, chưa hoàn thiện AI hiểu cửa sổ/cửa đi/tường/cột theo ngữ nghĩa trên ảnh thật.
+
+
+## 56. Đợt 216 — AI dựng Block cửa sổ CAD từ khung PLINE và hai nét sash LINE
+
+### Bài 95 — Tạo Window Block chỉnh sửa được sau khi xác nhận
+
+1. Mở CAD 360 → **AI từ ảnh → CAD**, chọn ảnh PNG/JPG mặt bằng có hai mép tường hở đồng vị trí và hai nét khung cửa sổ nằm trong bề dày tường; hiệu chuẩn `unitsPerPixel`.
+2. Bật `openingGapHints=true`, `pairedWallOpeningHints=true`, `windowSashHints=true`, giữ `maxGapPixels=0`. Chạy Preview để xác nhận có `windowSashCandidateCount` phù hợp; không tự khẳng định là cửa sổ thật.
+3. Trong cửa sổ AI, chọn **Tạo Block CAD cửa sổ bản nháp (PLINE khung + 2 LINE)**, sau đó tích **Tôi đồng ý tạo Block cửa sổ sau khi xem Preview**. Tương ứng `createWindowBlocks=true` và `confirmWindowBlocks=true`.
+4. Preview trả `windowBlockDraftCount` và `windowBlockDrafts`. Mỗi ứng viên gồm `base` (gốc Block), `frame` (bốn đỉnh PLINE kín), `rails` (hai LINE khung), trường `classification=human-confirmed-window-drafting-block-not-semantic-window`.
+5. Không thể chọn đồng thời tạo PLINE hướng dẫn cửa sổ và Block cửa sổ, tránh hình học trùng lặp; hệ thống từ chối nếu bật cả `createWindowBlocks` và `createWindowGuidePolylines`.
+6. Sau khi xem và xác nhận, nhấn **Tạo LINE / PLINE chỉnh sửa trong CAD**. Giao diện tạo ba đối tượng CAD mới (PLINE khung, 2 LINE), chuyển chúng thành một định nghĩa BLOCK + INSERT với `keep=convert`; giữ tất cả LINE đã vector hóa từ ảnh để đối chiếu.
+7. Chọn INSERT trên bản vẽ để di chuyển, sao chép hoặc quản lý theo lệnh CAD. Toàn bộ lô thuộc cùng nhóm Undo; phải thử Undo và kiểm tra bản vẽ trước khi lưu DWG.
+8. Block này mới là hình học bản nháp, không phải đối tượng cửa sổ BIM, không có kích thước/chiều cao thông minh và chưa được kiểm chứng trên mọi kiểu cửa sổ thực tế.
+
+### Bài 96 — Kiểm thử Window Block và an toàn MCP
+
+1. Chạy `cargo test --locked -p cadcraft-mcp --lib ai_real_png_confirmed_window_block_draft_preserves_source_lines_and_rejects_mcp_commit -- --nocapture`. PNG mẫu phải có một bản nháp cửa sổ gồm 4 đỉnh frame và 2 rail, giữ nguyên các nét nguồn, không tạo CAD khi Preview.
+2. Khi chưa có `confirmWindowBlocks=true`, Preview phải từ chối. Khi yêu cầu `preview=false` qua MCP, hệ thống cũng từ chối vì giao dịch tạo Block hiện mới được kiểm soát tại GUI desktop.
+3. Chạy `cargo test --locked -p cadcraft --bin cadcraft ai_native_window_block_contains_one_frame_and_two_rails_and_undoes -- --nocapture`: tạo PLINE + 2 LINE bằng engine thật, convert thành một INSERT, Block chứa đúng 3 đối tượng, Undo loại bỏ cả INSERT và định nghĩa Block.
+4. Chạy `cargo test --locked -p cadcraft --bin cadcraft ai_window_block_gui_requires_separate_human_confirmation -- --nocapture`. Trạng thái GUI mặc định phải chưa cho tạo Block và chưa xác nhận; sau khi người dùng bật hai tùy chọn mới mới được gửi tham số.
+5. Windows CI kiểm tra tự động tất cả các bài này. Kiểm tra đúng commit SHA và kết quả PASS, không được đồng nhất việc đã push mã nguồn với kết quả nghiệm thu EXE.
+6. Tiếp tục dùng ảnh mặt bằng thực tế để xác minh vật liệu, chủng loại cửa sổ, trục và kích thước; phiên bản hiện tại là thuật toán gợi ý hình học từ raster, chưa phải mạng thị giác hiểu đầy đủ đối tượng kiến trúc.
+
+**Trạng thái đợt 216:** Đã bổ sung mã tạo Window BLOCK/INSERT native có xác nhận trên desktop, kiểm thử PNG, Undo và chốt MCP từ chối tạo Block không an toàn. Chưa nghiệm thu Windows CI hoặc Block cửa sổ BIM/kiến trúc hoàn chỉnh.
