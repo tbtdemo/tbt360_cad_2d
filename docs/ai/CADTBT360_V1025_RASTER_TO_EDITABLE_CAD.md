@@ -2,7 +2,7 @@
 
 ## Phạm vi hiện thực
 
-Đã thêm công cụ MCP `raster_to_cad_lines` — tự đọc pixel từ ảnh PNG/JPEG trên máy cục bộ, dò các nét tối nằm ngang và thẳng đứng, hợp nhất nét đậm có bề rộng vài pixel, rồi tạo **đối tượng CAD LINE thực** khi được người dùng/Agent cho phép. Không cần tự cung cấp tọa độ từng đỉnh.
+Đã thêm công cụ MCP `raster_to_cad_lines` — tự đọc pixel từ ảnh PNG/JPEG trên máy cục bộ, dò các nét tối nằm ngang, thẳng đứng và đường chéo 45° theo hai hướng, hợp nhất nét đậm có bề rộng vài pixel, rồi tạo **đối tượng CAD LINE thực** khi được người dùng/Agent cho phép. Không cần tự cung cấp tọa độ từng đỉnh.
 
 Đây là **vector hóa bằng thuật toán ảnh**, chưa sử dụng mô hình AI thị giác để hiểu tường, cửa, cột, ký hiệu, chữ, đường cong hoặc kích thước. Chưa tự động dựng Layer/kích thước hoặc hiệu chỉnh phối cảnh. Không được quảng cáo tương đương “chuyển mọi ảnh thành CAD hoàn chỉnh”.
 
@@ -22,7 +22,8 @@ Gọi MCP `raster_to_cad_lines` với tham số JSON:
   "minLengthPixels": 20,
   "unitsPerPixel": 0.01,
   "origin": [0, 0],
-  "maxLines": 250
+  "maxLines": 250,
+  "includeDiagonals": true
 }
 ```
 
@@ -36,8 +37,10 @@ Lưu ý: hiện bước ghi nhiều đối tượng **chưa phải giao dịch t
 
 ## Giới hạn và an toàn
 
+- Kiểm tra kích thước ảnh từ phần header trước khi giải mã toàn bộ PNG/JPEG để hạn chế cấp phát quá mức.
+
 - Chỉ hỗ trợ tệp PNG/JPEG cục bộ, tối đa 16 MiB và ảnh tối đa 4.096 pixel mỗi chiều / 12 triệu pixel.
-- Chỉ nhận dạng nét thẳng ngang/dọc tương phản rõ; ảnh phối cảnh, nét chéo, bản vẽ có nhiễu hoặc đứt nét sẽ cần thuật toán nâng cao.
+- Nhận dạng nét thẳng ngang/dọc và nét chéo 45° tương phản rõ; các góc nghiêng bất kỳ, cung tròn, đường cong, ảnh phối cảnh, bản vẽ nhiễu hoặc đứt nét vẫn cần thuật toán nâng cao.
 - Có giới hạn `maxLines` để tránh lỡ tạo hàng nghìn đối tượng; nếu vượt giới hạn, công cụ trả lỗi trước khi sửa CAD.
 - Mặc định `preview:true`; không tự chỉnh sửa bản vẽ chỉ vì Agent gửi yêu cầu xem trước.
 - Chưa có giao diện nút bấm riêng trong CAD; thao tác thực hiện qua MCP hoặc Agent được kết nối với CAD.
@@ -45,7 +48,7 @@ Lưu ý: hiện bước ghi nhiều đối tượng **chưa phải giao dịch t
 
 ## Định hướng phát triển tiếp
 
-1. Nhận dạng nét chéo, cung tròn, polyline đa hướng; loại nhiễu và ghép các đoạn.
+1. Nhận dạng góc nghiêng bất kỳ, cung tròn, polyline đa hướng; loại nhiễu và ghép các đoạn.
 2. Kết nối mô hình thị giác thực (local/remote) để phân loại tường, cửa, trục, ký hiệu và chữ.
 3. Hiệu chỉnh kích thước/tỷ lệ bằng điểm kiểm soát; dựng Layer và đối tượng CAD theo ngữ nghĩa.
 4. Tương tác chọn vùng ảnh ngay trên canvas, hiển thị lớp nét xem trước, xác nhận và Undo một lượt.
