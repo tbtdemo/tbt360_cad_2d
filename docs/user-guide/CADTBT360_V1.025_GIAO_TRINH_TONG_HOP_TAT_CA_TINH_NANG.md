@@ -800,3 +800,41 @@ Nâng cấp trực tiếp trên giao diện AI ảnh → CAD và MCP: từ **hai
 6. Ghi kết quả, đường dẫn bản DXF/DWG, SHA256, ảnh chụp giao diện thực tế; nếu chưa thực hiện bước này thì để trạng thái **Chưa kiểm chứng**.
 
 **Giới hạn:** Đây là điều chỉnh bộ lọc **hình học pixel**, không phải AI ngữ nghĩa nhận diện tường, cửa, cột hay vật liệu; không thay thế kiểm tra kích thước thực bằng kỹ sư và không tự tạo BIM Wall. Chưa có bằng chứng Windows CI PASS hoặc bộ cài mới đã nghiệm thu.
+
+
+## 31. Đợt 191 — AI đánh dấu giao tim tường và khoảng hở nghi là cửa
+
+Nội dung nâng cấp kết nối hai phân tích **chỉ xem trước** trên ảnh PNG/JPEG: (a) giao các đoạn tim tường tại điểm giao dạng **T/chữ thập**, (b) những đoạn thẳng hàng có khoảng hở **3–40 pixel** có thể là khoảng mở. Không tự tạo cửa, không tự kéo dài tim tường và không tự nối các cạnh ảnh. Đây là gợi ý hình học, không phải AI nhận dạng kiến trúc chắc chắn.
+
+### Bài 42 — Kiểm tra giao tim tường theo hình học chữ T và giao chữ thập
+
+1. Mở bản vẽ thử `BT42_AI_GiaoTuong.dxf`, không làm trên hồ sơ sản xuất.
+2. Chuẩn bị ảnh có hai cặp nét tường song song: một cặp ngang và một cặp đứng cắt nhau. Chọn tỉ lệ CAD/pixel và lọc ngưỡng khoảng cách cặp mép phù hợp.
+3. Bật **Gợi ý cặp nét tường song song**, sau đó bật **Tạo tim tường từ cặp nét duy nhất (tùy chọn)**.
+4. Nhấn **Nhận dạng và xem trước**, kiểm tra dòng `ứng viên giao tim tường T/chữ thập` và các đường tim dự kiến.
+5. Trên hình giao chữ thập, hai tim phải cắt nhau ở phần giữa của từng đoạn. Trên hình chữ T, một tim kết thúc gần đoạn khác.
+6. Trường hợp hai đầu đoạn chỉ chạm nhau hoặc nằm gần nhưng không cắt qua, phần mềm không được tự xác nhận là một giao tường.
+7. Lưu ảnh giao diện của EXE thực tế, vị trí giao điểm, số LINE và mã commit. Không nhầm số giao tim với số giao cấu kiện BIM được nghiệm thu.
+8. Chỉ bấm **Tạo LINE / PLINE** sau khi kiểm tra Preview. Giao điểm chỉ là metadata xem trước, không sinh thêm đối tượng hình học.
+
+### Bài 43 — Nhận biết khoảng hở mà không tự bịt cửa
+
+1. Chuẩn bị ảnh PNG gồm hai nét cùng đường thẳng hàng ngang: đoạn thứ nhất từ x=5.5 đến x=35.5, đoạn tiếp từ x=47.5 đến x=87.5; khoảng trống giữa hai đầu nét là 12 pixel.
+2. Mở **AI TỪ ẢNH → CAD**, tích **Gợi ý khoảng hở có thể là cửa (chỉ Preview)**.
+3. Nhấn Preview; trường kết quả `openingGapCandidateCount` cần báo 1 cho ảnh mẫu. Trường `classification` chỉ mang ý nghĩa `unverified-gap-not-door`.
+4. Kiểm tra hai nét nguồn vẫn còn độc lập, không được nối vào nhau, và không có Block cửa nào được tạo tự động.
+5. Thử hai nét song song lệch hàng hoặc có đầu mút chạm nhau: không được gắn nhãn khoảng hở hợp lệ.
+6. Nếu chủ động bật chức năng `maxGapPixels` ở bài học khác, cần hiểu đó là thao tác ghép nét và có thể làm mất khoảng hở. Để bảo vệ cửa, giữ **maxGapPixels=0** khi chưa xác minh.
+7. Nếu cần dựng cửa đi, kỹ sư tiếp tục xác nhận trên ảnh và sử dụng lệnh CAD/Block theo quy trình kiểm tra riêng.
+
+### Bài 44 — Kiểm thử Rust, MCP và Windows Setup
+
+1. Vào thư mục `CADTBT360_V1.000` của ZIP mã nguồn đúng commit.
+2. Chạy `cargo test --locked -p cadcraft-mcp --lib ai_wall_junction_ -- --nocapture`.
+3. Chạy `cargo test --locked -p cadcraft-mcp --lib ai_opening_gap_hints_ -- --nocapture`.
+4. Chạy `cargo test --locked -p cadcraft --bin cadcraft ai_opening_gap_hints_are_disabled_by_default_and_preview_only -- --nocapture`.
+5. Với MCP công cụ `raster_to_cad_lines`, dùng `openingGapHints=true` để xem các khoảng hở chưa xác minh; dùng `createWallCenterlines=true` cùng `wallPairHints=true` để nhận thêm số giao tim tường dự kiến.
+6. Chạy Windows CI trên đúng commit; chỉ xác nhận thành công sau khi có **Success**, bộ cài và Portable. Chụp ảnh thực tế trên EXE và mở lại DXF/DWG trước khi đánh giá.
+7. Đối chiếu hành vi khi tắt cả hai chức năng mới: bản vẽ phải giữ đúng LINE/PLINE theo phương thức cũ, không tự thêm hay xóa geometry.
+
+**Phạm vi:** Đã đưa mã nguồn, GUI, MCP và CI cho ứng viên giao tường và khoảng mở vào repository. Chưa có bằng chứng Windows CI PASS. Việc nhận dạng chính xác cửa/cửa sổ, OCR kích thước, phân tách tường/cột và tạo mô hình BIM là công việc chưa hoàn thiện.
