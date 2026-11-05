@@ -27,8 +27,17 @@ try {
     $p = Start-Process -FilePath $exe -WorkingDirectory (Split-Path $exe -Parent) -RedirectStandardOutput $stdout -RedirectStandardError $stderr -PassThru
     $processId = $p.Id
     $sessionId = $p.SessionId
-    # Confirm the observed process points to the released executable, not a pre-existing CAD process.
-    $actualExecutable = $p.MainModule.FileName
+    # Check early process termination before accessing MainModule: on a process
+    # that exits immediately, MainModule can throw and conceal the actual exit code.
+    $p.Refresh()
+    if ($p.HasExited) { $exitCode = $p.ExitCode; $failureKind = 'PROCESS_EXITED_BEFORE_WINDOW'; throw "GUI exited immediately (ExitCode=$exitCode)" }
+    # Confirm the running process is the exact tested executable.
+    try { $actualExecutable = $p.MainModule.FileName } catch {
+        $p.Refresh()
+        if ($p.HasExited) { $exitCode = $p.ExitCode; $failureKind = 'PROCESS_EXITED_BEFORE_WINDOW'; throw "GUI exited before executable identity check (ExitCode=$exitCode)" }
+        $failureKind = 'EXECUTABLE_IDENTITY_UNAVAILABLE'
+        throw "Cannot inspect running GUI executable identity: $($_.Exception.Message)"
+    }
     if (-not [string]::Equals([IO.Path]::GetFullPath($actualExecutable), [IO.Path]::GetFullPath($exe), [StringComparison]::OrdinalIgnoreCase)) { $failureKind = 'EXECUTABLE_IDENTITY_MISMATCH'; throw "Started process executable differs from expected binary: $actualExecutable" }
     $executableIdentity = 'MATCHED'
     $deadline = (Get-Date).AddSeconds($WaitSeconds)
@@ -52,6 +61,7 @@ try {
     $p.Refresh()
     if ($p.HasExited) { $exitCode = $p.ExitCode; $failureKind = "PROCESS_EXITED_AFTER_WINDOW"; throw "GUI exited immediately after initial window creation (ExitCode=$exitCode)" }
     if ($p.MainWindowHandle -eq [IntPtr]::Zero) { $failureKind = 'WINDOW_DISAPPEARED'; throw 'GUI process is alive but its top-level window disappeared after startup' }
+    if (-not $p.Responding) { $failureKind = 'WINDOW_NOT_RESPONDING'; throw 'GUI process has a window but its message loop is not responding' }
     $windowStable = $true
     $windowHandle = [string]$p.MainWindowHandle.ToInt64()
     $windowTitle = $p.MainWindowTitle
