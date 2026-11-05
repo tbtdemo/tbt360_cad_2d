@@ -136,6 +136,8 @@ jobs:
             @{ Package='cadcraft-mcp'; Target='lib'; Test='raster_rectangular_png_with_open_side_does_not_invent_wall' },
             @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_parallel_wall_candidate_hints_find_two_near_equal_parallel_lines' },
             @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_wall_centerline_is_only_created_for_unique_parallel_pair' },
+            @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_wall_spacing_range_filters_pairs_without_rescaling_source_geometry' },
+            @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_wall_spacing_validation_refuses_impossible_values_before_preview' },
             @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_wall_centerline_real_png_keeps_both_edges_and_adds_editable_centerline' },
             @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_wall_centerline_rejects_creation_without_hint_review' },
             @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_parallel_wall_hints_refuse_disjoint_or_crossed_lines' },
@@ -156,6 +158,7 @@ jobs:
             @{ Package='cadcraft'; Target='gui'; Test='ai_raster_closed_rectangle_mode_is_opt_in_and_preserves_preview_safety' },
             @{ Package='cadcraft'; Target='gui'; Test='ai_raster_wall_pair_hints_are_opt_in_and_non_mutating' },
             @{ Package='cadcraft'; Target='gui'; Test='ai_raster_wall_centerline_creation_requires_explicit_user_opt_in' },
+            @{ Package='cadcraft'; Target='gui'; Test='ai_raster_wall_spacing_can_be_set_by_user_without_mutating_drawing' },
             @{ Package='cadcraft'; Target='gui'; Test='ai_raster_calibration_rejects_zero_nan_and_oversize_ratio' }
           )
           foreach ($case in $required) {
@@ -196,6 +199,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'V1.025 AI DXF persistence failed' }
           cargo test --locked -p cadcraft-mcp --lib ai_mcp_rectangle_png_creates_closed_polyline_and_single_undo -- --nocapture
           if ($LASTEXITCODE -ne 0) { throw 'V1.025 MCP Agent failed to create/Undo editable closed rectangle polyline' }
+          cargo test --locked -p cadcraft-mcp --lib ai_wall_spacing_ -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'AI wall spacing scale and input validation regression failed' }
           cargo test --locked -p cadcraft-mcp --lib ai_wall_centerline_ -- --nocapture
           if ($LASTEXITCODE -ne 0) { throw 'AI wall centerline real-PNG, opt-in or Undo regression failed' }
           cargo test --locked -p cadcraft-mcp --lib ai_parallel_wall_ -- --nocapture
@@ -248,6 +253,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Complete product user guide Setup/Portable path discovery failed' }
           cargo test --locked -p cadcraft --bin cadcraft ai_raster_help_is_accessible_offline_without_external_links -- --nocapture
           if ($LASTEXITCODE -ne 0) { throw 'V1.025 offline Vietnamese AI user guide integration failed' }
+          cargo test --locked -p cadcraft --bin cadcraft ai_raster_wall_spacing_can_be_set_by_user_without_mutating_drawing -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'AI wall spacing desktop UI regression failed' }
           cargo test --locked -p cadcraft --bin cadcraft ai_raster_wall_centerline_creation_requires_explicit_user_opt_in -- --nocapture
           if ($LASTEXITCODE -ne 0) { throw 'AI wall centerline GUI opt-in safety regression failed' }
           cargo test --locked -p cadcraft --bin cadcraft ai_raster_wall_pair_hints_are_opt_in_and_non_mutating -- --nocapture
