@@ -30,6 +30,8 @@ pub struct State {
     window_sash_hints: bool,
     create_window_guides: bool,
     confirm_window_guides: bool,
+    create_window_blocks: bool,
+    confirm_window_blocks: bool,
     door_leaf_hints: bool,
     create_door_swing_arcs: bool,
     confirm_door_swing_arcs: bool,
@@ -136,6 +138,8 @@ impl State {
             "windowSashHints":self.window_sash_hints,
             "createWindowGuidePolylines":self.create_window_guides,
             "confirmWindowGuides":self.confirm_window_guides,
+            "createWindowBlocks":self.create_window_blocks,
+            "confirmWindowBlocks":self.confirm_window_blocks,
             "doorLeafHints":self.door_leaf_hints,
             "createDoorSwingArcs":self.create_door_swing_arcs,
             "confirmDoorSwingArcs":self.confirm_door_swing_arcs,
@@ -266,6 +270,8 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
                         state.window_sash_hints=false;
                         state.create_window_guides=false;
                         state.confirm_window_guides=false;
+                        state.create_window_blocks=false;
+                        state.confirm_window_blocks=false;
                         state.door_leaf_hints=false;
                         state.create_door_swing_arcs=false;
                         state.confirm_door_swing_arcs=false;
@@ -297,6 +303,8 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
                             state.window_sash_hints=false;
                             state.create_window_guides=false;
                             state.confirm_window_guides=false;
+                            state.create_window_blocks=false;
+                            state.confirm_window_blocks=false;
                             state.door_leaf_hints=false;
                             state.create_door_swing_arcs=false;
                             state.confirm_door_swing_arcs=false;
@@ -311,17 +319,27 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
                     }
                     if state.paired_wall_opening_hints {
                         if ui.checkbox(&mut state.window_sash_hints, "AI gợi ý khung cửa sổ (2 nét song song trong khoảng mở)").changed() {
-                            if !state.window_sash_hints {state.create_window_guides=false;state.confirm_window_guides=false;}
+                            if !state.window_sash_hints {state.create_window_guides=false;state.confirm_window_guides=false;state.create_window_blocks=false;state.confirm_window_blocks=false;}
                             state.preview=None;
                         }
                         if state.window_sash_hints {
                             ui.small("Chỉ nhận biết cặp nét khung cửa sổ. Đây là ứng viên hình học, chưa phải Window Block/BIM.");
                             if ui.checkbox(&mut state.create_window_guides,"Vẽ PLINE bao khung cửa sổ được gợi ý").changed() {
+                                if state.create_window_guides {state.create_window_blocks=false;state.confirm_window_blocks=false;}
                                 if !state.create_window_guides {state.confirm_window_guides=false;}
                                 state.preview=None;
                             }
                             if state.create_window_guides && ui.checkbox(&mut state.confirm_window_guides,
                                 "Tôi đã xem Preview và đồng ý tạo PLINE khung cửa sổ").changed() {state.preview=None;}
+                            if ui.checkbox(&mut state.create_window_blocks,"Tạo Block CAD cửa sổ bản nháp (PLINE khung + 2 LINE)").changed() {
+                                if state.create_window_blocks {state.create_window_guides=false;state.confirm_window_guides=false;}
+                                else {state.confirm_window_blocks=false;}
+                                state.preview=None;
+                            }
+                            if state.create_window_blocks {
+                                if ui.checkbox(&mut state.confirm_window_blocks,"Tôi đồng ý tạo Block cửa sổ sau khi xem Preview").changed() {state.preview=None;}
+                                ui.small("Block chỉ là bản nháp hình học CAD; không tự gán loại cửa sổ hay BIM.");
+                            }
                         }
                         if ui.checkbox(&mut state.door_leaf_hints, "Gợi ý nét cánh cửa tại góc khoảng mở (chỉ Preview)").changed() {
                             if !state.door_leaf_hints {state.create_door_swing_arcs=false; state.confirm_door_swing_arcs=false; state.create_door_blocks=false; state.confirm_door_blocks=false;}
@@ -434,6 +452,7 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
             let paired_opening_count = proposal["pairedWallOpeningCandidateCount"].as_u64().unwrap_or(0);
             let door_leaf_count = proposal["doorLeafCandidateCount"].as_u64().unwrap_or(0);
             let window_sash_count = proposal["windowSashCandidateCount"].as_u64().unwrap_or(0);
+            let window_block_count=proposal["windowBlockDraftCount"].as_u64().unwrap_or(0);
             let door_arcs_count = proposal["doorSwingArcsProposed"].as_u64().unwrap_or(0);
             let door_blocks_count = proposal["doorBlockDraftCount"].as_u64().unwrap_or(0);
             ui.label(format!("Đã nhận dạng: {count} nét nguồn, {rectangle_count} PLINE kín, {wall_pairs} cặp nét song song nghi là mép tường."));
@@ -454,6 +473,7 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
             if state.paired_wall_opening_hints {
                 ui.label(format!("Đối chiếu hai mép tường: {paired_opening_count} vùng mở hình học cần xác nhận (không tự nhận là cửa)."));
                 if state.window_sash_hints {ui.small(format!("{window_sash_count} vùng có hai nét khung giống cửa sổ (chưa phân loại chắc chắn)."));}
+                if state.create_window_blocks {ui.small(format!("Dự kiến {window_block_count} Block CAD cửa sổ (khung PLINE + 2 thanh LINE) sau xác nhận."));}
                 if state.door_leaf_hints {
                     ui.small(format!("{door_leaf_count} vùng có nét giống cánh cửa vuông góc. Chỉ là dấu hiệu ảnh; không tự vẽ Block cửa."));
                     if state.create_door_swing_arcs {ui.small(format!("Dự kiến {door_arcs_count} cung quay ARC chỉnh sửa được, sau xác nhận."));}
@@ -755,6 +775,36 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
                         }
                     }
                 }
+                if failure.is_none() && let Some(drafts)=proposal["windowBlockDrafts"].as_array() {
+                    let doc_uid=cad.session.state().map(|d|d.uid).unwrap_or(0);
+                    let doc_revision=cad.session.state().map(|d|d.revision).unwrap_or(0);
+                    for (index,draft) in drafts.iter().enumerate() {
+                        let mut handles=Vec::new();
+                        match cad.run("pline",json!({"vertices":draft["frame"],"closed":true})) {
+                            Ok(v) => {created+=1;if let Some(handle)=v["handle"].as_str(){handles.push(handle.to_string());}
+                                else {failure=Some("AI Window BLOCK: PLINE không trả Handle hợp lệ".into());break;}},
+                            Err(e)=>{failure=Some(e);break;}
+                        }
+                        if let Some(rails)=draft["rails"].as_array() {
+                            for rail in rails {
+                                match cad.run("line",json!({"points":rail})) {
+                                    Ok(v)=>{created+=1;if let Some(handle)=v["handle"].as_str(){handles.push(handle.to_string());}
+                                        else {failure=Some("AI Window BLOCK: LINE không trả Handle hợp lệ".into());break;}},
+                                    Err(e)=>{failure=Some(e);break;}
+                                }
+                            }
+                        }
+                        if failure.is_some(){break;}
+                        if handles.len()!=3 {failure=Some("AI Window BLOCK: thiếu khung hoặc hai thanh cửa sổ".into());break;}
+                        let name=format!("TBT_AI_WINDOW_{}_{}_{}",doc_uid,doc_revision,index+1);
+                        match cad.run("block",json!({"name":name,"base":draft["base"],"handles":handles,
+                            "keep":"convert","description":"AI window drafting guide, human reviewed, not semantic BIM"})) {
+                            Ok(v) if v["insert"].as_str().is_some()=>created+=1,
+                            Ok(_)=>{failure=Some("AI Window BLOCK: không tạo được INSERT".into());break;},
+                            Err(e)=>{failure=Some(e);break;}
+                        }
+                    }
+                }
                 if failure.is_none() && let Some(guides) = proposal["windowGuidePolylines"].as_array() {
                     for polygon in guides {
                         match cad.run("pline",json!({"vertices":polygon,"closed":true})) {
@@ -924,6 +974,40 @@ mod tests {
         assert_eq!(state.params()["expectedDoorSourceKeys"][0],"original-door-A");
         state.reset_door_reviews_for_new_source();
         assert!(state.params().get("expectedDoorSourceKeys").is_none());
+    }
+
+    #[test]
+    fn ai_native_window_block_contains_one_frame_and_two_rails_and_undoes() {
+        let mut engine=cadcraft_engine::Session::new();
+        let before=engine.doc().unwrap().entity_count();
+        engine.state_mut().unwrap().begin_undo_group();
+        let frame=engine.execute("pline",&json!({"vertices":[[10.0,10.0],[30.0,10.0],[30.0,16.0],[10.0,16.0]],"closed":true})).unwrap();
+        let rail_a=engine.execute("line",&json!({"points":[[10.0,12.0],[30.0,12.0]]})).unwrap();
+        let rail_b=engine.execute("line",&json!({"points":[[10.0,14.0],[30.0,14.0]]})).unwrap();
+        let (Some(hf),Some(ha),Some(hb))=(frame["handle"].as_str(),rail_a["handle"].as_str(),rail_b["handle"].as_str()) else {panic!("Missing native window entities")};
+        let result=engine.execute("block",&json!({"name":"TBT_AI_WINDOW_TEST","base":[10.0,10.0],
+            "handles":[hf,ha,hb],"keep":"convert"})).unwrap();
+        assert!(result["insert"].as_str().is_some());
+        assert_eq!(engine.doc().unwrap().entity_count(),before+1);
+        assert_eq!(engine.doc().unwrap().block("TBT_AI_WINDOW_TEST").unwrap().entities.len(),3);
+        engine.state_mut().unwrap().end_undo_group();
+        engine.execute("undo",&json!({"count":1})).unwrap();
+        assert_eq!(engine.doc().unwrap().entity_count(),before);
+        assert!(engine.doc().unwrap().block("TBT_AI_WINDOW_TEST").is_none());
+    }
+
+    #[test]
+    fn ai_window_block_gui_requires_separate_human_confirmation() {
+        let mut state=State::default();state.open();
+        assert_eq!(state.params()["createWindowBlocks"],false);
+        assert_eq!(state.params()["confirmWindowBlocks"],false);
+        state.window_sash_hints=true;
+        state.create_window_blocks=true;
+        assert_eq!(state.params()["confirmWindowBlocks"],false);
+        state.confirm_window_blocks=true;
+        assert_eq!(state.params()["createWindowBlocks"],true);
+        assert_eq!(state.params()["confirmWindowBlocks"],true);
+        assert_eq!(state.params()["preview"],true);
     }
 
     #[test]
