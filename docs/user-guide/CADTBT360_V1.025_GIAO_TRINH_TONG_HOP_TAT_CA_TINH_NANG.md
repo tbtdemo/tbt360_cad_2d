@@ -1419,3 +1419,29 @@ Mục tiêu quan trọng nhất của đợt này là chuyển từ việc **ch�
 8. Windows CI bắt buộc phát hiện và chạy các bài test này; **chưa thể tuyên bố PASS** cho đến khi run tương ứng commit cuối thực sự thành công.
 
 **Trạng thái đợt 214:** Đã nâng cấp mã GUI để chọn cánh cửa bằng chuột trên Preview, gắn dấu vân tay cho ứng viên hình học, bổ sung kiểm thử chống mơ hồ/chống áp nhầm. Đây vẫn là AI vector hóa và suy luận hình học theo quy tắc; chưa đạt nhận dạng ngữ nghĩa kiến trúc trên ảnh thực tế đa dạng, chưa có bằng chứng EXE Windows PASS.
+
+
+## 55. Đợt 215 — AI nhận biết ứng viên cửa sổ từ hai nét khung song song trong khoảng mở
+
+### Bài 93 — Tìm dấu hiệu cửa sổ trên ảnh mặt bằng
+
+1. Trong CAD 360 chọn **AI từ ảnh → CAD**; mở PNG/JPG mặt bằng có hai mép tường đứt tại cùng vị trí, trong khoảng trống có hai nét khung (sash rails) song song.
+2. Hiệu chuẩn `unitsPerPixel`, bật `openingGapHints=true`, `pairedWallOpeningHints=true`, `windowSashHints=true`; giữ `maxGapPixels=0` để không tự nối kín khoảng mở.
+3. Nhấn **Nhận dạng và xem trước**. Xem `windowSashCandidateCount`, `pairedWallOpeningCandidates[].windowSashCandidate`, `windowSashEvidence.sourceLineIndices` và `railSpacingPixels`.
+4. Thuật toán yêu cầu **đúng hai** nét song song, hoàn chỉnh trong bề dày khoảng mở; một nét đơn hoặc ba nét cạnh tranh không đủ bằng chứng. Nếu có bằng chứng cánh cửa đi ở vị trí đó, không gán nhãn gợi ý cửa sổ.
+5. Vùng nghi cửa sổ được tô đường bao màu xanh ngọc trên Preview; các nét LINE nguồn vẫn giữ nguyên để đối chiếu.
+6. Đây là gợi ý hình học `possible-window-sash-rails-unverified`, **chưa được xác nhận cửa sổ kiến trúc**, chưa tự tạo Window Block/BIM hoặc thống kê chủng loại.
+
+### Bài 94 — Xác nhận tạo PLINE cửa sổ và kiểm thử bằng ảnh
+
+1. Sau khi xem Preview, bật **Vẽ PLINE bao khung cửa sổ được gợi ý** rồi tích **Tôi đã xem Preview và đồng ý tạo PLINE khung cửa sổ**.
+2. Công cụ gửi `createWindowGuidePolylines=true` và `confirmWindowGuides=true`; nếu chưa xác nhận thì AI từ chối và không thay đổi CAD.
+3. Nhấn **Tạo LINE / PLINE chỉnh sửa trong CAD**. AI giữ các LINE nguồn và thêm PLINE đóng kín làm khung hướng dẫn tại khoảng mở nhận dạng được; hình học tham gia nhóm Undo của lô AI.
+4. Lệnh MCP `raster_vector` dùng cùng Preview và đường ghi hình học, không cần tạo Block kiến trúc.
+5. Chạy `cargo test --locked -p cadcraft-mcp --lib ai_window_sash_needs_two_inner_parallel_rails_and_no_competing_door_leaf -- --nocapture` để kiểm tra quy tắc khung cửa và tình huống nhập nhằng với cửa đi.
+6. Chạy `cargo test --locked -p cadcraft-mcp --lib ai_real_png_window_sash_hint_is_preview_only_and_preserves_source_geometry -- --nocapture` để xác nhận nhận dạng ảnh tổng hợp nhưng Preview chưa sửa CAD.
+7. Chạy `cargo test --locked -p cadcraft-mcp --lib ai_window_guide_requires_confirmation_before_native_closed_pline -- --nocapture` để xác nhận từ chối khi thiếu đồng ý và tạo PLINE CAD thực sự sau khi xác nhận.
+8. Chạy `cargo test --locked -p cadcraft --bin cadcraft ai_window_sash_gui_requires_separate_hint_and_confirmed_guide_opt_in -- --nocapture` để kiểm tra tham số GUI.
+9. Chỉ xác nhận hệ thống đạt khi Windows CI của **đúng commit SHA** thành công; tiếp tục kiểm thử với ảnh chụp thực tế, nhiều lớp tường và cửa sổ có hình học khác.
+
+**Trạng thái đợt 215:** Đã cập nhật mã Rust thuật toán, GUI và kiểm thử PNG cho gợi ý cửa sổ và PLINE hướng dẫn có xác nhận. Chưa có bằng chứng Windows CI PASS, chưa hoàn thiện AI hiểu cửa sổ/cửa đi/tường/cột theo ngữ nghĩa trên ảnh thật.
