@@ -445,3 +445,28 @@ fn ai_validated_perspective_trace_blocks_bad_trace_without_mutation() {
     assert!(committed["handle"].is_string());
     assert_eq!(tool(&mut s, "query_entities", json!({"type":"Polyline"}))["count"], 1);
 }
+
+
+#[test]
+fn ai_world_projection_gate_rejects_crossing_preview_without_engine_commit() {
+    struct MockProjection { calls: usize }
+    impl crate::Backend for MockProjection {
+        fn call(&mut self, method: &str, params: Value) -> Result<Value, String> {
+            assert_eq!(method, "engine.execute");
+            assert_eq!(params["command"], "imageprojecttrace");
+            assert_eq!(params["params"]["preview"], true, "validation must never commit a failing preview");
+            self.calls += 1;
+            Ok(json!({"preview":true,"worldPoints":[[0,0],[10,10],[0,10],[10,0]]}))
+        }
+        fn has_ui(&self) -> bool { false }
+        fn describe(&self) -> String { "mock projection".into() }
+    }
+    let mut backend = MockProjection { calls: 0 };
+    let input = json!({"handle":"42","pixels":[[0,0],[100,0],[100,100],[0,100]],
+        "world":[[0,0],[10,0],[10,10],[0,10]],
+        "points":[[0,0],[100,0],[100,100],[0,100]],"closed":true});
+    let result = crate::tools::call_tool(&mut backend, "trace_perspective_image_validated", &input).unwrap();
+    assert_eq!(result["isError"], true);
+    assert!(result["content"][0]["text"].as_str().unwrap().contains("world-coordinate projection"));
+    assert_eq!(backend.calls, 1, "no second engine commit should be sent after world-geometry rejection");
+}
