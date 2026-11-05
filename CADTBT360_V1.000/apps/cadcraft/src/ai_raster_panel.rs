@@ -147,6 +147,21 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
 mod tests {
     use super::*;
 
+
+    #[test]
+    fn ai_raster_multi_line_group_is_one_undo_step() {
+        let mut engine = cadcraft_engine::Session::new();
+        let before = engine.state().unwrap().undo.len();
+        assert!(engine.state().unwrap().undo_ctl.group.is_none());
+        engine.state_mut().unwrap().begin_undo_group();
+        engine.execute("line", &json!({"points":[[0,0],[5,0]]})).unwrap();
+        engine.execute("line", &json!({"points":[[0,2],[5,2]]})).unwrap();
+        assert_eq!(engine.state().unwrap().undo_ctl.group, Some(before));
+        engine.state_mut().unwrap().end_undo_group();
+        assert_eq!(engine.state().unwrap().undo.len(), before + 1);
+        assert!(engine.state().unwrap().undo_ctl.group.is_none());
+    }
+
     #[test]
     fn ai_raster_panel_defaults_to_preview_and_never_requests_direct_edit() {
         let mut state = State::default();
