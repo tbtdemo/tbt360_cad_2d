@@ -1470,3 +1470,27 @@ Mục tiêu quan trọng nhất của đợt này là chuyển từ việc **ch�
 6. Tiếp tục dùng ảnh mặt bằng thực tế để xác minh vật liệu, chủng loại cửa sổ, trục và kích thước; phiên bản hiện tại là thuật toán gợi ý hình học từ raster, chưa phải mạng thị giác hiểu đầy đủ đối tượng kiến trúc.
 
 **Trạng thái đợt 216:** Đã bổ sung mã tạo Window BLOCK/INSERT native có xác nhận trên desktop, kiểm thử PNG, Undo và chốt MCP từ chối tạo Block không an toàn. Chưa nghiệm thu Windows CI hoặc Block cửa sổ BIM/kiến trúc hoàn chỉnh.
+
+
+## 57. Đợt 217 — AI phát hiện ứng viên cột qua hình chữ nhật có nét giao bên trong
+
+### Bài 97 — Phân biệt ứng viên cột với hình chữ nhật thông thường
+
+1. Trong CAD 360, mở cửa sổ **AI từ ảnh → CAD**, chọn ảnh PNG/JPG mặt bằng có ký hiệu cột hình chữ nhật hoặc gần vuông; hiệu chuẩn tỷ lệ `unitsPerPixel`.
+2. Bật **Gợi ý cột: hình chữ nhật kín + 2 nét giao nhau bên trong** (`columnHatchHints=true`). Tính năng chỉ nhận diện hình học, **không khẳng định mọi ký hiệu này đều là cột kết cấu**.
+3. Thuật toán xét đường bao khép kín có kích thước theo ảnh từ 12 đến 120 pixel mỗi chiều, tỷ lệ rộng/cao trong khoảng 0,60 đến 1,65, và **đúng một nét ngang, một nét dọc nằm trong hình**, giao nhau ở trung tâm tương đối. Hình chữ nhật trống hoặc có nhiều nét không rõ nghĩa sẽ bị loại.
+4. Nhấn **Nhận dạng và xem trước**. Trên Preview, ứng viên có viền vàng. Kiểm tra `columnHatchCandidateCount`, `columnHatchCandidates[].outlinePixels`, `outlineCAD`, `widthCAD`, `heightCAD`, `sourceHatchEdges` và `classification=closed-cross-hatched-column-like-outline-unverified`.
+5. Các nét nguồn raster được giữ nguyên. Bật nhận dạng cột **không tự bật** `closedRectangles`, không tự biến mọi hình chữ nhật trong bản vẽ thành PLINE.
+6. Người dùng phải kiểm tra vị trí, kích thước, loại ký hiệu, hướng trục và đối chiếu bản vẽ kết cấu; thuật toán chưa xác định tiết diện cột, vật liệu, cao độ, tầng hoặc dữ liệu BIM.
+
+### Bài 98 — Xác nhận tạo PLINE cột và kiểm thử an toàn AI
+
+1. Sau khi xem xét, bật **Thêm PLINE hướng dẫn tại ứng viên cột** (`createColumnGuidePolylines=true`) và xác nhận **Tôi đã xem Preview và xác nhận vẽ PLINE cột** (`confirmColumnGuides=true`).
+2. Nếu thiếu `columnHatchHints=true` hoặc `confirmColumnGuides=true`, Preview từ chối trước khi sửa CAD. Không được bật đồng thời **Đường bao chữ nhật kín → PLINE** vì như vậy có nguy cơ tạo đường bao trùng: GUI tự tắt lựa chọn còn lại, MCP từ chối yêu cầu không hợp lệ.
+3. Sau khi nhấn **Tạo LINE / PLINE chỉnh sửa trong CAD**, các nét nguồn vẫn được ghi thành LINE; AI thêm PLINE hướng dẫn theo đúng tọa độ CAD đã hiệu chuẩn. Hình học thuộc cùng nhóm Undo với các nét AI khác.
+4. Chạy `cargo test --locked -p cadcraft-mcp --lib ai_column_hatch_requires_closed_near_square_with_two_crossing_interior_strokes -- --nocapture`. Ca thử yêu cầu hình trống không bị nhận là cột, hình có hai nét trong giao nhau được đề xuất, hình nhập nhằng bị loại.
+5. Chạy `cargo test --locked -p cadcraft-mcp --lib ai_column_hatch_png_preview_requires_confirmation_and_keeps_source_strokes -- --nocapture`. Ca thử dùng PNG thật sinh từ pixel, yêu cầu một ứng viên, Preview không sửa CAD, thiếu xác nhận bị từ chối và khi Commit tạo thêm một PLINE có thể chỉnh sửa.
+6. Chạy `cargo test --locked -p cadcraft --bin cadcraft ai_column_hatch_gui_defaults_to_preview_and_separate_confirmation -- --nocapture` để kiểm tra GUI mặc định không bật tạo PLINE, xác nhận thủ công rõ ràng.
+7. Kiểm tra Windows CI đúng commit SHA. **Mã đã được cập nhật không đồng nghĩa các bài test đã PASS hay EXE đã nghiệm thu**. Kiểm chứng thêm ảnh thực tế: cột tròn, cột chữ L/T, cấu kiện không có ký hiệu hatch, tường giao nhau và bản vẽ nhiễu vẫn cần nghiên cứu tiếp.
+
+**Trạng thái đợt 217:** Đã bổ sung thuật toán nhận biết ứng viên cột hình chữ nhật có hatch chữ thập, GUI Preview viền vàng, tạo PLINE sau xác nhận, chốt tránh PLINE trùng và test CI. Chưa hoàn thiện nhận dạng cột kiến trúc/kết cấu tổng quát, chưa tuyên bố Windows CI PASS.
