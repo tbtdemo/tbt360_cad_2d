@@ -21,6 +21,9 @@ pub struct State {
     include_diagonals: bool,
     arbitrary_angles: bool,
     closed_rectangles: bool,
+    column_hatch_hints: bool,
+    create_column_guides: bool,
+    confirm_column_guides: bool,
     wall_pair_hints: bool,
     min_wall_spacing: f64,
     max_wall_spacing: f64,
@@ -131,6 +134,9 @@ impl State {
         let mut params=json!({"path":self.path,"preview":true,"minLengthPixels":self.min_length,
             "unitsPerPixel":self.scale,"includeDiagonals":self.include_diagonals,
             "includeArbitraryAngles":self.arbitrary_angles,"closedRectangles":self.closed_rectangles,
+            "columnHatchHints":self.column_hatch_hints,
+            "createColumnGuidePolylines":self.create_column_guides,
+            "confirmColumnGuides":self.confirm_column_guides,
             "wallPairHints":self.wall_pair_hints,"createWallCenterlines":self.create_wall_centerlines,
             "minWallSpacingPixels":self.min_wall_spacing,"maxWallSpacingPixels":self.max_wall_spacing,
             "openingGapHints":self.opening_gap_hints,
@@ -426,6 +432,19 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
                         }
                     }
                 }
+                if ui.checkbox(&mut state.column_hatch_hints,"Gợi ý cột: hình chữ nhật kín + 2 nét giao nhau bên trong").changed() {
+                    if !state.column_hatch_hints {state.create_column_guides=false;state.confirm_column_guides=false;}
+                    state.preview=None;
+                }
+                if state.column_hatch_hints {
+                    ui.small("Chỉ là dấu hiệu hình học; không tự phân loại cột kết cấu hoặc thay thế nét ảnh.");
+                    if ui.checkbox(&mut state.create_column_guides,"Thêm PLINE hướng dẫn tại ứng viên cột").changed() {
+                        if !state.create_column_guides {state.confirm_column_guides=false;}
+                        state.preview=None;
+                    }
+                    if state.create_column_guides && ui.checkbox(&mut state.confirm_column_guides,
+                        "Tôi đã xem Preview và xác nhận vẽ PLINE cột").changed() {state.preview=None;}
+                }
                 if ui.checkbox(&mut state.closed_rectangles, "Đường bao chữ nhật kín → PLINE").changed() {
                     state.preview = None; state.preview_document_uid = None;
                     state.preview_revision = None; state.preview_document_epoch = None;
@@ -447,6 +466,7 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
             let count = proposal["strokes"].as_u64().unwrap_or(0);
             ui.separator();
             let rectangle_count = proposal["closedPolylines"].as_array().map_or(0,Vec::len);
+            let column_hint_count=proposal["columnHatchCandidateCount"].as_u64().unwrap_or(0);
             let wall_pairs = proposal["wallPairCandidateCount"].as_u64().unwrap_or(0);
             let opening_count = proposal["openingGapCandidateCount"].as_u64().unwrap_or(0);
             let paired_opening_count = proposal["pairedWallOpeningCandidateCount"].as_u64().unwrap_or(0);
@@ -456,6 +476,10 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
             let door_arcs_count = proposal["doorSwingArcsProposed"].as_u64().unwrap_or(0);
             let door_blocks_count = proposal["doorBlockDraftCount"].as_u64().unwrap_or(0);
             ui.label(format!("Đã nhận dạng: {count} nét nguồn, {rectangle_count} PLINE kín, {wall_pairs} cặp nét song song nghi là mép tường."));
+            if state.column_hatch_hints {
+                ui.small(format!("Có {column_hint_count} ứng viên hình chữ nhật có dấu gạch chéo chữ thập bên trong; chưa xác nhận là cột."));
+                ui.small("Ứng viên cột hiện viền vàng trên Preview. Chỉ tạo PLINE mới khi người dùng xác nhận.");
+            }
             if state.wall_pair_hints {
                 ui.small("Gợi ý hình học, không phải tường BIM. Nét nguồn luôn được giữ để đối chiếu.");
             }
@@ -617,6 +641,22 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
                                         (a[0].as_f64(),a[1].as_f64(),b[0].as_f64(),b[1].as_f64()) {
                                         painter.line_segment([to_screen(x0,y0),to_screen(x1,y1)],
                                             egui::Stroke::new(3.0,egui::Color32::from_rgb(70,225,207)));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if state.column_hatch_hints {
+                        if let Some(columns)=proposal["columnHatchCandidates"].as_array() {
+                            for col in columns {
+                                let Some(points)=col["outlineCAD"].as_array() else {continue};
+                                if points.len()!=4 {continue;}
+                                for i in 0..4 {
+                                    let a=&points[i];let b=&points[(i+1)%4];
+                                    if let (Some(x0),Some(y0),Some(x1),Some(y1))=
+                                        (a[0].as_f64(),a[1].as_f64(),b[0].as_f64(),b[1].as_f64()) {
+                                        painter.line_segment([to_screen(x0,y0),to_screen(x1,y1)],
+                                            egui::Stroke::new(3.0,egui::Color32::from_rgb(251,210,70)));
                                     }
                                 }
                             }
@@ -802,6 +842,14 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
                             Ok(v) if v["insert"].as_str().is_some()=>created+=1,
                             Ok(_)=>{failure=Some("AI Window BLOCK: không tạo được INSERT".into());break;},
                             Err(e)=>{failure=Some(e);break;}
+                        }
+                    }
+                }
+                if failure.is_none() && let Some(guides) = proposal["columnGuidePolylines"].as_array() {
+                    for polygon in guides {
+                        match cad.run("pline",json!({"vertices":polygon,"closed":true})) {
+                            Ok(_) => created+=1,
+                            Err(e) => {failure=Some(e);break;}
                         }
                     }
                 }
@@ -1007,6 +1055,22 @@ mod tests {
         state.confirm_window_blocks=true;
         assert_eq!(state.params()["createWindowBlocks"],true);
         assert_eq!(state.params()["confirmWindowBlocks"],true);
+        assert_eq!(state.params()["preview"],true);
+    }
+
+    #[test]
+    fn ai_column_hatch_gui_defaults_to_preview_and_separate_confirmation() {
+        let mut state=State::default();state.open();
+        assert_eq!(state.params()["columnHatchHints"],false);
+        assert_eq!(state.params()["createColumnGuidePolylines"],false);
+        assert_eq!(state.params()["confirmColumnGuides"],false);
+        state.column_hatch_hints=true;
+        assert_eq!(state.params()["columnHatchHints"],true);
+        state.create_column_guides=true;
+        assert_eq!(state.params()["confirmColumnGuides"],false);
+        state.confirm_column_guides=true;
+        assert_eq!(state.params()["createColumnGuidePolylines"],true);
+        assert_eq!(state.params()["confirmColumnGuides"],true);
         assert_eq!(state.params()["preview"],true);
     }
 
