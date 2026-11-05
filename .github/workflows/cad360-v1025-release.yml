@@ -107,6 +107,10 @@ jobs:
           # uploaded with CI_FAILURE.txt if the expensive Rust build fails or is cancelled.
           cargo check --locked -p cadcraft --bin cadcraft 2>&1 | Out-String -Stream | Tee-Object -FilePath '../dist/v1025/diagnostics/CARGO_CHECK_GUI.log' | Out-Host
           if ($LASTEXITCODE -ne 0) { throw 'V1.025 GUI binary compile failed; inspect CARGO_CHECK_GUI.log' }
+          # A normal GUI check does not compile #[cfg(test)] modules. Stage 197 failed with E0425 only in a test module.
+          # Compile test targets during preflight so missing imports are caught before full test discovery and release packaging.
+          cargo check --locked -p cadcraft --tests 2>&1 | Out-String -Stream | Tee-Object -FilePath '../dist/v1025/diagnostics/CARGO_CHECK_GUI_TESTS.log' | Out-Host
+          if ($LASTEXITCODE -ne 0) { throw 'V1.025 GUI test targets do not compile; inspect CARGO_CHECK_GUI_TESTS.log' }
           cargo check --locked -p cadcraft-cli 2>&1 | Out-String -Stream | Tee-Object -FilePath '../dist/v1025/diagnostics/CARGO_CHECK_CLI.log' | Out-Host
           if ($LASTEXITCODE -ne 0) { throw 'V1.025 CLI compile failed; inspect CARGO_CHECK_CLI.log' }
           cargo check --locked -p cadcraft-mcp 2>&1 | Out-String -Stream | Tee-Object -FilePath '../dist/v1025/diagnostics/CARGO_CHECK_MCP.log' | Out-Host
