@@ -1734,3 +1734,41 @@ Mục tiêu quan trọng nhất của đợt này là chuyển từ việc **ch�
 6. Đây mới là **bước đầu của AI Agent vẽ trực tiếp**, chưa hiểu yêu cầu đa bước, chưa sinh mặt bằng tổng thể từ câu tiếng Việt tự do và chưa có giao diện chat AI tích hợp ngay trên bản vẽ.
 
 **Trạng thái đợt 227:** Đã cập nhật công cụ MCP chuyển lệnh tiếng Việt → lệnh CAD native có Preview và điều kiện commit an toàn, bổ sung hai regression test vào Windows CI. Chưa xác nhận Windows CI PASS hoặc AI đa bước hoàn thiện.
+
+
+## 68. Đợt 228 — AI Agent tạo RECTANG / PLINE từ tiếng Việt và quy định hướng dẫn có hình
+
+### Bài 119 — AI Agent vẽ hình chữ nhật RECTANG có tọa độ thật
+
+1. Kết nối AI Agent tới MCP của CAD 360 (công cụ `ai_draw_vietnamese`); kiểm tra dự án và bản vẽ đang mở.
+2. Gửi `{"text":"vẽ hình chữ nhật từ 0,0 đến 100,50"}` và không đặt `preview:false` ở bước đầu.
+3. Kiểm tra phương án `command="rectang"`, `params={"p1":[0,0],"p2":[100,50]}`, điểm góc và diện tích 5000 đơn vị vuông.
+4. Chỉ khi đã kiểm tra phương án, gửi lại cùng câu lệnh với `preview:false`, `confirm:true` và ba dấu `expectedDocumentUid`, `expectedDocumentEpoch`, `expectedRevision` từ Preview.
+5. Đối chiếu đối tượng LWPOLYLINE hình chữ nhật được tạo bởi CAD Engine. Nếu đầu vào có cạnh bằng 0, phải từ chối chứ không tạo hình học suy biến.
+
+### Bài 120 — AI Agent vẽ đa tuyến PLINE nhiều đỉnh từ tiếng Việt
+
+1. Gửi câu lệnh `{"text":"vẽ đa tuyến qua 0,0; 100,0; 100,50"}` tới `ai_draw_vietnamese` với Preview mặc định.
+2. Kiểm tra `command="pline"`, `vertices=[[0,0],[100,0],[100,50]]` và `closed=false`; tổng chiều dài mở 150 đơn vị.
+3. Giới hạn tối đa 128 đỉnh; từ chối đỉnh liên tiếp trùng nhau, điểm sai cú pháp, NaN/Infinity và tọa độ ngoài phạm vi cho phép.
+4. Sau khi người dùng duyệt, xác nhận cùng bộ dấu phiên bản bản vẽ; kiểm tra PLINE bản địa có thể chọn, sửa, lưu và hoàn tác.
+5. Không suy diễn đây là AI hiểu mọi câu tiếng Việt: hiện chỉ có một ngữ pháp xác định cho bốn lệnh `LINE`, `CIRCLE`, `RECTANG`, `PLINE`.
+
+### Hình minh họa trong giáo trình nguồn
+
+![Sơ đồ AI tiếng Việt qua MCP, Preview và CAD Engine](images/ai-agent-vietnamese-native-cad-stage228.svg)
+
+*Hình 68.1 — SƠ ĐỒ minh họa luồng AI Agent, không phải ảnh chụp Windows EXE.*
+
+![Ví dụ bốn loại hình học CAD từ lệnh tiếng Việt](images/ai-agent-cad-geometry-stage228.svg)
+
+*Hình 68.2 — SƠ ĐỒ hình học LINE / CIRCLE / RECTANG / PLINE, không phải ảnh chụp Windows EXE.*
+
+### Quy định bắt buộc từ đợt 228
+
+- Mọi đợt thêm tính năng phải cập nhật **giáo trình toàn bộ tính năng** (không chỉ tạo bài bổ sung tách rời), bao gồm mục lục, mục tiêu, thao tác từng bước, ví dụ, hình có chú thích, lỗi thường gặp và bài kiểm tra nghiệm thu.
+- Hình minh họa dựng bằng đồ họa phải ghi rõ là hình minh họa. **Chỉ hình chụp từ build EXE thực tế** mới được ghi là ảnh màn hình phần mềm.
+- Tài liệu Word đầy đủ được bàn giao riêng bên cạnh mã nguồn và phải kiểm tra render trang trước khi gửi.
+- Mức độ xác minh cần tách thành: mã đã viết, test có trong source, CI PASS, và Windows EXE chạy được. Không coi nguồn có commit là nghiệm thu EXE.
+
+**Trạng thái đợt 228:** MCP đã bổ sung bộ phân tích RECTANG và PLINE, có regression test trong source. Minh họa trực quan đã có trong markdown nguồn. Bản Word biên soạn tổng hợp độc lập 123 bài và 44 sơ đồ minh họa đã được xuất riêng; chưa có bằng chứng ảnh chụp EXE thật cho toàn bộ bài và chưa xác nhận Windows CI PASS.
