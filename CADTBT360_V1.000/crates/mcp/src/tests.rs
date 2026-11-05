@@ -574,3 +574,29 @@ fn ai_auto_raster_diagonal_png_creates_editable_line_without_pixel_coordinates()
     assert_eq!(tool(&mut s, "query_entities", json!({"type":"Line"}))["count"], 1);
     let _ = std::fs::remove_file(path);
 }
+
+
+#[test]
+fn ai_arbitrary_angle_raster_to_cad_png_creates_editable_line() {
+    use image::{GrayImage, Luma};
+    let mut pixels=GrayImage::from_pixel(120,120,Luma([255]));
+    for x in 12..=100 {
+        let y=20+(f64::from(x-12)*0.577350269).round() as u32;
+        pixels.put_pixel(x,y,Luma([0]));
+    }
+    let file=std::env::temp_dir().join(format!("cad360-pca-vector-{}-{}.png",
+        std::process::id(),std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+    pixels.save(&file).unwrap();
+    let path=file.to_string_lossy().to_string();
+    let mut server=Server::new(Box::new(Headless::default()));
+    let preview=tool(&mut server,"raster_to_cad_lines",json!({"path":path,"preview":true,"minLengthPixels":20,
+        "includeDiagonals":false,"includeArbitraryAngles":true}));
+    assert_eq!(preview["strokes"],1,"isolated 30-degree input line should vectorize: {preview}");
+    assert_eq!(preview["editableEntitiesCreated"],0);
+    assert_eq!(tool(&mut server,"query_entities",json!({"type":"Line"}))["count"],0);
+    let applied=tool(&mut server,"raster_to_cad_lines",json!({"path":path,"preview":false,"minLengthPixels":20,
+        "includeDiagonals":false,"includeArbitraryAngles":true}));
+    assert_eq!(applied["editableEntitiesCreated"],1);
+    assert_eq!(tool(&mut server,"query_entities",json!({"type":"Line"}))["count"],1);
+    let _=std::fs::remove_file(file);
+}
