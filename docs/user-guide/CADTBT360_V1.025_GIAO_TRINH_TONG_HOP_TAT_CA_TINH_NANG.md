@@ -1639,3 +1639,28 @@ Mục tiêu quan trọng nhất của đợt này là chuyển từ việc **ch�
 5. Phần AI hiện mới có gợi ý hình học và kiểm tra an toàn; chưa có thao tác chọn từng nút T/X trong GUI để tự trim/extend toàn bộ tường. Không dùng QA preview để khẳng định bản vẽ kiến trúc hoàn chỉnh.
 
 **Trạng thái đợt 223:** Đã sửa cú pháp chặn compile và giữ đúng ID ứng viên tường qua bộ lọc; đã bổ sung regression test. Các thao tác chỉnh sửa topology tự động và nghiệm thu Windows EXE vẫn chưa hoàn thành.
+
+
+## 64. Đợt 224 — Chọn nút giao tường T/X và đánh dấu QA trực tiếp trong AI Preview
+
+### Bài 111 — Chọn nút giao từ ảnh hoặc danh sách
+
+1. Mở CAD 360 → AI từ ảnh → CAD; chọn ảnh PNG/JPG chứa tường giao nhau.
+2. Nhập tỷ lệ CAD/pixel hoặc hiệu chuẩn theo đoạn chuẩn, chọn gợi ý cặp mép tường và gợi ý dải tường.
+3. Bấm **1. Nhận dạng và xem trước**. Các vị trí T/X không trùng ứng viên cửa/cột xuất hiện dưới dạng vòng tròn màu hồng trong khung Preview.
+4. Nhấn vào vòng tròn (trong bán kính 12 pixel màn hình), hoặc chọn nút tương ứng trong danh sách tối đa 30 mục. Nút được chọn hiển thị vòng tròn trắng lớn; khi hai nút quá gần khiến kết quả nhập nhằng, nhấn chuột sẽ không tự chọn.
+5. Chọn **Xác nhận đã kiểm tra hình học (không vẽ)** để đánh dấu vòng tròn xanh lá. Có thể chọn **Bỏ dấu đã kiểm tra**.
+6. Nhấn Preview lại hoặc thay ảnh sẽ xóa đánh dấu/selection cũ để tránh nhận nhầm chỉ số nút sau mỗi lần nhận dạng.
+7. Không bật chế độ tạo Block cửa đồng thời nếu muốn chọn nút bằng click: thao tác click khi đang xem Block cửa được dành cho chọn cửa; vẫn có thể chọn nút giao từ danh sách.
+8. Chú ý: nút T/X vẫn là ứng viên QA, chưa tự tạo lệnh trim/extend/join, không đổi LINE, PLINE, BLOCK hoặc nhóm Undo. Việc đánh dấu đã kiểm tra không có nghĩa đã nghiệm thu hình học thiết kế.
+
+### Bài 112 — Kiểm thử nút giao, tọa độ CAD và Windows Build
+
+1. Trong thư mục `CADTBT360_V1.000`, chạy `cargo test --locked -p cadcraft --bin cadcraft ai_wall_junction_click_selects_unique_node_without_committing_geometry -- --nocapture`.
+2. Chạy `cargo test --locked -p cadcraft-mcp --lib ai_wall_panel_junction_qa_detects_t_and_cross_and_ignores_opening_or_column -- --nocapture`.
+3. Chạy `cargo check --locked -p cadcraft --bin cadcraft` và `cargo check --locked -p cadcraft --tests` trước khi đóng gói.
+4. Kiểm tra trên ảnh thực: ảnh đơn vị khác nhau; các đoạn tường T và X; vùng cửa/cột che điểm giao; các nút gần nhau; và việc reset lựa chọn khi bấm Preview lại.
+5. `wallPanelJunctionCandidates[].pointPixels` phục vụ truy vết pixel; `pointCAD` được biến đổi theo cùng `origin`, `unitsPerPixel` và phép đảo trục Y như hình học CAD. Hệ thống chỉ dùng pointCAD để xác định click vào nút Preview.
+6. Phải xác nhận Windows CI PASS theo SHA commit cuối trước khi coi là bản cài hoàn thiện. Việc commit được mã nguồn không chứng minh EXE chạy ổn định.
+
+**Trạng thái đợt 224:** Đã bổ sung mã chọn và đánh dấu QA nút giao T/X trong giao diện, tọa độ CAD và kiểm thử click; vẫn giữ chế độ chỉ Preview, chưa triển khai nối/cắt tường và chưa xác nhận Windows EXE PASS.
