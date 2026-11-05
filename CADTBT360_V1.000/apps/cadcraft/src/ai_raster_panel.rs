@@ -150,6 +150,12 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
                         .add_filter("Images", &["png","jpg","jpeg"]).pick_file()
                 {
                     state.path = path.to_string_lossy().into_owned();
+                    // Per-door indices refer only to the OLD image's candidate order.
+                    // Never transfer reviewed geometry to a newly selected image.
+                    state.door_width_overrides.clear();
+                    state.door_hinge_flips.clear();
+                    state.door_swing_flips.clear();
+                    state.selected_door_number=1;
                     state.preview = None;
                     state.preview_document_uid = None;
                     state.preview_revision = None;
@@ -786,6 +792,24 @@ mod tests {
         assert!(calibrated_units_per_pixel(f64::INFINITY, 500.0).is_err());
         assert!(calibrated_units_per_pixel(0.0000001, 500.0).is_err());
         assert!(calibrated_units_per_pixel(100000000.0, 0.1).is_err());
+    }
+
+    #[test]
+    fn ai_new_source_requires_review_of_per_door_candidate_indices_again() {
+        let mut state=State::default();state.open();
+        state.door_width_overrides.insert(1,900.0);
+        state.door_hinge_flips.insert(1);
+        state.door_swing_flips.insert(0);
+        // The native file-picker handler clears all per-candidate selections
+        // whenever the source is replaced, instead of remapping stale indices.
+        state.door_width_overrides.clear();
+        state.door_hinge_flips.clear();
+        state.door_swing_flips.clear();
+        state.selected_door_number=1;
+        assert!(state.door_width_overrides.is_empty());
+        assert!(state.door_hinge_flips.is_empty());
+        assert!(state.door_swing_flips.is_empty());
+        assert_eq!(state.selected_door_number,1);
     }
 
     #[test]
