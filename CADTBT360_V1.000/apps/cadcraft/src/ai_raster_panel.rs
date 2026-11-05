@@ -78,7 +78,7 @@ impl State {
     }
 
     fn params(&self) -> Value {
-        json!({"path":self.path,"preview":true,"minLengthPixels":self.min_length,
+        let mut params=json!({"path":self.path,"preview":true,"minLengthPixels":self.min_length,
             "unitsPerPixel":self.scale,"includeDiagonals":self.include_diagonals,
             "includeArbitraryAngles":self.arbitrary_angles,"closedRectangles":self.closed_rectangles,
             "wallPairHints":self.wall_pair_hints,"createWallCenterlines":self.create_wall_centerlines,
@@ -94,7 +94,11 @@ impl State {
             "createOpeningGuidePolylines":self.create_opening_guides,
             "confirmOpeningGuides":self.confirm_opening_guides,
             "minOpeningGapPixels":self.min_opening_gap,
-            "maxOpeningGapPixels":self.max_opening_gap,"maxLines":250})
+            "maxOpeningGapPixels":self.max_opening_gap,"maxLines":250});
+        if !(self.create_door_blocks && self.override_door_width) {
+            params.as_object_mut().expect("AI settings JSON object").remove("doorWidthOverrideCAD");
+        }
+        params
     }
 }
 
