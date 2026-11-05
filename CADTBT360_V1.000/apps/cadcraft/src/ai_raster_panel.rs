@@ -30,6 +30,8 @@ pub struct State {
     door_leaf_hints: bool,
     create_door_swing_arcs: bool,
     confirm_door_swing_arcs: bool,
+    create_door_blocks: bool,
+    confirm_door_blocks: bool,
     create_opening_guides: bool,
     confirm_opening_guides: bool,
     min_opening_gap: f64,
@@ -83,6 +85,8 @@ impl State {
             "doorLeafHints":self.door_leaf_hints,
             "createDoorSwingArcs":self.create_door_swing_arcs,
             "confirmDoorSwingArcs":self.confirm_door_swing_arcs,
+            "createDoorBlocks":self.create_door_blocks,
+            "confirmDoorBlocks":self.confirm_door_blocks,
             "createOpeningGuidePolylines":self.create_opening_guides,
             "confirmOpeningGuides":self.confirm_opening_guides,
             "minOpeningGapPixels":self.min_opening_gap,
@@ -188,6 +192,8 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
                         state.door_leaf_hints=false;
                         state.create_door_swing_arcs=false;
                         state.confirm_door_swing_arcs=false;
+                        state.create_door_blocks=false;
+                        state.confirm_door_blocks=false;
                         state.create_opening_guides=false;
                         state.confirm_opening_guides=false;
                     }
@@ -210,23 +216,33 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
                             state.door_leaf_hints=false;
                             state.create_door_swing_arcs=false;
                             state.confirm_door_swing_arcs=false;
+                            state.create_door_blocks=false;
+                            state.confirm_door_blocks=false;
                         }
                         state.preview=None;
                     }
                     if state.paired_wall_opening_hints {
                         if ui.checkbox(&mut state.door_leaf_hints, "Gợi ý nét cánh cửa tại góc khoảng mở (chỉ Preview)").changed() {
-                            if !state.door_leaf_hints {state.create_door_swing_arcs=false; state.confirm_door_swing_arcs=false;}
+                            if !state.door_leaf_hints {state.create_door_swing_arcs=false; state.confirm_door_swing_arcs=false; state.create_door_blocks=false; state.confirm_door_blocks=false;}
                             state.preview=None;
                         }
                         ui.small("Tìm đoạn nét vuông góc từ góc mở ra ngoài bề dày tường. Có thể là nét cánh cửa, chưa phải nhận dạng cửa xác thực.");
                         if state.door_leaf_hints {
                             if ui.checkbox(&mut state.create_door_swing_arcs, "Tạo cung quay ARC cho nét cửa đã nhận dạng (tùy chọn)").changed() {
-                                if !state.create_door_swing_arcs {state.confirm_door_swing_arcs=false;}
+                                if !state.create_door_swing_arcs {state.confirm_door_swing_arcs=false; state.create_door_blocks=false; state.confirm_door_blocks=false;}
                                 state.preview=None;
                             }
                             if state.create_door_swing_arcs {
                                 if ui.checkbox(&mut state.confirm_door_swing_arcs, "Tôi xác nhận các cung quay ARC này sau khi xem trước").changed() {state.preview=None;}
-                                ui.small("Chỉ vẽ ARC hình học có bằng chứng, không tạo Block cửa/BIM. Bản vẽ vẫn phải kiểm tra thủ công.");
+                                ui.small("Cung quay chỉ là hình học có bằng chứng; chưa được xác nhận là cửa BIM.");
+                                if ui.checkbox(&mut state.create_door_blocks, "Gộp cánh LINE + cung ARC thành Block CAD bản nháp").changed() {
+                                    if !state.create_door_blocks {state.confirm_door_blocks=false;}
+                                    state.preview=None;
+                                }
+                                if state.create_door_blocks {
+                                    if ui.checkbox(&mut state.confirm_door_blocks, "Xác nhận tạo Block CAD bản nháp, giữ lại nét ảnh gốc").changed() {state.preview=None;}
+                                    ui.small("Block tạo bằng LINE và ARC CAD gốc, không phải Block cửa kiến trúc đã kiểm chứng. MCP chưa hỗ trợ commit Block.");
+                                }
                             }
                         }
                         if ui.checkbox(&mut state.create_opening_guides, "Cho phép thêm PLINE bao vùng mở đã nhận dạng").changed() {
@@ -264,6 +280,7 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
             let paired_opening_count = proposal["pairedWallOpeningCandidateCount"].as_u64().unwrap_or(0);
             let door_leaf_count = proposal["doorLeafCandidateCount"].as_u64().unwrap_or(0);
             let door_arcs_count = proposal["doorSwingArcsProposed"].as_u64().unwrap_or(0);
+            let door_blocks_count = proposal["doorBlockDraftCount"].as_u64().unwrap_or(0);
             ui.label(format!("Đã nhận dạng: {count} nét nguồn, {rectangle_count} PLINE kín, {wall_pairs} cặp nét song song nghi là mép tường."));
             if state.wall_pair_hints {
                 ui.small("Gợi ý hình học, không phải tường BIM. Nét nguồn luôn được giữ để đối chiếu.");
@@ -284,6 +301,7 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
                 if state.door_leaf_hints {
                     ui.small(format!("{door_leaf_count} vùng có nét giống cánh cửa vuông góc. Chỉ là dấu hiệu ảnh; không tự vẽ Block cửa."));
                     if state.create_door_swing_arcs {ui.small(format!("Dự kiến {door_arcs_count} cung quay ARC chỉnh sửa được, sau xác nhận."));}
+                    if state.create_door_blocks {ui.small(format!("Dự kiến {door_blocks_count} Block cửa dạng hình học nháp, không nhận dạng ngữ nghĩa."));}
                 }
                 if let Some(items)=proposal["pairedWallOpeningCandidates"].as_array() {
                     for (index,item) in items.iter().take(8).enumerate() {
@@ -455,10 +473,38 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
                         }
                     }
                 }
-                if failure.is_none() && let Some(door_arcs) = proposal["doorSwingArcs"].as_array() {
+                if !state.create_door_blocks && failure.is_none() && let Some(door_arcs) = proposal["doorSwingArcs"].as_array() {
                     for arc in door_arcs {
                         match cad.run("arc",json!({"center":arc["center"],"radius":arc["radius"],"start":arc["start"],"end":arc["end"]})) {
                             Ok(_) => created+=1,
+                            Err(e) => {failure=Some(e);break;}
+                        }
+                    }
+                }
+                // Create a separate native LINE + ARC and convert only those two
+                // new entities to a Block INSERT; keep traced source lines intact.
+                if failure.is_none() && let Some(drafts) = proposal["doorBlockDrafts"].as_array() {
+                    let doc_uid=cad.session.state().map(|d|d.uid).unwrap_or(0);
+                    let doc_revision=cad.session.state().map(|d|d.revision).unwrap_or(0);
+                    for (index,draft) in drafts.iter().enumerate() {
+                        let l=cad.run("line",json!({"points":draft["leaf"]}));
+                        let leaf_handle=match l {
+                            Ok(value) => {created+=1; value["handle"].as_str().map(str::to_string)},
+                            Err(e) => {failure=Some(e);break;}
+                        };
+                        let Some(leaf_handle)=leaf_handle else {failure=Some("AI Door BLOCK: lệnh LINE không trả Handle hợp lệ".into());break;};
+                        let arc=&draft["arc"];
+                        let ar=cad.run("arc",json!({"center":arc["center"],"radius":arc["radius"],"start":arc["start"],"end":arc["end"]}));
+                        let arc_handle=match ar {
+                            Ok(value) => {created+=1;value["handle"].as_str().map(str::to_string)},
+                            Err(e) => {failure=Some(e);break;}
+                        };
+                        let Some(arc_handle)=arc_handle else {failure=Some("AI Door BLOCK: lệnh ARC không trả Handle hợp lệ".into());break;};
+                        let name=format!("TBT_AI_DOOR_{}_{}_{}",doc_uid,doc_revision,index+1);
+                        match cad.run("block",json!({"name":name,"base":draft["base"],"handles":[leaf_handle,arc_handle],
+                            "keep":"convert","description":"AI door drafting guide; manually verified; not a semantic door"})) {
+                            Ok(value) if value["insert"].as_str().is_some() => created+=1,
+                            Ok(_) => {failure=Some("AI Door BLOCK: không tạo được đối tượng INSERT".into());break;},
                             Err(e) => {failure=Some(e);break;}
                         }
                     }
@@ -488,7 +534,7 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
                     }
                 } else {
                     state.error = None;
-                    cad.set_status(format!("AI ảnh → CAD: đã tạo {created} LINE/PLINE trong một nhóm UNDO. Kiểm tra trước khi lưu DWG."));
+                    cad.set_status(format!("AI ảnh → CAD: đã xử lý {created} thao tác LINE/PLINE/ARC/BLOCK trong một nhóm UNDO. Kiểm tra trước khi lưu DWG."));
                     state.preview = None;
                     state.preview_document_uid = None;
                     state.preview_revision = None;
@@ -596,6 +642,23 @@ mod tests {
         assert!(calibrated_units_per_pixel(f64::INFINITY, 500.0).is_err());
         assert!(calibrated_units_per_pixel(0.0000001, 500.0).is_err());
         assert!(calibrated_units_per_pixel(100000000.0, 0.1).is_err());
+    }
+
+    #[test]
+    fn ai_native_door_draft_block_contains_line_and_arc_and_can_undo_as_one_step() {
+        let mut engine=cadcraft_engine::Session::new();
+        let original=engine.doc().unwrap().entity_count();
+        engine.state_mut().unwrap().begin_undo_group();
+        let l=engine.execute("line",&json!({"points":[[10.0,10.0],[10.0,22.0]]})).unwrap();
+        let a=engine.execute("arc",&json!({"center":[10.0,10.0],"radius":12.0,"start":0.0,"end":90.0})).unwrap();
+        let (Some(lh),Some(ah))=(l["handle"].as_str(),a["handle"].as_str()) else {panic!("CAD engine did not return entity handles")};
+        let block=engine.execute("block",&json!({"name":"TBT_AI_DOOR_TEST","base":[10.0,10.0],"handles":[lh,ah],"keep":"convert"})).unwrap();
+        assert!(block["insert"].as_str().is_some(),"native CAD BLOCK must have one INSERT");
+        assert_eq!(engine.doc().unwrap().entity_count(),original+1);
+        assert_eq!(engine.doc().unwrap().block("TBT_AI_DOOR_TEST").unwrap().entities.len(),2);
+        engine.state_mut().unwrap().end_undo_group();
+        engine.execute("undo",&json!({"count":1})).unwrap();
+        assert_eq!(engine.doc().unwrap().entity_count(),original,"one Undo must clear the drafted door insert");
     }
 
     #[test]
