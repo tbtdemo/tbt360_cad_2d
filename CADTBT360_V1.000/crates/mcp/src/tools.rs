@@ -14,6 +14,7 @@ pub fn tool_definitions(has_ui: bool) -> Value {
             "inputSchema": {"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]}}),
         json!({"name": "execute", "description": "Run any command with JSON parameters (no prompts or dialogs). Use list_commands to find ids and parameter docs. Examples: line {points:[[0,0],[10,0]]}, circle {center:[0,0], radius:5}, layer.new {name:\"Walls\", color:\"red\", current:true}, move {handles:[\"10A\"], delta:[5,0]}, zoom {mode:\"extents\"}.",
             "inputSchema": {"type": "object", "properties": {"command": {"type": "string"}, "params": {"type": "object"}}, "required": ["command"]}}),
+        json!({"name":"ai_draw_plan_vietnamese","description":"CAD 360 AI deterministic multi-step Vietnamese drawing plan. Supply 2-8 separate newline-delimited commands (LINE, CIRCLE, RECTANG, PLINE). Preview is default; commit requires confirm:true and exact document identity/revision from preview. Executes all steps as one guarded Undo group and attempts safe rollback on failure. Does not interpret arbitrary natural language.","inputSchema":{"type":"object","properties":{"text":{"type":"string"},"preview":{"type":"boolean"},"confirm":{"type":"boolean"},"expectedDocumentUid":{"type":"integer","minimum":0},"expectedDocumentEpoch":{"type":"integer","minimum":0},"expectedRevision":{"type":"integer","minimum":0}},"required":["text"]}}),
         json!({"name":"ai_draw_vietnamese","description":"CAD 360 Vietnamese drafting bridge (bounded deterministic grammar, not a general LLM). Supports: 'vẽ đường thẳng từ 0,0 đến 100,0' and 'vẽ hình tròn tâm 0,0 bán kính 25'. Preview by default; to commit, set preview:false, confirm:true and expectedDocumentUid, expectedDocumentEpoch, expectedRevision obtained from a fresh preview. Executes exactly one native CAD engine command, never saves or modifies DWG structure.","inputSchema":{"type":"object","properties":{"text":{"type":"string"},"preview":{"type":"boolean"},"confirm":{"type":"boolean"},"expectedDocumentUid":{"type":"integer","minimum":0},"expectedDocumentEpoch":{"type":"integer","minimum":0},"expectedRevision":{"type":"integer","minimum":0}},"required":["text"]}}),
         json!({"name": "list_commands", "description": "List commands with ids, labels, menu paths, aliases and parameter docs. Optional filter: a substring of the command id, label or an alias.",
             "inputSchema": {"type": "object", "properties": {"filter": {"type": "string"}}}}),
@@ -255,6 +256,92 @@ fn ai_draw_vietnamese(b: &mut dyn Backend, args: &Value) -> Result<Value,String>
         "documentUid":uid,"previousRevision":rev,"undo":"Use native CAD UNDO for this single command"}))
 }
 
+/// Stage 229: finite plan grammar, one CAD command per line. Never split on ';':
+/// that separator is part of PLINE vertex input, not a multi-command delimiter.
+fn parse_vietnamese_plan(text: &str) -> Result<Vec<(String,Value)>,String> {
+    if text.len()>4000 {return Err("AI CAD: kế hoạch vượt 4000 ký tự".into());}
+    let commands:Vec<&str>=text.lines().map(str::trim).filter(|line|!line.is_empty()).collect();
+    if !(2..=8).contains(&commands.len()) {return Err("AI CAD: kế hoạch phải có từ 2 đến 8 lệnh, mỗi lệnh một dòng".into());}
+    let mut steps=Vec::new();
+    for (index,command) in commands.iter().enumerate() {
+        let item=parse_vietnamese_draft(command).map_err(|e|format!("AI CAD: bước {}: {e}",index+1))?;
+        steps.push(item);
+    }
+    Ok(steps)
+}
+
+/// Execute a confirmed small plan as ONE Undo transaction. Before every step and
+/// before END/rollback, validate ownership to avoid undoing another user's edits.
+fn ai_draw_plan_vietnamese(b: &mut dyn Backend, args: &Value) -> Result<Value,String> {
+    let prompt=args["text"].as_str().ok_or("AI CAD: thiếu kế hoạch vẽ")?;
+    let steps=parse_vietnamese_plan(prompt)?;
+    let drawing=b.call("drawing.inspect",json!({"entities":false}))?;
+    let uid=drawing["documentUid"].as_u64().ok_or("AI CAD: không có documentUid")?;
+    let epoch=drawing["documentEpoch"].as_u64().ok_or("AI CAD: không có documentEpoch")?;
+    let revision=drawing["revision"].as_u64().ok_or("AI CAD: không có revision")?;
+    let summaries:Vec<Value>=steps.iter().map(|(command,params)|json!({"command":command,"params":params})).collect();
+    let plan=json!({"steps":summaries,"stepCount":steps.len(),"documentUid":uid,
+        "documentEpoch":epoch,"revision":revision,"requiresConfirmation":true,
+        "transaction":"single-undo-group","source":"bounded-vietnamese-parser-v1"});
+    if args["preview"].as_bool().unwrap_or(true) {
+        return Ok(json!({"previewOnly":true,"editableEntitiesCreated":0,"plan":plan}));
+    }
+    if args["confirm"]!=true {return Err("AI CAD: phải xác nhận confirm=true trước khi thực thi kế hoạch".into());}
+    if args["expectedDocumentUid"].as_u64()!=Some(uid)||
+        args["expectedDocumentEpoch"].as_u64()!=Some(epoch)||
+        args["expectedRevision"].as_u64()!=Some(revision) {
+        return Err("AI CAD: bản vẽ hoặc revision thay đổi; hãy xem Preview mới".into());
+    }
+    if drawing["undoControl"]!="all"||drawing["undoGroupOpen"]!=false {
+        return Err("AI CAD: Undo Control All chưa sẵn sàng hoặc có giao dịch khác".into());
+    }
+    let cmdline=b.call("cmdline.state",json!({}))?;
+    if cmdline["running"].as_str().is_some() {
+        return Err("AI CAD: phải kết thúc lệnh CAD đang chạy".into());
+    }
+    let group=|b:&mut dyn Backend,mode:&str|b.call("engine.execute",json!({"command":"undo","params":{"mode":mode}}));
+    group(b,"begin")?;
+    let mut results=Vec::new();
+    let mut failure=None;
+    for (command,params) in &steps {
+        let expected=revision.checked_add(results.len() as u64);
+        let latest=b.call("drawing.inspect",json!({"entities":false}));
+        match latest {
+            Ok(ref state) if state["documentUid"].as_u64()==Some(uid)
+                && state["documentEpoch"].as_u64()==Some(epoch)
+                && state["revision"].as_u64()==expected
+                && state["undoGroupOpen"]==true && state["undoControl"]=="all" => {}
+            Ok(_) => {failure=Some("Tài liệu bị thay đổi hoặc mất quyền giao dịch trong khi AI đang vẽ".to_string());break;}
+            Err(error) => {failure=Some(format!("Không kiểm tra được phiên bản tài liệu: {error}"));break;}
+        }
+        match b.call("engine.execute",json!({"command":command,"params":params})) {
+            Ok(value)=>results.push(value),
+            Err(error)=>{failure=Some(format!("Lệnh {command} thất bại: {error}"));break;}
+        }
+    }
+    let owned=b.call("drawing.inspect",json!({"entities":false})).is_ok_and(|state|
+        state["documentUid"].as_u64()==Some(uid) && state["documentEpoch"].as_u64()==Some(epoch)
+        && state["revision"].as_u64()==revision.checked_add(results.len() as u64)
+        && state["undoGroupOpen"]==true && state["undoControl"]=="all");
+    if !owned {return Err("AI CAD: mất quyền sở hữu Undo group hoặc tài liệu đã bị sửa ngoài luồng; không gửi END/UNDO để tránh ảnh hưởng dữ liệu khác. Hãy kiểm tra bản vẽ".into());}
+    if let Err(error)=group(b,"end") {return Err(format!("AI CAD: đóng Undo group không thành công: {error}. Hãy kiểm tra tài liệu trước khi lưu"));}
+    if let Some(error)=failure {
+        if results.is_empty() {return Err(format!("AI CAD: kế hoạch dừng trước khi tạo đối tượng: {error}"));}
+        let safe=b.call("drawing.inspect",json!({"entities":false})).is_ok_and(|state|
+            state["documentUid"].as_u64()==Some(uid)&&state["documentEpoch"].as_u64()==Some(epoch)
+            && state["revision"].as_u64()==revision.checked_add(results.len() as u64)
+            && state["undoGroupOpen"]==false&&state["undoControl"]=="all");
+        if !safe {return Err(format!("AI CAD: {error}. Không thể tự Undo do tài liệu đã thay đổi; hãy kiểm tra bản vẽ"));}
+        return match b.call("engine.execute",json!({"command":"undo","params":{"count":1}})) {
+            Ok(_)=>Err(format!("AI CAD: đã rollback {} bước sau lỗi: {error}",results.len())),
+            Err(rollback)=>Err(format!("AI CAD: {error}; Undo tự động thất bại: {rollback}. Kiểm tra bản vẽ trước khi lưu")),
+        };
+    }
+    Ok(json!({"previewOnly":false,"executed":true,"stepCount":results.len(),
+        "results":results,"documentUid":uid,"previousRevision":revision,
+        "transaction":"single-undo-group","undo":"one native CAD UNDO"}))
+}
+
 /// Wrap a JSON value as a successful MCP result containing pretty-printed text.
 fn text(v: &Value) -> Value {
     json!({"content": [{"type": "text", "text": serde_json::to_string_pretty(v).unwrap_or_default()}]})
@@ -332,6 +419,7 @@ pub fn call_tool(b: &mut dyn Backend, name: &str, args: &Value) -> Result<Value,
             json!({"command": a.get("command").cloned().unwrap_or(Value::Null), "params": a.get("params").cloned().unwrap_or(json!({}))}),
         ),
         "ai_draw_vietnamese" => ai_draw_vietnamese(b, &a),
+        "ai_draw_plan_vietnamese" => ai_draw_plan_vietnamese(b, &a),
         "list_commands" => b.call("engine.commands", json!({})).map(|v| {
             let f = a.get("filter").and_then(Value::as_str).map(str::to_ascii_lowercase);
             match (v, f) {
@@ -385,6 +473,26 @@ mod ai_draft_vietnamese_tests {
         assert_eq!(parse_vietnamese_draft("vẽ hình tròn tâm 10,20 bán kính 25").unwrap(),("circle".to_string(),json!({"center":[10.0,20.0],"radius":25.0})));
         assert_eq!(parse_vietnamese_draft("vẽ hình chữ nhật từ 0,0 đến 100,50").unwrap(),("rectang".to_string(),json!({"p1":[0.0,0.0],"p2":[100.0,50.0]})));
         assert_eq!(parse_vietnamese_draft("vẽ đa tuyến qua 0,0; 100,0; 100,50").unwrap(),("pline".to_string(),json!({"vertices":[[0.0,0.0],[100.0,0.0],[100.0,50.0]],"closed":false})));
+    }
+
+    #[test]
+    fn ai_vietnamese_plan_parses_four_native_commands() {
+        let source="vẽ đường thẳng từ 0,0 đến 10,0\nvẽ hình tròn tâm 10,10 bán kính 5\nvẽ hình chữ nhật từ 0,0 đến 50,30\nvẽ đa tuyến qua 0,0; 15,0; 15,20";
+        let steps=super::parse_vietnamese_plan(source).unwrap();
+        assert_eq!(steps.len(),4);
+        assert_eq!(steps[0].0,"line");
+        assert_eq!(steps[1].0,"circle");
+        assert_eq!(steps[2].0,"rectang");
+        assert_eq!(steps[3].0,"pline");
+        assert_eq!(steps[3].1["vertices"].as_array().map(Vec::len),Some(3));
+    }
+
+    #[test]
+    fn ai_vietnamese_plan_is_atomic_on_parser_validation() {
+        assert!(super::parse_vietnamese_plan("vẽ đường thẳng từ 0,0 đến 10,0").is_err());
+        assert!(super::parse_vietnamese_plan("vẽ đường thẳng từ 0,0 đến 10,0\nxóa tất cả").is_err());
+        let too_many=vec!["vẽ đường thẳng từ 0,0 đến 10,0";9].join("\n");
+        assert!(super::parse_vietnamese_plan(&too_many).is_err());
     }
 
     #[test]
