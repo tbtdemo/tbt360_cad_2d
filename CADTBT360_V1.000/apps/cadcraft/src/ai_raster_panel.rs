@@ -79,6 +79,13 @@ impl State {
         self.show_help = true;
     }
 
+    fn reset_door_reviews_for_new_source(&mut self) {
+        self.door_width_overrides.clear();
+        self.door_hinge_flips.clear();
+        self.door_swing_flips.clear();
+        self.selected_door_number=1;
+    }
+
     fn matches_document(&self, uid: u64, revision: u64, epoch: u64) -> bool {
         self.preview_document_uid == Some(uid) && self.preview_revision == Some(revision)
             && self.preview_document_epoch == Some(epoch)
@@ -152,10 +159,7 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
                     state.path = path.to_string_lossy().into_owned();
                     // Per-door indices refer only to the OLD image's candidate order.
                     // Never transfer reviewed geometry to a newly selected image.
-                    state.door_width_overrides.clear();
-                    state.door_hinge_flips.clear();
-                    state.door_swing_flips.clear();
-                    state.selected_door_number=1;
+                    state.reset_door_reviews_for_new_source();
                     state.preview = None;
                     state.preview_document_uid = None;
                     state.preview_revision = None;
@@ -800,12 +804,8 @@ mod tests {
         state.door_width_overrides.insert(1,900.0);
         state.door_hinge_flips.insert(1);
         state.door_swing_flips.insert(0);
-        // The native file-picker handler clears all per-candidate selections
-        // whenever the source is replaced, instead of remapping stale indices.
-        state.door_width_overrides.clear();
-        state.door_hinge_flips.clear();
-        state.door_swing_flips.clear();
-        state.selected_door_number=1;
+        // Test the SAME production reset routine invoked by the image picker.
+        state.reset_door_reviews_for_new_source();
         assert!(state.door_width_overrides.is_empty());
         assert!(state.door_hinge_flips.is_empty());
         assert!(state.door_swing_flips.is_empty());
