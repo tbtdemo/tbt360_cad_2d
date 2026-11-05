@@ -210,6 +210,49 @@ fn arbitrary_angle_strokes(img: &GrayImage, threshold: u8, min_length: u32) -> V
     result
 }
 
+/// Join short interruptions in collinear horizontal/vertical raster strokes.
+/// Opt-in only: photographs often have genuine gaps (doors, openings), which
+/// must not be closed automatically. Never merges diagonal or parallel lines.
+fn bridge_collinear_gaps(lines: &mut Vec<Line>, max_gap: f64) -> usize {
+    if max_gap <= 0.0 { return 0; }
+    let mut merged = 0usize;
+    let mut i = 0;
+    while i < lines.len() {
+        let a = lines[i];
+        let a_h = (a.y1 - a.y0).abs() < 1e-9 && a.x1 > a.x0;
+        let a_v = (a.x1 - a.x0).abs() < 1e-9 && a.y1 > a.y0;
+        if !a_h && !a_v { i += 1; continue; }
+        let mut j = 0;
+        let mut found = false;
+        while j < lines.len() {
+            if j == i { j += 1; continue; }
+            let b = lines[j];
+            let b_h = (b.y1 - b.y0).abs() < 1e-9 && b.x1 > b.x0;
+            let b_v = (b.x1 - b.x0).abs() < 1e-9 && b.y1 > b.y0;
+            let gap = if a_h && b_h && (a.y0 - b.y0).abs() < 0.25 {
+                if a.x1 <= b.x0 { b.x0 - a.x1 } else if b.x1 <= a.x0 { a.x0 - b.x1 } else { 0.0 }
+            } else if a_v && b_v && (a.x0 - b.x0).abs() < 0.25 {
+                if a.y1 <= b.y0 { b.y0 - a.y1 } else if b.y1 <= a.y0 { a.y0 - b.y1 } else { 0.0 }
+            } else { f64::INFINITY };
+            if gap <= max_gap {
+                if a_h {
+                    lines[i] = Line { x0:a.x0.min(b.x0),y0:a.y0,x1:a.x1.max(b.x1),y1:a.y0 };
+                } else {
+                    lines[i] = Line { x0:a.x0,y0:a.y0.min(b.y0),x1:a.x0,y1:a.y1.max(b.y1) };
+                }
+                lines.remove(j);
+                if j < i { i -= 1; }
+                merged += 1;
+                found = true;
+                break;
+            }
+            j += 1;
+        }
+        if !found { i += 1; }
+    }
+    merged
+}
+
 /// Shared non-mutating vectorization used by MCP and the desktop GUI.
 pub fn preview(args: &Value) -> Result<Value, String> {
     let path = args["path"].as_str().filter(|s| !s.trim().is_empty()).ok_or("path is required")?;
@@ -251,6 +294,10 @@ pub fn preview(args: &Value) -> Result<Value, String> {
     if args["includeArbitraryAngles"].as_bool().unwrap_or(false) {
         lines.extend(arbitrary_angle_strokes(&gray, threshold, min_length as u32));
     }
+    let gap_pixels = args["maxGapPixels"].as_u64().unwrap_or(0);
+    if gap_pixels > 12 { return Err("maxGapPixels must be 0..12; larger gaps may represent doors or openings".into()); }
+    let source_strokes = lines.len();
+    let bridged_gaps = bridge_collinear_gaps(&mut lines, gap_pixels as f64);
     let count = lines.len();
     if count > max_lines as usize {
         return Err(format!("Found {count} strokes, exceeding maxLines={max_lines}; increase minLengthPixels or limit the input region, no CAD changes made"));
@@ -269,7 +316,9 @@ pub fn preview(args: &Value) -> Result<Value, String> {
         return Err("Computed CAD coordinates are outside safety bounds; no changes made".into());
     }
     Ok(json!({"preview":true,"recognition":"automatic-raster-line-strokes","model":"deterministic-pixel-vectorization-not-neural-AI",
-        "imageSize":[width,height],"strokes":count,"lines":world,"editableEntitiesCreated":0,
+        "imageSize":[width,height],"strokes":count,"sourceStrokes":source_strokes,
+        "bridgedGaps":bridged_gaps,"maxGapPixels":gap_pixels,
+        "lines":world,"editableEntitiesCreated":0,
         "source":path,"caution":"Review vectors before committing; line recognition is not semantic building interpretation"}))
 }
 
@@ -358,6 +407,35 @@ pub fn run(b: &mut dyn Backend, args: &Value) -> Result<Value, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn raster_vector_bridges_only_short_collinear_interruptions() {
+        let mut image = GrayImage::from_pixel(80, 40, image::Luma([255]));
+        for x in 5..=25 { image.put_pixel(x, 10, image::Luma([0])); }
+        for x in 29..=55 { image.put_pixel(x, 10, image::Luma([0])); }
+        let original = strokes(&image, 160, 16, true);
+        assert_eq!(original.len(), 2);
+        let mut disabled = original.clone();
+        assert_eq!(bridge_collinear_gaps(&mut disabled, 0.0), 0);
+        assert_eq!(disabled.len(), 2);
+        let mut enabled = original;
+        assert_eq!(bridge_collinear_gaps(&mut enabled, 4.0), 1);
+        assert_eq!(enabled.len(), 1);
+        assert!((enabled[0].x0 - 5.5).abs() < 1e-9);
+        assert!((enabled[0].x1 - 55.5).abs() < 1e-9);
+    }
+
+    #[test]
+    fn raster_vector_gap_bridging_keeps_distant_and_parallel_lines_separate() {
+        let mut lines = vec![
+            Line{x0:5.5,y0:10.5,x1:25.5,y1:10.5},
+            Line{x0:45.5,y0:10.5,x1:65.5,y1:10.5},
+            Line{x0:29.5,y0:12.5,x1:40.5,y1:12.5},
+            Line{x0:5.5,y0:10.5,x1:20.5,y1:20.5},
+        ];
+        assert_eq!(bridge_collinear_gaps(&mut lines, 4.0), 0);
+        assert_eq!(lines.len(), 4);
+    }
+
     #[test]
     fn raster_vector_detects_diagonal_stroke_without_manual_points() {
         let mut img = GrayImage::from_pixel(64, 64, image::Luma([255]));
