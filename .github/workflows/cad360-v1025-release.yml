@@ -91,6 +91,8 @@ jobs:
             @{ Package='cadcraft-io'; Target='it'; Test='large_dwg_v1025' },
             @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_automatic_raster_to_cad_lines_from_real_png' },
             @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_auto_raster_to_cad_dxf_roundtrip_preserves_editable_lines' },
+            @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_auto_raster_mcp_failed_second_line_rolls_back_first_line' },
+            @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_auto_raster_mcp_rejects_existing_undo_group_without_changes' },
             @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_auto_raster_diagonal_png_creates_editable_line' },
             @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_arbitrary_angle_raster_to_cad_png_creates_editable_line' },
             @{ Package='cadcraft'; Target='gui'; Test='ai_raster_panel_defaults_to_preview' },
@@ -151,6 +153,10 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'V1.025 automatic raster-to-editable-CAD image recognition failed' }
           cargo test --locked -p cadcraft-mcp --lib ai_auto_raster_to_cad_dxf_roundtrip_preserves_editable_lines -- --nocapture
           if ($LASTEXITCODE -ne 0) { throw 'V1.025 AI PNG-to-CAD DXF persistence regression failed' }
+          cargo test --locked -p cadcraft-mcp --lib ai_auto_raster_mcp_failed_second_line_rolls_back_first_line -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'V1.025 MCP automatic image import failed to rollback partial edits' }
+          cargo test --locked -p cadcraft-mcp --lib ai_auto_raster_mcp_rejects_existing_undo_group_without_changes -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'V1.025 MCP image import unexpectedly closed caller Undo group' }
           cargo test --locked -p cadcraft-mcp --lib ai_auto_raster_to_cad_refuses_missing_file -- --nocapture
           if ($LASTEXITCODE -ne 0) { throw 'V1.025 raster AI source validation failed' }
           cargo test --locked -p cadcraft-mcp --lib raster_vector_detects_ -- --nocapture
