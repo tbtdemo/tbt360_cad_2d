@@ -126,3 +126,30 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
         });
     state.open = open && state.open;
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ai_raster_panel_defaults_to_preview_and_never_requests_direct_edit() {
+        let mut state = State::default();
+        state.open();
+        assert!(state.open);
+        assert_eq!(state.min_length, 16);
+        assert!(state.include_diagonals);
+        assert_eq!(state.params()["preview"], true);
+        assert_eq!(state.params()["includeArbitraryAngles"], false);
+    }
+
+    #[test]
+    fn ai_raster_panel_can_enable_arbitrary_angles_without_changing_preview_gate() {
+        let mut state = State::default();
+        state.open();
+        state.arbitrary_angles = true;
+        state.scale = 0.5;
+        assert_eq!(state.params()["includeArbitraryAngles"], true);
+        assert_eq!(state.params()["unitsPerPixel"], 0.5);
+        assert_eq!(state.params()["preview"], true);
+    }
+}
