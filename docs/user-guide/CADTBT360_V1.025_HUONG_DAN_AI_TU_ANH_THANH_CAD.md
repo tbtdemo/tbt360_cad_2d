@@ -186,3 +186,25 @@ Trước đây, bài smoke test MCP chỉ kiểm tra khởi động máy chủ v
 **Đường dẫn mã kiểm thử:** `scripts/verify_mcp_executable.ps1`. Windows CI gọi script với CLI trong thư mục cài Setup và lần thứ hai với CLI giải nén từ Portable ZIP. Nếu bất kỳ bước nào sai, job dừng và **không được ghi kết quả PASS**.
 
 **Lưu ý:** Thử nghiệm này kiểm tra đường đi PNG → LINE → Undo của bộ cài Headless/MCP. Nó **không thay thế** việc mở GUI trên Windows, kiểm tra ảnh thực tế, đo tỷ lệ và kiểm chứng DWG bằng phần mềm CAD độc lập. Chưa có bằng chứng Windows CI PASS tại thời điểm cập nhật tài liệu.
+
+
+## 12. Nâng cấp đợt 173 — Kiểm chứng bản vẽ do AI tạo được lưu và mở lại
+
+**Điểm mới:** Bài kiểm thử bộ cài đã mở rộng chuỗi **ảnh PNG → Preview → tạo LINE → Undo → tạo lại LINE → lưu DXF → chuyển sang DWG R2018 → mở lại DXF và DWG**. Cả **Setup** và **Portable** đều phải vượt qua các bước tương tự trước khi công bố release.
+
+### Thao tác kiểm tra từng bước
+
+1. Mở CAD 360 V1.025, vào **CAD → HƯỚNG DẪN AI** nếu cần xem các bước; chọn **AI TỪ ẢNH → CAD** để thao tác.
+2. Mở một bản vẽ thử độc lập. Chọn PNG có một nét ngang trên nền trắng. Nhập `Nét tối thiểu = 16 px`, bỏ chọn chế độ góc bất kỳ nếu ảnh chỉ có nét ngang.
+3. Nhấn **Nhận dạng và xem trước**, kiểm tra một nét và tỷ lệ. Sau đó nhấn **Tạo LINE chỉnh sửa trong CAD**.
+4. Dùng **Properties** hoặc lựa chọn trực tiếp để xác nhận kết quả là đối tượng **LINE**, không phải raster IMAGE.
+5. Thử **UNDO** để hoàn tác cả nhóm AI. Thực hiện lại nhận dạng và tạo LINE để kiểm tra đường tạo lần hai.
+6. Lưu bản vẽ dưới dạng **DXF** mới; mở lại DXF và kiểm tra LINE còn tồn tại, có thể kéo điểm hoặc sửa vị trí.
+7. Dùng công cụ chuyển đổi của CAD 360 để xuất sang **DWG**, mở lại và kiểm tra số lượng đối tượng. Với DWG R2018, đầu tệp nhị phân phải mang mã `AC1032`; riêng mã đầu tệp **không chứng minh** tương thích hoàn toàn với AutoCAD.
+8. Kiểm tra độc lập bằng AutoCAD hoặc phần mềm CAD bên thứ ba khi có điều kiện; không đánh dấu tương thích hoàn chỉnh nếu chưa thực hiện.
+
+### Kiểm thử tự động trên EXE đã cài
+
+Script `scripts/verify_mcp_executable.ps1` hiện tạo ảnh PNG 64 × 32 pixel có một nét ngang dài 51 pixel, gọi các công cụ MCP để tạo và hoàn tác LINE, sau đó dùng **chính CADTBT360_CLI.exe trong bộ cài** để chuyển DXF thành DWG, kiểm tra mã `AC1032` và đếm đối tượng khi mở lại cả hai tệp.
+
+**Giới hạn nghiệm thu:** Kết quả tự động chỉ xác nhận pipeline CAD nội bộ trên dữ liệu mẫu đơn giản. Chưa phải kết quả nghiệm thu mô hình AI hiểu bản vẽ xây dựng, chưa có ảnh chụp GUI từ bộ cài mới, chưa chứng minh khả năng mở/chỉnh sửa hai chiều với AutoCAD độc lập. Chỉ thông báo Windows CI PASS khi có workflow thành công kèm binary được phát hành.
