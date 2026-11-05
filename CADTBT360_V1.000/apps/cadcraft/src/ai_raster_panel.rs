@@ -12,6 +12,7 @@ pub struct State {
     preview: Option<Value>,
     preview_document_uid: Option<u64>,
     preview_revision: Option<u64>,
+    preview_document_epoch: Option<u64>,
     error: Option<String>,
     min_length: u32,
     scale: f64,
@@ -34,8 +35,9 @@ impl State {
         self.show_help = true;
     }
 
-    fn matches_document(&self, uid: u64, revision: u64) -> bool {
+    fn matches_document(&self, uid: u64, revision: u64, epoch: u64) -> bool {
         self.preview_document_uid == Some(uid) && self.preview_revision == Some(revision)
+            && self.preview_document_epoch == Some(epoch)
     }
 
     fn params(&self) -> Value {
@@ -79,6 +81,7 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
                     state.preview = None;
                     state.preview_document_uid = None;
                     state.preview_revision = None;
+                    state.preview_document_epoch = None;
                     state.error = None;
                 }
                 ui.label(state.path.rsplit(['/', '\\']).next().unwrap_or("(Chưa chọn ảnh)"));
@@ -95,8 +98,8 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
             });
             if ui.button("1. Nhận dạng và xem trước").clicked() {
                 match cadcraft_mcp::raster_vector::preview(&state.params()) {
-                    Ok(value) => { state.preview = Some(value); state.preview_document_uid = cad.session.state().ok().map(|doc| doc.uid); state.preview_revision = cad.session.state().ok().map(|doc| doc.revision); state.error = None; }
-                    Err(e) => { state.preview = None; state.preview_document_uid = None; state.preview_revision = None; state.error = Some(e); }
+                    Ok(value) => { state.preview = Some(value); state.preview_document_uid = cad.session.state().ok().map(|doc| doc.uid); state.preview_revision = cad.session.state().ok().map(|doc| doc.revision); state.preview_document_epoch = Some(cad.session.doc_epoch); state.error = None; }
+                    Err(e) => { state.preview = None; state.preview_document_uid = None; state.preview_revision = None; state.preview_document_epoch = None; state.error = Some(e); }
                 }
             }
             if let Some(error) = &state.error {
@@ -141,7 +144,7 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
                 // unexpectedly close somebody else's active undo group.
                 let undo_ready = cad.session.state().map(|d| {
                     d.undo_ctl.control == cadcraft_engine::undoctl::Control::All && d.undo_ctl.group.is_none()
-                        && state.matches_document(d.uid, d.revision) && cad.session.running.is_none()
+                        && state.matches_document(d.uid, d.revision, cad.session.doc_epoch) && cad.session.running.is_none()
                 }).unwrap_or(false);
                 if !undo_ready {
                     state.error = Some("Không thể ghi nét AI: bản vẽ đã chuyển hoặc thay đổi sau Preview, lệnh CAD khác đang chạy, hoặc UNDO Control chưa bật All. Hãy nhận dạng và xem trước lại.".to_string());
@@ -182,6 +185,7 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
                     state.preview = None;
                     state.preview_document_uid = None;
                     state.preview_revision = None;
+                    state.preview_document_epoch = None;
                     state.open = false;
                 }
             }
@@ -239,6 +243,19 @@ mod tests {
         assert!(state.matches_document(original_uid, revision));
         assert!(!state.matches_document(other_uid, revision), "switching documents invalidates the AI preview binding");
         assert!(!state.matches_document(original_uid, revision + 1), "editing the same drawing after preview also invalidates it");
+    }
+
+    #[test]
+    fn ai_raster_preview_refuses_switch_away_and_back_with_unchanged_revision() {
+        let mut state = State::default();
+        state.preview_document_uid = Some(12);
+        state.preview_revision = Some(30);
+        state.preview_document_epoch = Some(7);
+        assert!(state.matches_document(12, 30, 7));
+        assert!(!state.matches_document(12, 30, 9),
+            "switching to another drawing and back must invalidate the old AI preview");
+        assert!(!state.matches_document(12, 31, 7));
+        assert!(!state.matches_document(13, 30, 7));
     }
 
     #[test]
