@@ -39,6 +39,7 @@ pub struct State {
     door_width_overrides: std::collections::BTreeMap<usize,f64>,
     door_hinge_flips: std::collections::BTreeSet<usize>,
     door_swing_flips: std::collections::BTreeSet<usize>,
+    last_door_source_keys: Vec<String>,
     create_opening_guides: bool,
     confirm_opening_guides: bool,
     min_opening_gap: f64,
@@ -104,10 +105,15 @@ impl State {
         self.show_help = true;
     }
 
+    fn has_individual_door_review(&self) -> bool {
+        !self.door_width_overrides.is_empty() || !self.door_hinge_flips.is_empty() || !self.door_swing_flips.is_empty()
+    }
+
     fn reset_door_reviews_for_new_source(&mut self) {
         self.door_width_overrides.clear();
         self.door_hinge_flips.clear();
         self.door_swing_flips.clear();
+        self.last_door_source_keys.clear();
         self.selected_door_number=1;
     }
 
@@ -133,6 +139,7 @@ impl State {
             "doorWidthOverridesCAD":if self.create_door_blocks && !self.door_width_overrides.is_empty() {Some(&self.door_width_overrides)} else {None},
             "doorHingeFlips":if self.create_door_blocks && !self.door_hinge_flips.is_empty() {Some(&self.door_hinge_flips)} else {None},
             "doorSwingFlips":if self.create_door_blocks && !self.door_swing_flips.is_empty() {Some(&self.door_swing_flips)} else {None},
+            "expectedDoorSourceKeys":if self.create_door_blocks && self.has_individual_door_review() {Some(&self.last_door_source_keys)} else {None},
             "createOpeningGuidePolylines":self.create_opening_guides,
             "confirmOpeningGuides":self.confirm_opening_guides,
             "minOpeningGapPixels":self.min_opening_gap,
@@ -144,7 +151,8 @@ impl State {
             params.as_object_mut().expect("AI settings JSON object").remove("doorWidthOverridesCAD");
         }
         for (key,enabled) in [("doorHingeFlips",self.create_door_blocks && !self.door_hinge_flips.is_empty()),
-                               ("doorSwingFlips",self.create_door_blocks && !self.door_swing_flips.is_empty())] {
+                               ("doorSwingFlips",self.create_door_blocks && !self.door_swing_flips.is_empty()),
+                               ("expectedDoorSourceKeys",self.create_door_blocks && self.has_individual_door_review())] {
             if !enabled {params.as_object_mut().expect("AI settings JSON object").remove(key);}
         }
         params
@@ -382,7 +390,10 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
             });
             if ui.button("1. Nhận dạng và xem trước").clicked() {
                 match cadcraft_mcp::raster_vector::preview(&state.params()) {
-                    Ok(value) => { state.preview = Some(value); state.preview_document_uid = cad.session.state().ok().map(|doc| doc.uid); state.preview_revision = cad.session.state().ok().map(|doc| doc.revision); state.preview_document_epoch = Some(cad.session.doc_epoch); state.error = None; }
+                    Ok(value) => {
+                        state.last_door_source_keys=value["doorBlockDrafts"].as_array().map(|items|items.iter()
+                            .filter_map(|door|door["sourceDoorKey"].as_str().map(str::to_owned)).collect()).unwrap_or_default();
+                        state.preview = Some(value); state.preview_document_uid = cad.session.state().ok().map(|doc| doc.uid); state.preview_revision = cad.session.state().ok().map(|doc| doc.revision); state.preview_document_epoch = Some(cad.session.doc_epoch); state.error = None; }
                     Err(e) => { state.preview = None; state.preview_document_uid = None; state.preview_revision = None; state.preview_document_epoch = None; state.error = Some(e); }
                 }
             }
@@ -846,6 +857,20 @@ mod tests {
         assert!(state.door_hinge_flips.is_empty());
         assert!(state.door_swing_flips.is_empty());
         assert_eq!(state.selected_door_number,1);
+    }
+
+    #[test]
+    fn ai_individual_door_review_must_include_expected_source_keys_on_preview() {
+        let mut state=State::default();state.open();
+        state.create_door_blocks=true;
+        state.last_door_source_keys=vec!["original-door-A".to_string(),"original-door-B".to_string()];
+        assert!(state.params().get("expectedDoorSourceKeys").is_none());
+        state.door_hinge_flips.insert(1);
+        assert_eq!(state.params()["expectedDoorSourceKeys"],json!(["original-door-A","original-door-B"]));
+        state.door_width_overrides.insert(0,900.0);
+        assert_eq!(state.params()["expectedDoorSourceKeys"][0],"original-door-A");
+        state.reset_door_reviews_for_new_source();
+        assert!(state.params().get("expectedDoorSourceKeys").is_none());
     }
 
     #[test]
