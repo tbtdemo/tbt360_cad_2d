@@ -106,6 +106,19 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
             }
             ui.label("Bản xem trước chưa sửa dữ liệu CAD. Hãy lưu bản vẽ trước khi thực hiện một lô nét lớn.");
             if ui.add_enabled(count > 0, egui::Button::new("2. Tạo LINE chỉnh sửa trong CAD")).clicked() {
+                // Keep the whole AI batch in a single user-visible Undo step. Do not
+                // unexpectedly close somebody else's active undo group.
+                let undo_ready = cad.session.state().map(|d| {
+                    d.undo_ctl.control == cadcraft_engine::undoctl::Control::All && d.undo_ctl.group.is_none()
+                }).unwrap_or(false);
+                if !undo_ready {
+                    state.error = Some("Không thể tạo nhóm AI Undo: hãy kết thúc nhóm UNDO đang mở và bật UNDO Control All.".to_string());
+                    return;
+                }
+                if let Err(e) = cad.session.state_mut().map(|d| d.begin_undo_group()) {
+                    state.error = Some(format!("Không thể bắt đầu nhóm UNDO: {e}"));
+                    return;
+                }
                 let mut created = 0usize;
                 let mut failure = None;
                 if let Some(lines) = proposal["lines"].as_array() {
@@ -116,9 +129,12 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
                         }
                     }
                 }
-                state.error = failure.map(|e| format!("Đã tạo {created} LINE trước khi gặp lỗi: {e}. Kiểm tra bản vẽ trước khi lưu."));
+                if let Err(e) = cad.session.state_mut().map(|d| d.end_undo_group()) {
+                    failure.get_or_insert_with(|| format!("Không thể kết thúc nhóm UNDO: {e}"));
+                }
+                state.error = failure.map(|e| format!("Đã tạo {created} LINE trước khi gặp lỗi: {e}. Có thể dùng một lần UNDO để hoàn tác cả nhóm."));
                 if state.error.is_none() {
-                    cad.set_status(format!("AI ảnh → CAD: đã tạo {created} LINE. Kiểm tra hình học trước khi lưu DWG."));
+                    cad.set_status(format!("AI ảnh → CAD: đã tạo {created} LINE trong một nhóm UNDO. Kiểm tra trước khi lưu DWG."));
                     state.preview = None;
                     state.open = false;
                 }
