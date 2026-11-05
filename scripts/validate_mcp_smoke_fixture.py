@@ -56,6 +56,7 @@ def check(script: Path) -> None:
     previous = bytearray(stride)
     black = 0
     dark_rows = []
+    dark_positions = []
     for y in range(height):
         start = y*(stride+1)
         filter_type = decoded[start]
@@ -76,14 +77,17 @@ def check(script: Path) -> None:
                 p = left + up - ul
                 a, b, c = abs(p-left), abs(p-up), abs(p-ul)
                 row[i] = (row[i] + (left if a <= b and a <= c else up if b <= c else ul)) & 255
-        count = sum(row[x*3] <= 160 and row[x*3+1] <= 160 and row[x*3+2] <= 160 for x in range(width))
+        xs = [x for x in range(width) if row[x*3] <= 160 and row[x*3+1] <= 160 and row[x*3+2] <= 160]
+        count = len(xs)
         if count:
             dark_rows.append((y,count))
+            dark_positions.extend((x,y) for x in xs)
             black += count
         previous = row
-    if dark_rows != [(15,51)] or black != 51:
-        raise ValueError(f"Smoke PNG must have one row of 51 black pixels: {dark_rows!r}")
-    print("PASS: valid PNG 64x32 RGB8; one horizontal 51-pixel black stroke")
+    expected_positions = [(x,15) for x in range(6,57)]
+    if dark_rows != [(15,51)] or black != 51 or dark_positions != expected_positions:
+        raise ValueError(f"Smoke PNG must have exact black pixels x=6..56 on row 15: {dark_rows!r}, positions={dark_positions!r}")
+    print("PASS: valid PNG 64x32 RGB8; black stroke x=6..56 at y=15 (51 pixels); vector length at 10 units/pixel = 500 units")
 
 if __name__ == "__main__":
     if len(sys.argv) != 2:
