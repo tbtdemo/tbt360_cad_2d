@@ -126,6 +126,8 @@ jobs:
         working-directory: CADTBT360_V1.000
         run: |
           $ErrorActionPreference = 'Stop'
+          $discoveryLogDir = '../dist/v1025/diagnostics'
+          New-Item -ItemType Directory -Force $discoveryLogDir | Out-Null
           $required = @(
             @{ Package='cadcraft-cli'; Target='bin'; Test='image_trace_entity_json_matches_windows_installer_smoke_contract' },
             @{ Package='cadcraft-mcp'; Target='lib'; Test='agent_traces_an_image_into_editable_cad_via_mcp' },
@@ -186,9 +188,15 @@ jobs:
             elseif ($case.Target -eq 'bin') { $listing = @(cargo test --locked -p $case.Package --bin cadcraft-cli $case.Test -- --list 2>&1) }
             elseif ($case.Target -eq 'gui') { $listing = @(cargo test --locked -p $case.Package --bin cadcraft $case.Test -- --list 2>&1) }
             else { $listing = @(cargo test --locked -p $case.Package --test it $case.Test -- --list 2>&1) }
-            if ($LASTEXITCODE -ne 0) { $listing | Out-Host; throw "Cannot discover tests for $($case.Package): $($case.Test)" }
+            $discoveryExitCode = $LASTEXITCODE
             $matched = @($listing | Where-Object { $_ -like '*: test' })
-            if ($matched.Count -eq 0) { $listing | Out-Host; throw "No tests found for $($case.Package): $($case.Test)" }
+            if ($discoveryExitCode -ne 0 -or $matched.Count -eq 0) {
+              $safeName = ($case.Package + '_' + $case.Target + '_' + $case.Test) -replace '[^a-zA-Z0-9_-]', '_'
+              $discoveryLog = Join-Path $discoveryLogDir ("DISCOVERY_" + $safeName + ".log")
+              $listing | Out-File -FilePath $discoveryLog -Encoding utf8
+              $listing | Out-Host
+              throw "Test discovery failed for $($case.Package): $($case.Test), exit=$discoveryExitCode, matches=$($matched.Count); see $discoveryLog"
+            }
             Write-Host "Verified $($matched.Count) regression tests in $($case.Package): $($case.Test)"
           }
 
