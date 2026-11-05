@@ -465,7 +465,12 @@ pub fn preview(args: &Value) -> Result<Value, String> {
     if !(2..=4096).contains(&min_length) { return Err("minLengthPixels must be 2..4096".into()); }
     let max_lines = args["maxLines"].as_u64().unwrap_or(250);
     if !(1..=1000).contains(&max_lines) { return Err("maxLines must be 1..1000".into()); }
-    let scale = args["unitsPerPixel"].as_f64().unwrap_or(1.0);
+    // Missing calibration is explicitly documented as 1 CAD unit/pixel; malformed supplied
+    // calibration must never silently reset to 1.0 and produce geometry at the wrong scale.
+    let scale = match args.get("unitsPerPixel") {
+        None => 1.0,
+        Some(value) => value.as_f64().ok_or("unitsPerPixel must be a finite positive number; no CAD changes made")?,
+    };
     if !scale.is_finite() || scale <= 0.0 || scale > 1.0e9 { return Err("unitsPerPixel must be positive and finite".into()); }
     let origin = args["origin"].as_array().cloned().unwrap_or_else(|| vec![json!(0), json!(0)]);
     if origin.len() != 2 { return Err("origin must be [x,y]".into()); }
@@ -698,6 +703,24 @@ pub fn run(b: &mut dyn Backend, args: &Value) -> Result<Value, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn raster_vector_rejects_invalid_explicit_cad_scale_before_geometry() {
+        let path=std::env::temp_dir().join(format!("cad360-scale-options-{}-{}.png",std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        let img=GrayImage::from_pixel(64,32,image::Luma([255]));
+        img.save(&path).unwrap();
+        for invalid in [json!("2"),json!(null),json!(false),json!(0),json!(-1)] {
+            let args=json!({"path":path.to_string_lossy(),"unitsPerPixel":invalid});
+            let error=preview(&args).expect_err("explicit invalid calibration must never fall back to CAD unit scale 1");
+            assert!(error.contains("unitsPerPixel"),"bad value={invalid}, error={error}");
+        }
+        for valid in [json!(0.5),json!(2.0)] {
+            let args=json!({"path":path.to_string_lossy(),"unitsPerPixel":valid});
+            assert!(preview(&args).is_ok(),"valid scale {valid} should be accepted");
+        }
+        let _=std::fs::remove_file(&path);
+    }
+
     #[test]
     fn raster_vector_rejects_malformed_gap_bridging_options_before_cad_creation() {
         let path=std::env::temp_dir().join(format!("cad360-gap-options-{}-{}.png",std::process::id(),
