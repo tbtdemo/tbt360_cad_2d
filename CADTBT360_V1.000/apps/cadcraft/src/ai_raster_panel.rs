@@ -27,6 +27,9 @@ pub struct State {
     create_wall_centerlines: bool,
     opening_gap_hints: bool,
     paired_wall_opening_hints: bool,
+    window_sash_hints: bool,
+    create_window_guides: bool,
+    confirm_window_guides: bool,
     door_leaf_hints: bool,
     create_door_swing_arcs: bool,
     confirm_door_swing_arcs: bool,
@@ -130,6 +133,9 @@ impl State {
             "minWallSpacingPixels":self.min_wall_spacing,"maxWallSpacingPixels":self.max_wall_spacing,
             "openingGapHints":self.opening_gap_hints,
             "pairedWallOpeningHints":self.paired_wall_opening_hints,
+            "windowSashHints":self.window_sash_hints,
+            "createWindowGuidePolylines":self.create_window_guides,
+            "confirmWindowGuides":self.confirm_window_guides,
             "doorLeafHints":self.door_leaf_hints,
             "createDoorSwingArcs":self.create_door_swing_arcs,
             "confirmDoorSwingArcs":self.confirm_door_swing_arcs,
@@ -257,6 +263,9 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
                 if ui.checkbox(&mut state.opening_gap_hints, "Gợi ý khoảng hở có thể là cửa (chỉ Preview)").changed() {
                     if !state.opening_gap_hints {
                         state.paired_wall_opening_hints=false;
+                        state.window_sash_hints=false;
+                        state.create_window_guides=false;
+                        state.confirm_window_guides=false;
                         state.door_leaf_hints=false;
                         state.create_door_swing_arcs=false;
                         state.confirm_door_swing_arcs=false;
@@ -285,6 +294,9 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
                         if !state.paired_wall_opening_hints {
                             state.create_opening_guides=false;
                             state.confirm_opening_guides=false;
+                            state.window_sash_hints=false;
+                            state.create_window_guides=false;
+                            state.confirm_window_guides=false;
                             state.door_leaf_hints=false;
                             state.create_door_swing_arcs=false;
                             state.confirm_door_swing_arcs=false;
@@ -298,6 +310,19 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
                         state.preview=None;
                     }
                     if state.paired_wall_opening_hints {
+                        if ui.checkbox(&mut state.window_sash_hints, "AI gợi ý khung cửa sổ (2 nét song song trong khoảng mở)").changed() {
+                            if !state.window_sash_hints {state.create_window_guides=false;state.confirm_window_guides=false;}
+                            state.preview=None;
+                        }
+                        if state.window_sash_hints {
+                            ui.small("Chỉ nhận biết cặp nét khung cửa sổ. Đây là ứng viên hình học, chưa phải Window Block/BIM.");
+                            if ui.checkbox(&mut state.create_window_guides,"Vẽ PLINE bao khung cửa sổ được gợi ý").changed() {
+                                if !state.create_window_guides {state.confirm_window_guides=false;}
+                                state.preview=None;
+                            }
+                            if state.create_window_guides && ui.checkbox(&mut state.confirm_window_guides,
+                                "Tôi đã xem Preview và đồng ý tạo PLINE khung cửa sổ").changed() {state.preview=None;}
+                        }
                         if ui.checkbox(&mut state.door_leaf_hints, "Gợi ý nét cánh cửa tại góc khoảng mở (chỉ Preview)").changed() {
                             if !state.door_leaf_hints {state.create_door_swing_arcs=false; state.confirm_door_swing_arcs=false; state.create_door_blocks=false; state.confirm_door_blocks=false;}
                             state.preview=None;
@@ -408,6 +433,7 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
             let opening_count = proposal["openingGapCandidateCount"].as_u64().unwrap_or(0);
             let paired_opening_count = proposal["pairedWallOpeningCandidateCount"].as_u64().unwrap_or(0);
             let door_leaf_count = proposal["doorLeafCandidateCount"].as_u64().unwrap_or(0);
+            let window_sash_count = proposal["windowSashCandidateCount"].as_u64().unwrap_or(0);
             let door_arcs_count = proposal["doorSwingArcsProposed"].as_u64().unwrap_or(0);
             let door_blocks_count = proposal["doorBlockDraftCount"].as_u64().unwrap_or(0);
             ui.label(format!("Đã nhận dạng: {count} nét nguồn, {rectangle_count} PLINE kín, {wall_pairs} cặp nét song song nghi là mép tường."));
@@ -427,6 +453,7 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
             }
             if state.paired_wall_opening_hints {
                 ui.label(format!("Đối chiếu hai mép tường: {paired_opening_count} vùng mở hình học cần xác nhận (không tự nhận là cửa)."));
+                if state.window_sash_hints {ui.small(format!("{window_sash_count} vùng có hai nét khung giống cửa sổ (chưa phân loại chắc chắn)."));}
                 if state.door_leaf_hints {
                     ui.small(format!("{door_leaf_count} vùng có nét giống cánh cửa vuông góc. Chỉ là dấu hiệu ảnh; không tự vẽ Block cửa."));
                     if state.create_door_swing_arcs {ui.small(format!("Dự kiến {door_arcs_count} cung quay ARC chỉnh sửa được, sau xác nhận."));}
@@ -552,6 +579,24 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
                                         (a[0].as_f64(),a[1].as_f64(),b[0].as_f64(),b[1].as_f64()) {
                                         painter.line_segment([to_screen(x0,y0),to_screen(x1,y1)],
                                             egui::Stroke::new(2.0,egui::Color32::from_rgb(255,187,82)));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    // Teal dashed-like rectangular guides only for window-sash candidates,
+                    // without claiming a verified architectural Window Block.
+                    if state.window_sash_hints {
+                        if let Some(openings)=proposal["pairedWallOpeningCandidates"].as_array() {
+                            for opening in openings {
+                                if opening["windowSashCandidate"]!=true {continue;}
+                                let Some(points)=opening["outlineCAD"].as_array() else {continue};
+                                for i in 0..points.len() {
+                                    let a=&points[i];let b=&points[(i+1)%points.len()];
+                                    if let (Some(x0),Some(y0),Some(x1),Some(y1))=
+                                        (a[0].as_f64(),a[1].as_f64(),b[0].as_f64(),b[1].as_f64()) {
+                                        painter.line_segment([to_screen(x0,y0),to_screen(x1,y1)],
+                                            egui::Stroke::new(3.0,egui::Color32::from_rgb(70,225,207)));
                                     }
                                 }
                             }
@@ -706,6 +751,14 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
                             "keep":"convert","description":"AI door drafting guide; manually verified; not a semantic door"})) {
                             Ok(value) if value["insert"].as_str().is_some() => created+=1,
                             Ok(_) => {failure=Some("AI Door BLOCK: không tạo được đối tượng INSERT".into());break;},
+                            Err(e) => {failure=Some(e);break;}
+                        }
+                    }
+                }
+                if failure.is_none() && let Some(guides) = proposal["windowGuidePolylines"].as_array() {
+                    for polygon in guides {
+                        match cad.run("pline",json!({"vertices":polygon,"closed":true})) {
+                            Ok(_) => created+=1,
                             Err(e) => {failure=Some(e);break;}
                         }
                     }
@@ -871,6 +924,23 @@ mod tests {
         assert_eq!(state.params()["expectedDoorSourceKeys"][0],"original-door-A");
         state.reset_door_reviews_for_new_source();
         assert!(state.params().get("expectedDoorSourceKeys").is_none());
+    }
+
+    #[test]
+    fn ai_window_sash_gui_requires_separate_hint_and_confirmed_guide_opt_in() {
+        let mut state=State::default();state.open();
+        assert_eq!(state.params()["windowSashHints"],false);
+        assert_eq!(state.params()["createWindowGuidePolylines"],false);
+        state.opening_gap_hints=true;
+        state.paired_wall_opening_hints=true;
+        state.window_sash_hints=true;
+        assert_eq!(state.params()["windowSashHints"],true);
+        state.create_window_guides=true;
+        assert_eq!(state.params()["confirmWindowGuides"],false);
+        state.confirm_window_guides=true;
+        assert_eq!(state.params()["createWindowGuidePolylines"],true);
+        assert_eq!(state.params()["confirmWindowGuides"],true);
+        assert_eq!(state.params()["preview"],true);
     }
 
     #[test]
