@@ -35,6 +35,21 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Preflight PowerShell GUI smoke script syntax
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $scriptPath = './scripts/qa/Test-CADTBT360-V1025-GuiStartup.ps1'
+          if (!(Test-Path $scriptPath)) { throw "Missing GUI smoke script: $scriptPath" }
+          $tokens = $null
+          $parseErrors = $null
+          $null = [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $scriptPath).Path, [ref]$tokens, [ref]$parseErrors)
+          if (@($parseErrors).Count -gt 0) {
+            $parseErrors | ForEach-Object { Write-Host "::error::$($_.Message) at line $($_.Extent.StartLineNumber)" }
+            throw "GUI smoke PowerShell script contains $(@($parseErrors).Count) syntax errors"
+          }
+          Write-Host 'PowerShell GUI startup script syntax validated'
+
       - name: Download exact published B87/A1 Portable (not newly compiled)
         shell: pwsh
         env:
