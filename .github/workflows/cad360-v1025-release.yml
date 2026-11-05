@@ -7,6 +7,8 @@ on:
       - 'installer/CADTBT360_V1.025_Windows.iss'
       - '.github/workflows/cad360-v1025-release.yml'
       - 'CADTBT360_V1.000/**'
+      - 'scripts/verify_mcp_executable.ps1'
+      - 'docs/user-guide/**'
   push:
     branches:
       - feature/CADTBT360_V1.025_xref-regression
@@ -15,6 +17,8 @@ on:
       - 'installer/CADTBT360_V1.025_Windows.iss'
       - '.github/workflows/cad360-v1025-release.yml'
       - '.github/workflows/cad360-v1025-desktop-reliability.yml'
+      - 'scripts/verify_mcp_executable.ps1'
+      - 'docs/user-guide/**'
 
 permissions:
   contents: write  # only for publishing verified prerelease binaries; checkout persists no credentials
