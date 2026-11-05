@@ -310,10 +310,34 @@ pub fn run(b: &mut dyn Backend, args: &Value) -> Result<Value, String> {
             Err(e) => { failure = Some(e); break; }
         }
     }
+    // Revalidate the target before END or rollback. If the app switched
+    // drawings, END/UNDO would affect the *new* document, not the AI import.
+    // If another edit was interleaved, UNDO could erase work not owned by AI.
+    let ownership = b.call("drawing.inspect", json!({"entities":false}));
+    let owned = ownership.as_ref().is_ok_and(|st|
+        st["documentUid"].as_u64() == Some(document_uid)
+        && st["revision"].as_u64() == revision.checked_add(handles.len() as u64)
+        && st["undoGroupOpen"] == true
+        && st["undoControl"] == "all"
+    );
+    if !owned {
+        let detail = ownership.err().unwrap_or_else(|| "drawing switched, changed externally, or Undo group was closed".into());
+        return Err(format!("AI import interrupted: {detail}. For safety, no END or UNDO was sent to the current drawing; inspect the original drawing before continuing"));
+    }
     let end_result = group(b, "end");
     if let Err(err) = end_result { failure.get_or_insert(format!("Cannot close AI Undo group: {err}")); }
     if let Some(problem) = failure {
         if !handles.is_empty() {
+            // Verify ownership again: another GUI request can be interleaved
+            // between the END call and this rollback.
+            let safe_to_undo = b.call("drawing.inspect", json!({"entities":false})).is_ok_and(|st|
+                st["documentUid"].as_u64() == Some(document_uid)
+                && st["revision"].as_u64() == revision.checked_add(handles.len() as u64)
+                && st["undoGroupOpen"] == false
+            );
+            if !safe_to_undo {
+                return Err(format!("AI image import failed after {} LINE entities: {problem}. Drawing changed before rollback; automatic UNDO suppressed to protect unrelated edits", handles.len()));
+            }
             match b.call("engine.execute", json!({"command":"undo","params":{"count":1}})) {
                 Ok(_) => return Err(format!("AI image import rolled back {} LINE entities: {problem}", handles.len())),
                 Err(rollback) => return Err(format!("AI image import failed after {} LINE entities: {problem}; automatic Undo failed: {rollback}. Inspect drawing before saving", handles.len())),
