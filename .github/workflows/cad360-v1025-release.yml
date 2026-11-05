@@ -251,6 +251,10 @@ jobs:
           Copy-Item CADTBT360_V1.000/target/release/cadcraft.exe dist/v1025/portable/CADTBT360.exe
           Copy-Item CADTBT360_V1.000/target/release/cadcraft-cli.exe dist/v1025/portable/CADTBT360_CLI.exe
           Copy-Item dist/v1025/BUILD_INFO.txt dist/v1025/portable/BUILD_INFO.txt
+          $guide = 'docs/user-guide/CADTBT360_V1.025_HUONG_DAN_AI_TU_ANH_THANH_CAD.md'
+          if (!(Test-Path $guide)) { throw "Missing required Vietnamese user guide: $guide" }
+          Copy-Item $guide dist/v1025/portable/HUONG_DAN_AI_TU_ANH_THANH_CAD.md
+          Copy-Item $guide dist/v1025/HUONG_DAN_AI_TU_ANH_THANH_CAD.md
           Compress-Archive -Path dist/v1025/portable/* -DestinationPath dist/v1025/CADTBT360_V1.025_Portable_Windows_x64.zip -Force
 
       - name: Smoke test installed application, uninstall and binary identity
@@ -264,7 +268,7 @@ jobs:
           $dirArgument = '/DIR="{0}"' -f $dest
           $proc = Start-Process -FilePath $setup -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', $dirArgument) -Wait -PassThru
           if ($proc.ExitCode -ne 0) { throw "Installer failed with code $($proc.ExitCode)" }
-          foreach ($n in @('CADTBT360.exe', 'CADTBT360_CLI.exe', 'BUILD_INFO.txt')) {
+          foreach ($n in @('CADTBT360.exe', 'CADTBT360_CLI.exe', 'BUILD_INFO.txt', 'HuongDan/HUONG_DAN_AI_TU_ANH_THANH_CAD.md')) {
             if (!(Test-Path (Join-Path $dest $n))) { throw "Installed file missing: $n" }
           }
           $srcGui = (Get-FileHash 'CADTBT360_V1.000/target/release/cadcraft.exe' -Algorithm SHA256).Hash
@@ -395,9 +399,12 @@ jobs:
           $zip = 'dist/v1025/CADTBT360_V1.025_Portable_Windows_x64.zip'
           $tmp = Join-Path $env:RUNNER_TEMP 'CADTBT360_V1025_PortableTest'
           Expand-Archive $zip -DestinationPath $tmp -Force
-          foreach ($n in @('CADTBT360.exe', 'CADTBT360_CLI.exe', 'BUILD_INFO.txt')) {
+          foreach ($n in @('CADTBT360.exe', 'CADTBT360_CLI.exe', 'BUILD_INFO.txt', 'HUONG_DAN_AI_TU_ANH_THANH_CAD.md')) {
             if (!(Test-Path (Join-Path $tmp $n))) { throw "Portable archive missing $n" }
           }
+          $guideHash = (Get-FileHash (Join-Path $tmp 'HUONG_DAN_AI_TU_ANH_THANH_CAD.md') -Algorithm SHA256).Hash
+          $sourceGuideHash = (Get-FileHash 'docs/user-guide/CADTBT360_V1.025_HUONG_DAN_AI_TU_ANH_THANH_CAD.md' -Algorithm SHA256).Hash
+          if ($guideHash -ne $sourceGuideHash) { throw 'Portable user guide differs from release source' }
           $portableGuiHash = (Get-FileHash (Join-Path $tmp 'CADTBT360.exe') -Algorithm SHA256).Hash
           $portableCliHash = (Get-FileHash (Join-Path $tmp 'CADTBT360_CLI.exe') -Algorithm SHA256).Hash
           $nativeGuiHash = (Get-FileHash 'CADTBT360_V1.000/target/release/cadcraft.exe' -Algorithm SHA256).Hash
@@ -451,6 +458,7 @@ jobs:
             dist/v1025/CADTBT360_V1.025_Portable_Windows_x64.zip
             dist/v1025/BUILD_INFO.txt
             dist/v1025/SHA256SUMS.txt
+            dist/v1025/HUONG_DAN_AI_TU_ANH_THANH_CAD.md
           if-no-files-found: error
           retention-days: 30
 
@@ -465,7 +473,8 @@ jobs:
             'dist/v1025/CADTBT360_V1.025_Setup_Windows_x64.exe',
             'dist/v1025/CADTBT360_V1.025_Portable_Windows_x64.zip',
             'dist/v1025/BUILD_INFO.txt',
-            'dist/v1025/SHA256SUMS.txt'
+            'dist/v1025/SHA256SUMS.txt',
+            'dist/v1025/HUONG_DAN_AI_TU_ANH_THANH_CAD.md'
           )
           foreach ($asset in $assets) { if (!(Test-Path $asset)) { throw "Verified release asset missing: $asset" } }
           $notes = "CAD 360 Viet Nam V1.025 Windows x64 - verified automated build `nSource commit: $env:GITHUB_SHA`nRun: $env:GITHUB_RUN_ID`nSetup install/uninstall, CLI DXF/DWG roundtrips, real-PNG IMAGE attachment with supplied trace vertices, and Portable hashes checked. GUI manual acceptance and automatic AI tracing are not verified."
