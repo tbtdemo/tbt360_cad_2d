@@ -1618,3 +1618,24 @@ Mục tiêu quan trọng nhất của đợt này là chuyển từ việc **ch�
 6. Chức năng tạo PLINE/BLOCK tường của Bài 101–104 vẫn phải được người dùng xem Preview và xác nhận riêng. Không dùng thông tin nút giao T/X để lách cơ chế kiểm soát này.
 
 **Trạng thái đợt 222:** Đã bổ sung mã QA nút giao T/X theo tim các ứng viên tường, loại trường hợp trùng vùng cửa/cột; GUI hiển thị danh sách; thêm bài kiểm thử CI. Đây là bước kiểm chứng hình học Preview-only, chưa tự dựng liên kết tường và chưa có xác nhận Windows CI PASS.
+
+
+## 63. Đợt 223 — Bảo toàn ID ứng viên tường khi AI QA nút giao T/X
+
+### Bài 109 — Kiểm tra nút T/X và chỉ số tường trước khi xác nhận
+
+1. Mở CAD 360 → AI từ ảnh → CAD, chọn ảnh mặt bằng PNG/JPG và thiết lập đơn vị/tỷ lệ.
+2. Chạy Preview với `wallPairHints=true` và `wallPanelHints=true`, bật gợi ý cửa và cột để bảo vệ khoảng mở.
+3. Đối chiếu `wallPanelCandidates` với `wallPanelJunctionCandidates`: `panelIndices` phải trỏ đến vị trí trong danh sách tường ban đầu, kể cả khi có tường thiếu điểm hoặc bị loại bởi kiểm tra hình học.
+4. Chỉ chấp nhận các nút T/X ở mức đánh giá; `wallTopologyStatus` vẫn là `preview-only-unverified-no-geometry-joining`. Không tự động cắt, nối hoặc gộp BLOCK tường.
+5. Nếu giao điểm nằm trong khoảng mở cửa hoặc cột, không được đề xuất nối tường qua vị trí đó. Người dùng tiếp tục kiểm tra ảnh nguồn và kích thước trước khi dùng lệnh tạo PLINE/BLOCK hiện có.
+
+### Bài 110 — Kiểm tra hồi quy, Windows CI và quy trình bàn giao
+
+1. Trong thư mục `CADTBT360_V1.000`, chạy `cargo test --locked -p cadcraft-mcp --lib ai_wall_panel_junction_qa_detects_t_and_cross_and_ignores_opening_or_column -- --nocapture`.
+2. Test thêm trường hợp một panel đầu tiên không hợp lệ: AI vẫn phải báo `panelIndices=[1,2]` thay vì tự đổi thành `[0,1]`.
+3. Kiểm tra biên dịch GUI với `cargo check --locked -p cadcraft --bin cadcraft`; đợt 223 đồng thời sửa lỗi đóng mảng ở `crates/mcp/src/raster_vector.rs` từng làm Windows CI đợt 222 thất bại.
+4. Xem GitHub Actions theo đúng SHA của commit đợt 223, chỉ sử dụng bộ cài khi cả preflight, test, đóng gói và installed smoke đều PASS. Nếu CI chưa PASS, đây chỉ là mã nguồn đang kiểm chứng.
+5. Phần AI hiện mới có gợi ý hình học và kiểm tra an toàn; chưa có thao tác chọn từng nút T/X trong GUI để tự trim/extend toàn bộ tường. Không dùng QA preview để khẳng định bản vẽ kiến trúc hoàn chỉnh.
+
+**Trạng thái đợt 223:** Đã sửa cú pháp chặn compile và giữ đúng ID ứng viên tường qua bộ lọc; đã bổ sung regression test. Các thao tác chỉnh sửa topology tự động và nghiệm thu Windows EXE vẫn chưa hoàn thành.
