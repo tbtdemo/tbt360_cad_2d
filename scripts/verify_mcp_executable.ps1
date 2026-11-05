@@ -14,7 +14,10 @@ $psi.RedirectStandardOutput = $true
 $psi.RedirectStandardError = $true
 # Self-contained, reproducible PNG fixture (64x32 white, one long black stroke).
 # It is created in a temporary location; neither the app nor a network is needed.
-$png = Join-Path ([System.IO.Path]::GetTempPath()) ("cad360-mcp-smoke-" + [guid]::NewGuid().ToString("N") + ".png")
+$fixtureId = [guid]::NewGuid().ToString("N")
+$png = Join-Path ([System.IO.Path]::GetTempPath()) ("cad360-mcp-smoke-" + $fixtureId + ".png")
+$dxf = Join-Path ([System.IO.Path]::GetTempPath()) ("cad360-mcp-smoke-" + $fixtureId + ".dxf")
+$dwg = Join-Path ([System.IO.Path]::GetTempPath()) ("cad360-mcp-smoke-" + $fixtureId + ".dwg")
 $pngBase64 = 'iVBORw0KGgoAAAANSUhEUgAAAEAAAAAgCAIAAAAt/+nTAAAAUUlEQVR4nO3WMQoAIAwEQU/8/5djL4iFxRLY6dJlu0tVjc4m/cAvA2gG0AygGUAzgLaOOwnyx9Nts8UxBzOAZgDNAJoBNANoBtAMoBlAax+wAU7iCTuV73xMAAAAAElFTkSuQmCC'
 [System.IO.File]::WriteAllBytes($png, [Convert]::FromBase64String($pngBase64))
 $process = [System.Diagnostics.Process]::Start($psi)
@@ -35,7 +38,9 @@ try {
         (@{ jsonrpc='2.0'; id=5; method='tools/call'; params=@{name='raster_to_cad_lines';arguments=$commitArgs}} | ConvertTo-Json -Depth 8 -Compress),
         (@{ jsonrpc='2.0'; id=6; method='tools/call'; params=@{name='query_entities';arguments=@{type='Line'}}} | ConvertTo-Json -Depth 8 -Compress),
         (@{ jsonrpc='2.0'; id=7; method='tools/call'; params=@{name='execute';arguments=@{command='undo';params=@{count=1}}}} | ConvertTo-Json -Depth 8 -Compress),
-        (@{ jsonrpc='2.0'; id=8; method='tools/call'; params=@{name='query_entities';arguments=@{type='Line'}}} | ConvertTo-Json -Depth 8 -Compress)
+        (@{ jsonrpc='2.0'; id=8; method='tools/call'; params=@{name='query_entities';arguments=@{type='Line'}}} | ConvertTo-Json -Depth 8 -Compress),
+        (@{ jsonrpc='2.0'; id=9; method='tools/call'; params=@{name='raster_to_cad_lines';arguments=$commitArgs}} | ConvertTo-Json -Depth 8 -Compress),
+        (@{ jsonrpc='2.0'; id=10; method='tools/call'; params=@{name='save';arguments=@{path=$dxf}}} | ConvertTo-Json -Depth 8 -Compress)
     )
     foreach ($request in $requests) { $process.StandardInput.WriteLine($request) }
     $process.StandardInput.Close()
@@ -80,9 +85,28 @@ try {
     $undoResult = RequireToolReply 7
     $entitiesAfterUndo = RequireToolReply 8
     if ($entitiesAfterUndo.count -ne 0) { throw 'Installed MCP failed to undo its raster-to-CAD batch' }
-    Write-Host "MCP smoke PASS: handshake, image tool, real PNG preview, 1 editable LINE, Undo and clean drawing ($exePath)"
+    $repeatedImport = RequireToolReply 9
+    if ($repeatedImport.editableEntitiesCreated -ne 1) { throw 'Installed MCP could not recreate LINE after Undo' }
+    $saved = RequireToolReply 10
+    if (!(Test-Path -LiteralPath $dxf)) { throw "Installed MCP did not save AI-created LINE to DXF: $dxf" }
+    & $exePath convert $dxf $dwg | Out-Host
+    if ($LASTEXITCODE -ne 0 -or !(Test-Path -LiteralPath $dwg)) { throw 'Installed CLI could not convert AI-generated DXF into DWG' }
+    $bytes = [System.IO.File]::ReadAllBytes($dwg)
+    if ($bytes.Length -lt 64 -or [System.Text.Encoding]::ASCII.GetString($bytes, 0, 6) -ne 'AC1032') {
+        throw 'AI-generated DWG does not contain the expected R2018 header'
+    }
+    $dxfInfoText = & $exePath info $dxf
+    if ($LASTEXITCODE -ne 0) { throw 'Installed CLI cannot reopen AI-generated DXF' }
+    $dwgInfoText = & $exePath info $dwg
+    if ($LASTEXITCODE -ne 0) { throw 'Installed CLI cannot reopen AI-generated DWG' }
+    $dxfInfo = ($dxfInfoText -join [char]10) | ConvertFrom-Json
+    $dwgInfo = ($dwgInfoText -join [char]10) | ConvertFrom-Json
+    if ($dxfInfo.entityCount -ne 1 -or $dwgInfo.entityCount -ne 1) {
+        throw "AI-created LINE was lost during DXF/DWG roundtrip: DXF=$($dxfInfo.entityCount), DWG=$($dwgInfo.entityCount)"
+    }
+    Write-Host "MCP smoke PASS: real PNG preview, editable LINE, Undo, AI DXF/DWG save-reopen ($exePath)"
 } finally {
     if (-not $process.HasExited) { $process.Kill($true) }
     $process.Dispose()
-    Remove-Item -LiteralPath $png -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath @($png,$dxf,$dwg) -Force -ErrorAction SilentlyContinue
 }
