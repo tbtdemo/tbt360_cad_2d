@@ -1274,3 +1274,26 @@ Mục tiêu quan trọng nhất của đợt này là chuyển từ việc **ch�
 6. Tiếp tục kiểm thử ảnh chụp thực tế bị nhiễu, tường nhiều lớp, cửa mở quay, cửa lùa; mô hình hiện tại là nhận dạng hình học quy tắc, chưa phải AI thị giác có đào tạo nhận thức kiến trúc.
 
 **Trạng thái đợt 208:** Đã bổ sung nhận biết hình học nét giống cánh cửa, dữ liệu Preview, điều khiển trong GUI và unit/regression tests. Chưa xác nhận Windows CI PASS, chưa tự tạo Block cửa đi, chưa hoàn thành AI hiểu và vẽ kiến trúc từ ảnh thực tế.
+
+
+## 49. Đợt 209 — AI vẽ cung quay cửa ARC trực tiếp trong CAD sau xác nhận
+
+### Bài 81 — Vẽ hình học cung quay cửa từ bằng chứng ảnh
+
+1. Mở CAD 360, khởi tạo bản vẽ hoặc bản sao để kiểm tra; chọn PNG/JPEG mặt bằng và hiệu chuẩn `unitsPerPixel`.
+2. Bật **Gợi ý khoảng hở**, **Đối chiếu khoảng mở hai mép tường**, **Gợi ý nét cánh cửa**. Giữ `maxGapPixels=0` để không tự lấp khoảng mở.
+3. Bật tùy chọn **Tạo cung quay ARC cho nét cửa đã nhận dạng** và tích **Tôi xác nhận các cung quay ARC này sau khi xem trước**. Tương ứng MCP: `createDoorSwingArcs=true`, `confirmDoorSwingArcs=true`, `doorLeafHints=true`, `pairedWallOpeningHints=true`.
+4. Chạy **Nhận dạng và xem trước**: các cung đề xuất xuất hiện màu tím trong hình xem trước, số lượng được thống kê ở `doorSwingArcsProposed`. Kết quả chứa `center`, `radius`, `start`, `end` theo tọa độ và độ góc CAD; chiều dài quy đổi dùng đúng tỷ lệ `unitsPerPixel`.
+5. AI chỉ tạo ARC nếu phát hiện một nét giống cánh cửa duy nhất gắn đúng góc khoảng mở, chiều dài phù hợp chiều rộng và hai phương gần vuông góc. Nếu thiếu mép tường, nhiều nét mơ hồ hoặc chưa xác nhận thì **không tạo cung**.
+6. Nhấn **Tạo LINE / PLINE chỉnh sửa trong CAD** để ghi hình học vào bản vẽ. Lúc này nét LINE gốc và cung ARC được tạo dưới một nhóm Undo; có thể chọn, chỉnh sửa, xóa như đối tượng CAD. **Không tự tạo Block cửa/BIM**, chưa tự xác định loại cửa đi, cửa sổ hay quy tắc kiến trúc.
+7. Kiểm tra tâm bản lề, bán kính, góc quay và tỷ lệ bằng lệnh đo; kiểm thử Undo/Redo, mở lại và thử trao đổi DWG chuẩn với AutoCAD độc lập trước nghiệm thu.
+
+### Bài 82 — Kiểm thử tự động từ PNG thành ARC CAD và chính sách xác nhận
+
+1. Chạy `cargo test --locked -p cadcraft-mcp --lib ai_confirmed_door_swing_arc_is_editable_and_refuses_missing_confirmation -- --nocapture`: ca thử xác nhận hình học cung có tâm, bán kính và góc đúng; không tạo khi thiếu nét hoặc có nhiều nét cạnh tranh.
+2. Chạy `cargo test --locked -p cadcraft-mcp --lib ai_real_png_door_arc_commit_creates_native_arc_after_confirmation -- --nocapture`: PNG thử có hai mép tường hở và một nét tương ứng cánh cửa; không xác nhận sẽ báo lỗi; khi xác nhận thì tạo thêm ARC CAD cùng các LINE nguồn.
+3. Chạy kiểm thử GUI `ai_door_swing_arc_gui_requires_explicit_two_step_confirmation` để bảo đảm giao diện mặc định chưa bật hai công tắc và tham số Preview luôn ở trạng thái chưa sửa bản vẽ.
+4. Windows CI bắt buộc phát hiện và chạy các bài test trên trước đóng gói; xem đúng commit SHA và kết quả run để biết trạng thái thực tế.
+5. Cung quay ARC là hình học dựng theo quy tắc từ ảnh, chưa phải nhận dạng cửa bằng mô hình học sâu. Kiểm thử trên ảnh thực tế bị nhiễu, nhiều cửa cạnh nhau, ảnh nghiêng và trùng nét vẫn là công việc bắt buộc.
+
+**Trạng thái đợt 209:** Đã bổ sung thuật toán tạo ARC, tích hợp trực tiếp vào cửa sổ AI và các ca test PNG/GUI. Chưa xác minh Windows CI PASS và chưa tuyên bố AI nhận dạng kiến trúc hoàn chỉnh.
