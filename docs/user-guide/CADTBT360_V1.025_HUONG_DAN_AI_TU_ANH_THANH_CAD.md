@@ -168,3 +168,21 @@ Trên GitHub Actions, workflow **CAD 360 V1.025 - Windows Setup Portable** dùng
 4. Tiến trình MCP thoát sạch, không bị treo hoặc thất bại.
 
 **Phân biệt:** Smoke test không chứng minh AI nhận dạng mọi bản vẽ thực tế hay Windows GUI đã được người dùng nghiệm thu. Chỉ khi workflow PASS và có biên bản thử GUI/ảnh xây dựng thực mới được ghi trạng thái đạt sử dụng.
+
+
+## 11. Nâng cấp đợt 172 — Kiểm thử MCP với ảnh PNG thật từ chính bản EXE phát hành
+
+Trước đây, bài smoke test MCP chỉ kiểm tra khởi động máy chủ và việc từ chối một đường dẫn ảnh không tồn tại. Từ đợt 172, CI sẽ **tự tạo ảnh PNG thử nghiệm ngay trên Windows runner**, gọi `CADTBT360_CLI.exe mcp` từ đúng bộ cài và kiểm tra chuỗi thao tác thực tế.
+
+### Cách tự thực hiện với phần mềm đã cài
+
+1. Mở PowerShell trong thư mục cài đặt hoặc Portable và khởi động `.\CADTBT360_CLI.exe mcp` thông qua một MCP client hỗ trợ giao thức stdio.
+2. Tạo hoặc chọn ảnh PNG 64 × 32 pixel, nền trắng có **một đoạn thẳng đen dài khoảng 50 pixel**. Không để ảnh chứa chữ hoặc các đường chéo.
+3. Gọi công cụ `raster_to_cad_lines` với `preview: true`, `minLengthPixels: 16`, `includeDiagonals: false`. Kết quả kỳ vọng: **1 nét**, `editableEntitiesCreated=0`.
+4. Gọi lại cùng công cụ với `preview: false`. Kết quả kỳ vọng: **1 LINE CAD được tạo**.
+5. Gọi `query_entities` với `type: "Line"`, xác nhận số lượng bằng **1**.
+6. Gọi công cụ `execute` với `command: "undo"`, `params: {"count":1}`. Gọi `query_entities` lại, số LINE kỳ vọng là **0**.
+
+**Đường dẫn mã kiểm thử:** `scripts/verify_mcp_executable.ps1`. Windows CI gọi script với CLI trong thư mục cài Setup và lần thứ hai với CLI giải nén từ Portable ZIP. Nếu bất kỳ bước nào sai, job dừng và **không được ghi kết quả PASS**.
+
+**Lưu ý:** Thử nghiệm này kiểm tra đường đi PNG → LINE → Undo của bộ cài Headless/MCP. Nó **không thay thế** việc mở GUI trên Windows, kiểm tra ảnh thực tế, đo tỷ lệ và kiểm chứng DWG bằng phần mềm CAD độc lập. Chưa có bằng chứng Windows CI PASS tại thời điểm cập nhật tài liệu.
