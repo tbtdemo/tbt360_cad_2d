@@ -29,6 +29,7 @@ pub fn tool_definitions(has_ui: bool) -> Value {
         json!({"name": "calibrate_image", "description": "Calibrate an attached raster IMAGE from two pixel/world control-point pairs; computes uniform scale, rotation and placement. Call preview:true first, confirm, then preview:false to update only that image.", "inputSchema": {"type": "object", "properties": {"handle": {"type": "string"}, "pixels": {"type": "array", "items": {"type": "array", "items": {"type": "number"}, "minItems": 2, "maxItems": 2}, "minItems": 2, "maxItems": 2}, "world": {"type": "array", "items": {"type": "array", "items": {"type": "number"}, "minItems": 2, "maxItems": 2}, "minItems": 2, "maxItems": 2}, "preview": {"type": "boolean"}}, "required": ["handle", "pixels", "world"]}}),
         json!({"name":"trace_perspective_image","description":"Map 2-2048 pixel points on a tilted photo into editable CAD geometry with four pixel-to-world control correspondences. Projective vector mapping only, not image bitmap rectification; preview:true does not edit the DWG.", "inputSchema":{"type":"object","properties":{"handle":{"type":"string"},"pixels":{"type":"array","items":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":2},"minItems":4,"maxItems":4},"world":{"type":"array","items":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":2},"minItems":4,"maxItems":4},"points":{"type":"array","items":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":2},"minItems":2,"maxItems":2048},"closed":{"type":"boolean"},"preview":{"type":"boolean"}},"required":["handle","pixels","world","points"]}}),
         json!({"name":"fit_image_controls","description":"Fit raster IMAGE to 3-32 measured pixel/world control points using least-squares scale, rotation and translation. Returns RMS/max residual. Set maxResidual to block inaccurate commits; use preview:true first. Does not correct perspective.", "inputSchema":{"type":"object","properties":{"handle":{"type":"string"},"pixels":{"type":"array","items":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":2},"minItems":3,"maxItems":32},"world":{"type":"array","items":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":2},"minItems":3,"maxItems":32},"preview":{"type":"boolean"},"maxResidual":{"type":"number","minimum":0}},"required":["handle","pixels","world"]}}),
+        json!({"name": "trace_quality_check", "description": "Quality-gate a candidate vector trace from image AI BEFORE sending it to trace_image/trace_perspective_image. Geometry only: detect short or duplicate edges and self-intersections, report bounds and segment lengths, without modifying CAD. This does NOT perform visual recognition or prove the trace matches the pixels.", "inputSchema": {"type": "object", "properties": {"points": {"type": "array", "items": {"type": "array", "items": {"type": "number"}, "minItems": 2, "maxItems": 2}, "minItems": 2, "maxItems": 2048}, "closed": {"type": "boolean"}, "minSegmentLength": {"type": "number", "minimum": 0}}, "required": ["points"]}}),
         json!({"name": "trace_image", "description": "Convert points in an attached IMAGE pixel coordinate system into a real editable CAD polyline. Vision inference must happen outside CAD.", "inputSchema": {"type": "object", "properties": {"handle": {"type": "string"}, "points": {"type": "array", "items": {"type": "array", "items": {"type": "number"}, "minItems": 2, "maxItems": 2}, "minItems": 2, "maxItems": 2048}, "closed": {"type": "boolean"}, "preview": {"type": "boolean"}}, "required": ["handle", "points"]}}),
         json!({"name": "find_text", "description": "Read the drawing's texts: TEXT, MTEXT (formatting removed), block attributes and multileaders, each with its text, insertion point `at`, height, rotation, style, layer and handle. Filter by `contains` (any case), `layer` and/or `window` [[x0,y0],[x1,y1]] around the insertion points; page with offset and limit (default 200). Use it to find room names, sheet titles and notes without reading all the geometry.",
             "inputSchema": {"type": "object", "properties": {"contains": {"type": "string"}, "layer": {"type": "string"},
@@ -46,6 +47,79 @@ pub fn tool_definitions(has_ui: bool) -> Value {
         tools.push(json!({"name": "ui_click", "description": "Click in the drawing area at world coordinates (or screen with space:\"screen\"). Right button = Enter.", "inputSchema": {"type": "object", "properties": {"x": {"type": "number"}, "y": {"type": "number"}, "space": {"type": "string"}, "button": {"type": "string"}}, "required": ["x", "y"]}}));
     }
     json!({ "tools": tools })
+}
+
+/// Validate candidate AI vectorization geometry without touching a drawing. The result
+/// describes geometric defects only, never pixel-level recognition accuracy.
+fn check_trace_quality(args: &Value) -> Value {
+    let points = args["points"].as_array().expect("validated points array");
+    let closed = args["closed"].as_bool().unwrap_or(false);
+    let min_len = args["minSegmentLength"].as_f64().unwrap_or(1.0e-8);
+    let mut pts = Vec::with_capacity(points.len());
+    for (i, item) in points.iter().enumerate() {
+        let Some(x) = item[0].as_f64() else { return json!({"safeToCommit":false,"error":format!("point {i} x is not a finite number")}) };
+        let Some(y) = item[1].as_f64() else { return json!({"safeToCommit":false,"error":format!("point {i} y is not a finite number")}) };
+        if !x.is_finite() || !y.is_finite() || x.abs() > 1.0e12 || y.abs() > 1.0e12 {
+            return json!({"safeToCommit":false,"error":format!("point {i} is non-finite or outside CAD safety bounds")});
+        }
+        pts.push((x, y));
+    }
+    if !min_len.is_finite() || min_len < 0.0 || min_len > 1.0e12 {
+        return json!({"safeToCommit":false,"error":"invalid minSegmentLength"});
+    }
+    let seg_count = pts.len() - usize::from(!closed);
+    let mut too_short = Vec::new();
+    let mut min_found = f64::INFINITY;
+    let mut max_found: f64 = 0.0;
+    for i in 0..seg_count {
+        let a = pts[i];
+        let b = pts[(i + 1) % pts.len()];
+        let len = (b.0 - a.0).hypot(b.1 - a.1);
+        min_found = min_found.min(len);
+        max_found = max_found.max(len);
+        if len <= min_len { too_short.push(i); }
+    }
+    let mut intersections = Vec::new();
+    for i in 0..seg_count {
+        for j in (i + 1)..seg_count {
+            // Adjacent segments share a vertex by design; exclude those pairs.
+            if j == i + 1 || (closed && i == 0 && j + 1 == seg_count) { continue; }
+            if trace_segments_intersect(pts[i], pts[(i + 1) % pts.len()], pts[j], pts[(j + 1) % pts.len()]) {
+                intersections.push(json!([i, j]));
+            }
+        }
+    }
+    let x_min = pts.iter().map(|p| p.0).fold(f64::INFINITY, f64::min);
+    let y_min = pts.iter().map(|p| p.1).fold(f64::INFINITY, f64::min);
+    let x_max = pts.iter().map(|p| p.0).fold(f64::NEG_INFINITY, f64::max);
+    let y_max = pts.iter().map(|p| p.1).fold(f64::NEG_INFINITY, f64::max);
+    let too_few = closed && pts.len() < 3;
+    json!({
+        "safeToCommit": too_short.is_empty() && intersections.is_empty() && !too_few,
+        "pointCount": pts.len(), "segmentCount": seg_count, "closed": closed,
+        "minimumSegmentLength": min_found, "maximumSegmentLength": max_found,
+        "shortSegments": too_short, "selfIntersections": intersections,
+        "tooFewPointsForClosedOutline": too_few, "bounds": [[x_min,y_min],[x_max,y_max]],
+        "scope": "Geometry validation only; raster/image recognition fidelity NOT_VERIFIED"
+    })
+}
+
+/// Intersect two nonadjacent closed 2D segments, including collinear overlap.
+fn trace_segments_intersect(a: (f64, f64), b: (f64, f64), c: (f64, f64), d: (f64, f64)) -> bool {
+    fn orient(a: (f64,f64), b: (f64,f64), c: (f64,f64)) -> f64 {
+        (b.0 - a.0) * (c.1 - a.1) - (b.1 - a.1) * (c.0 - a.0)
+    }
+    fn between(a: (f64,f64), b: (f64,f64), p: (f64,f64)) -> bool {
+        let tolerance = 1.0e-10 * (a.0.abs().max(a.1.abs()).max(b.0.abs()).max(b.1.abs()).max(1.0));
+        p.0 >= a.0.min(b.0) - tolerance && p.0 <= a.0.max(b.0) + tolerance
+            && p.1 >= a.1.min(b.1) - tolerance && p.1 <= a.1.max(b.1) + tolerance
+    }
+    let o1 = orient(a,b,c); let o2 = orient(a,b,d);
+    let o3 = orient(c,d,a); let o4 = orient(c,d,b);
+    if (o1 > 0.0 && o2 < 0.0 || o1 < 0.0 && o2 > 0.0)
+        && (o3 > 0.0 && o4 < 0.0 || o3 < 0.0 && o4 > 0.0) { return true; }
+    (o1 == 0.0 && between(a,b,c)) || (o2 == 0.0 && between(a,b,d))
+        || (o3 == 0.0 && between(c,d,a)) || (o4 == 0.0 && between(c,d,b))
 }
 
 /// Wrap a JSON value as a successful MCP result containing pretty-printed text.
@@ -136,6 +210,7 @@ pub fn call_tool(b: &mut dyn Backend, name: &str, args: &Value) -> Result<Value,
         "trace_perspective_image" => b.call("engine.execute", json!({"command": "imageprojecttrace", "params": a})),
         "fit_image_controls" => b.call("engine.execute", json!({"command": "imagecalibratefit", "params": a})),
         "calibrate_image" => b.call("engine.execute", json!({"command": "imagecalibrate", "params": a})),
+        "trace_quality_check" => return Ok(text(&check_trace_quality(&a))),
         "trace_image" => b.call("engine.execute", json!({"command": "imagetrace", "params": a})),
         "find_text" => b.call("engine.execute", json!({"command": "texts", "params": a})),
         "new_drawing" => b.call("engine.execute", json!({"command": "new", "params": a})),
