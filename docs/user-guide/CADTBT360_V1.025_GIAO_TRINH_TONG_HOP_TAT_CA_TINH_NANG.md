@@ -1369,3 +1369,27 @@ Mục tiêu quan trọng nhất của đợt này là chuyển từ việc **ch�
 6. Kiểm tra đúng SHA của Windows CI. Các bài test là bằng chứng chỉ khi chạy PASS; kết quả chưa thay thế nghiệm thu EXE, ảnh thực tế nhiều cửa hoặc DWG mở/lưu hai chiều trong AutoCAD.
 
 **Trạng thái đợt 212:** Đã bổ sung kiểm soát chiều rộng riêng từng cửa trong thuật toán, giao diện lựa chọn từ Preview và bài test hai cửa PNG. Chưa có xác nhận CI Windows PASS, chưa tự nhận dạng hướng mở/bản lề mọi kiểu cửa hoặc Block động kiến trúc hoàn chỉnh.
+
+
+## 53. Đợt 213 — AI đảo bản lề và hướng mở riêng từng cửa
+
+### Bài 89 — Chọn một cửa và đảo vị trí bản lề
+
+1. Mở CAD 360 → **AI từ ảnh → CAD**, chọn ảnh PNG/JPG mặt bằng; hiệu chuẩn `unitsPerPixel`.
+2. Bật `openingGapHints`, `pairedWallOpeningHints`, `doorLeafHints`, `createDoorSwingArcs` và `createDoorBlocks`, xác nhận các lựa chọn yêu cầu. Giữ `maxGapPixels=0` để bảo toàn khoảng mở.
+3. Bấm **Nhận dạng và xem trước**, chọn **Cửa số 1, 2…** từ danh sách. Kiểm tra `widthCAD`, `sourceOpeningWidthCAD`, tâm bản lề và hình học cánh/cung.
+4. Tích **Đảo bản lề cửa đã chọn**: GUI gửi chỉ số cửa bắt đầu từ 0 qua `doorHingeFlips`; phần thuật toán chuyển `base` của Block sang đầu còn lại của khoảng mở mà không thay đổi chiều rộng hay các LINE gốc.
+5. Tích **Đảo phía mở cửa đã chọn** để đổi hướng cánh/cung theo phương đối diện (`doorSwingFlips`). Có thể kết hợp cả hai tùy chọn cho cùng cửa.
+6. Bấm Preview lại: LINE cánh cửa và ARC bản nháp được vẽ màu tím hồng theo **đúng tọa độ sẽ dùng để tạo Block**; kiểm tra hình học trước khi Commit. Các nét nguồn màu xanh vẫn giữ nguyên.
+7. Khi phù hợp mới Commit thành Block CAD có thể chỉnh sửa. Block là bản nháp hình học, **không phải đối tượng cửa BIM/kiến trúc đã phân loại**. Thử một lần Undo và lưu bản vẽ thử trước khi trao đổi DWG.
+
+### Bài 90 — Kiểm thử an toàn bản lề và hướng mở
+
+1. Chạy `cargo test --locked -p cadcraft-mcp --lib ai_single_png_door_hinge_and_swing_flips_are_explicit_and_preserve_source -- --nocapture` từ thư mục `CADTBT360_V1.000`.
+2. Với PNG mẫu một cửa, kiểm tra `doorBlockDrafts[0].base` thay đổi khi đảo bản lề, nhưng `widthCAD` và toàn bộ `lines` trích xuất từ ảnh không thay đổi.
+3. Khi chỉ đảo hướng mở, `base` giữ nguyên; cung ARC chuyển sang phía đối diện. Khi không bật, sử dụng hình học bản nháp như cũ.
+4. Cấu hình `doorHingeFlips` và `doorSwingFlips` phải là mảng chỉ số cửa hợp lệ, không trùng; chỉ số âm, ngoài danh sách, sai kiểu hoặc trùng bị từ chối trước khi ghi vào CAD.
+5. Chạy `cargo test --locked -p cadcraft --bin cadcraft ai_door_hinge_swing_gui_requires_door_block_and_preserves_selected_indices -- --nocapture` để xác minh giao diện chỉ gửi yêu cầu đổi bản lề/hướng mở khi chế độ tạo Block được bật.
+6. Đối chiếu run Windows của **đúng commit SHA** trước khi xác nhận PASS. Thử thêm ảnh thực tế có nhiều cửa và các biến thể bản lề khác nhau; các kiểm thử hiện tại chưa thay thế nghiệm thu người dùng thực tế.
+
+**Trạng thái đợt 213:** Đã có thay đổi Rust trong thuật toán, GUI Preview và Windows CI để hỗ trợ đảo bản lề/phía mở từng cửa dạng Block CAD bản nháp. Chưa xác nhận EXE Windows PASS hoặc AI nhận diện ngữ nghĩa mọi loại cửa.
