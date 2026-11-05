@@ -208,3 +208,21 @@ Trước đây, bài smoke test MCP chỉ kiểm tra khởi động máy chủ v
 Script `scripts/verify_mcp_executable.ps1` hiện tạo ảnh PNG 64 × 32 pixel có một nét ngang dài 51 pixel, gọi các công cụ MCP để tạo và hoàn tác LINE, sau đó dùng **chính CADTBT360_CLI.exe trong bộ cài** để chuyển DXF thành DWG, kiểm tra mã `AC1032` và đếm đối tượng khi mở lại cả hai tệp.
 
 **Giới hạn nghiệm thu:** Kết quả tự động chỉ xác nhận pipeline CAD nội bộ trên dữ liệu mẫu đơn giản. Chưa phải kết quả nghiệm thu mô hình AI hiểu bản vẽ xây dựng, chưa có ảnh chụp GUI từ bộ cài mới, chưa chứng minh khả năng mở/chỉnh sửa hai chiều với AutoCAD độc lập. Chỉ thông báo Windows CI PASS khi có workflow thành công kèm binary được phát hành.
+
+
+## 13. Đợt nâng cấp 174 — Sửa ảnh PNG thử nghiệm, chặn CI khi dữ liệu thử bị lỗi
+
+### Lỗi đã phát hiện và khắc phục
+Đường dẫn Base64 chứa ảnh PNG thử nghiệm trong script Windows MCP của các đợt trước bị lỗi định dạng (giải mã Base64 thất bại). Đây là **lỗi dữ liệu kiểm thử**, không đủ cơ sở kết luận lỗi thuật toán CAD. Đợt 174 thay dữ liệu bằng PNG đã được kiểm tra: **64 × 32 pixel RGB8**, nền trắng, một nét ngang **51 pixel đen** tại hàng y=15.
+
+### Cách kiểm tra thủ công theo từng bước
+1. Vào nhánh V1.025 trên GitHub và mở `scripts/verify_mcp_executable.ps1`.
+2. Xác nhận ảnh mẫu được định nghĩa bằng `$pngBase64`. Không chỉnh tay chuỗi Base64 nếu chưa kiểm tra ảnh nguồn.
+3. Chạy `python scripts/validate_mcp_smoke_fixture.py scripts/verify_mcp_executable.ps1` từ thư mục gốc mã nguồn. Kết quả kỳ vọng là thông báo PASS cho PNG **64×32, RGB8, có một nét đen 51 pixel**.
+4. Khi Windows CI chạy, script xác nhận Base64 hợp lệ, chữ ký PNG, CRC từng chunk, dữ liệu điểm ảnh đã giải nén và số pixel đen. Nếu một điều kiện sai, dừng trước bước đóng gói.
+5. Sau bước kiểm tra ảnh, bài `scripts/verify_mcp_executable.ps1` tiếp tục thử AI/MCP trên bản **Setup** và **Portable**: Preview → LINE → Undo → DXF → DWG → mở lại.
+
+### Thay đổi quy trình phát hành
+Workflow `.github/workflows/cad360-v1025-release.yml` được cấu hình tự chạy khi thay đổi `scripts/verify_mcp_executable.ps1`, `scripts/validate_mcp_smoke_fixture.py`, hoặc bất kỳ tài liệu nào trong `docs/user-guide/`. Điều này giúp tránh phát hành tài liệu không đồng bộ với mã nguồn đang nghiệm thu.
+
+**Giới hạn nghiệm thu:** Kiểm tra PNG chính xác và cập nhật script/CI **không đồng nghĩa** Windows build đã PASS. Cần có job thành công, bộ cài phát hành và thử GUI/AutoCAD độc lập trước khi ghi trạng thái đạt nghiệm thu.
