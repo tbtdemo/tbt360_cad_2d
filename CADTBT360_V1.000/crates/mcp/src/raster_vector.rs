@@ -294,6 +294,44 @@ fn closed_rectangles(lines: &[Line]) -> Vec<RectangleOutline> {
     result
 }
 
+/// A conservative column-like motif: a small near-square closed outline with
+/// two INTERIOR orthogonal hatch strokes crossing one another. Ordinary empty
+/// rectangles, large rooms, wall intersections and ambiguous hatches are not
+/// column evidence; this never classifies a structural element.
+fn column_hatch_candidates(rects: &[RectangleOutline], lines: &[Line]) -> Vec<Value> {
+    if rects.len()>128 || lines.len()>512 {return Vec::new();}
+    let mut results=Vec::new();
+    for rect in rects {
+        let [[x0,y0],[x1,_],[_,y1],_]=rect.corners;
+        let w=x1-x0;let h=y1-y0;
+        if !(12.0..=120.0).contains(&w) || !(12.0..=120.0).contains(&h) || !(0.60..=1.65).contains(&(w/h)) {continue;}
+        let mid_x=(x0+x1)*0.5;let mid_y=(y0+y1)*0.5;
+        let mut horizontal=Vec::new();let mut vertical=Vec::new();
+        for (i,l) in lines.iter().enumerate() {
+            if rect.edges.contains(&i) {continue;}
+            let lx0=l.x0.min(l.x1);let lx1=l.x0.max(l.x1);
+            let ly0=l.y0.min(l.y1);let ly1=l.y0.max(l.y1);
+            let horiz=(l.y0-l.y1).abs()<=0.75 && (l.y0-mid_y).abs()<=2.0
+                && lx0>x0+2.0 && lx1<x1-2.0 && lx1-lx0>=w*0.28;
+            let vert=(l.x0-l.x1).abs()<=0.75 && (l.x0-mid_x).abs()<=2.0
+                && ly0>y0+2.0 && ly1<y1-2.0 && ly1-ly0>=h*0.28;
+            if horiz {horizontal.push((i,lx0,lx1,(l.y0+l.y1)*0.5));}
+            if vert {vertical.push((i,ly0,ly1,(l.x0+l.x1)*0.5));}
+        }
+        // Exactly one horizontal and vertical internal hatch stroke must cross.
+        if horizontal.len()!=1 || vertical.len()!=1 {continue;}
+        let (hi,hlo,hhi,hy)=horizontal[0];let (vi,vlo,vhi,vx)=vertical[0];
+        if vx<hlo || vx>hhi || hy<vlo || hy>vhi {continue;}
+        results.push(json!({"outlinePixels":rect.corners,
+            "sourceOutlineEdges":rect.edges,"sourceHatchEdges":[hi,vi],
+            "widthPixels":w,"heightPixels":h,
+            "classification":"closed-cross-hatched-column-like-outline-unverified",
+            "requiresHumanReview":true}));
+        if results.len()>=64 {break;}
+    }
+    results
+}
+
 /// Conservative geometric parallel-edge hints; not semantic wall recognition.
 /// Pair only axis-aligned segments of similar span with substantial overlap.
 fn parallel_wall_candidates(lines: &[Line], min_spacing: f64, max_spacing: f64) -> Vec<Value> {
@@ -943,7 +981,10 @@ pub fn preview(args: &Value) -> Result<Value, String> {
     let wall_hints = if args["wallPairHints"].as_bool().unwrap_or(false) {
         parallel_wall_candidates(&lines, min_wall_spacing, max_wall_spacing)
     } else { Vec::new() };
-    let candidates = if args["closedRectangles"].as_bool().unwrap_or(false) { closed_rectangles(&lines) } else { Vec::new() };
+    let column_hints=args["columnHatchHints"].as_bool().unwrap_or(false);
+    let all_rectangles=if args["closedRectangles"].as_bool().unwrap_or(false) || column_hints {closed_rectangles(&lines)} else {Vec::new()};
+    let mut column_candidates=if column_hints {column_hatch_candidates(&all_rectangles,&lines)} else {Vec::new()};
+    let candidates=if args["closedRectangles"].as_bool().unwrap_or(false) {all_rectangles} else {Vec::new()};
     let mut replacement = vec![false; lines.len()];
     for outline in &candidates { for &index in &outline.edges { replacement[index] = true; } }
     let create_axes=args["createWallCenterlines"].as_bool().unwrap_or(false);
@@ -957,6 +998,28 @@ pub fn preview(args: &Value) -> Result<Value, String> {
         return Err(format!("Found {count} strokes, exceeding maxLines={max_lines}; increase minLengthPixels or limit the input region, no CAD changes made"));
     }
     // Build and validate *all* CAD coordinates before any mutation.
+    for candidate in &mut column_candidates {
+        let Some(points)=candidate["outlinePixels"].as_array() else {continue};
+        let mut vertices=Vec::new();
+        for p in points {
+            let (Some(x),Some(y))=(p[0].as_f64(),p[1].as_f64()) else {return Err("Invalid column outline pixels; no CAD changes made".into())};
+            let (cx,cy)=(ox+x*scale,oy+(f64::from(height)-y)*scale);
+            if !cx.is_finite()||!cy.is_finite()||cx.abs()>1.0e12||cy.abs()>1.0e12 {
+                return Err("Column hint exceeds safe CAD coordinate bounds; no changes made".into());
+            }
+            vertices.push(json!([cx,cy]));
+        }
+        candidate["outlineCAD"]=json!(vertices);
+        candidate["widthCAD"]=json!(candidate["widthPixels"].as_f64().unwrap_or(0.0)*scale);
+        candidate["heightCAD"]=json!(candidate["heightPixels"].as_f64().unwrap_or(0.0)*scale);
+    }
+    let create_column_guides=args["createColumnGuidePolylines"].as_bool().unwrap_or(false);
+    if create_column_guides && (!column_hints || !args["confirmColumnGuides"].as_bool().unwrap_or(false)) {
+        return Err("createColumnGuidePolylines requires columnHatchHints=true and confirmColumnGuides=true; no CAD changes made".into());
+    }
+    let column_guide_polylines:Vec<Value>=if create_column_guides {
+        column_candidates.iter().map(|v|v["outlineCAD"].clone()).collect()
+    } else {Vec::new()};
     let world_rectangles: Vec<Value> = candidates.iter().map(|outline| {
         let vertices: Vec<Value> = outline.corners.iter().map(|[x,y]| json!([ox + x * scale, oy + (f64::from(height)-y)*scale])).collect();
         json!(vertices)
@@ -1018,6 +1081,12 @@ pub fn preview(args: &Value) -> Result<Value, String> {
         "wallCenterlinesProposed":axes.len(),"wallCenterlines":world_axes,
         "wallCenterlineJunctionCount":junctions.len(),"wallCenterlineJunctions":junctions,
         "lines":world,"closedPolylines":world_rectangles,"rectanglesDetected":candidates.len(),
+        "columnHatchCandidateCount":column_candidates.len(),
+        "columnHatchCandidates":column_candidates,
+        "columnHatchHintsRequested":column_hints,
+        "columnGuidePolylines":column_guide_polylines,
+        "columnGuidePolylineCount":column_guide_polylines.len(),
+        "columnGuidePolylinesRequested":create_column_guides,
         "closedRectangles":args["closedRectangles"].as_bool().unwrap_or(false),
         "editableEntitiesCreated":0,"source":path,
         "caution":"Review vectors before committing; line recognition is not semantic building interpretation"
@@ -1045,8 +1114,9 @@ pub fn run(b: &mut dyn Backend, args: &Value) -> Result<Value, String> {
     let axes=proposal["wallCenterlines"].as_array().cloned().unwrap_or_default();
     let opening_guides=proposal["openingGuidePolylines"].as_array().cloned().unwrap_or_default();
     let window_guides=proposal["windowGuidePolylines"].as_array().cloned().unwrap_or_default();
+    let column_guides=proposal["columnGuidePolylines"].as_array().cloned().unwrap_or_default();
     let door_arcs=proposal["doorSwingArcs"].as_array().cloned().unwrap_or_default();
-    if world.is_empty() && rectangles.is_empty() && axes.is_empty() && opening_guides.is_empty() && window_guides.is_empty() && door_arcs.is_empty() { return Err("No vector strokes detected; no CAD changes made".into()); }
+    if world.is_empty() && rectangles.is_empty() && axes.is_empty() && opening_guides.is_empty() && window_guides.is_empty() && column_guides.is_empty() && door_arcs.is_empty() { return Err("No vector strokes detected; no CAD changes made".into()); }
     // Never end a group that another command/user already opened. The caller
     // must have a clean command prompt and full Undo support.
     let state = b.call("drawing.inspect", json!({"entities":false}))?;
@@ -1069,6 +1139,7 @@ pub fn run(b: &mut dyn Backend, args: &Value) -> Result<Value, String> {
         .chain(axes.iter().map(|v| ("line",json!({"points":v}))))
         .chain(opening_guides.iter().map(|v| ("pline",json!({"vertices":v,"closed":true}))))
         .chain(window_guides.iter().map(|v| ("pline",json!({"vertices":v,"closed":true}))))
+        .chain(column_guides.iter().map(|v| ("pline",json!({"vertices":v,"closed":true}))))
         .chain(door_arcs.iter().map(|v| ("arc",json!({"center":v["center"],"radius":v["radius"],"start":v["start"],"end":v["end"]})))).collect();
     for (command_id, params) in operations {
         // Guard against an asynchronous document switch or external edit in a
@@ -1125,7 +1196,7 @@ pub fn run(b: &mut dyn Backend, args: &Value) -> Result<Value, String> {
     }
     Ok(json!({"preview":false,"recognition":"automatic-raster-line-strokes",
         "imageSize":proposal["imageSize"],"strokes":proposal["strokes"],
-        "rectanglesDetected":proposal["rectanglesDetected"],"closedPolylinesCreated":rectangles.len(),"openingGuidePolylinesCreated":opening_guides.len(),"windowGuidePolylinesCreated":window_guides.len(),"doorSwingArcsCreated":door_arcs.len(),
+        "rectanglesDetected":proposal["rectanglesDetected"],"closedPolylinesCreated":rectangles.len(),"openingGuidePolylinesCreated":opening_guides.len(),"windowGuidePolylinesCreated":window_guides.len(),"columnGuidePolylinesCreated":column_guides.len(),"doorSwingArcsCreated":door_arcs.len(),
         "wallCenterlinesCreated":axes.len(),
         "editableEntitiesCreated":handles.len(),
         "entities":handles,"source":proposal["source"],
@@ -1515,6 +1586,54 @@ mod tests {
         window_sash_evidence(&mut door,&[leaf,rail1,rail2]);
         assert_eq!(door[0]["doorLeafCandidate"],true);
         assert_ne!(door[0]["windowSashCandidate"],true,"door evidence must suppress window guesses");
+    }
+
+    #[test]
+    fn ai_column_hatch_requires_closed_near_square_with_two_crossing_interior_strokes() {
+        let box_rect=RectangleOutline{edges:[0,1,2,3],corners:[[10.0,10.0],[42.0,10.0],[42.0,42.0],[10.0,42.0]]};
+        let edges=[Line{x0:10.0,y0:10.0,x1:42.0,y1:10.0},Line{x0:10.0,y0:42.0,x1:42.0,y1:42.0},
+            Line{x0:10.0,y0:10.0,x1:10.0,y1:42.0},Line{x0:42.0,y0:10.0,x1:42.0,y1:42.0}];
+        assert!(column_hatch_candidates(&[box_rect.clone()],&edges).is_empty(),"empty rectangle is not column evidence");
+        let h=Line{x0:21.0,y0:26.0,x1:31.0,y1:26.0};
+        let v=Line{x0:26.0,y0:21.0,x1:26.0,y1:31.0};
+        let mut with_cross=edges.to_vec();with_cross.extend([h,v]);
+        let columns=column_hatch_candidates(&[box_rect.clone()],&with_cross);
+        assert_eq!(columns.len(),1);
+        assert_eq!(columns[0]["sourceHatchEdges"],json!([4,5]));
+        with_cross.push(Line{x0:19.0,y0:27.0,x1:33.0,y1:27.0});
+        assert!(column_hatch_candidates(&[box_rect],&with_cross).is_empty(),"multiple hatch interpretations must not guess");
+    }
+
+    #[test]
+    fn ai_column_hatch_png_preview_requires_confirmation_and_keeps_source_strokes() {
+        let mut img=image::RgbImage::from_pixel(90,80,image::Rgb([255,255,255]));
+        for x in 20..=52 {for y in [16,48] {img.put_pixel(x,y,image::Rgb([0,0,0]));}}
+        for y in 16..=48 {for x in [20,52] {img.put_pixel(x,y,image::Rgb([0,0,0]));}}
+        for x in 31..=41 {img.put_pixel(x,32,image::Rgb([0,0,0]));}
+        for y in 27..=37 {img.put_pixel(36,y,image::Rgb([0,0,0]));}
+        let path=std::env::temp_dir().join(format!("cad360-column-hatch-{}-{}.png",std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        img.save(&path).unwrap();
+        let mut args=json!({"path":path.to_string_lossy(),"minLengthPixels":8,"includeDiagonals":false,
+            "closedRectangles":false,"columnHatchHints":true,"unitsPerPixel":2.0,"maxGapPixels":0});
+        let proposal=preview(&args).unwrap();
+        assert_eq!(proposal["columnHatchCandidateCount"],1);
+        assert_eq!(proposal["closedPolylines"].as_array().unwrap().len(),0,
+            "column hints may not enable general closed rectangle conversion");
+        assert_eq!(proposal["columnGuidePolylineCount"],0,"column guides are never automatic");
+        assert!(proposal["lines"].as_array().unwrap().len()>=6,"source pixels must remain editable after Commit");
+        args["createColumnGuidePolylines"]=json!(true);
+        assert!(preview(&args).unwrap_err().contains("confirmColumnGuides=true"));
+        args["confirmColumnGuides"]=json!(true);
+        let confirmed=preview(&args).unwrap();
+        assert_eq!(confirmed["columnGuidePolylineCount"],1);
+        let source_count=confirmed["lines"].as_array().unwrap().len();
+        let mut backend=crate::backend::Headless::default();
+        args["preview"]=json!(false);
+        let result=run(&mut backend,&args).unwrap();
+        assert_eq!(result["columnGuidePolylinesCreated"],1);
+        assert_eq!(result["editableEntitiesCreated"].as_u64(),Some((source_count+1) as u64));
+        let _=std::fs::remove_file(path);
     }
 
     #[test]
