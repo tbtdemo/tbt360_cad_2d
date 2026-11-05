@@ -714,6 +714,7 @@ dependencies = [
  "cadcraft-io",
  "cadcraft-render",
  "getrandom 0.4.3",
+ "image",
  "log",
  "serde_json",
 ]
