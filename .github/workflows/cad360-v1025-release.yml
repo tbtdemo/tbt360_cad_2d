@@ -129,6 +129,10 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'V1.025 AI vector trace geometry quality gate failed' }
           cargo test --locked -p cadcraft-mcp --lib ai_trace_quality_large_survey_coordinates -- --nocapture
           if ($LASTEXITCODE -ne 0) { throw 'V1.025 AI large-coordinate geometry regression failed' }
+          cargo test --locked -p cadcraft-mcp --lib ai_trace_quality_large_2048_point_image_trace -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'V1.025 AI 2048-point broad-phase regression failed' }
+          cargo test --locked -p cadcraft-mcp --lib ai_trace_quality_broad_phase_preserves_nonadjacent_crossings -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'V1.025 AI broad-phase missed a real crossing' }
           cargo test --locked -p cadcraft-mcp --lib ai_validated_image_trace -- --nocapture
           if ($LASTEXITCODE -ne 0) { throw 'V1.025 validated IMAGE AI trace MCP test failed' }
           cargo test --locked -p cadcraft-mcp --lib ai_validated_perspective_trace -- --nocapture
