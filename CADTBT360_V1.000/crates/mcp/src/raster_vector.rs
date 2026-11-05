@@ -384,6 +384,32 @@ fn wall_centerline_junctions(axes: &[Line]) -> Vec<Value> {
     result
 }
 
+/// Report short interruptions as possible openings only; no auto-bridge.
+/// A blank span may be a door, window, damaged scan or drafting break.
+fn opening_gap_candidates(lines: &[Line], min_gap: f64, max_gap: f64) -> Vec<Value> {
+    if lines.len()>256 {return Vec::new();}
+    let mut gaps=Vec::new();
+    for (i,a) in lines.iter().enumerate() {
+        for (j,b) in lines.iter().enumerate().skip(i+1) {
+            let horiz=(a.y1-a.y0).abs()<0.25 && (b.y1-b.y0).abs()<0.25 && (a.y0-b.y0).abs()<0.75;
+            let vert=(a.x1-a.x0).abs()<0.25 && (b.x1-b.x0).abs()<0.25 && (a.x0-b.x0).abs()<0.75;
+            if !horiz && !vert {continue;}
+            let (a0,a1,b0,b1)=if horiz {(a.x0,a.x1,b.x0,b.x1)} else {(a.y0,a.y1,b.y0,b.y1)};
+            if a1-a0<16.0 || b1-b0<16.0 {continue;}
+            let (begin,end)=if a1<b0 {(a1,b0)} else if b1<a0 {(b1,a0)} else {continue};
+            let gap=end-begin;
+            if gap<min_gap || gap>max_gap {continue;}
+            let fixed=if horiz {(a.y0+b.y0)*0.5} else {(a.x0+b.x0)*0.5};
+            gaps.push(json!({"sourceEdges":[i,j],"gapPixels":gap,
+                "fromPixels":if horiz {json!([begin,fixed])} else {json!([fixed,begin])},
+                "toPixels":if horiz {json!([end,fixed])} else {json!([fixed,end])},
+                "classification":"unverified-gap-not-door"}));
+            if gaps.len()==128 {return gaps;}
+        }
+    }
+    gaps
+}
+
 /// Shared non-mutating vectorization used by MCP and the desktop GUI.
 pub fn preview(args: &Value) -> Result<Value, String> {
     let path = args["path"].as_str().filter(|s| !s.trim().is_empty()).ok_or("path is required")?;
@@ -427,6 +453,9 @@ pub fn preview(args: &Value) -> Result<Value, String> {
     }
     let gap_pixels = args["maxGapPixels"].as_u64().unwrap_or(0);
     if gap_pixels > 12 { return Err("maxGapPixels must be 0..12; larger gaps may represent doors or openings".into()); }
+    let gaps_hint=if args["openingGapHints"].as_bool().unwrap_or(false) {
+        opening_gap_candidates(&lines,3.0,40.0)
+    } else {Vec::new()};
     let source_strokes = lines.len();
     let bridged_gaps = bridge_collinear_gaps(&mut lines, gap_pixels as f64);
     // Pixel spacing is user-calibrated. Keep narrow, finite limits so the
@@ -488,6 +517,7 @@ pub fn preview(args: &Value) -> Result<Value, String> {
     Ok(json!({"preview":true,"recognition":"automatic-raster-line-strokes","model":"deterministic-pixel-vectorization-not-neural-AI",
         "imageSize":[width,height],"strokes":count,"sourceStrokes":source_strokes,
         "bridgedGaps":bridged_gaps,"maxGapPixels":gap_pixels,
+        "openingGapCandidates":gaps_hint,"openingGapCandidateCount":gaps_hint.len(),
         "wallPairHints":wall_hints,"wallPairCandidateCount":wall_hints.len(),
         "minWallSpacingPixels":min_wall_spacing,"maxWallSpacingPixels":max_wall_spacing,
         "wallCenterlines":world_axes,"wallCenterlinesProposed":axes.len(),
@@ -739,6 +769,30 @@ mod tests {
             assert!(e.contains("pixel spacing"),"unexpected validation error: {e}");
         }
         let _=std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn ai_opening_gap_hints_preserve_unjoined_wall_segments() {
+        let lines=vec![
+            Line{x0:5.5,y0:10.5,x1:35.5,y1:10.5},
+            Line{x0:47.5,y0:10.5,x1:87.5,y1:10.5},
+        ];
+        let before=lines.len();
+        let hints=opening_gap_candidates(&lines,3.0,40.0);
+        assert_eq!(hints.len(),1);
+        assert_eq!(hints[0]["gapPixels"],12.0);
+        assert_eq!(hints[0]["classification"],"unverified-gap-not-door");
+        assert_eq!(lines.len(),before,"preview must not close or change the source lines");
+    }
+
+    #[test]
+    fn ai_opening_gap_hints_ignore_parallel_separated_and_touching_lines() {
+        let lines=vec![
+            Line{x0:5.5,y0:10.5,x1:35.5,y1:10.5},
+            Line{x0:47.5,y0:16.5,x1:87.5,y1:16.5},
+            Line{x0:35.5,y0:10.5,x1:70.5,y1:10.5},
+        ];
+        assert!(opening_gap_candidates(&lines,3.0,40.0).is_empty());
     }
 
     #[test]
