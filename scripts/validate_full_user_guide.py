@@ -33,8 +33,8 @@ def validate(path: Path) -> None:
     if missing:
         raise ValueError(f"Whole-product guide missing essential features: {missing}")
     lessons = {int(n) for n in re.findall(r"(?mi)^\s*#{2,4}\s*Bài\s+(\d+)\s+[-—]",text)}
-    if lessons != set(range(1,16)):
-        raise ValueError(f"Expected 15 distinct beginner-to-advanced lessons; found {sorted(lessons)}")
+    if lessons != set(range(1,22)):
+        raise ValueError(f"Expected 21 distinct beginner-to-advanced lessons; found {sorted(lessons)}")
     if "Chưa nghiệm thu" not in text or "PDF" not in text:
         raise ValueError("Guide does not distinguish unverified capabilities")
     print(f"PASS: full CAD 360 manual; {len(numbered)} feature chapters, {len(lessons)} unique lessons, {len(text)} chars")
