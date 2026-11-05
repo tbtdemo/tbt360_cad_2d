@@ -2,6 +2,12 @@ name: CAD 360 V1.025 - Windows GUI Startup Smoke
 
 on:
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Exact V1.025 prerelease tag to test (no recompilation)'
+        required: true
+        default: 'CADTBT360_V1.025_B87_A1'
+        type: string
   push:
     branches:
       - feature/CADTBT360_V1.025_xref-regression
@@ -21,6 +27,8 @@ jobs:
     name: Verify released V1.025 Portable and Setup GUI startup on Windows
     runs-on: windows-latest
     timeout-minutes: 20
+    env:
+      CAD360_RELEASE_TAG: ${{ inputs.release_tag || 'CADTBT360_V1.025_B87_A1' }}
     steps:
       - name: Require V1.025 feature branch for manual QA
         if: ${{ github.event_name == 'workflow_dispatch' }}
@@ -50,24 +58,55 @@ jobs:
           }
           Write-Host 'PowerShell GUI startup script syntax validated'
 
-      - name: Download exact published B87/A1 Portable (not newly compiled)
+      - name: Resolve exact prerelease identity and SHA256 manifest
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $tag = $env:CAD360_RELEASE_TAG
+          if ($tag -notmatch '^CADTBT360_V1[.]025_B[0-9]+_A[0-9]+$') { throw "Unexpected V1.025 prerelease tag: $tag" }
+          New-Item -ItemType Directory -Force dist/gui-smoke | Out-Null
+          $json = gh release view $tag --repo tbtdemo/tbt360_cad_2d --json tagName,targetCommitish,isPrerelease
+          if ($LASTEXITCODE -ne 0) { throw "Cannot inspect release: $tag" }
+          $release = ($json -join [char]10) | ConvertFrom-Json
+          if ($release.tagName -ne $tag -or $release.isPrerelease -ne $true) { throw "Release is not the expected prerelease: $tag" }
+          gh release download $tag --repo tbtdemo/tbt360_cad_2d --pattern 'SHA256SUMS.txt' --pattern 'BUILD_INFO.txt' --dir dist/gui-smoke --clobber
+          if ($LASTEXITCODE -ne 0) { throw "Cannot fetch prerelease manifest for $tag" }
+          $info = @(Get-Content 'dist/gui-smoke/BUILD_INFO.txt')
+          $commitLines = @($info | Where-Object { $_ -match '^SourceCommit=[0-9a-fA-F]{40}$' })
+          if ($commitLines.Count -ne 1) { throw 'BUILD_INFO has no unique full SourceCommit' }
+          $sourceCommit = $commitLines[0].Split('=')[1]
+          if ($release.targetCommitish -ne $sourceCommit) { throw "Release target commit does not match BUILD_INFO: $($release.targetCommitish) != $sourceCommit" }
+          $hashes = @(Get-Content 'dist/gui-smoke/SHA256SUMS.txt')
+          foreach ($assetName in @('CADTBT360_V1.025_Portable_Windows_x64.zip', 'CADTBT360_V1.025_Setup_Windows_x64.exe')) {
+            $assetLines = @($hashes | Where-Object { $_ -match ('^[0-9a-fA-F]{64}  ' + [regex]::Escape($assetName) + '$') })
+            if ($assetLines.Count -ne 1) { throw "Missing or ambiguous SHA256SUMS entry: $assetName" }
+          }
+          "ReleaseTag=$tag" | Set-Content 'dist/gui-smoke/release-identity.txt' -Encoding ascii
+          "SourceCommit=$sourceCommit" | Add-Content 'dist/gui-smoke/release-identity.txt' -Encoding ascii
+          Write-Host "Verified prerelease identity: $tag -> $sourceCommit"
+
+      - name: Download requested published V1.025 Portable (not newly compiled)
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           $ErrorActionPreference = 'Stop'
           New-Item -ItemType Directory -Force dist/gui-smoke | Out-Null
-          gh release download CADTBT360_V1.025_B87_A1 --repo tbtdemo/tbt360_cad_2d --pattern 'CADTBT360_V1.025_Portable_Windows_x64.zip' --dir dist/gui-smoke --clobber
+          gh release download $env:CAD360_RELEASE_TAG --repo tbtdemo/tbt360_cad_2d --pattern 'CADTBT360_V1.025_Portable_Windows_x64.zip' --dir dist/gui-smoke --clobber
           if ($LASTEXITCODE -ne 0) { throw 'Cannot download B87 A1 Portable from GitHub Release' }
           $zip = 'dist/gui-smoke/CADTBT360_V1.025_Portable_Windows_x64.zip'
           $hash = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant()
-          $expected = '9eedc1e568f4a739948716e87c794778102cae9fb3c97a419d07ccf3a63e1737'
+          $assetName = 'CADTBT360_V1.025_Portable_Windows_x64.zip'
+          $line = @(Get-Content 'dist/gui-smoke/SHA256SUMS.txt' | Where-Object { $_ -match ('^[0-9a-fA-F]{64}  ' + [regex]::Escape($assetName) + '$') })[0]
+          $expected = $line.Substring(0,64).ToLowerInvariant()
           if ($hash -ne $expected) { throw "Downloaded Portable SHA256 mismatch: $hash" }
           Expand-Archive -Path $zip -DestinationPath 'dist/gui-smoke/portable' -Force
           $exe = 'dist/gui-smoke/portable/CADTBT360.exe'
           if (!(Test-Path $exe)) { throw 'CADTBT360.exe missing in official Portable ZIP' }
           $info = Get-Content 'dist/gui-smoke/portable/BUILD_INFO.txt'
-          if ($info -notcontains 'SourceCommit=0634a0ec56e47c2d61e659d7a3ff0d99ae0722ed') { throw 'Portable BUILD_INFO does not match released B87 executable commit' }
+          if (($info -join [char]10) -ne ((Get-Content 'dist/gui-smoke/BUILD_INFO.txt') -join [char]10)) { throw 'Portable BUILD_INFO does not match release identity manifest' }
           $hash | Set-Content 'dist/gui-smoke/portable-sha256.txt' -Encoding ascii
 
       - name: Start real Windows GUI and observe top-level window
@@ -77,20 +116,23 @@ jobs:
         run: |
           & './scripts/qa/Test-CADTBT360-V1025-GuiStartup.ps1' -Executable './dist/gui-smoke/portable/CADTBT360.exe' -EvidenceDirectory './dist/gui-smoke/evidence' -WaitSeconds 35
 
-      - name: Download and verify exact B87 A1 Setup executable
+      - name: Download and verify requested V1.025 Setup executable
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           $ErrorActionPreference = 'Stop'
-          gh release download CADTBT360_V1.025_B87_A1 --repo tbtdemo/tbt360_cad_2d --pattern 'CADTBT360_V1.025_Setup_Windows_x64.exe' --dir dist/gui-smoke --clobber
+          gh release download $env:CAD360_RELEASE_TAG --repo tbtdemo/tbt360_cad_2d --pattern 'CADTBT360_V1.025_Setup_Windows_x64.exe' --dir dist/gui-smoke --clobber
           if ($LASTEXITCODE -ne 0) { throw 'Cannot download B87 A1 Setup EXE' }
           $setup = 'dist/gui-smoke/CADTBT360_V1.025_Setup_Windows_x64.exe'
           $hash = (Get-FileHash $setup -Algorithm SHA256).Hash.ToLowerInvariant()
-          if ($hash -ne '72165e84f4266e49e0dd18397c77b8b528e94ecc40ccd8b3c67e526d8db1c7ae') { throw "B87 A1 Setup SHA256 mismatch: $hash" }
+          $assetName = 'CADTBT360_V1.025_Setup_Windows_x64.exe'
+          $line = @(Get-Content 'dist/gui-smoke/SHA256SUMS.txt' | Where-Object { $_ -match ('^[0-9a-fA-F]{64}  ' + [regex]::Escape($assetName) + '$') })[0]
+          $expected = $line.Substring(0,64).ToLowerInvariant()
+          if ($hash -ne $expected) { throw "Setup SHA256 mismatch for $env:CAD360_RELEASE_TAG: $hash" }
           $hash | Set-Content 'dist/gui-smoke/setup-sha256.txt' -Encoding ascii
 
-      - name: Install real B87 A1 Setup and verify installed GUI identity
+      - name: Install requested Setup and verify installed GUI identity
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
@@ -105,7 +147,7 @@ jobs:
           $installedHash = (Get-FileHash $installedGui -Algorithm SHA256).Hash
           if ($sourceHash -ne $installedHash) { throw 'Installed GUI executable differs from B87 A1 Portable binary' }
           $info = Get-Content (Join-Path $dest 'BUILD_INFO.txt')
-          if ($info -notcontains 'SourceCommit=0634a0ec56e47c2d61e659d7a3ff0d99ae0722ed') { throw 'Installed GUI source commit mismatch' }
+          if (($info -join [char]10) -ne ((Get-Content 'dist/gui-smoke/BUILD_INFO.txt') -join [char]10)) { throw 'Installed GUI source commit mismatch' }
           $dest | Set-Content 'dist/gui-smoke/installed-directory.txt'
 
       - name: Start installed Setup GUI and observe top-level window
@@ -116,7 +158,7 @@ jobs:
           $dest = Get-Content 'dist/gui-smoke/installed-directory.txt' -Raw
           & './scripts/qa/Test-CADTBT360-V1025-GuiStartup.ps1' -Executable (Join-Path $dest.Trim() 'CADTBT360.exe') -EvidenceDirectory './dist/gui-smoke/installed-evidence' -WaitSeconds 35
 
-      - name: Uninstall the installed B87 A1 setup on Windows runner
+      - name: Uninstall requested Setup on Windows runner
         if: ${{ always() }}
         shell: pwsh
         run: |
@@ -139,7 +181,7 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $summary = @(
-            '## CAD 360 V1.025 B87 - Windows GUI startup results',
+            "## CAD 360 V1.025 $env:CAD360_RELEASE_TAG - Windows GUI startup results",
             "- Portable GUI startup: $env:PORTABLE_OUTCOME",
             "- Installed Setup GUI startup: $env:INSTALLED_OUTCOME",
             '- GUI manual acceptance: NOT_VERIFIED',
@@ -155,9 +197,12 @@ jobs:
         if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
-          name: CADTBT360_V1.025_B87_GUI_Startup_Evidence
+          name: CADTBT360_V1.025_GUI_Startup_Evidence
           path: |
             dist/gui-smoke/evidence/
+            dist/gui-smoke/BUILD_INFO.txt
+            dist/gui-smoke/SHA256SUMS.txt
+            dist/gui-smoke/release-identity.txt
             dist/gui-smoke/installed-evidence/
             dist/gui-smoke/portable-sha256.txt
             dist/gui-smoke/setup-sha256.txt
