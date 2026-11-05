@@ -25,6 +25,7 @@ mod spacemouse;
 mod system_animations;
 mod workspace;
 mod takeoff;
+mod ai_raster_panel;
 mod takeoff_report;
 mod takeoff_composite;
 mod takeoff_road;
@@ -66,6 +67,7 @@ struct App {
     cad: CadApp,
     active_tab: MainTab,
     takeoff_state: takeoff::State,
+    ai_raster_state: ai_raster_panel::State,
     bim_collab_state: bim_collab::State,
     paired_recovery: cad_bim_recovery::Recovery,
     model3d_state: model3d::State,
@@ -157,6 +159,9 @@ impl eframe::App for App {
             ui.selectable_value(&mut self.active_tab, MainTab::Pdf, "PDF / BẢN VẼ");
             ui.selectable_value(&mut self.active_tab, MainTab::Model3d, "3D / IFC");
             ui.selectable_value(&mut self.active_tab, MainTab::BimCollab, "BIM CỘNG TÁC");
+            if self.active_tab == MainTab::Cad && ui.button("AI TỪ ẢNH → CAD").on_hover_text("Chọn PNG/JPEG, xem trước nét tự động và tạo LINE chỉnh sửa trực tiếp vào bản vẽ").clicked() {
+                self.ai_raster_state.open();
+            }
             if self.active_tab == MainTab::Cad && ui.button("Aa KIỂU CHỮ").on_hover_text("Tạo, sửa, đặt hiện hành font và kiểu chữ CAD — lệnh STYLE/ST").clicked() {
                 self.cad.start("style");
             }
@@ -203,6 +208,7 @@ impl eframe::App for App {
             MainTab::Model3d => model3d::panel(ui, &mut self.model3d_state),
             MainTab::BimCollab => bim_collab::panel(ui, &mut self.cad, &mut self.bim_collab_state),
         }
+        ai_raster_panel::window(ui.ctx(), &mut self.cad, &mut self.ai_raster_state);
         #[cfg(target_os = "macos")]
         craft_window::title_bar::sync_movable(ui.ctx(), &mut self.movable);
     }
@@ -515,6 +521,7 @@ fn main() -> eframe::Result {
                 cad: app,
                 active_tab: MainTab::default(),
                 takeoff_state: takeoff::State::default(),
+                ai_raster_state: ai_raster_panel::State::default(),
                 bim_collab_state: bim_collab::State::default(),
                 paired_recovery: cad_bim_recovery::Recovery::new(config_dir().map(|dir| dir.join("cad-bim-recovery"))),
                 model3d_state: model3d::State::default(),
