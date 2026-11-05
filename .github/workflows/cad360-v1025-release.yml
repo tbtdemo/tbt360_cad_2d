@@ -160,6 +160,7 @@ jobs:
             @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_window_sash_needs_two_inner_parallel_rails_and_no_competing_door_leaf' },
             @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_real_png_window_sash_hint_is_preview_only_and_preserves_source_geometry' },
             @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_window_guide_requires_confirmation_before_native_closed_pline' },
+            @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_real_png_confirmed_window_block_draft_preserves_source_lines_and_rejects_mcp_commit' },
             @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_real_png_door_leaf_hint_is_preview_only_and_preserves_native_geometry' },
             @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_confirmed_door_swing_arc_is_editable_and_refuses_missing_confirmation' },
             @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_real_png_door_arc_commit_creates_native_arc_after_confirmation' },
@@ -175,6 +176,8 @@ jobs:
             @{ Package='cadcraft'; Target='gui'; Test='ai_door_hinge_swing_gui_requires_door_block_and_preserves_selected_indices' },
             @{ Package='cadcraft'; Target='gui'; Test='ai_preview_door_click_selects_nearest_door_and_refuses_ambiguous_click' },
             @{ Package='cadcraft'; Target='gui'; Test='ai_window_sash_gui_requires_separate_hint_and_confirmed_guide_opt_in' },
+            @{ Package='cadcraft'; Target='gui'; Test='ai_native_window_block_contains_one_frame_and_two_rails_and_undoes' },
+            @{ Package='cadcraft'; Target='gui'; Test='ai_window_block_gui_requires_separate_human_confirmation' },
             @{ Package='cadcraft'; Target='gui'; Test='ai_individual_door_review_must_include_expected_source_keys_on_preview' },
             @{ Package='cadcraft'; Target='gui'; Test='ai_new_source_requires_review_of_per_door_candidate_indices_again' },
             @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_door_leaf_evidence_requires_a_perpendicular_outward_stroke_at_opening_corner' },
@@ -262,6 +265,12 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'AI window-vs-door ambiguity guard failed' }
           cargo test --locked -p cadcraft-mcp --lib ai_window_guide_requires_confirmation_before_native_closed_pline -- --nocapture
           if ($LASTEXITCODE -ne 0) { throw 'AI confirmed editable window guide regression failed' }
+          cargo test --locked -p cadcraft-mcp --lib ai_real_png_confirmed_window_block_draft_preserves_source_lines_and_rejects_mcp_commit -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'AI reviewed window BLOCK proposal or MCP safety regression failed' }
+          cargo test --locked -p cadcraft --bin cadcraft ai_native_window_block_contains_one_frame_and_two_rails_and_undoes -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'AI native CAD window BLOCK INSERT and Undo regression failed' }
+          cargo test --locked -p cadcraft --bin cadcraft ai_window_block_gui_requires_separate_human_confirmation -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'AI window BLOCK GUI confirmation regression failed' }
           cargo test --locked -p cadcraft --bin cadcraft ai_window_sash_gui_requires_separate_hint_and_confirmed_guide_opt_in -- --nocapture
           if ($LASTEXITCODE -ne 0) { throw 'AI window hint GUI opt-in regression failed' }
           cargo test --locked -p cadcraft-mcp --lib ai_real_png_door_leaf_hint_is_preview_only_and_preserves_native_geometry -- --nocapture
