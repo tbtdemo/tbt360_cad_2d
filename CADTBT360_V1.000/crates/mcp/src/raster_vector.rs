@@ -422,9 +422,19 @@ fn opening_gap_candidates(lines: &[Line], min_gap: f64, max_gap: f64) -> Vec<Val
                 }
             });
             if obstructed {continue;}
+            let from=if horiz {json!([begin,fixed])} else {json!([fixed,begin])};
+            let to=if horiz {json!([end,fixed])} else {json!([fixed,end])};
+            // Duplicate raster strokes can propose one physical gap repeatedly.
+            // Deduplicate geometrically, but keep sourceEdges for traceability.
+            let duplicate=gaps.iter().any(|prior: &Value| {
+                let p=&prior["fromPixels"]; let q=&prior["toPixels"];
+                let near=|a:&Value,b:&Value| a.as_f64().zip(b.as_f64()).is_some_and(|(x,y)|(x-y).abs()<=0.75);
+                near(&p[0],&from[0]) && near(&p[1],&from[1])
+                    && near(&q[0],&to[0]) && near(&q[1],&to[1])
+            });
+            if duplicate {continue;}
             gaps.push(json!({"sourceEdges":[i,j],"gapPixels":gap,
-                "fromPixels":if horiz {json!([begin,fixed])} else {json!([fixed,begin])},
-                "toPixels":if horiz {json!([end,fixed])} else {json!([fixed,end])},
+                "fromPixels":from,"toPixels":to,
                 "classification":"unverified-gap-not-door"}));
             if gaps.len()==128 {return gaps;}
         }
@@ -879,6 +889,28 @@ mod tests {
         let err=preview(&wrong).expect_err("cannot request both opening detection and auto-bridge");
         assert!(err.contains("requires maxGapPixels=0"),"{err}");
         let _=std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn ai_opening_gap_duplicate_raster_strokes_do_not_duplicate_one_gap() {
+        let left=Line{x0:5.5,y0:20.5,x1:35.5,y1:20.5};
+        let right=Line{x0:47.5,y0:20.5,x1:87.5,y1:20.5};
+        let duplicated=vec![left,right,left,right];
+        let hints=opening_gap_candidates(&duplicated,3.0,40.0);
+        assert_eq!(hints.len(),1,"duplicate extracted strokes represent just one physical gap");
+        assert_eq!(hints[0]["gapPixels"],12.0);
+    }
+
+    #[test]
+    fn ai_opening_gap_different_openings_are_not_deduplicated() {
+        let lines=vec![
+            Line{x0:5.5,y0:10.5,x1:35.5,y1:10.5},
+            Line{x0:47.5,y0:10.5,x1:87.5,y1:10.5},
+            Line{x0:5.5,y0:30.5,x1:35.5,y1:30.5},
+            Line{x0:47.5,y0:30.5,x1:87.5,y1:30.5},
+        ];
+        let hints=opening_gap_candidates(&lines,3.0,40.0);
+        assert_eq!(hints.len(),2,"independent openings on parallel walls must stay distinct");
     }
 
     #[test]
