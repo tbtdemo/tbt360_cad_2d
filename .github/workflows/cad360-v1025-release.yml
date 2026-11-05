@@ -130,6 +130,7 @@ jobs:
             @{ Package='cadcraft-io'; Target='it'; Test='xref_roundtrip' },
             @{ Package='cadcraft-io'; Target='it'; Test='large_dwg_v1025' },
             @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_automatic_raster_to_cad_lines_from_real_png' },
+            @{ Package='cadcraft-mcp'; Target='lib'; Test='raster_vector_preview_real_png_has_exact_scaled_world_coordinates' },
             @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_auto_raster_to_cad_dxf_roundtrip_preserves_editable_lines' },
             @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_auto_raster_mcp_failed_second_line_rolls_back_first_line' },
             @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_auto_raster_mcp_document_switch_must_not_undo_unrelated_new_drawing' },
@@ -180,6 +181,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'V1.025 AI perspective tracing failed' }
           cargo test --locked -p cadcraft-mcp --lib ai_perspective_trace_remains_editable_after_dxf_save_reopen -- --nocapture
           if ($LASTEXITCODE -ne 0) { throw 'V1.025 AI DXF persistence failed' }
+          cargo test --locked -p cadcraft-mcp --lib raster_vector_preview_real_png_has_exact_scaled_world_coordinates -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'V1.025 real PNG raster centerline coordinates or unit conversion regressed' }
           cargo test --locked -p cadcraft-mcp --lib ai_trace_quality_gate -- --nocapture
           if ($LASTEXITCODE -ne 0) { throw 'V1.025 AI vector trace geometry quality gate failed' }
           cargo test --locked -p cadcraft-mcp --lib ai_trace_quality_large_survey_coordinates -- --nocapture
