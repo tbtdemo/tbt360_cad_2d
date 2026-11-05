@@ -608,6 +608,16 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
                             };
                             ui.small(format!("Khoảng cách gần nhất từ các đầu tường đến nút: {distances} px."));
                             ui.small(advice);
+                            let edits=candidate["editPreview"].as_array();
+                            let edits_count=edits.map_or(0,Vec::len);
+                            ui.small(format!("Phương án trước/sau: {edits_count} đầu tường đủ điều kiện xem thử, không áp dụng tự động."));
+                            if let Some(edits)=edits {
+                                for edit in edits.iter().take(4) {
+                                    let panel=edit["panelIndex"].as_u64().unwrap_or(0)+1;
+                                    let distance=edit["distanceCAD"].as_f64().unwrap_or(0.0);
+                                    ui.small(format!("Tường {panel}: dự kiến dịch đầu gần nút {distance:.4} đơn vị CAD; không ảnh hưởng bản vẽ."));
+                                }
+                            }
                             ui.small(format!("Nút {}: chỉ đề xuất kiểm tra, canAutoApply=false; không tự Trim/Extend hoặc gộp BLOCK.",index+1));
                         }
                     }
@@ -847,6 +857,20 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
                                 let selected=state.selected_wall_junction==Some(index);
                                 let color=if selected {egui::Color32::WHITE} else if state.reviewed_wall_junctions.contains(&index) {egui::Color32::LIGHT_GREEN} else {egui::Color32::from_rgb(245,105,212)};
                                 painter.circle_stroke(point,if selected {8.0} else {5.0},egui::Stroke::new(if selected {3.0} else {2.0},color));
+                            }
+                        }
+                    }
+                    // Stage 226: show the selected short endpoint correction as an overlay.
+                    // A preview line is not submitted to the editor, engine or undo stack.
+                    if let Some(index)=state.selected_wall_junction {
+                        if let Some(edits)=proposal["wallPanelJunctionCandidates"][index]["editPreview"].as_array() {
+                            for edit in edits {
+                                let (Some(ax),Some(ay),Some(bx),Some(by))=(edit["beforeCAD"][0].as_f64(),edit["beforeCAD"][1].as_f64(),
+                                    edit["afterCAD"][0].as_f64(),edit["afterCAD"][1].as_f64()) else {continue;};
+                                let from=to_screen(ax,ay);let to=to_screen(bx,by);
+                                painter.line_segment([from,to],egui::Stroke::new(3.0,egui::Color32::from_rgb(255,171,43)));
+                                painter.circle_filled(from,3.0,egui::Color32::from_rgb(245,90,90));
+                                painter.circle_filled(to,3.0,egui::Color32::from_rgb(90,240,170));
                             }
                         }
                     }
