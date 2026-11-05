@@ -169,6 +169,7 @@ jobs:
             @{ Package='cadcraft'; Target='gui'; Test='ai_door_width_override_gui_requires_block_opt_in_and_defaults_to_unmodified_draft' },
             @{ Package='cadcraft'; Target='gui'; Test='ai_individual_door_width_override_gui_serializes_selected_indices_only' },
             @{ Package='cadcraft'; Target='gui'; Test='ai_door_hinge_swing_gui_requires_door_block_and_preserves_selected_indices' },
+            @{ Package='cadcraft'; Target='gui'; Test='ai_new_source_requires_review_of_per_door_candidate_indices_again' },
             @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_door_leaf_evidence_requires_a_perpendicular_outward_stroke_at_opening_corner' },
             @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_two_aligned_wall_edge_gaps_propose_one_opening_outline' },
             @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_single_or_ambiguous_opening_gap_must_not_invent_a_door' },
@@ -262,6 +263,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'AI per-door hinge/swing source-preservation regression failed' }
           cargo test --locked -p cadcraft --bin cadcraft ai_door_hinge_swing_gui_requires_door_block_and_preserves_selected_indices -- --nocapture
           if ($LASTEXITCODE -ne 0) { throw 'AI door hinge/swing desktop GUI state regression failed' }
+          cargo test --locked -p cadcraft --bin cadcraft ai_new_source_requires_review_of_per_door_candidate_indices_again -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'AI source-switch stale door candidate regression failed' }
           cargo test --locked -p cadcraft --bin cadcraft ai_door_width_override_gui_requires_block_opt_in_and_defaults_to_unmodified_draft -- --nocapture
           if ($LASTEXITCODE -ne 0) { throw 'AI door width GUI regression failed' }
           cargo test --locked -p cadcraft --bin cadcraft ai_native_door_draft_block_contains_line_and_arc_and_can_undo_as_one_step -- --nocapture
