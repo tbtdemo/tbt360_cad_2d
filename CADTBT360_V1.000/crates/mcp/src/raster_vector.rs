@@ -721,17 +721,35 @@ pub fn preview(args: &Value) -> Result<Value, String> {
     }
     // A block consists of a newly drawn door-leaf LINE and swing ARC, not the
     // traced raster source edge: source evidence stays available for comparison.
+    // The user's reviewed door width changes only the NEW native LINE/ARC
+    // drafted for the Block. It never stretches or closes raster source edges.
+    let override_width=match args.get("doorWidthOverrideCAD") {
+        None => None,
+        Some(value) => {
+            let width=value.as_f64().ok_or("doorWidthOverrideCAD must be a positive finite CAD dimension; no edits made")?;
+            if !width.is_finite() || !(0.000001..=1_000_000_000.0).contains(&width) {
+                return Err("doorWidthOverrideCAD must be within 0.000001..1000000000 CAD units; no edits made".into());
+            }
+            if !create_door_blocks {return Err("doorWidthOverrideCAD requires reviewed createDoorBlocks=true; no edits made".into());}
+            Some(width)
+        }
+    };
     let mut door_blocks=Vec::new();
     if create_door_blocks {
         for arc in &door_arcs {
             let (Some(cx),Some(cy),Some(radius),Some(start))=(arc["center"][0].as_f64(),arc["center"][1].as_f64(),
                 arc["radius"].as_f64(),arc["start"].as_f64()) else {continue};
+            let reviewed_radius=override_width.unwrap_or(radius);
             let angle=start.to_radians();
-            let x=cx+radius*angle.cos(); let y=cy+radius*angle.sin();
+            let x=cx+reviewed_radius*angle.cos(); let y=cy+reviewed_radius*angle.sin();
             if !x.is_finite() || !y.is_finite() || x.abs()>1.0e12 || y.abs()>1.0e12 {
                 return Err("Door block draft coordinates are outside CAD safety bounds; no changes made".into());
             }
-            door_blocks.push(json!({"base":[cx,cy],"leaf":[[cx,cy],[x,y]],"arc":arc,
+            let mut drafted_arc=arc.clone();
+            drafted_arc["radius"]=json!(reviewed_radius);
+            door_blocks.push(json!({"base":[cx,cy],"leaf":[[cx,cy],[x,y]],"arc":drafted_arc,
+                "widthCAD":reviewed_radius,"sourceOpeningWidthCAD":radius,
+                "widthOverridden":override_width.is_some(),
                 "classification":"human-confirmed-cad-drafting-block-not-semantic-door"}));
         }
     }
@@ -1020,6 +1038,39 @@ mod tests {
         let current=backend.call("drawing.inspect",json!({"entities":false})).unwrap();
         assert_eq!(current["entityCount"].as_u64(),Some((source_lines+1) as u64));
         let _=std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn ai_reviewed_door_width_changes_only_new_block_leaf_and_arc_not_image_strokes() {
+        let mut img=image::RgbImage::from_pixel(110,48,image::Rgb([255,255,255]));
+        for y in [15,22] {
+            for x in 5..=39 {img.put_pixel(x,y,image::Rgb([0,0,0]));}
+            for x in 51..=95 {img.put_pixel(x,y,image::Rgb([0,0,0]));}
+        }
+        for y in 3..=15 {img.put_pixel(39,y,image::Rgb([0,0,0]));}
+        let path=std::env::temp_dir().join(format!("cad360-reviewed-door-width-{}-{}.png",std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        img.save(&path).unwrap();
+        let mut args=json!({"path":path.to_string_lossy(),"minLengthPixels":8,"includeDiagonals":false,
+            "openingGapHints":true,"pairedWallOpeningHints":true,"doorLeafHints":true,
+            "maxGapPixels":0,"createDoorSwingArcs":true,"confirmDoorSwingArcs":true,
+            "createDoorBlocks":true,"confirmDoorBlocks":true,"unitsPerPixel":2.0});
+        let original=preview(&args).unwrap();
+        assert_eq!(original["doorBlockDraftCount"],1);
+        assert_eq!(original["doorBlockDrafts"][0]["widthCAD"],24.0);
+        args["doorWidthOverrideCAD"]=json!(30.0);
+        let modified=preview(&args).unwrap();
+        assert_eq!(modified["doorBlockDrafts"][0]["widthCAD"],30.0);
+        assert_eq!(modified["doorBlockDrafts"][0]["sourceOpeningWidthCAD"],24.0);
+        assert_eq!(modified["doorBlockDrafts"][0]["arc"]["radius"],30.0);
+        assert_eq!(modified["doorBlockDrafts"][0]["widthOverridden"],true);
+        assert_eq!(modified["lines"],original["lines"],"the PNG source strokes must never be resized");
+        assert_eq!(modified["openingGapCandidates"],original["openingGapCandidates"]);
+        for value in [json!("30"),json!(null),json!(0),json!(-1),json!(1.0e12)] {
+            args["doorWidthOverrideCAD"]=value;
+            assert!(preview(&args).is_err(),"invalid reviewed width must fail before editing CAD");
+        }
+        let _=std::fs::remove_file(path);
     }
 
     #[test]
