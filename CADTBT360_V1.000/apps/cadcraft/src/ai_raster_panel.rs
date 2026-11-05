@@ -237,12 +237,15 @@ mod tests {
         let other_uid = other.state().unwrap().uid;
         assert_ne!(original_uid, other_uid);
         let revision = original.state().unwrap().revision;
-        assert!(!state.matches_document(original_uid, revision), "no preview means no commit");
+        let epoch = original.doc_epoch;
+        assert!(!state.matches_document(original_uid, revision, epoch), "no preview means no commit");
         state.preview_document_uid = Some(original_uid);
         state.preview_revision = Some(revision);
-        assert!(state.matches_document(original_uid, revision));
-        assert!(!state.matches_document(other_uid, revision), "switching documents invalidates the AI preview binding");
-        assert!(!state.matches_document(original_uid, revision + 1), "editing the same drawing after preview also invalidates it");
+        state.preview_document_epoch = Some(epoch);
+        assert!(state.matches_document(original_uid, revision, epoch));
+        assert!(!state.matches_document(other_uid, revision, epoch), "switching documents invalidates the AI preview binding");
+        assert!(!state.matches_document(original_uid, revision + 1, epoch), "editing the same drawing after preview also invalidates it");
+        assert!(!state.matches_document(original_uid, revision, epoch + 1), "switch-away-and-back invalidates preview even without edits");
     }
 
     #[test]
