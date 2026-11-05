@@ -287,6 +287,8 @@ jobs:
           $instGui = (Get-FileHash (Join-Path $dest 'CADTBT360.exe') -Algorithm SHA256).Hash
           $instCli = (Get-FileHash (Join-Path $dest 'CADTBT360_CLI.exe') -Algorithm SHA256).Hash
           if ($srcGui -ne $instGui -or $srcCli -ne $instCli) { throw 'Installed binaries do not match current source build' }
+          & ./scripts/verify_mcp_executable.ps1 -Exe (Join-Path $dest 'CADTBT360_CLI.exe')
+          if ($LASTEXITCODE -ne 0) { throw 'Installed MCP stdio smoke failed' }
           # SHA identity alone cannot detect a package built for the wrong CPU or a
           # GUI shipped as a console executable. Inspect PE headers in the actual
           # installed EXEs; portable files are independently hash-matched to these.
@@ -431,6 +433,8 @@ jobs:
           $nativeGuiHash = (Get-FileHash 'CADTBT360_V1.000/target/release/cadcraft.exe' -Algorithm SHA256).Hash
           $nativeCliHash = (Get-FileHash 'CADTBT360_V1.000/target/release/cadcraft-cli.exe' -Algorithm SHA256).Hash
           if ($portableGuiHash -ne $nativeGuiHash -or $portableCliHash -ne $nativeCliHash) { throw 'Portable executables do not match freshly compiled release' }
+          & ./scripts/verify_mcp_executable.ps1 -Exe (Join-Path $tmp 'CADTBT360_CLI.exe')
+          if ($LASTEXITCODE -ne 0) { throw 'Portable MCP stdio smoke failed' }
           $portableInfoHash = (Get-FileHash (Join-Path $tmp 'BUILD_INFO.txt') -Algorithm SHA256).Hash
           $releaseInfoHash = (Get-FileHash 'dist/v1025/BUILD_INFO.txt' -Algorithm SHA256).Hash
           if ($portableInfoHash -ne $releaseInfoHash) { throw 'Portable BUILD_INFO.txt does not match the Setup release metadata' }
