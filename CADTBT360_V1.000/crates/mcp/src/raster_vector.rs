@@ -877,6 +877,15 @@ pub fn preview(args: &Value) -> Result<Value, String> {
                 "classification":"human-confirmed-cad-drafting-block-not-semantic-door"}));
         }
     }
+    let create_window_guides=args["createWindowGuidePolylines"].as_bool().unwrap_or(false);
+    if create_window_guides && (!args["windowSashHints"].as_bool().unwrap_or(false)
+        || !args["confirmWindowGuides"].as_bool().unwrap_or(false)) {
+        return Err("createWindowGuidePolylines requires windowSashHints=true and confirmWindowGuides=true; no CAD changes made".into());
+    }
+    let window_guides:Vec<Value>=if create_window_guides {
+        paired_openings.iter().filter(|v|v["windowSashCandidate"]==true)
+            .map(|v|v["outlineCAD"].clone()).collect()
+    } else {Vec::new()};
     let create_opening_guides=args["createOpeningGuidePolylines"].as_bool().unwrap_or(false);
     if create_opening_guides && (!paired_enabled || !args["confirmOpeningGuides"].as_bool().unwrap_or(false)) {
         return Err("createOpeningGuidePolylines requires pairedWallOpeningHints=true and confirmOpeningGuides=true; no CAD changes made".into());
@@ -948,6 +957,8 @@ pub fn preview(args: &Value) -> Result<Value, String> {
         "doorLeafHintsRequested":args["doorLeafHints"].as_bool().unwrap_or(false),
         "windowSashCandidateCount":paired_openings.iter().filter(|v|v["windowSashCandidate"]==true).count(),
         "windowSashHintsRequested":args["windowSashHints"].as_bool().unwrap_or(false),
+        "windowGuidePolylines":window_guides,"windowGuidePolylineCount":window_guides.len(),
+        "windowGuidePolylinesRequested":create_window_guides,
         "doorSwingArcs":door_arcs,"doorSwingArcsProposed":door_arcs.len(),
         "doorSwingArcsRequested":create_door_arcs,
         "doorBlockDrafts":door_blocks,"doorBlockDraftCount":door_blocks.len(),
@@ -976,8 +987,9 @@ pub fn run(b: &mut dyn Backend, args: &Value) -> Result<Value, String> {
     let rectangles = proposal["closedPolylines"].as_array().cloned().unwrap_or_default();
     let axes=proposal["wallCenterlines"].as_array().cloned().unwrap_or_default();
     let opening_guides=proposal["openingGuidePolylines"].as_array().cloned().unwrap_or_default();
+    let window_guides=proposal["windowGuidePolylines"].as_array().cloned().unwrap_or_default();
     let door_arcs=proposal["doorSwingArcs"].as_array().cloned().unwrap_or_default();
-    if world.is_empty() && rectangles.is_empty() && axes.is_empty() && opening_guides.is_empty() && door_arcs.is_empty() { return Err("No vector strokes detected; no CAD changes made".into()); }
+    if world.is_empty() && rectangles.is_empty() && axes.is_empty() && opening_guides.is_empty() && window_guides.is_empty() && door_arcs.is_empty() { return Err("No vector strokes detected; no CAD changes made".into()); }
     // Never end a group that another command/user already opened. The caller
     // must have a clean command prompt and full Undo support.
     let state = b.call("drawing.inspect", json!({"entities":false}))?;
@@ -999,6 +1011,7 @@ pub fn run(b: &mut dyn Backend, args: &Value) -> Result<Value, String> {
         .chain(world.iter().map(|v| ("line",json!({"points":v}))))
         .chain(axes.iter().map(|v| ("line",json!({"points":v}))))
         .chain(opening_guides.iter().map(|v| ("pline",json!({"vertices":v,"closed":true}))))
+        .chain(window_guides.iter().map(|v| ("pline",json!({"vertices":v,"closed":true}))))
         .chain(door_arcs.iter().map(|v| ("arc",json!({"center":v["center"],"radius":v["radius"],"start":v["start"],"end":v["end"]})))).collect();
     for (command_id, params) in operations {
         // Guard against an asynchronous document switch or external edit in a
@@ -1055,7 +1068,7 @@ pub fn run(b: &mut dyn Backend, args: &Value) -> Result<Value, String> {
     }
     Ok(json!({"preview":false,"recognition":"automatic-raster-line-strokes",
         "imageSize":proposal["imageSize"],"strokes":proposal["strokes"],
-        "rectanglesDetected":proposal["rectanglesDetected"],"closedPolylinesCreated":rectangles.len(),"openingGuidePolylinesCreated":opening_guides.len(),"doorSwingArcsCreated":door_arcs.len(),
+        "rectanglesDetected":proposal["rectanglesDetected"],"closedPolylinesCreated":rectangles.len(),"openingGuidePolylinesCreated":opening_guides.len(),"windowGuidePolylinesCreated":window_guides.len(),"doorSwingArcsCreated":door_arcs.len(),
         "wallCenterlinesCreated":axes.len(),
         "editableEntitiesCreated":handles.len(),
         "entities":handles,"source":proposal["source"],
@@ -1445,6 +1458,34 @@ mod tests {
         window_sash_evidence(&mut door,&[leaf,rail1,rail2]);
         assert_eq!(door[0]["doorLeafCandidate"],true);
         assert_ne!(door[0]["windowSashCandidate"],true,"door evidence must suppress window guesses");
+    }
+
+    #[test]
+    fn ai_window_guide_requires_confirmation_before_native_closed_pline() {
+        let mut img=image::RgbImage::from_pixel(110,48,image::Rgb([255,255,255]));
+        for y in [15,22] {
+            for x in 5..=39 {img.put_pixel(x,y,image::Rgb([0,0,0]));}
+            for x in 51..=95 {img.put_pixel(x,y,image::Rgb([0,0,0]));}
+        }
+        for y in [17,20] {for x in 39..=51 {img.put_pixel(x,y,image::Rgb([0,0,0]));}}
+        let path=std::env::temp_dir().join(format!("cad360-window-guide-{}-{}.png",std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        img.save(&path).unwrap();
+        let mut args=json!({"path":path.to_string_lossy(),"minLengthPixels":8,"includeDiagonals":false,
+            "openingGapHints":true,"pairedWallOpeningHints":true,"windowSashHints":true,
+            "maxGapPixels":0,"unitsPerPixel":2.0,"createWindowGuidePolylines":true});
+        assert!(preview(&args).unwrap_err().contains("confirmWindowGuides=true"));
+        args["confirmWindowGuides"]=json!(true);
+        let proposal=preview(&args).unwrap();
+        assert_eq!(proposal["windowGuidePolylineCount"],1);
+        let original_lines=proposal["lines"].as_array().unwrap().len();
+        let mut backend=crate::backend::Headless::default();
+        args["preview"]=json!(false);
+        let result=run(&mut backend,&args).unwrap();
+        assert_eq!(result["windowGuidePolylinesCreated"],1);
+        assert_eq!(result["editableEntitiesCreated"].as_u64(),Some((original_lines+1) as u64));
+        assert_eq!(backend.session.doc().unwrap().entity_count(),original_lines+1);
+        let _=std::fs::remove_file(path);
     }
 
     #[test]
