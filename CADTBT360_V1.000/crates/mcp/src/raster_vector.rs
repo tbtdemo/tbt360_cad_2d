@@ -450,7 +450,8 @@ fn wall_panel_boundary_contacts(panels: &[Value], openings: &[Value], columns: &
 fn wall_panel_junction_qa(panels: &[Value], openings: &[Value], columns: &[Value]) -> Vec<Value> {
     if panels.len()>64 {return Vec::new();}
     let mut lines=Vec::new();
-    for panel in panels {
+    let mut source_panel_indices=Vec::new();
+    for (panel_index,panel) in panels.iter().enumerate() {
         let Some(points)=panel["outlinePixels"].as_array() else {continue};
         if points.len()!=4 {continue;}
         let mut b=[f64::INFINITY,f64::INFINITY,f64::NEG_INFINITY,f64::NEG_INFINITY];
@@ -470,6 +471,7 @@ fn wall_panel_junction_qa(panels: &[Value], openings: &[Value], columns: &[Value
             Line{x0:(b[0]+b[2])*0.5,y0:b[1],x1:(b[0]+b[2])*0.5,y1:b[3]}
         };
         lines.push(center);
+        source_panel_indices.push(panel_index);
     }
     let inside=|point:&Value,region:&Value|->bool {
         let (Some(x),Some(y),Some(vertices))=(point[0].as_f64(),point[1].as_f64(),region["outlinePixels"].as_array()) else {return false;};
@@ -483,7 +485,9 @@ fn wall_panel_junction_qa(panels: &[Value], openings: &[Value], columns: &[Value
     };
     wall_centerline_junctions(&lines).into_iter().filter_map(|j| {
         if openings.iter().chain(columns).any(|region|inside(&j["pointPixels"],region)) {return None;}
-        Some(json!({"panelIndices":j["centerlineIndices"],"pointPixels":j["pointPixels"],
+        let indices=j["centerlineIndices"].as_array()?;
+        let original_indices:Vec<usize>=indices.iter().map(|v|v.as_u64().and_then(|i|source_panel_indices.get(i as usize).copied())).collect::<Option<_>>()?;
+        Some(json!({"panelIndices":original_indices,"pointPixels":j["pointPixels"],
             "kind":j["kind"],"classification":"observed-wall-panel-junction-preview-only",
             "requiresHumanReview":true}))
     }).collect()
@@ -1888,6 +1892,11 @@ mod tests {
         assert_eq!(cross.len(),1);
         assert_eq!(cross[0]["kind"],"cross-candidate");
         assert_eq!(cross[0]["panelIndices"],json!([0,1]));
+        // Invalid source candidates must not shift indices used by desktop selection.
+        let invalid=json!({"outlinePixels":[[0.0,0.0]]});
+        let preserved=wall_panel_junction_qa(&[invalid,horizontal.clone(),panel([[45.0,0.0],[55.0,0.0],[55.0,60.0],[45.0,60.0]])],&[],&[]);
+        assert_eq!(preserved.len(),1);
+        assert_eq!(preserved[0]["panelIndices"],json!([1,2]));
         let t=wall_panel_junction_qa(&[horizontal.clone(),vertical_t.clone()],&[],&[]);
         assert_eq!(t.len(),1);
         assert_eq!(t[0]["kind"],"T-candidate");
