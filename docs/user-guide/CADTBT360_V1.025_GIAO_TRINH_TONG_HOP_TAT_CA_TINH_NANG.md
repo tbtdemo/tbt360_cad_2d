@@ -1812,3 +1812,40 @@ Mục tiêu quan trọng nhất của đợt này là chuyển từ việc **ch�
 Bản Word **CADTBT360_V1.025_GIAO_TRINH_FULL_CO_HINH_DOT229.docx** biên soạn **toàn bộ 126 bài**, 127 sơ đồ/hình minh họa, từ thao tác CAD 2D cơ bản, Layer, Xref, QTO, BIM/IFC đến AI từ ảnh, topology và AI Agent; không phải tài liệu riêng của đợt 229. Bản Word được dựng và render kiểm tra trang trong môi trường biên soạn; chưa có đầy đủ ảnh chụp màn hình EXE thực tế. Yêu cầu từng đợt tiếp theo: thêm bài vào bản FULL, cập nhật mục lục và hình, xuất lại Word, chứ không chỉ viết Markdown phụ lục.
 
 **Trạng thái đợt 229:** Đã commit mã MCP mới `ai_draw_plan_vietnamese`, hai regression parser và CI test discovery; bộ cài Windows chưa xác nhận PASS.
+
+
+## 70. Đợt 230 — AI vẽ sơ bộ phòng và tường CAD có chiều dày từ tiếng Việt
+
+### Bài 124 (theo tài liệu nguồn Markdown) — Dựng hình chữ nhật phòng với kích thước chính xác
+
+1. Mở bản vẽ thực hành CAD 360 và kết nối MCP Agent. Kiểm tra đơn vị của bản vẽ trước khi nhập kích thước (ví dụ: milimét).
+2. Gửi `ai_draw_vietnamese` với `{"text":"vẽ phòng rộng 6000 dài 4000 tại 0,0"}`. Công cụ phân tích được hai kích thước, điểm gốc và đề xuất lệnh CAD `rectang` với `p1=[0,0]`, `p2=[6000,4000]`.
+3. Kiểm tra Preview mặc định: không có đối tượng được tạo; diện tích đường bao CAD lý thuyết bằng 24.000.000 đơn vị vuông, nhưng **không được coi là diện tích sử dụng của phòng đã trừ tường**.
+4. Sau khi xác nhận đúng bản vẽ, gọi lại với `preview:false`, `confirm:true` và bộ `expectedDocumentUid`, `expectedDocumentEpoch`, `expectedRevision` từ Preview để tạo RECTANG bản địa.
+5. Nếu chiều dài/rộng không dương, vượt phạm vi, tọa độ không hợp lệ hoặc lỗi phiên bản, hệ thống phải từ chối. Hình học trên là đường bao CAD, chưa gắn đối tượng phòng BIM hoặc mã vật liệu.
+
+### Bài 125 — Vẽ dải tường từ hai đầu trục và chiều dày
+
+1. Nhập `{"text":"vẽ tường từ 0,0 đến 6000,0 dày 200"}` qua MCP.
+2. Với trục tường nằm ngang từ (0,0) đến (6000,0), bán chiều dày 100 tạo bốn góc `(0,100)`, `(6000,100)`, `(6000,-100)`, `(0,-100)`.
+3. Kiểm tra lệnh Preview là `pline`, `closed=true`, có bốn đỉnh CAD; chiều dài trục là 6000, chiều dày là 200.
+4. Xác nhận theo bộ phiên bản bản vẽ. CAD Engine tạo một PLINE kín có thể chọn, hiệu chỉnh và Undo. Không tự đóng các cửa đi hoặc xuyên qua cột đã có.
+5. Thử tường dọc `vẽ tường từ 0,0 đến 0,6000 dày 200` và kiểm tra bốn đỉnh tương ứng. Tường chéo dùng pháp tuyến của đoạn trục để tạo đường bao.
+6. Bất cứ trường hợp nào yêu cầu suy đoán vị trí mở cửa, giao tường T/X hay tách cột phải được người dùng kiểm tra riêng: parser này chỉ có thông tin trục, chiều dày và tọa độ, không có thông tin kiến trúc đầy đủ.
+
+### Bài 126 — Kết hợp phòng và tường vào một kế hoạch AI Agent
+
+1. Chọn công cụ `ai_draw_plan_vietnamese`; nhập hai dòng: `vẽ phòng rộng 6000 dài 4000 tại 0,0` và `vẽ tường từ 0,0 đến 6000,0 dày 200`.
+2. Nhận kế hoạch 2 bước: `rectang` rồi `pline`, không ghi dữ liệu khi Preview.
+3. Kiểm tra tọa độ và mối quan hệ giữa hình bao phòng và tường; phát hiện khả năng hình bao phòng chồng lên dải tường và quyết định có cần hiệu chỉnh hay không.
+4. Sau khi được duyệt, chỉ thực thi khi `expectedDocumentUid`, `expectedDocumentEpoch`, `expectedRevision` còn khớp, để cả hai lệnh được đưa vào một nhóm Undo.
+5. Thử Undo 1 lần và kiểm tra kết quả, sau đó lưu bản vẽ theo DWG chuẩn (khi hệ thống lưu/trao đổi định dạng DWG đã được nghiệm thu riêng).
+6. Test trong code: `cargo test --locked -p cadcraft-mcp --lib ai_vietnamese_room_wall_plan_produces_closed_native_outlines -- --nocapture`. Không coi test parser này là bằng chứng Windows EXE hoặc lưu DWG đã PASS.
+
+### Hình mô phỏng — Trục và hai mép tường CAD
+
+![Luồng AI tiếng Việt qua MCP và CAD Engine](images/ai-agent-vietnamese-native-cad-stage228.svg)
+
+*Hình 70.1 — Sơ đồ nguyên lý AI Agent, KHÔNG phải ảnh chụp từ EXE. Bản Word FULL đợt 230 có thêm minh họa riêng cho phòng kích thước 6000 × 4000 và tường dài 6000, dày 200.*
+
+**Mức độ hoàn thiện:** Đã bổ sung parser phòng và dải tường CAD, kiểm thử đầu vào/hình học và đưa kiểm thử vào Windows CI. Chưa hoàn thiện việc suy luận đa đối tượng từ mô tả thiết kế tự do, chưa xác nhận Windows CI PASS hoặc thao tác thực tế trên EXE.
