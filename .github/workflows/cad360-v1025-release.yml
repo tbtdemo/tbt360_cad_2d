@@ -90,6 +90,7 @@ jobs:
             @{ Package='cadcraft-io'; Target='it'; Test='xref_roundtrip' },
             @{ Package='cadcraft-io'; Target='it'; Test='large_dwg_v1025' },
             @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_automatic_raster_to_cad_lines_from_real_png' },
+            @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_auto_raster_to_cad_dxf_roundtrip_preserves_editable_lines' },
             @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_auto_raster_diagonal_png_creates_editable_line' },
             @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_arbitrary_angle_raster_to_cad_png_creates_editable_line' },
             @{ Package='cadcraft'; Target='gui'; Test='ai_raster_panel_defaults_to_preview' },
@@ -148,6 +149,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'V1.025 AI world-coordinate projection validation failed' }
           cargo test --locked -p cadcraft-mcp --lib ai_automatic_raster_to_cad_lines_from_real_png -- --nocapture
           if ($LASTEXITCODE -ne 0) { throw 'V1.025 automatic raster-to-editable-CAD image recognition failed' }
+          cargo test --locked -p cadcraft-mcp --lib ai_auto_raster_to_cad_dxf_roundtrip_preserves_editable_lines -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'V1.025 AI PNG-to-CAD DXF persistence regression failed' }
           cargo test --locked -p cadcraft-mcp --lib ai_auto_raster_to_cad_refuses_missing_file -- --nocapture
           if ($LASTEXITCODE -ne 0) { throw 'V1.025 raster AI source validation failed' }
           cargo test --locked -p cadcraft-mcp --lib raster_vector_detects_ -- --nocapture
