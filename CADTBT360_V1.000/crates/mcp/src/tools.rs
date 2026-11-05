@@ -197,6 +197,35 @@ fn parse_vietnamese_draft(text: &str) -> Result<(String,Value),String> {
         (x.is_finite()&&y.is_finite()&&x.abs()<=1.0e9&&y.abs()<=1.0e9).then_some([x,y])
     };
     let argument=|keyword:&str|->Option<&str> {words.iter().position(|w|*w==keyword).and_then(|i|words.get(i+1).copied())};
+    // A dimensioned architectural drafting primitive. The "wall" is a CAD
+    // closed polyline, never a verified BIM wall; openings are not inferred.
+    if (cleaned.starts_with("vẽ tường ") || cleaned.starts_with("ve tuong ")) && words.len()==8 {
+        let start=argument("từ").or_else(||argument("tu")).and_then(parse_point).ok_or("AI CAD: cần tọa độ đầu tường dạng x,y")?;
+        let end=argument("đến").or_else(||argument("den")).and_then(parse_point).ok_or("AI CAD: cần tọa độ cuối tường dạng x,y")?;
+        let thickness=argument("dày").or_else(||argument("day")).and_then(|v|v.parse::<f64>().ok()).ok_or("AI CAD: cần chiều dày tường dạng số")?;
+        let dx=end[0]-start[0];let dy=end[1]-start[1];let length=dx.hypot(dy);
+        if !length.is_finite()||length<1.0||!thickness.is_finite()||!(0.01..=1_000_000.0).contains(&thickness) {
+            return Err("AI CAD: chiều dài tường phải >=1 và chiều dày >0, <=1000000".into());
+        }
+        let nx=-dy/length*thickness*0.5;let ny=dx/length*thickness*0.5;
+        let vertices=[[start[0]+nx,start[1]+ny],[end[0]+nx,end[1]+ny],
+            [end[0]-nx,end[1]-ny],[start[0]-nx,start[1]-ny]];
+        if vertices.iter().flatten().any(|v|!v.is_finite()||v.abs()>1.0e9) {
+            return Err("AI CAD: tọa độ mép tường vượt phạm vi an toàn".into());
+        }
+        return Ok(("pline".into(),json!({"vertices":vertices,"closed":true})));
+    }
+    if (cleaned.starts_with("vẽ phòng ") || cleaned.starts_with("ve phong ")) && words.len()==8 {
+        let width=argument("rộng").or_else(||argument("rong")).and_then(|v|v.parse::<f64>().ok()).ok_or("AI CAD: cần chiều rộng phòng")?;
+        let length=argument("dài").or_else(||argument("dai")).and_then(|v|v.parse::<f64>().ok()).ok_or("AI CAD: cần chiều dài phòng")?;
+        let origin=argument("tại").or_else(||argument("tai")).and_then(parse_point).ok_or("AI CAD: cần gốc phòng x,y")?;
+        if !width.is_finite()||!length.is_finite()||!(0.01..=1_000_000.0).contains(&width)||!(0.01..=1_000_000.0).contains(&length) {
+            return Err("AI CAD: kích thước phòng phải dương và <=1000000".into());
+        }
+        let p2=[origin[0]+width,origin[1]+length];
+        if p2.iter().any(|v|!v.is_finite()||v.abs()>1.0e9) {return Err("AI CAD: phòng vượt giới hạn tọa độ".into());}
+        return Ok(("rectang".into(),json!({"p1":origin,"p2":p2})));
+    }
     if (cleaned.starts_with("vẽ đường thẳng ") || cleaned.starts_with("ve duong thang ")) && words.len()==7 {
         let start=argument("từ").or_else(||argument("tu")).and_then(parse_point).ok_or("AI CAD: cần tọa độ bắt đầu dạng x,y")?;
         let end=argument("đến").or_else(||argument("den")).and_then(parse_point).ok_or("AI CAD: cần tọa độ kết thúc dạng x,y")?;
@@ -473,6 +502,9 @@ mod ai_draft_vietnamese_tests {
         assert_eq!(parse_vietnamese_draft("vẽ hình tròn tâm 10,20 bán kính 25").unwrap(),("circle".to_string(),json!({"center":[10.0,20.0],"radius":25.0})));
         assert_eq!(parse_vietnamese_draft("vẽ hình chữ nhật từ 0,0 đến 100,50").unwrap(),("rectang".to_string(),json!({"p1":[0.0,0.0],"p2":[100.0,50.0]})));
         assert_eq!(parse_vietnamese_draft("vẽ đa tuyến qua 0,0; 100,0; 100,50").unwrap(),("pline".to_string(),json!({"vertices":[[0.0,0.0],[100.0,0.0],[100.0,50.0]],"closed":false})));
+        assert_eq!(parse_vietnamese_draft("vẽ phòng rộng 6000 dài 4000 tại 0,0").unwrap(),("rectang".to_string(),json!({"p1":[0.0,0.0],"p2":[6000.0,4000.0]})));
+        assert_eq!(parse_vietnamese_draft("vẽ tường từ 0,0 đến 6000,0 dày 200").unwrap(),("pline".to_string(),json!({"vertices":[[0.0,100.0],[6000.0,100.0],[6000.0,-100.0],[0.0,-100.0]],"closed":true})));
+        assert_eq!(parse_vietnamese_draft("vẽ tường từ 0,0 đến 0,6000 dày 200").unwrap(),("pline".to_string(),json!({"vertices":[[-100.0,0.0],[-100.0,6000.0],[100.0,6000.0],[100.0,0.0]],"closed":true})));
     }
 
     #[test]
@@ -499,7 +531,7 @@ mod ai_draft_vietnamese_tests {
     fn ai_vietnamese_draft_rejects_missing_or_unsafe_coordinates() {
         for prompt in ["vẽ đường thẳng từ 0,0 đến 0,0","vẽ đường thẳng từ 0,0 đến NaN,2",
             "vẽ hình tròn tâm 0,0 bán kính -5","vẽ hình tròn tâm 0,0 bán kính 0",
-            "vẽ tất cả tường và xóa bản vẽ","vẽ đường thẳng từ 0,0 đến 100000000000,0", "vẽ hình chữ nhật từ 0,0 đến 0,50", "vẽ đa tuyến qua 0,0;0,0"] {
+            "vẽ tất cả tường và xóa bản vẽ","vẽ đường thẳng từ 0,0 đến 100000000000,0", "vẽ hình chữ nhật từ 0,0 đến 0,50", "vẽ đa tuyến qua 0,0;0,0", "vẽ tường từ 0,0 đến 0,0 dày 200", "vẽ tường từ 0,0 đến 6000,0 dày -200", "vẽ phòng rộng 0 dài 500 tại 0,0"] {
             assert!(parse_vietnamese_draft(prompt).is_err(),"{prompt} must be refused");
         }
     }
