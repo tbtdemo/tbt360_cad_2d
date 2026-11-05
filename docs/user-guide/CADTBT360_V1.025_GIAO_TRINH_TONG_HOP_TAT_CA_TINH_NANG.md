@@ -1158,3 +1158,24 @@ Mục tiêu quan trọng nhất của đợt này là chuyển từ việc **ch�
 5. **DWG**: kiểm thử trao đổi hai chiều với AutoCAD độc lập trước khi tuyên bố tương thích hoàn toàn.
 
 **Trạng thái đợt 203:** Đã bổ sung lưu log chẩn đoán cho bước khám phá bài kiểm thử. Chưa có xác nhận Setup EXE, Portable hoặc AI dựng kiến trúc hoàn chỉnh đã nghiệm thu.
+
+
+## 44. Đợt 204 — AI ảnh→CAD từ chối cấu hình nối khoảng hở sai kiểu
+
+### Bài 70 — Kiểm soát tham số `maxGapPixels` trong AI Preview và MCP
+
+1. Mở `CADTBT360_V1.000/crates/mcp/src/raster_vector.rs`, tìm hàm `preview`.
+2. Mặc định không khai báo `maxGapPixels` sẽ không nối khoảng hở (giá trị 0). Khai báo số nguyên từ 0 đến 12 pixel để giới hạn độ dài được phép nối khi người dùng chủ động yêu cầu.
+3. Trước đây `as_u64().unwrap_or(0)` nhận giá trị sai kiểu như `-1`, `2.5`, `"4"`, `null` hoặc `true` rồi âm thầm đổi thành 0. Hiện tại mọi giá trị được khai báo sai kiểu đều trả lỗi rõ ràng, không làm thay đổi CAD.
+4. Khi `openingGapHints=true`, vẫn bắt buộc `maxGapPixels=0`, bảo toàn khoảng hở nghi là cửa và không tự tạo Block cửa.
+5. Đầu vào hợp lệ `maxGapPixels=0` vẫn hoạt động như cũ; không khai báo tham số cũng mặc định là 0. Với số lớn hơn 12, hệ thống tiếp tục từ chối vì có thể làm kín khoảng mở thật.
+
+### Bài 71 — Kiểm thử tự động ngăn dữ liệu sai làm thay đổi hành vi AI
+
+1. Tạo ảnh PNG trắng 64×32 trong test `raster_vector_rejects_malformed_gap_bridging_options_before_cad_creation`.
+2. Lần lượt gửi `-1`, `2.5`, `"4"`, `null`, `true` và xác nhận `preview` trả lỗi chứa `maxGapPixels must be an integer`.
+3. Gửi `maxGapPixels=0` để chứng minh hành vi mặc định hợp lệ vẫn được chấp nhận.
+4. Chạy `cargo test --locked -p cadcraft-mcp --lib raster_vector_rejects_malformed_gap_bridging_options_before_cad_creation -- --nocapture` trong thư mục `CADTBT360_V1.000`.
+5. Windows CI có thêm bước phát hiện tên test và bắt buộc chạy test trước khi đóng gói. Cần kiểm tra log đúng SHA, không đồng nhất "đã viết test" với "test đã PASS".
+
+**Trạng thái đợt 204:** Đã sửa xử lý tham số và bổ sung kiểm thử tự động trong mã nguồn/CI. Đây là xác thực tham số vector hóa, **không phải** chức năng AI nhận dạng ngữ nghĩa tường, cửa hoặc cột hoàn chỉnh. Setup EXE và tương thích DWG AutoCAD hai chiều vẫn cần nghiệm thu thực tế.
