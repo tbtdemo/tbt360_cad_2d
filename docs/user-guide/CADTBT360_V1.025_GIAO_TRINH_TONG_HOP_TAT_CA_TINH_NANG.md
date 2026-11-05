@@ -1543,3 +1543,29 @@ Mục tiêu quan trọng nhất của đợt này là chuyển từ việc **ch�
 8. Phần chưa đạt: tường chéo/cong, hai mép tường không hoàn chỉnh, nút giao T/X, tường không đều chiều dày, hợp nhất cột–tường–cửa thành topology CAD kiến trúc có thuộc tính.
 
 **Trạng thái đợt 219:** Đã bổ sung mã tạo dải tường dựa trên cặp nét thực có, bảo vệ khoảng cửa và cột, Preview màu cam, PLINE sau xác nhận, kiểm thử PNG/GUI và CI. Chưa xác nhận Windows CI PASS và chưa có tường BIM/kiến trúc thông minh.
+
+
+## 60. Đợt 220 — AI dựng BLOCK dải tường từ hai mép quan sát được
+
+### Bài 103 — Từ dải tường PLINE sang BLOCK/INSERT CAD
+
+1. Mở CAD 360 → **AI từ ảnh → CAD**, chọn PNG/JPG mặt bằng; hiệu chuẩn `unitsPerPixel` và xem các khoảng cửa/cột.
+2. Bật `wallPairHints=true`, `wallPanelHints=true`, chỉnh giới hạn `minWallSpacingPixels`, `maxWallSpacingPixels`. Nhấn Preview: các dải tường hợp lệ viền cam và không bắc cầu qua cửa.
+3. Chọn **Tạo BLOCK CAD từ dải tường được xác nhận** (`createWallBlocks=true`), rồi tích **Tôi đồng ý tạo BLOCK dải tường sau khi xem Preview** (`confirmWallBlocks=true`).
+4. Preview trả `wallBlockDraftCount`, `wallBlockDrafts`, gồm `outline` (bốn góc CAD), `base`, `lengthCAD`, `thicknessCAD` và `sourceEdgeIndices`. Chiều dài, bề dày suy ra từ ảnh theo tỷ lệ đã hiệu chuẩn, cần kiểm tra bằng kích thước thiết kế.
+5. Không chọn đồng thời dựng BLOCK và PLINE hướng dẫn dải tường hoặc bật chuyển mọi chữ nhật thành PLINE. GUI vô hiệu hóa cách dựng trùng; MCP Preview từ chối thông số trái nhau.
+6. Bấm tạo CAD sau khi đối chiếu Preview. Desktop tạo một PLINE kín mới cho từng dải tường, chuyển thành BLOCK/INSERT native (`keep=convert`), đặt tên `TBT_AI_WALL_...`. Các nét nguồn vector hóa từ ảnh vẫn được giữ nguyên.
+7. Chỉnh kích thước hình học bằng công cụ chỉnh sửa BLOCK/PLINE của CAD; đây **không phải** Block động có tham số thay đổi tự động, cũng chưa phải Wall BIM có vật liệu/cao độ/topology.
+8. Khi dải tường đã hình thành, kiểm tra khoảng cửa, giao cột và một lần Undo trước khi lưu DWG.
+
+### Bài 104 — Kiểm thử BLOCK tường và bảo vệ giao dịch
+
+1. Chạy `cargo test --locked -p cadcraft-mcp --lib ai_wall_blocks_from_real_png_preserve_openings_and_require_confirmed_desktop_commit -- --nocapture`. Ảnh PNG mẫu có hai dải tường hai bên khoảng mở phải tạo đúng hai bản nháp; độ dày 14 CAD units, chiều dài 68 và 88 CAD units theo tỷ lệ kiểm thử.
+2. Mặc định Preview có `editableEntitiesCreated=0`; không có `confirmWallBlocks=true` thì từ chối trước khi ghi CAD. Không cho chọn đồng thời Block với các cách tạo PLINE trùng.
+3. MCP hiện chỉ cho xem trước BLOCK tường; yêu cầu `preview=false` khi `createWallBlocks=true` bị từ chối rõ ràng vì chưa nghiệm thu giao dịch Block/Undo từ xa.
+4. Chạy `cargo test --locked -p cadcraft --bin cadcraft ai_wall_block_native_insert_contains_one_closed_panel_and_undoes -- --nocapture`. Engine phải tạo một INSERT chứa đúng một PLINE kín và hoàn tác cả INSERT lẫn định nghĩa Block trong một lần Undo.
+5. Chạy `cargo test --locked -p cadcraft --bin cadcraft ai_wall_block_gui_is_opt_in_and_requires_separate_review -- --nocapture`. GUI mặc định không tạo Block; phải bật chức năng và xác nhận riêng.
+6. Kiểm tra Windows CI của **đúng commit SHA**. Các bài kiểm thử mới chỉ là mã nguồn cho tới khi chạy thành công; kết quả EXE, DWG và thử nghiệm bằng ảnh mặt bằng thực tế chưa được xác nhận.
+7. Những phần cần phát triển tiếp: Block động thay đổi chiều dài/bề dày, tường cong/chéo, nút giao T/X, tường đổi bề dày, quan hệ thực thể với cột/cửa đi/cửa sổ và liên kết thuộc tính kiến trúc/BIM.
+
+**Trạng thái đợt 220:** Đã bổ sung mã dựng BLOCK/INSERT tường CAD theo ứng viên PLINE có xác nhận, bài kiểm thử PNG, GUI và Undo. Chưa xác nhận Windows CI PASS hoặc chức năng BIM thông minh.
