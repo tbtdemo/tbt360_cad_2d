@@ -21,6 +21,7 @@ on:
       - '.github/workflows/cad360-v1025-desktop-reliability.yml'
       - 'scripts/verify_mcp_executable.ps1'
       - 'scripts/validate_mcp_smoke_fixture.py'
+      - 'scripts/verify_source_bundle.py'
       - 'docs/user-guide/**'
 
 permissions:
