@@ -248,3 +248,24 @@ Workflow `.github/workflows/cad360-v1025-release.yml` được cấu hình tự 
 Trong GitHub Actions, mở workflow **CAD 360 V1.025 - Windows Setup Portable**. Kiểm tra bước `Validate embedded image fixture before Rust compilation`, sau đó các bước **Preflight**, **Require image-to-CAD regression**, **Build**, **Smoke test installed application** và **Verify portable archive**. Các trạng thái chỉ có ý nghĩa khi toàn bộ lượt chạy hoàn thành thành công; dấu tích từng bước không thay thế kiểm thử giao diện thực tế.
 
 **Giới hạn:** Chưa xác minh có lượt Windows CI hoàn tất PASS cho mã mới; chưa có ảnh chụp GUI thật hoặc kiểm chứng DWG bằng AutoCAD độc lập. Đợt 175 mới cập nhật quy trình kiểm thử sớm và hướng dẫn xử lý lỗi.
+
+
+## 15. Đợt nâng cấp 176 — Bàn giao đủ CODE + HƯỚNG DẪN
+
+Đáp ứng yêu cầu bàn giao mỗi lần nâng cấp: một bản phát hành Windows được nghiệm thu thành công phải cung cấp đồng thời **mã nguồn đầy đủ từ đúng commit**, **hướng dẫn Word**, **bộ cài Setup**, **bản Portable** và **bảng kiểm tra SHA256**.
+
+### Tải và đối chiếu theo từng bước
+
+1. Mở **GitHub → Actions → CAD 360 V1.025 - Windows Setup Portable**, chọn lượt chạy có trạng thái **Success** và xác nhận mã commit hiển thị trong run.
+2. Ở mục **Artifacts**, tải gói `CADTBT360_V1.025_Windows_x64_Setup_Portable`. Nếu workflow là push/dispatch thành công và đủ quyền công bố, có thể tải từng file từ **GitHub Releases**.
+3. Trong gói phải có **`CADTBT360_V1.025_Full_Source.zip`** chứa toàn bộ mã nguồn được quản lý bằng Git tại commit đã build, **`CADTBT360_V1.025_Setup_Windows_x64.exe`**, **`CADTBT360_V1.025_Portable_Windows_x64.zip`**, **file hướng dẫn Word `CADTBT360_V1.025_HUONG_DAN_AI_TU_ANH_THANH_CAD.docx`**, `HUONG_DAN_AI_TU_ANH_THANH_CAD.md`, `BUILD_INFO.txt`, và `SHA256SUMS.txt`.
+4. Kiểm tra SHA256 trong PowerShell bằng `Get-FileHash -Algorithm SHA256 .\CADTBT360_V1.025_Full_Source.zip` và so sánh giá trị với `SHA256SUMS.txt`. Thực hiện tương tự đối với Setup và Portable.
+5. Giải nén `Full_Source.zip`; xác nhận có `CADTBT360_V1.000/Cargo.toml`, `CADTBT360_V1.000/Cargo.lock`, `CADTBT360_V1.000/apps/cadcraft/src/main.rs`, `CADTBT360_V1.000/crates/mcp/src/raster_vector.rs`, `installer/CADTBT360_V1.025_Windows.iss`, `scripts/verify_mcp_executable.ps1` và thư mục `docs/user-guide`.
+6. Đọc `BUILD_INFO.txt` để xác nhận `SourceCommit`. Mã nguồn ZIP được tạo bằng `git archive HEAD` trên chính commit đó; không dùng bản tải từ một nhánh tiếp tục thay đổi làm căn cứ nghiệm thu phiên bản cũ.
+7. Mở hướng dẫn Word trước khi vận hành tính năng AI. Với Setup, mở bản Word trong thư mục `HuongDan` của ứng dụng; với Portable, mở tệp Word cạnh `CADTBT360.exe`.
+
+### Quy tắc kiểm tra tự động
+
+Windows CI kiểm tra bản ZIP mã nguồn bằng `scripts/verify_source_bundle.py`: so khớp nội dung các file trọng yếu trong ZIP với nội dung Git của commit `HEAD`, kiểm tra có tài liệu hướng dẫn và không vô tình đưa các tệp EXE/DLL build vào gói mã nguồn. Thiếu một tệp bắt buộc hoặc sai mã nguồn thì **dừng phát hành**.
+
+**Phạm vi giới hạn:** `Full_Source.zip` là toàn bộ **các file được Git theo dõi tại commit phát hành**, không bao gồm thư mục `.git`, bộ thư viện tải về bởi Cargo, hoặc tệp untracked chưa được commit. Word là asset phát hành riêng và đồng thời nằm trong bộ cài/Portable. Chỉ coi bộ bàn giao đầy đủ sau khi Windows CI PASS và các asset xuất hiện thật; tại thời điểm soạn hướng dẫn chưa có xác nhận điều kiện đó.
