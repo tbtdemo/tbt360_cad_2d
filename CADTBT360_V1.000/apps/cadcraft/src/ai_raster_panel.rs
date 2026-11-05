@@ -26,6 +26,9 @@ pub struct State {
     max_wall_spacing: f64,
     create_wall_centerlines: bool,
     opening_gap_hints: bool,
+    paired_wall_opening_hints: bool,
+    create_opening_guides: bool,
+    confirm_opening_guides: bool,
     min_opening_gap: f64,
     max_opening_gap: f64,
 }
@@ -72,7 +75,11 @@ impl State {
             "includeArbitraryAngles":self.arbitrary_angles,"closedRectangles":self.closed_rectangles,
             "wallPairHints":self.wall_pair_hints,"createWallCenterlines":self.create_wall_centerlines,
             "minWallSpacingPixels":self.min_wall_spacing,"maxWallSpacingPixels":self.max_wall_spacing,
-            "openingGapHints":self.opening_gap_hints,"minOpeningGapPixels":self.min_opening_gap,
+            "openingGapHints":self.opening_gap_hints,
+            "pairedWallOpeningHints":self.paired_wall_opening_hints,
+            "createOpeningGuidePolylines":self.create_opening_guides,
+            "confirmOpeningGuides":self.confirm_opening_guides,
+            "minOpeningGapPixels":self.min_opening_gap,
             "maxOpeningGapPixels":self.max_opening_gap,"maxLines":250})
     }
 }
@@ -169,7 +176,14 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
                 if ui.add_enabled(state.wall_pair_hints, egui::Checkbox::new(&mut state.create_wall_centerlines, "Tạo tim tường từ cặp nét duy nhất (tùy chọn)")).changed() {
                     state.preview = None;
                 }
-                if ui.checkbox(&mut state.opening_gap_hints, "Gợi ý khoảng hở có thể là cửa (chỉ Preview)").changed() {state.preview=None;}
+                if ui.checkbox(&mut state.opening_gap_hints, "Gợi ý khoảng hở có thể là cửa (chỉ Preview)").changed() {
+                    if !state.opening_gap_hints {
+                        state.paired_wall_opening_hints=false;
+                        state.create_opening_guides=false;
+                        state.confirm_opening_guides=false;
+                    }
+                    state.preview=None;
+                }
                 if state.opening_gap_hints {
                     ui.horizontal(|ui| {
                         ui.label("Khoảng mở (px): từ");
@@ -179,6 +193,25 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
                     });
                     if state.min_opening_gap>state.max_opening_gap {
                         ui.colored_label(egui::Color32::RED,"Khoảng mở: ngưỡng từ không được lớn hơn ngưỡng đến.");
+                    }
+                    if ui.checkbox(&mut state.paired_wall_opening_hints, "AI đối chiếu khoảng mở trên hai mép tường (gợi ý)").changed() {
+                        if !state.paired_wall_opening_hints {
+                            state.create_opening_guides=false;
+                            state.confirm_opening_guides=false;
+                        }
+                        state.preview=None;
+                    }
+                    if state.paired_wall_opening_hints {
+                        if ui.checkbox(&mut state.create_opening_guides, "Cho phép thêm PLINE bao vùng mở đã nhận dạng").changed() {
+                            if !state.create_opening_guides { state.confirm_opening_guides=false; }
+                            state.preview=None;
+                        }
+                        if state.create_opening_guides {
+                            if ui.checkbox(&mut state.confirm_opening_guides, "Tôi đã kiểm tra và đồng ý tạo PLINE hướng dẫn").changed() {
+                                state.preview=None;
+                            }
+                            ui.small("PLINE chỉ là đường bao kiểm tra, KHÔNG phải Block cửa đã được nhận dạng.");
+                        }
                     }
                 }
                 if ui.checkbox(&mut state.closed_rectangles, "Đường bao chữ nhật kín → PLINE").changed() {
@@ -201,6 +234,7 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
             let rectangle_count = proposal["closedPolylines"].as_array().map_or(0,Vec::len);
             let wall_pairs = proposal["wallPairCandidateCount"].as_u64().unwrap_or(0);
             let opening_count = proposal["openingGapCandidateCount"].as_u64().unwrap_or(0);
+            let paired_opening_count = proposal["pairedWallOpeningCandidateCount"].as_u64().unwrap_or(0);
             ui.label(format!("Đã nhận dạng: {count} nét nguồn, {rectangle_count} PLINE kín, {wall_pairs} cặp nét song song nghi là mép tường."));
             if state.wall_pair_hints {
                 ui.small("Gợi ý hình học, không phải tường BIM. Nét nguồn luôn được giữ để đối chiếu.");
@@ -214,6 +248,15 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
                         ui.small(format!("Khoảng {}: {:.2} px = {:.3} đơn vị CAD (chưa xác minh).",index+1,px,cad_width));
                     }
                     if gaps.len()>12 {ui.small(format!("Còn {} khoảng khác; xem kết quả MCP chi tiết.",gaps.len()-12));}
+                }
+            }
+            if state.paired_wall_opening_hints {
+                ui.label(format!("Đối chiếu hai mép tường: {paired_opening_count} vùng mở hình học cần xác nhận (không tự nhận là cửa)."));
+                if let Some(items)=proposal["pairedWallOpeningCandidates"].as_array() {
+                    for (index,item) in items.iter().take(8).enumerate() {
+                        let t=item["wallThicknessCAD"].as_f64().unwrap_or(0.0);
+                        ui.small(format!("Vùng {}: bề dày {:.3} đơn vị CAD; hai mép có khoảng hở tương ứng.",index+1,t));
+                    }
                 }
             }
             let centerline_count = proposal["wallCenterlinesProposed"].as_u64().unwrap_or(0);
@@ -274,16 +317,32 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
                                 egui::Stroke::new(2.5, egui::Color32::from_rgb(100,190,255)));
                         }
                     }
+                    // Orange outlines show paired-wall opening candidates in real CAD
+                    // coordinates, including the chosen image origin and scale.
+                    if state.paired_wall_opening_hints {
+                        if let Some(openings)=proposal["pairedWallOpeningCandidates"].as_array() {
+                            for opening in openings {
+                                let Some(vertices)=opening["outlineCAD"].as_array() else {continue};
+                                for index in 0..vertices.len() {
+                                    let a=&vertices[index]; let b=&vertices[(index+1)%vertices.len()];
+                                    if let (Some(x0),Some(y0),Some(x1),Some(y1))=
+                                        (a[0].as_f64(),a[1].as_f64(),b[0].as_f64(),b[1].as_f64()) {
+                                        painter.line_segment([to_screen(x0,y0),to_screen(x1,y1)],
+                                            egui::Stroke::new(2.0,egui::Color32::from_rgb(255,187,82)));
+                                    }
+                                }
+                            }
+                        }
+                    }
                     // Two amber endpoint markers identify a *possible* opening.
                     // Never draw a connecting segment: that might look like a
                     // closed doorway, while the image itself is unverified.
                     if state.opening_gap_hints {
-                        let height=proposal["imageSize"][1].as_f64().unwrap_or(0.0);
                         if let Some(gaps)=proposal["openingGapCandidates"].as_array() {
                             for gap in gaps {
-                                for key in ["fromPixels","toPixels"] {
+                                for key in ["fromCAD","toCAD"] {
                                     if let (Some(x),Some(y))=(gap[key][0].as_f64(),gap[key][1].as_f64()) {
-                                        let point=to_screen(x*state.scale,(height-y)*state.scale);
+                                        let point=to_screen(x,y);
                                         painter.circle_stroke(point,4.0,egui::Stroke::new(2.0,egui::Color32::from_rgb(255,187,82)));
                                     }
                                 }
@@ -335,6 +394,14 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
                 if failure.is_none() && let Some(centerlines) = proposal["wallCenterlines"].as_array() {
                     for line in centerlines {
                         match cad.run("line", json!({"points":line})) {
+                            Ok(_) => created += 1,
+                            Err(e) => { failure = Some(e); break; }
+                        }
+                    }
+                }
+                if failure.is_none() && let Some(guides) = proposal["openingGuidePolylines"].as_array() {
+                    for polygon in guides {
+                        match cad.run("pline", json!({"vertices":polygon,"closed":true})) {
                             Ok(_) => created += 1,
                             Err(e) => { failure = Some(e); break; }
                         }
@@ -513,6 +580,23 @@ mod tests {
         assert_eq!(state.params()["openingGapHints"],true);
         assert_eq!(state.params()["minOpeningGapPixels"],10.0);
         assert_eq!(state.params()["maxOpeningGapPixels"],20.0);
+        assert_eq!(state.params()["preview"],true);
+    }
+
+    #[test]
+    fn ai_paired_wall_opening_guides_require_explicit_preview_and_confirmation() {
+        let mut state=State::default();
+        state.open();
+        assert_eq!(state.params()["pairedWallOpeningHints"],false);
+        assert_eq!(state.params()["createOpeningGuidePolylines"],false);
+        assert_eq!(state.params()["confirmOpeningGuides"],false);
+        state.opening_gap_hints=true;
+        state.paired_wall_opening_hints=true;
+        state.create_opening_guides=true;
+        state.confirm_opening_guides=true;
+        assert_eq!(state.params()["pairedWallOpeningHints"],true);
+        assert_eq!(state.params()["createOpeningGuidePolylines"],true);
+        assert_eq!(state.params()["confirmOpeningGuides"],true);
         assert_eq!(state.params()["preview"],true);
     }
 
