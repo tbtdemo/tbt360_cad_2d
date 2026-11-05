@@ -143,7 +143,9 @@ jobs:
             @{ Package='cadcraft'; Target='gui'; Test='complete_user_manual_is_found_in_setup_and_portable_paths' },
             @{ Package='cadcraft'; Target='gui'; Test='ai_raster_undo_rolls_back_partial_batch' },
             @{ Package='cadcraft'; Target='gui'; Test='ai_raster_preview_never_commits_to_another_open_drawing' },
-            @{ Package='cadcraft'; Target='gui'; Test='ai_raster_preview_refuses_switch_away_and_back_with_unchanged_revision' }
+            @{ Package='cadcraft'; Target='gui'; Test='ai_raster_preview_refuses_switch_away_and_back_with_unchanged_revision' },
+            @{ Package='cadcraft'; Target='gui'; Test='ai_raster_calibration_uses_known_length_and_pixel_distance' },
+            @{ Package='cadcraft'; Target='gui'; Test='ai_raster_calibration_rejects_zero_nan_and_oversize_ratio' }
           )
           foreach ($case in $required) {
             if ($case.Target -eq 'lib') { $listing = @(cargo test --locked -p $case.Package --lib $case.Test -- --list 2>&1) }
@@ -227,6 +229,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Complete product user guide Setup/Portable path discovery failed' }
           cargo test --locked -p cadcraft --bin cadcraft ai_raster_help_is_accessible_offline_without_external_links -- --nocapture
           if ($LASTEXITCODE -ne 0) { throw 'V1.025 offline Vietnamese AI user guide integration failed' }
+          cargo test --locked -p cadcraft --bin cadcraft ai_raster_calibration -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'V1.025 AI raster measurement calibration validation regressed' }
           cargo test --locked -p cadcraft --bin cadcraft ai_raster_preview_refuses_switch_away_and_back_with_unchanged_revision -- --nocapture
           if ($LASTEXITCODE -ne 0) { throw 'V1.025 AI GUI preview allowed stale drawing after document switch-away-and-back' }
           cargo test --locked -p cadcraft-ui-egui --lib canvas::raster_image::tests -- --nocapture
