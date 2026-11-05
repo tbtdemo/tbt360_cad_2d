@@ -1393,3 +1393,29 @@ Mục tiêu quan trọng nhất của đợt này là chuyển từ việc **ch�
 6. Đối chiếu run Windows của **đúng commit SHA** trước khi xác nhận PASS. Thử thêm ảnh thực tế có nhiều cửa và các biến thể bản lề khác nhau; các kiểm thử hiện tại chưa thay thế nghiệm thu người dùng thực tế.
 
 **Trạng thái đợt 213:** Đã có thay đổi Rust trong thuật toán, GUI Preview và Windows CI để hỗ trợ đảo bản lề/phía mở từng cửa dạng Block CAD bản nháp. Chưa xác nhận EXE Windows PASS hoặc AI nhận diện ngữ nghĩa mọi loại cửa.
+
+
+## 54. Đợt 214 — Chọn cửa bằng cách nhấp trên Preview và chống áp nhầm hiệu chỉnh
+
+### Bài 91 — Nhấp trực tiếp vào cánh cửa trên Preview để chọn cửa cần sửa
+
+1. Mở CAD 360 → **AI từ ảnh → CAD**, chọn ảnh PNG/JPG mặt bằng, hiệu chuẩn `unitsPerPixel`.
+2. Bật gợi ý khoảng mở hai mép tường, nhận dạng nét cánh cửa, ARC và Block bản nháp. Xác nhận các công tắc kiểm soát như Bài 83–90.
+3. Nhấn **Nhận dạng và xem trước**, kiểm tra các Block cửa dự kiến vẽ màu tím/hồng trên hình Preview. Mỗi Block được gắn cánh LINE và cung quay ARC.
+4. **Nhấp gần đoạn cánh cửa màu tím** để chọn chính xác cửa cần sửa. GUI tính khoảng cách từ điểm nhấp tới mỗi LINE cánh trong tọa độ màn hình, chấp nhận trong bán kính 13 px và chỉ chọn khi không có hai cánh cạnh tranh quá gần.
+5. Khi chọn thành công, **Cửa số N** và trường chiều rộng riêng được đồng bộ theo ứng viên được nhấp. Chỉnh chiều rộng, bản lề, phía mở rồi nhấn **Preview** lại để kiểm tra.
+6. Nếu nhấp xa mọi cánh hoặc giữa hai cánh quá sát, GUI giữ lựa chọn hiện có, không tự đoán cửa. Người dùng vẫn có thể dùng nút **Chọn cửa 1**, **Chọn cửa 2** trong danh sách.
+7. Nhấp trên Preview chỉ thay đổi cửa đang chọn; bản thân thao tác này **không sửa bản vẽ CAD**. Chỉ khi người dùng xác nhận và nhấn Commit mới có thể tạo BLOCK/INSERT chỉnh sửa được.
+
+### Bài 92 — Chống áp nhầm bản lề, chiều rộng khi AI nhận dạng lại
+
+1. Mỗi ứng viên cửa có mã `sourceDoorKey` dựa trên tọa độ điểm bản lề/khoảng mở trong ảnh và chỉ số LINE nguồn. Mã phục vụ bảo vệ một lần Preview, **không phải** ID kiến trúc bất biến cho mọi bản vẽ.
+2. Khi người dùng hiệu chỉnh từng cửa, GUI gửi danh sách `expectedDoorSourceKeys` của Preview đã xem xét. Trước khi xây dựng các Block CAD, thuật toán so sánh danh sách đó với các ứng viên vừa nhận dạng.
+3. Nếu đổi ảnh, ngưỡng nhận dạng hoặc hình học khiến danh sách/thứ tự cửa thay đổi, AI trả lỗi `AI door candidates changed since the reviewed Preview`, **không áp chỉnh sửa của cửa cũ sang cửa mới**.
+4. Khi chọn ảnh mới, giao diện xóa các hiệu chỉnh riêng về chiều rộng, bản lề, hướng mở và dấu vân tay nguồn. Người dùng phải Preview và xác nhận lại.
+5. Kiểm thử `ai_preview_door_click_selects_nearest_door_and_refuses_ambiguous_click` xác nhận nhấp gần từng cửa chọn đúng, trường hợp xa hoặc hai cánh gần nhau thì không đoán.
+6. Kiểm thử `ai_stale_per_door_review_keys_must_not_retarget_a_different_candidate` xác nhận dấu vân tay nguồn sai hoặc quá hạn bị từ chối trước khi sửa CAD.
+7. Kiểm thử `ai_individual_door_review_must_include_expected_source_keys_on_preview` xác nhận GUI chỉ gửi xác thực nguồn khi thực sự có hiệu chỉnh riêng từng cửa.
+8. Windows CI bắt buộc phát hiện và chạy các bài test này; **chưa thể tuyên bố PASS** cho đến khi run tương ứng commit cuối thực sự thành công.
+
+**Trạng thái đợt 214:** Đã nâng cấp mã GUI để chọn cánh cửa bằng chuột trên Preview, gắn dấu vân tay cho ứng viên hình học, bổ sung kiểm thử chống mơ hồ/chống áp nhầm. Đây vẫn là AI vector hóa và suy luận hình học theo quy tắc; chưa đạt nhận dạng ngữ nghĩa kiến trúc trên ảnh thực tế đa dạng, chưa có bằng chứng EXE Windows PASS.
