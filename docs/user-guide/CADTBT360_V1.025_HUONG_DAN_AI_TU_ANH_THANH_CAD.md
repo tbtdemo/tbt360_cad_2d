@@ -115,3 +115,18 @@ CI có bước kiểm tra tệp Word là gói DOCX hợp lệ, bản Word trong 
 **Chưa xác minh thực tế:** Windows CI PASS, EXE phát hành thành công và ảnh chụp trực tiếp từ GUI Windows. Tài liệu hiện hướng dẫn đúng cách sử dụng theo mã nguồn; sau khi có bản EXE được nghiệm thu cần bổ sung ảnh chụp thực tế từng bước, không sử dụng ảnh mô phỏng thay thế.
 
 **Quy ước lâu dài:** Mỗi đợt nâng cấp chức năng phải cập nhật tài liệu từng bước, ví dụ, cách kiểm tra kết quả, lỗi thường gặp và trạng thái nghiệm thu; khi công bố phát hành phải mang theo bản Word và bản Markdown đồng bộ.
+
+
+## 9. Nâng cấp đợt 170 — Hướng dẫn ngay trong giao diện CAD 360
+
+**Điểm mới:** Trên tab CAD có thêm nút **HƯỚNG DẪN AI**. Khi nhấn, phần mềm mở cửa sổ **AI từ ảnh → CAD** và bật khung **Hướng dẫn từng bước** mà không cần truy cập Internet.
+
+1. Mở **CAD 360 V1.025** và chuyển đến tab **CAD**.
+2. Chọn **HƯỚNG DẪN AI** ở thanh công cụ. Nội dung hướng dẫn 6 bước được hiển thị ngay trong hộp thoại.
+3. Đọc quy trình chọn ảnh, tỷ lệ CAD/pixel, Preview và tạo LINE.
+4. Khi cần đọc tài liệu dài, với bản cài Setup: vào **Start Menu → CAD 360 Viet Nam - TBT - Huong dan AI** hoặc thư mục cài đặt `HuongDan\HUONG_DAN_AI_TU_ANH_THANH_CAD.docx`.
+5. Với bản **Portable**: giải nén ZIP và mở `HUONG_DAN_AI_TU_ANH_THANH_CAD.docx` nằm cạnh `CADTBT360.exe`.
+
+**Kiểm thử nguồn bổ sung:** `ai_raster_help_is_accessible_offline_without_external_links`; Windows CI kiểm tra tồn tại và yêu cầu thực thi bài kiểm thử này trước khi phát hành.
+
+**Trạng thái nghiệm thu:** Đã có mã nút và nội dung hướng dẫn trong GUI, cùng shortcut hướng dẫn của Inno Setup. Chưa xác minh Windows CI PASS, bản EXE hoạt động thực tế hay ảnh chụp màn hình từ chính bản cài. Cần kiểm tra và bổ sung ảnh chụp chuẩn từ phần mềm sau khi build đạt.
