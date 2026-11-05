@@ -81,16 +81,34 @@ fn check_trace_quality(args: &Value) -> Value {
         max_found = max_found.max(len);
         if len <= min_len { too_short.push(i); }
     }
-    let mut intersections = Vec::new();
+    // Broad phase: sort segment bounding boxes by their minimum X. Only boxes
+    // overlapping on both axes can intersect; avoids O(n²) orientation work on
+    // the large, spatially distributed polylines returned by image recognition.
+    // A dense set of overlapping boxes still has O(n²) worst-case cost.
+    let mut boxes = Vec::with_capacity(seg_count);
     for i in 0..seg_count {
-        for j in (i + 1)..seg_count {
+        let a = pts[i];
+        let b = pts[(i + 1) % pts.len()];
+        boxes.push((i, a.0.min(b.0), a.0.max(b.0), a.1.min(b.1), a.1.max(b.1)));
+    }
+    boxes.sort_unstable_by(|a, b| a.1.total_cmp(&b.1).then_with(|| a.0.cmp(&b.0)));
+    let mut intersections = Vec::new();
+    let mut candidate_pairs = 0usize;
+    for (position, a) in boxes.iter().enumerate() {
+        for b in boxes.iter().skip(position + 1) {
+            if b.1 > a.2 { break; }
+            if b.3 > a.4 || b.4 < a.3 { continue; }
+            let (i, j) = (a.0.min(b.0), a.0.max(b.0));
             // Adjacent segments share a vertex by design; exclude those pairs.
             if j == i + 1 || (closed && i == 0 && j + 1 == seg_count) { continue; }
+            candidate_pairs += 1;
             if trace_segments_intersect(pts[i], pts[(i + 1) % pts.len()], pts[j], pts[(j + 1) % pts.len()]) {
-                intersections.push(json!([i, j]));
+                intersections.push((i, j));
             }
         }
     }
+    intersections.sort_unstable();
+    let intersections: Vec<Value> = intersections.into_iter().map(|(i, j)| json!([i, j])).collect();
     let x_min = pts.iter().map(|p| p.0).fold(f64::INFINITY, f64::min);
     let y_min = pts.iter().map(|p| p.1).fold(f64::INFINITY, f64::min);
     let x_max = pts.iter().map(|p| p.0).fold(f64::NEG_INFINITY, f64::max);
@@ -101,6 +119,7 @@ fn check_trace_quality(args: &Value) -> Value {
         "pointCount": pts.len(), "segmentCount": seg_count, "closed": closed,
         "minimumSegmentLength": min_found, "maximumSegmentLength": max_found,
         "shortSegments": too_short, "selfIntersections": intersections,
+        "intersectionCandidatePairsTested": candidate_pairs,
         "tooFewPointsForClosedOutline": too_few, "bounds": [[x_min,y_min],[x_max,y_max]],
         "scope": "Geometry validation only; raster/image recognition fidelity NOT_VERIFIED"
     })
