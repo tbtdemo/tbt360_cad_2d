@@ -134,6 +134,7 @@ jobs:
           New-Item -ItemType Directory -Force $discoveryLogDir | Out-Null
           $required = @(
             @{ Package='cadcraft-cli'; Target='bin'; Test='image_trace_entity_json_matches_windows_installer_smoke_contract' },
+            @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_vietnamese_room_wall_plan_produces_closed_native_outlines' },
             @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_vietnamese_plan_parses_four_native_commands' },
             @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_vietnamese_plan_is_atomic_on_parser_validation' },
             @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_vietnamese_draft_parses_native_line_and_circle' },
