@@ -486,6 +486,64 @@ fn paired_wall_openings(gaps: &[Value], min_spacing: f64, max_spacing: f64) -> V
         })).collect()
 }
 
+/// Add observable, axis-aligned door-leaf-like evidence to geometric opening candidates.
+/// A line from one end of an opening extending perpendicular into the room may be
+/// a door leaf, but is NOT proof of a door: no semantic door block is created.
+/// If more than one stroke matches, the result is deliberately ambiguous.
+fn door_leaf_evidence(openings: &mut [Value], lines: &[Line]) {
+    if lines.len() > 1000 { return; }
+    for candidate in openings {
+        let Some(corners) = candidate["outlinePixels"].as_array() else {continue};
+        if corners.len() != 4 {continue;}
+        let read = |idx: usize| -> Option<[f64;2]> {
+            Some([corners[idx][0].as_f64()?, corners[idx][1].as_f64()?])
+        };
+        let (Some(a),Some(b),Some(c),Some(d))=(read(0),read(1),read(2),read(3)) else {continue};
+        let horizontal=(a[1]-b[1]).abs()<=0.75 && (c[1]-d[1]).abs()<=0.75;
+        let vertical=(a[0]-b[0]).abs()<=0.75 && (c[0]-d[0]).abs()<=0.75;
+        if !horizontal && !vertical {continue;}
+        let width=if horizontal {(b[0]-a[0]).abs()} else {(b[1]-a[1]).abs()};
+        let thickness=candidate["wallThicknessPixels"].as_f64().unwrap_or(0.0);
+        if width<4.0 || thickness<=0.0 {continue;}
+        let mut matching=Vec::new();
+        for (index,l) in lines.iter().enumerate() {
+            let (lo,hi,coord) = if horizontal {
+                if (l.x0-l.x1).abs()>0.75 {continue;}
+                (l.y0.min(l.y1),l.y0.max(l.y1), (l.x0+l.x1)*0.5)
+            } else {
+                if (l.y0-l.y1).abs()>0.75 {continue;}
+                (l.x0.min(l.x1),l.x0.max(l.x1), (l.y0+l.y1)*0.5)
+            };
+            let len=hi-lo;
+            if len<width*0.65 || len>width*1.35 || len<=thickness+1.0 {continue;}
+            let corners_xy=[a,b,c,d];
+            let hinge=corners_xy.iter().find(|p| {
+                let along=if horizontal {p[0]} else {p[1]};
+                let at=if horizontal {p[1]} else {p[0]};
+                // The leaf starts at an opening's corner and extends OUT of the
+                // wall thickness. A short jamb spanning the wall is not enough.
+                (coord-along).abs()<=1.25 && ((lo-at).abs()<=1.25 || (hi-at).abs()<=1.25)
+                    && {
+                        let wall_lo=if horizontal {a[1].min(d[1])} else {a[0].min(b[0])};
+                        let wall_hi=if horizontal {a[1].max(d[1])} else {a[0].max(b[0])};
+                        lo < wall_lo-1.0 || hi > wall_hi+1.0
+                    }
+            });
+            if let Some(p)=hinge {
+                matching.push(json!({"sourceLineIndex":index,"hingePixels":p,"leafLengthPixels":len,
+                    "classification":"possible-door-leaf-stroke-unverified"}));
+            }
+        }
+        if matching.len()==1 {
+            candidate["doorLeafEvidence"]=matching.remove(0);
+            candidate["doorLeafCandidate"]=json!(true);
+        } else {
+            candidate["doorLeafCandidate"]=json!(false);
+            if matching.len()>1 {candidate["doorLeafAmbiguous"]=json!(true);}
+        }
+    }
+}
+
 /// Shared non-mutating vectorization used by MCP and the desktop GUI.
 pub fn preview(args: &Value) -> Result<Value, String> {
     let path = args["path"].as_str().filter(|s| !s.trim().is_empty()).ok_or("path is required")?;
@@ -588,6 +646,10 @@ pub fn preview(args: &Value) -> Result<Value, String> {
     let mut paired_openings=if paired_enabled {
         paired_wall_openings(&gaps_hint,2.0,40.0)
     } else {Vec::new()};
+    if args["doorLeafHints"].as_bool().unwrap_or(false) {
+        if !paired_enabled {return Err("doorLeafHints requires pairedWallOpeningHints=true; no CAD changes made".into());}
+        door_leaf_evidence(&mut paired_openings,&lines);
+    }
     for opening in &mut paired_openings {
         let Some(points)=opening["outlinePixels"].as_array() else {continue};
         let mut cad=Vec::new();
@@ -669,6 +731,8 @@ pub fn preview(args: &Value) -> Result<Value, String> {
         "bridgedGaps":bridged_gaps,"maxGapPixels":gap_pixels,
         "openingGapCandidates":gaps_hint,"openingGapCandidateCount":gaps_hint.len(),
         "pairedWallOpeningCandidates":paired_openings,"pairedWallOpeningCandidateCount":paired_openings.len(),
+        "doorLeafCandidateCount":paired_openings.iter().filter(|v|v["doorLeafCandidate"]==true).count(),
+        "doorLeafHintsRequested":args["doorLeafHints"].as_bool().unwrap_or(false),
         "openingGuidePolylines":if create_opening_guides {paired_openings.iter().map(|v|v["outlineCAD"].clone()).collect::<Vec<_>>()} else {Vec::new()},
         "openingGuidePolylinesRequested":create_opening_guides,
         "minOpeningGapPixels":opening_min,"maxOpeningGapPixels":opening_max,
@@ -844,6 +908,53 @@ mod tests {
         assert_eq!(result["editableEntitiesCreated"],5,"four original LINEs and one human-confirmed PLINE guide");
         let inspected=backend.call("drawing.inspect",json!({"entities":false})).unwrap();
         assert_eq!(inspected["entityCount"],5);
+        let _=std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn ai_door_leaf_evidence_requires_a_perpendicular_outward_stroke_at_opening_corner() {
+        let gap=|y:f64|json!({"fromPixels":[39.5,y],"toPixels":[51.5,y]});
+        let mut candidate=paired_wall_openings(&[gap(15.5),gap(22.5)],2.0,40.0);
+        assert_eq!(candidate.len(),1);
+        // A 12 px leaf from the top-left hinge extends outside the 7 px wall.
+        let leaf=Line{x0:39.5,y0:3.5,x1:39.5,y1:15.5};
+        door_leaf_evidence(&mut candidate,&[leaf]);
+        assert_eq!(candidate[0]["doorLeafCandidate"],true);
+        assert_eq!(candidate[0]["doorLeafEvidence"]["sourceLineIndex"],0);
+        assert_eq!(candidate[0]["classification"],"paired-through-wall-gap-unverified",
+            "leaf hints must never upgrade the opening to a confirmed door");
+        // Jamb only between both wall edges is not door-leaf evidence.
+        let mut jamb=paired_wall_openings(&[gap(15.5),gap(22.5)],2.0,40.0);
+        door_leaf_evidence(&mut jamb,&[Line{x0:39.5,y0:15.5,x1:39.5,y1:22.5}]);
+        assert_eq!(jamb[0]["doorLeafCandidate"],false);
+        let mut ambiguous=paired_wall_openings(&[gap(15.5),gap(22.5)],2.0,40.0);
+        door_leaf_evidence(&mut ambiguous,&[leaf,Line{x0:51.5,y0:3.5,x1:51.5,y1:15.5}]);
+        assert_eq!(ambiguous[0]["doorLeafCandidate"],false);
+        assert_eq!(ambiguous[0]["doorLeafAmbiguous"],true);
+    }
+
+    #[test]
+    fn ai_real_png_door_leaf_hint_is_preview_only_and_preserves_native_geometry() {
+        let mut img=image::RgbImage::from_pixel(110,48,image::Rgb([255,255,255]));
+        for y in [15,22] {
+            for x in 5..=39 {img.put_pixel(x,y,image::Rgb([0,0,0]));}
+            for x in 51..=95 {img.put_pixel(x,y,image::Rgb([0,0,0]));}
+        }
+        for y in 3..=15 {img.put_pixel(39,y,image::Rgb([0,0,0]));}
+        let path=std::env::temp_dir().join(format!("cad360-door-leaf-hint-{}-{}.png",std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        img.save(&path).unwrap();
+        let mut args=json!({"path":path.to_string_lossy(),"preview":true,"minLengthPixels":8,
+            "includeDiagonals":false,"openingGapHints":true,"pairedWallOpeningHints":true,
+            "doorLeafHints":true,"maxGapPixels":0,"unitsPerPixel":2.0});
+        let proposed=preview(&args).unwrap();
+        assert_eq!(proposed["pairedWallOpeningCandidateCount"],1);
+        assert_eq!(proposed["doorLeafCandidateCount"],1,"the perpendicular leaf stroke is measurable evidence");
+        assert_eq!(proposed["editableEntitiesCreated"],0,"preview must not edit a CAD document");
+        assert_eq!(proposed["openingGuidePolylines"].as_array().unwrap().len(),0,"no automatic door or guide");
+        args["doorLeafHints"]=json!(false);
+        let without=preview(&args).unwrap();
+        assert_eq!(without["doorLeafCandidateCount"],0);
         let _=std::fs::remove_file(&path);
     }
 
