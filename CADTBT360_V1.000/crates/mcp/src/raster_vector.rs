@@ -1803,6 +1803,32 @@ mod tests {
     }
 
     #[test]
+    fn ai_real_png_wall_opening_contact_qa_is_preview_only() {
+        let mut img=image::RgbImage::from_pixel(110,48,image::Rgb([255,255,255]));
+        for y in [15,22] {
+            for x in 5..=39 {img.put_pixel(x,y,image::Rgb([0,0,0]));}
+            for x in 51..=95 {img.put_pixel(x,y,image::Rgb([0,0,0]));}
+        }
+        let path=std::env::temp_dir().join(format!("cad360-wall-topology-{}-{}.png",std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        img.save(&path).unwrap();
+        let args=json!({"path":path.to_string_lossy(),"minLengthPixels":8,"includeDiagonals":false,
+            "openingGapHints":true,"pairedWallOpeningHints":true,"wallPairHints":true,
+            "wallPanelHints":true,"maxGapPixels":0,"unitsPerPixel":2.0,
+            "minWallSpacingPixels":2.0,"maxWallSpacingPixels":40.0});
+        let result=preview(&args).unwrap();
+        assert_eq!(result["wallPanelCandidateCount"],2);
+        assert_eq!(result["pairedWallOpeningCandidateCount"],1);
+        assert_eq!(result["wallPanelContactCount"],2);
+        assert_eq!(result["wallPanelBoundaryContacts"][0]["endContacts"][0]["kind"],"opening");
+        assert_eq!(result["wallPanelBoundaryContacts"][1]["startContacts"][0]["kind"],"opening");
+        assert_eq!(result["wallTopologyStatus"],"preview-only-unverified-no-geometry-joining");
+        assert_eq!(result["editableEntitiesCreated"],0);
+        assert_eq!(result["wallPanelPolylineCount"],0);
+        let _=std::fs::remove_file(path);
+    }
+
+    #[test]
     fn ai_wall_panel_contact_qa_reports_both_sides_of_opening_without_joining_wall_geometry() {
         let left=json!({"outlinePixels":[[5.5,15.5],[39.5,15.5],[39.5,22.5],[5.5,22.5]]});
         let right=json!({"outlinePixels":[[51.5,15.5],[95.5,15.5],[95.5,22.5],[51.5,22.5]]});
