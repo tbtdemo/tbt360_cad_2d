@@ -1518,3 +1518,28 @@ Mục tiêu quan trọng nhất của đợt này là chuyển từ việc **ch�
 6. Cần bổ sung nhận dạng cột tròn, chữ L/T, cột không có dấu giao, bản vẽ nhiễu, cột tại nút giao tường và cấu kiện kết cấu thực tế.
 
 **Trạng thái đợt 218:** Đã cập nhật thuật toán, GUI tạo BLOCK/INSERT và kiểm thử. Chưa xác nhận CI Windows PASS; tính năng chưa tự hiểu đầy đủ đối tượng cột kết cấu.
+
+
+## 59. Đợt 219 — AI dựng dải tường từ hai mép quan sát được, bảo toàn khoảng cửa và cột
+
+### Bài 101 — Nhận dạng dải tường có hai mép song song từ ảnh
+
+1. Mở CAD 360 → **AI từ ảnh → CAD**, chọn ảnh PNG/JPG có hai đường mép tường song song và khoảng cửa; hiệu chuẩn `unitsPerPixel`.
+2. Bật **Gợi ý cặp nét tường song song (chỉ Preview)** (`wallPairHints=true`) rồi bật **Gợi ý dải tường từ hai mép quan sát được (không tự nối qua cửa)** (`wallPanelHints=true`). Chỉ số `minWallSpacingPixels` và `maxWallSpacingPixels` giới hạn bề dày dự kiến.
+3. Nhấn **Nhận dạng và xem trước**. Quan sát đường bao màu cam, đọc `wallPanelCandidateCount` và `wallPanelCandidates[]`. Mỗi ứng viên có `outlinePixels`, `outlineCAD`, `lengthPixels`, `thicknessPixels`, `lengthCAD`, `thicknessCAD` và `sourceEdgeIndices`.
+4. Thuật toán chỉ lấy phần **giao độ dài thực sự của hai nét mép tường**, không ngoại suy đoạn còn thiếu. Hai đoạn tường hai bên cửa phải là hai ứng viên độc lập, tuyệt đối không tự bắc cầu qua khoảng hở.
+5. Cặp nét nhập nhằng hoặc có một mép thuộc nhiều cặp bị loại; ứng viên chồng diện tích với vùng mở hoặc ứng viên cột cũng bị loại trước khi đề xuất.
+6. Đây là gợi ý đường bao tường CAD, **không phải đối tượng tường kiến trúc/BIM**, chưa suy ra tường chịu lực, vật liệu, chiều cao, vị trí liên kết hoặc quan hệ cửa-tường chắc chắn.
+
+### Bài 102 — Xác nhận tạo PLINE tường và kiểm thử PNG có cửa
+
+1. Sau khi kiểm tra các viền cam trên Preview, bật **Vẽ PLINE kín dải tường sau khi kiểm tra** (`createWallPanelPolylines=true`) và tích **Tôi xác nhận tạo PLINE dải tường** (`confirmWallPanels=true`).
+2. Nếu chưa bật `wallPanelHints=true` hoặc chưa xác nhận, Preview trả lỗi và **không sửa CAD**.
+3. Nhấn **Tạo LINE / PLINE chỉnh sửa trong CAD**. AI giữ các nét LINE ảnh gốc và tạo thêm các PLINE kín ứng viên tường trong cùng nhóm Undo; không tạo đường nối qua vị trí cửa.
+4. Chạy `cargo test --locked -p cadcraft-mcp --lib ai_wall_panels_preserve_door_gap_and_reject_column_overlap_or_ambiguous_edges -- --nocapture`. Hai cặp mép hai bên khoảng mở phải tạo hai dải riêng; vùng cột chồng lên dải tường phải được loại khỏi gợi ý.
+5. Chạy `cargo test --locked -p cadcraft-mcp --lib ai_real_png_wall_panels_require_confirmation_before_native_cad_plines -- --nocapture`. Ảnh PNG tổng hợp cần tạo hai vùng tường, mặc định 0 PLINE mới, từ chối khi chưa xác nhận và tạo đúng hai PLINE khi Commit.
+6. Chạy `cargo test --locked -p cadcraft --bin cadcraft ai_wall_panel_gui_defaults_to_preview_with_separate_confirmation -- --nocapture`. GUI phải mặc định ở chế độ Preview, không bật tùy chọn Commit hay xác nhận.
+7. Kiểm tra Windows CI đúng commit SHA, chạy EXE thực tế, thử Undo và kiểm tra khả năng lưu/mở lại DWG. Không coi kết quả đã viết test là đã PASS.
+8. Phần chưa đạt: tường chéo/cong, hai mép tường không hoàn chỉnh, nút giao T/X, tường không đều chiều dày, hợp nhất cột–tường–cửa thành topology CAD kiến trúc có thuộc tính.
+
+**Trạng thái đợt 219:** Đã bổ sung mã tạo dải tường dựa trên cặp nét thực có, bảo vệ khoảng cửa và cột, Preview màu cam, PLINE sau xác nhận, kiểm thử PNG/GUI và CI. Chưa xác nhận Windows CI PASS và chưa có tường BIM/kiến trúc thông minh.
