@@ -202,13 +202,34 @@ fn parse_vietnamese_draft(text: &str) -> Result<(String,Value),String> {
         if (start[0]-end[0]).hypot(start[1]-end[1])<1.0e-9 {return Err("AI CAD: đường thẳng không được có chiều dài bằng 0".into());}
         return Ok(("line".into(),json!({"points":[start,end]})));
     }
+    if (cleaned.starts_with("vẽ hình chữ nhật ") || cleaned.starts_with("ve hinh chu nhat ")) && words.len()==8 {
+        let start=argument("từ").or_else(||argument("tu")).and_then(parse_point).ok_or("AI CAD: cần tọa độ góc thứ nhất")?;
+        let end=argument("đến").or_else(||argument("den")).and_then(parse_point).ok_or("AI CAD: cần tọa độ góc đối diện")?;
+        if (start[0]-end[0]).abs()<=1.0e-9||(start[1]-end[1]).abs()<=1.0e-9 {
+            return Err("AI CAD: hình chữ nhật phải có chiều rộng và chiều cao khác 0".into());
+        }
+        return Ok(("rectang".into(),json!({"p1":start,"p2":end})));
+    }
+    if cleaned.starts_with("vẽ đa tuyến qua ") || cleaned.starts_with("ve da tuyen qua ") {
+        let prefix=if cleaned.starts_with("vẽ đa tuyến qua ") {"vẽ đa tuyến qua "} else {"ve da tuyen qua "};
+        let body=&cleaned[prefix.len()..];
+        let mut points=Vec::new();
+        for chunk in body.split(';') {
+            let point=parse_point(chunk.trim()).ok_or("AI CAD: đa tuyến phải là danh sách x,y ngăn cách bằng dấu ;")?;
+            if points.last()==Some(&point) {return Err("AI CAD: đa tuyến có hai đỉnh liên tiếp trùng nhau".into());}
+            points.push(point);
+            if points.len()>128 {return Err("AI CAD: tối đa 128 đỉnh".into());}
+        }
+        if points.len()<2 {return Err("AI CAD: đa tuyến cần ít nhất 2 đỉnh".into());}
+        return Ok(("pline".into(),json!({"vertices":points,"closed":false})));
+    }
     if (cleaned.starts_with("vẽ hình tròn ") || cleaned.starts_with("ve hinh tron ")) && words.len()==8 {
         let center=argument("tâm").or_else(||argument("tam")).and_then(parse_point).ok_or("AI CAD: cần tọa độ tâm dạng x,y")?;
         let radius=argument("kính").and_then(|v|v.parse::<f64>().ok()).ok_or("AI CAD: cần bán kính dạng số dương")?;
         if !radius.is_finite()||radius<=0.0||radius>1.0e9 {return Err("AI CAD: bán kính không hợp lệ".into());}
         return Ok(("circle".into(),json!({"center":center,"radius":radius})));
     }
-    Err("AI CAD: chưa hỗ trợ câu lệnh này; chỉ chấp nhận 'vẽ đường thẳng từ x,y đến x,y' hoặc 'vẽ hình tròn tâm x,y bán kính r'".into())
+    Err("AI CAD: câu lệnh ngoài phạm vi hỗ trợ hoặc thiếu tọa độ: LINE, CIRCLE, RECTANG, PLINE dạng danh sách x,y phân cách bởi dấu ;".into())
 }
 
 fn ai_draw_vietnamese(b: &mut dyn Backend, args: &Value) -> Result<Value,String> {
@@ -362,13 +383,15 @@ mod ai_draft_vietnamese_tests {
     fn ai_vietnamese_draft_parses_native_line_and_circle() {
         assert_eq!(parse_vietnamese_draft("vẽ đường thẳng từ 0,0 đến 100,50").unwrap(),("line".to_string(),json!({"points":[[0.0,0.0],[100.0,50.0]]})));
         assert_eq!(parse_vietnamese_draft("vẽ hình tròn tâm 10,20 bán kính 25").unwrap(),("circle".to_string(),json!({"center":[10.0,20.0],"radius":25.0})));
+        assert_eq!(parse_vietnamese_draft("vẽ hình chữ nhật từ 0,0 đến 100,50").unwrap(),("rectang".to_string(),json!({"p1":[0.0,0.0],"p2":[100.0,50.0]})));
+        assert_eq!(parse_vietnamese_draft("vẽ đa tuyến qua 0,0; 100,0; 100,50").unwrap(),("pline".to_string(),json!({"vertices":[[0.0,0.0],[100.0,0.0],[100.0,50.0]],"closed":false})));
     }
 
     #[test]
     fn ai_vietnamese_draft_rejects_missing_or_unsafe_coordinates() {
         for prompt in ["vẽ đường thẳng từ 0,0 đến 0,0","vẽ đường thẳng từ 0,0 đến NaN,2",
             "vẽ hình tròn tâm 0,0 bán kính -5","vẽ hình tròn tâm 0,0 bán kính 0",
-            "vẽ tất cả tường và xóa bản vẽ","vẽ đường thẳng từ 0,0 đến 100000000000,0"] {
+            "vẽ tất cả tường và xóa bản vẽ","vẽ đường thẳng từ 0,0 đến 100000000000,0", "vẽ hình chữ nhật từ 0,0 đến 0,50", "vẽ đa tuyến qua 0,0;0,0"] {
             assert!(parse_vietnamese_draft(prompt).is_err(),"{prompt} must be refused");
         }
     }
