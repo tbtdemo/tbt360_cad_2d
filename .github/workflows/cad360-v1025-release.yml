@@ -164,11 +164,14 @@ jobs:
             @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_reviewed_door_width_changes_only_new_block_leaf_and_arc_not_image_strokes' },
             @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_two_png_doors_have_independent_widths_and_validate_stale_review' },
             @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_single_png_door_hinge_and_swing_flips_are_explicit_and_preserve_source' },
+            @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_stale_per_door_review_keys_must_not_retarget_a_different_candidate' },
             @{ Package='cadcraft'; Target='gui'; Test='ai_door_swing_arc_gui_requires_explicit_two_step_confirmation' },
             @{ Package='cadcraft'; Target='gui'; Test='ai_native_door_draft_block_contains_line_and_arc_and_can_undo_as_one_step' },
             @{ Package='cadcraft'; Target='gui'; Test='ai_door_width_override_gui_requires_block_opt_in_and_defaults_to_unmodified_draft' },
             @{ Package='cadcraft'; Target='gui'; Test='ai_individual_door_width_override_gui_serializes_selected_indices_only' },
             @{ Package='cadcraft'; Target='gui'; Test='ai_door_hinge_swing_gui_requires_door_block_and_preserves_selected_indices' },
+            @{ Package='cadcraft'; Target='gui'; Test='ai_preview_door_click_selects_nearest_door_and_refuses_ambiguous_click' },
+            @{ Package='cadcraft'; Target='gui'; Test='ai_individual_door_review_must_include_expected_source_keys_on_preview' },
             @{ Package='cadcraft'; Target='gui'; Test='ai_new_source_requires_review_of_per_door_candidate_indices_again' },
             @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_door_leaf_evidence_requires_a_perpendicular_outward_stroke_at_opening_corner' },
             @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_two_aligned_wall_edge_gaps_propose_one_opening_outline' },
@@ -261,6 +264,12 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'AI per-door PNG independent width regression failed' }
           cargo test --locked -p cadcraft-mcp --lib ai_single_png_door_hinge_and_swing_flips_are_explicit_and_preserve_source -- --nocapture
           if ($LASTEXITCODE -ne 0) { throw 'AI per-door hinge/swing source-preservation regression failed' }
+          cargo test --locked -p cadcraft-mcp --lib ai_stale_per_door_review_keys_must_not_retarget_a_different_candidate -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'AI stale door-source fingerprint was not rejected' }
+          cargo test --locked -p cadcraft --bin cadcraft ai_preview_door_click_selects_nearest_door_and_refuses_ambiguous_click -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'AI preview door hit-test ambiguity regression failed' }
+          cargo test --locked -p cadcraft --bin cadcraft ai_individual_door_review_must_include_expected_source_keys_on_preview -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'AI door review source key was not checked' }
           cargo test --locked -p cadcraft --bin cadcraft ai_door_hinge_swing_gui_requires_door_block_and_preserves_selected_indices -- --nocapture
           if ($LASTEXITCODE -ne 0) { throw 'AI door hinge/swing desktop GUI state regression failed' }
           cargo test --locked -p cadcraft --bin cadcraft ai_new_source_requires_review_of_per_door_candidate_indices_again -- --nocapture
