@@ -1,0 +1,125 @@
+name: CAD 360 V1.025 - Windows GUI Startup Smoke
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/CADTBT360_V1.025_xref-regression
+    paths:
+      - '.github/workflows/cad360-v1025-gui-startup-smoke.yml'
+      - 'scripts/qa/Test-CADTBT360-V1025-GuiStartup.ps1'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cad360-v1025-gui-smoke-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  gui-startup:
+    name: Verify released V1.025 portable GUI starts on Windows
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - name: Require V1.025 feature branch for manual QA
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        shell: pwsh
+        run: |
+          if ($env:GITHUB_REF -ne 'refs/heads/feature/CADTBT360_V1.025_xref-regression') {
+            throw "Select feature/CADTBT360_V1.025_xref-regression in Run workflow (current ref: $env:GITHUB_REF)"
+          }
+
+      - name: Checkout QA script at current commit
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Download exact published B87/A1 Portable (not newly compiled)
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force dist/gui-smoke | Out-Null
+          gh release download CADTBT360_V1.025_B87_A1 --repo tbtdemo/tbt360_cad_2d --pattern 'CADTBT360_V1.025_Portable_Windows_x64.zip' --dir dist/gui-smoke --clobber
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot download B87 A1 Portable from GitHub Release' }
+          $zip = 'dist/gui-smoke/CADTBT360_V1.025_Portable_Windows_x64.zip'
+          $hash = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant()
+          $expected = '9eedc1e568f4a739948716e87c794778102cae9fb3c97a419d07ccf3a63e1737'
+          if ($hash -ne $expected) { throw "Downloaded Portable SHA256 mismatch: $hash" }
+          Expand-Archive -Path $zip -DestinationPath 'dist/gui-smoke/portable' -Force
+          $exe = 'dist/gui-smoke/portable/CADTBT360.exe'
+          if (!(Test-Path $exe)) { throw 'CADTBT360.exe missing in official Portable ZIP' }
+          $info = Get-Content 'dist/gui-smoke/portable/BUILD_INFO.txt'
+          if ($info -notcontains 'SourceCommit=0634a0ec56e47c2d61e659d7a3ff0d99ae0722ed') { throw 'Portable BUILD_INFO does not match released B87 executable commit' }
+          $hash | Set-Content 'dist/gui-smoke/portable-sha256.txt' -Encoding ascii
+
+      - name: Start real Windows GUI and observe top-level window
+        shell: pwsh
+        run: |
+          & './scripts/qa/Test-CADTBT360-V1025-GuiStartup.ps1' -Executable './dist/gui-smoke/portable/CADTBT360.exe' -EvidenceDirectory './dist/gui-smoke/evidence' -WaitSeconds 35
+
+      - name: Download and verify exact B87 A1 Setup executable
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          gh release download CADTBT360_V1.025_B87_A1 --repo tbtdemo/tbt360_cad_2d --pattern 'CADTBT360_V1.025_Setup_Windows_x64.exe' --dir dist/gui-smoke --clobber
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot download B87 A1 Setup EXE' }
+          $setup = 'dist/gui-smoke/CADTBT360_V1.025_Setup_Windows_x64.exe'
+          $hash = (Get-FileHash $setup -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($hash -ne '72165e84f4266e49e0dd18397c77b8b528e94ecc40ccd8b3c67e526d8db1c7ae') { throw "B87 A1 Setup SHA256 mismatch: $hash" }
+          $hash | Set-Content 'dist/gui-smoke/setup-sha256.txt' -Encoding ascii
+
+      - name: Install real B87 A1 Setup and verify installed GUI identity
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $setup = (Resolve-Path 'dist/gui-smoke/CADTBT360_V1.025_Setup_Windows_x64.exe').Path
+          $dest = Join-Path $env:RUNNER_TEMP 'CADTBT360 V1025 GUI Acceptance'
+          $dirArg = '/DIR="{0}"' -f $dest
+          $p = Start-Process -FilePath $setup -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', $dirArg) -PassThru -Wait
+          if ($p.ExitCode -ne 0) { throw "Setup exit code $($p.ExitCode)" }
+          $installedGui = Join-Path $dest 'CADTBT360.exe'
+          if (!(Test-Path $installedGui)) { throw 'Installed GUI executable absent' }
+          $sourceHash = (Get-FileHash 'dist/gui-smoke/portable/CADTBT360.exe' -Algorithm SHA256).Hash
+          $installedHash = (Get-FileHash $installedGui -Algorithm SHA256).Hash
+          if ($sourceHash -ne $installedHash) { throw 'Installed GUI executable differs from B87 A1 Portable binary' }
+          $info = Get-Content (Join-Path $dest 'BUILD_INFO.txt')
+          if ($info -notcontains 'SourceCommit=0634a0ec56e47c2d61e659d7a3ff0d99ae0722ed') { throw 'Installed GUI source commit mismatch' }
+          $dest | Set-Content 'dist/gui-smoke/installed-directory.txt'
+
+      - name: Start installed Setup GUI and observe top-level window
+        shell: pwsh
+        run: |
+          $dest = Get-Content 'dist/gui-smoke/installed-directory.txt' -Raw
+          & './scripts/qa/Test-CADTBT360-V1025-GuiStartup.ps1' -Executable (Join-Path $dest.Trim() 'CADTBT360.exe') -EvidenceDirectory './dist/gui-smoke/installed-evidence' -WaitSeconds 35
+
+      - name: Uninstall the installed B87 A1 setup on Windows runner
+        if: ${{ always() }}
+        shell: pwsh
+        run: |
+          $destFile = 'dist/gui-smoke/installed-directory.txt'
+          if (Test-Path $destFile) {
+            $dest = (Get-Content $destFile -Raw).Trim()
+            $uninstaller = Join-Path $dest 'unins000.exe'
+            if (Test-Path $uninstaller) {
+              $p = Start-Process -FilePath $uninstaller -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART') -Wait -PassThru
+              if ($p.ExitCode -ne 0) { throw "Setup uninstaller failed with exit $($p.ExitCode)" }
+            }
+          }
+
+      - name: Upload actual GUI startup evidence even on failure
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: CADTBT360_V1.025_B87_GUI_Startup_Evidence
+          path: |
+            dist/gui-smoke/evidence/
+            dist/gui-smoke/installed-evidence/
+            dist/gui-smoke/portable-sha256.txt
+            dist/gui-smoke/setup-sha256.txt
+          if-no-files-found: warn
+          retention-days: 30
