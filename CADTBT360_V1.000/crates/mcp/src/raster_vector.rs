@@ -400,6 +400,28 @@ fn opening_gap_candidates(lines: &[Line], min_gap: f64, max_gap: f64) -> Vec<Val
             let gap=end-begin;
             if gap<min_gap || gap>max_gap {continue;}
             let fixed=if horiz {(a.y0+b.y0)*0.5} else {(a.x0+b.x0)*0.5};
+            // Do not suggest a clean opening if other extracted geometry actually
+            // occupies the candidate span (a third fragment or crossing wall).
+            // This avoids false "door" hints in crowded architectural scans.
+            let obstructed=lines.iter().enumerate().any(|(k,other)| {
+                if k==i || k==j {return false;}
+                if horiz {
+                    let same=(other.y0-fixed).abs()<0.75 && (other.y1-fixed).abs()<0.75
+                        && other.x0<end-0.75 && other.x1>begin+0.75;
+                    let crosses=(other.x0-other.x1).abs()<0.75
+                        && other.x0>begin+0.75 && other.x0<end-0.75
+                        && other.y0<=fixed+0.75 && other.y1>=fixed-0.75;
+                    same || crosses
+                } else {
+                    let same=(other.x0-fixed).abs()<0.75 && (other.x1-fixed).abs()<0.75
+                        && other.y0<end-0.75 && other.y1>begin+0.75;
+                    let crosses=(other.y0-other.y1).abs()<0.75
+                        && other.y0>begin+0.75 && other.y0<end-0.75
+                        && other.x0<=fixed+0.75 && other.x1>=fixed-0.75;
+                    same || crosses
+                }
+            });
+            if obstructed {continue;}
             gaps.push(json!({"sourceEdges":[i,j],"gapPixels":gap,
                 "fromPixels":if horiz {json!([begin,fixed])} else {json!([fixed,begin])},
                 "toPixels":if horiz {json!([end,fixed])} else {json!([fixed,end])},
@@ -857,6 +879,30 @@ mod tests {
         let err=preview(&wrong).expect_err("cannot request both opening detection and auto-bridge");
         assert!(err.contains("requires maxGapPixels=0"),"{err}");
         let _=std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn ai_opening_gap_refuses_crossing_wall_or_third_fragment() {
+        let first=Line{x0:5.5,y0:20.5,x1:35.5,y1:20.5};
+        let second=Line{x0:55.5,y0:20.5,x1:95.5,y1:20.5};
+        assert_eq!(opening_gap_candidates(&[first,second],3.0,40.0).len(),1);
+        let crossing=Line{x0:45.5,y0:4.5,x1:45.5,y1:37.5};
+        assert!(opening_gap_candidates(&[first,second,crossing],3.0,40.0).is_empty(),
+            "Do not suggest a door when a perpendicular wall passes through the proposed opening");
+        let fragment=Line{x0:40.5,y0:20.5,x1:50.5,y1:20.5};
+        // There may be shorter secondary gaps between three fragments, but
+        // never imply that the large interval from 35.5 to 55.5 is empty.
+        let hints=opening_gap_candidates(&[first,second,fragment],3.0,40.0);
+        assert!(hints.iter().all(|g|g["gapPixels"].as_f64().unwrap_or(0.0)<20.0));
+    }
+
+    #[test]
+    fn ai_opening_gap_vertical_crossing_is_not_a_clear_doorway() {
+        let first=Line{x0:30.5,y0:5.5,x1:30.5,y1:35.5};
+        let second=Line{x0:30.5,y0:55.5,x1:30.5,y1:95.5};
+        let cross=Line{x0:12.5,y0:45.5,x1:60.5,y1:45.5};
+        assert_eq!(opening_gap_candidates(&[first,second],3.0,40.0).len(),1);
+        assert!(opening_gap_candidates(&[first,second,cross],3.0,40.0).is_empty());
     }
 
     #[test]
