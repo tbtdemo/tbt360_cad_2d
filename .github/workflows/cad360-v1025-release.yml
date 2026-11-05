@@ -142,6 +142,7 @@ jobs:
             @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_wall_junction_refuses_disjoint_and_tip_only_lines' },
             @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_opening_gap_hints_preserve_unjoined_wall_segments' },
             @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_opening_gap_real_png_refuses_to_bridge_possible_door' },
+            @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_opening_gap_bounds_and_world_width_are_calibrated' },
             @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_opening_gap_hints_ignore_parallel_separated_and_touching_lines' },
             @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_wall_centerline_real_png_keeps_both_edges_and_adds_editable_centerline' },
             @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_wall_centerline_rejects_creation_without_hint_review' },
@@ -163,6 +164,7 @@ jobs:
             @{ Package='cadcraft'; Target='gui'; Test='ai_raster_closed_rectangle_mode_is_opt_in_and_preserves_preview_safety' },
             @{ Package='cadcraft'; Target='gui'; Test='ai_raster_wall_pair_hints_are_opt_in_and_non_mutating' },
             @{ Package='cadcraft'; Target='gui'; Test='ai_opening_gap_hints_are_disabled_by_default_and_preview_only' },
+            @{ Package='cadcraft'; Target='gui'; Test='ai_opening_gap_thresholds_are_editable_and_preview_only' },
             @{ Package='cadcraft'; Target='gui'; Test='ai_raster_wall_centerline_creation_requires_explicit_user_opt_in' },
             @{ Package='cadcraft'; Target='gui'; Test='ai_raster_wall_spacing_can_be_set_by_user_without_mutating_drawing' },
             @{ Package='cadcraft'; Target='gui'; Test='ai_raster_calibration_rejects_zero_nan_and_oversize_ratio' }
@@ -205,6 +207,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'V1.025 AI DXF persistence failed' }
           cargo test --locked -p cadcraft-mcp --lib ai_mcp_rectangle_png_creates_closed_polyline_and_single_undo -- --nocapture
           if ($LASTEXITCODE -ne 0) { throw 'V1.025 MCP Agent failed to create/Undo editable closed rectangle polyline' }
+          cargo test --locked -p cadcraft-mcp --lib ai_opening_gap_bounds_and_world_width_are_calibrated -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'AI opening gap width must convert to CAD units with valid min/max filters' }
           cargo test --locked -p cadcraft-mcp --lib ai_opening_gap_real_png_refuses_to_bridge_possible_door -- --nocapture
           if ($LASTEXITCODE -ne 0) { throw 'AI cannot preserve opening when gap bridging is simultaneously enabled' }
           cargo test --locked -p cadcraft-mcp --lib ai_opening_gap_hints_ -- --nocapture
@@ -269,6 +273,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'AI wall spacing desktop UI regression failed' }
           cargo test --locked -p cadcraft --bin cadcraft ai_raster_wall_centerline_creation_requires_explicit_user_opt_in -- --nocapture
           if ($LASTEXITCODE -ne 0) { throw 'AI wall centerline GUI opt-in safety regression failed' }
+          cargo test --locked -p cadcraft --bin cadcraft ai_opening_gap_thresholds_are_editable_and_preview_only -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'Opening gap GUI threshold setting or Preview-only contract failed' }
           cargo test --locked -p cadcraft --bin cadcraft ai_opening_gap_hints_are_disabled_by_default_and_preview_only -- --nocapture
           if ($LASTEXITCODE -ne 0) { throw 'AI opening hints must be explicitly enabled in GUI' }
           cargo test --locked -p cadcraft --bin cadcraft ai_raster_wall_pair_hints_are_opt_in_and_non_mutating -- --nocapture
