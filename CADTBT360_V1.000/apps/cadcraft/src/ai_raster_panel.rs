@@ -45,6 +45,31 @@ pub struct State {
     max_opening_gap: f64,
 }
 
+/// Hit-test a reviewed door's native leaf LINE in the image preview.
+/// A close tie is ambiguous and must not change the selected door.
+fn preview_door_hit(drafts: &[Value], click: [f64;2], project: impl Fn(f64,f64)->[f64;2], tolerance: f64) -> Option<usize> {
+    if !tolerance.is_finite() || tolerance<=0.0 {return None;}
+    let mut best: Option<(usize,f64)>=None;
+    let mut second=f64::INFINITY;
+    for (index,door) in drafts.iter().enumerate() {
+        let leaf=&door["leaf"];
+        let (Some(x0),Some(y0),Some(x1),Some(y1))=
+            (leaf[0][0].as_f64(),leaf[0][1].as_f64(),leaf[1][0].as_f64(),leaf[1][1].as_f64()) else {continue};
+        let a=project(x0,y0);let b=project(x1,y1);
+        let ab=[b[0]-a[0],b[1]-a[1]];
+        let len2=ab[0]*ab[0]+ab[1]*ab[1];
+        if !len2.is_finite() || len2<=1e-12 {continue;}
+        let t=(((click[0]-a[0])*ab[0]+(click[1]-a[1])*ab[1])/len2).clamp(0.0,1.0);
+        let d=(click[0]-a[0]-t*ab[0]).hypot(click[1]-a[1]-t*ab[1]);
+        if !d.is_finite() {continue;}
+        if best.is_none_or(|(_,old)|d<old) {
+            second=best.map_or(f64::INFINITY,|(_,old)|old);
+            best=Some((index,d));
+        } else if d<second {second=d;}
+    }
+    best.filter(|(_,distance)|*distance<=tolerance && second-*distance>4.0).map(|(index,_)|index)
+}
+
 /// Compute world units per pixel from a known measured dimension.
 fn calibrated_units_per_pixel(pixel_distance: f64, cad_length: f64) -> Result<f64, &'static str> {
     if !pixel_distance.is_finite() || !cad_length.is_finite() || pixel_distance <= 0.0 || cad_length <= 0.0 {
@@ -398,6 +423,7 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
                         ui.small(format!("Dự kiến {door_blocks_count} Block cửa dạng hình học nháp, không nhận dạng ngữ nghĩa."));
                         if state.override_door_width {ui.small(format!("Chiều rộng chung: {:.3} đơn vị CAD.",state.door_width_cad));}
                         ui.small(format!("Có {} cửa được hiệu chỉnh chiều rộng riêng.",state.door_width_overrides.len()));
+                        ui.small("Có thể NHẤP TRỰC TIẾP vào nét cánh cửa màu tím trên hình Preview để chọn cửa. Nhấp vào vị trí giữa hai cửa quá gần sẽ không tự chọn.");
                         if let Some(drafts)=proposal["doorBlockDrafts"].as_array() {
                             for (index,draft) in drafts.iter().take(24).enumerate() {
                                 let width=draft["widthCAD"].as_f64().unwrap_or(0.0);
@@ -433,7 +459,7 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
             }
             if let Some(lines) = proposal["lines"].as_array() {
                 let polygons = proposal["closedPolylines"].as_array();
-                let (rect, _) = ui.allocate_exact_size(egui::vec2(ui.available_width().max(200.0), 220.0), egui::Sense::hover());
+                let (rect, response) = ui.allocate_exact_size(egui::vec2(ui.available_width().max(200.0), 220.0), egui::Sense::click());
                 let painter = ui.painter_at(rect);
                 painter.rect_filled(rect, 4.0, egui::Color32::from_gray(27));
                 let mut min_x = f64::INFINITY; let mut max_x = f64::NEG_INFINITY;
@@ -475,6 +501,16 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
                     let to_screen = |x: f64, y: f64| egui::pos2(
                         (f64::from(rect.center().x) + ((x - (min_x + max_x) * 0.5) * factor)) as f32,
                         (f64::from(rect.center().y) - ((y - (min_y + max_y) * 0.5) * factor)) as f32);
+                    if state.create_door_blocks && response.clicked() {
+                        if let (Some(click),Some(drafts))=(response.interact_pointer_pos(),proposal["doorBlockDrafts"].as_array()) {
+                            let project=|x:f64,y:f64|{let p=to_screen(x,y);[f64::from(p.x),f64::from(p.y)]};
+                            if let Some(index)=preview_door_hit(drafts,[f64::from(click.x),f64::from(click.y)],project,13.0) {
+                                state.selected_door_number=index+1;
+                                state.selected_door_width_cad=drafts[index]["widthCAD"].as_f64().unwrap_or(state.door_width_cad);
+                                cad.set_status(format!("AI Preview: đã chọn cửa số {}. Có thể chỉnh chiều rộng, bản lề và phía mở.",index+1));
+                            }
+                        }
+                    }
                     for segment in lines {
                         let (Some(a), Some(b)) = (segment.get(0), segment.get(1)) else { continue };
                         let (Some(x0), Some(y0), Some(x1), Some(y1)) =
@@ -810,6 +846,23 @@ mod tests {
         assert!(state.door_hinge_flips.is_empty());
         assert!(state.door_swing_flips.is_empty());
         assert_eq!(state.selected_door_number,1);
+    }
+
+    #[test]
+    fn ai_preview_door_click_selects_nearest_door_and_refuses_ambiguous_click() {
+        let doors=vec![
+            json!({"leaf":[[10.0,10.0],[10.0,30.0]]}),
+            json!({"leaf":[[50.0,10.0],[50.0,30.0]]})
+        ];
+        let identity=|x:f64,y:f64|[x,y];
+        assert_eq!(preview_door_hit(&doors,[11.0,20.0],identity,13.0),Some(0));
+        assert_eq!(preview_door_hit(&doors,[49.0,20.0],identity,13.0),Some(1));
+        assert_eq!(preview_door_hit(&doors,[30.0,20.0],identity,30.0),None,
+            "equal distance to two door leaves must not select either");
+        assert_eq!(preview_door_hit(&doors,[90.0,20.0],identity,13.0),None);
+        let overlap=vec![json!({"leaf":[[10.0,10.0],[10.0,30.0]]}),json!({"leaf":[[12.0,10.0],[12.0,30.0]]})];
+        assert_eq!(preview_door_hit(&overlap,[11.0,20.0],identity,13.0),None,
+            "overlapping leaves require explicit list selection");
     }
 
     #[test]
