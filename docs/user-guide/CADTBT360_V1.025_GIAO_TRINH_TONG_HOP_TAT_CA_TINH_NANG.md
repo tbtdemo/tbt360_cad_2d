@@ -1664,3 +1664,25 @@ Mục tiêu quan trọng nhất của đợt này là chuyển từ việc **ch�
 6. Phải xác nhận Windows CI PASS theo SHA commit cuối trước khi coi là bản cài hoàn thiện. Việc commit được mã nguồn không chứng minh EXE chạy ổn định.
 
 **Trạng thái đợt 224:** Đã bổ sung mã chọn và đánh dấu QA nút giao T/X trong giao diện, tọa độ CAD và kiểm thử click; vẫn giữ chế độ chỉ Preview, chưa triển khai nối/cắt tường và chưa xác nhận Windows EXE PASS.
+
+
+## 65. Đợt 225 — Đánh giá khoảng cách đầu tường và gợi ý chỉnh sửa có kiểm soát
+
+### Bài 113 — Đọc gợi ý hình học nút T/X
+
+1. Mở **CAD 360 → AI từ ảnh → CAD**, chọn ảnh mặt bằng, nhập tỷ lệ CAD/pixel rồi bật **Gợi ý cặp nét tường** và **Gợi ý dải tường**.
+2. Nhấn **Nhận dạng và xem trước**, chọn một vòng tròn T/X trên hình hoặc chọn một nút từ danh sách.
+3. Đọc thông số **Khoảng cách gần nhất từ các đầu tường đến nút** (pixel) cho từng dải tường liên quan. Đây là khoảng cách từ tim đoạn tường đã nhận dạng, chưa phải khoảng cách kích thước cấu kiện thiết kế.
+4. Nếu là `T-candidate` có một đầu tường nằm gần nút, giao diện báo **Đầu tường sát nút giao; kiểm tra sai lệch và phương án Snap thủ công**; nếu là `cross-candidate`, báo **Hai tim tường cắt nhau; kiểm tra phần giao và ưu tiên tường chính trước khi Trim**.
+5. Chọn **Xác nhận đã kiểm tra hình học (không vẽ)** nếu đã đối chiếu ảnh và vị trí nút. Việc này chỉ đánh dấu QA; không tạo lệnh Snap, Trim, Extend hoặc Block.
+6. Không thực hiện nối/cắt khi giao điểm nằm trong ứng viên khoảng mở cửa/cột, khi ảnh thiếu nét, khi chưa hiệu chuẩn đúng tỷ lệ hoặc khi hai nút giao quá gần khiến việc chọn bị nhập nhằng.
+
+### Bài 114 — Kiểm thử đề xuất và điều kiện an toàn
+
+1. Chạy `cargo test --locked -p cadcraft-mcp --lib ai_wall_panel_junction_qa_detects_t_and_cross_and_ignores_opening_or_column -- --nocapture`.
+2. Kiểm tra mỗi nút QA có `endpointDistancesPixels`, `proposedEditAction`, `canAutoApply=false` và `guardrails` không cho nối qua khoảng mở, ghi đè cột hoặc tự Trim/Extend.
+3. Chạy `cargo test --locked -p cadcraft --bin cadcraft ai_wall_junction_click_selects_unique_node_without_committing_geometry -- --nocapture` và `cargo check --locked -p cadcraft --bin cadcraft`.
+4. Dùng ảnh mặt bằng có nút T/X và khoảng hở cửa để xác minh kết quả chỉ đọc. Kiểm tra danh sách `wallPanelJunctionCandidates` giữ nguyên `panelIndices` kể cả khi một ứng viên đầu vào không hợp lệ.
+5. Xem GitHub Actions theo **đúng SHA commit cuối**, bắt buộc xác nhận Compile, Regression, Windows Packaging và Installed Smoke PASS trước khi coi bản cài được nghiệm thu.
+
+**Trạng thái đợt 225:** Đã cập nhật mã gợi ý kiểm tra đầu tường T/X và hiển thị trên GUI; các hành động chỉnh sửa thực tế vẫn bị khóa, chưa có xác nhận Windows CI PASS. Phần xử lý Trim/Extend và Undo tự động sẽ chỉ được triển khai sau khi xác định ranh giới thay đổi, nguồn đối tượng và kiểm thử rollback.
