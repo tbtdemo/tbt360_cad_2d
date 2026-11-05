@@ -357,6 +357,20 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
                         ui.small(format!("Dự kiến {door_blocks_count} Block cửa dạng hình học nháp, không nhận dạng ngữ nghĩa."));
                         if state.override_door_width {ui.small(format!("Chiều rộng chung: {:.3} đơn vị CAD.",state.door_width_cad));}
                         ui.small(format!("Có {} cửa được hiệu chỉnh chiều rộng riêng.",state.door_width_overrides.len()));
+                        if let Some(drafts)=proposal["doorBlockDrafts"].as_array() {
+                            for (index,draft) in drafts.iter().take(24).enumerate() {
+                                let width=draft["widthCAD"].as_f64().unwrap_or(0.0);
+                                ui.horizontal(|ui| {
+                                    if ui.small_button(format!("Chọn cửa {}",index+1)).clicked() {
+                                        state.selected_door_number=index+1;
+                                        state.selected_door_width_cad=width;
+                                    }
+                                    ui.small(format!("Rộng {:.3} CAD; gốc {:.3} CAD{}",
+                                        width,draft["sourceOpeningWidthCAD"].as_f64().unwrap_or(width),
+                                        if draft["widthOverridden"]==true {" (đã sửa)"} else {""}));
+                                });
+                            }
+                        }
                     }
                 }
                 if let Some(items)=proposal["pairedWallOpeningCandidates"].as_array() {
