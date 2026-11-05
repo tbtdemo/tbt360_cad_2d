@@ -1017,6 +1017,9 @@ pub fn preview(args: &Value) -> Result<Value, String> {
     if create_column_guides && (!column_hints || !args["confirmColumnGuides"].as_bool().unwrap_or(false)) {
         return Err("createColumnGuidePolylines requires columnHatchHints=true and confirmColumnGuides=true; no CAD changes made".into());
     }
+    if create_column_guides && args["closedRectangles"].as_bool().unwrap_or(false) {
+        return Err("Choose general closedRectangles or confirmed column guides, not both, to avoid duplicate PLINEs; no CAD changes made".into());
+    }
     let column_guide_polylines:Vec<Value>=if create_column_guides {
         column_candidates.iter().map(|v|v["outlineCAD"].clone()).collect()
     } else {Vec::new()};
@@ -1624,6 +1627,10 @@ mod tests {
         assert!(proposal["lines"].as_array().unwrap().len()>=6,"source pixels must remain editable after Commit");
         args["createColumnGuidePolylines"]=json!(true);
         assert!(preview(&args).unwrap_err().contains("confirmColumnGuides=true"));
+        args["closedRectangles"]=json!(true);
+        args["confirmColumnGuides"]=json!(true);
+        assert!(preview(&args).unwrap_err().contains("not both"));
+        args["closedRectangles"]=json!(false);
         args["confirmColumnGuides"]=json!(true);
         let confirmed=preview(&args).unwrap();
         assert_eq!(confirmed["columnGuidePolylineCount"],1);
