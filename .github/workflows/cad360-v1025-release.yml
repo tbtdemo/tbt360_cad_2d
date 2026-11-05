@@ -10,6 +10,7 @@ on:
       - 'scripts/verify_mcp_executable.ps1'
       - 'scripts/validate_mcp_smoke_fixture.py'
       - 'scripts/verify_source_bundle.py'
+      - 'scripts/validate_full_user_guide.py'
       - 'docs/user-guide/**'
   push:
     branches:
@@ -22,6 +23,7 @@ on:
       - 'scripts/verify_mcp_executable.ps1'
       - 'scripts/validate_mcp_smoke_fixture.py'
       - 'scripts/verify_source_bundle.py'
+      - 'scripts/validate_full_user_guide.py'
       - 'docs/user-guide/**'
 
 permissions:
@@ -67,6 +69,8 @@ jobs:
           $ErrorActionPreference = 'Stop'
           python scripts/validate_mcp_smoke_fixture.py scripts/verify_mcp_executable.ps1
           if ($LASTEXITCODE -ne 0) { throw 'PNG fixture invalid; stop before expensive Rust compilation' }
+          python scripts/validate_full_user_guide.py docs/user-guide/CADTBT360_V1.025_GIAO_TRINH_TONG_HOP_TAT_CA_TINH_NANG.md
+          if ($LASTEXITCODE -ne 0) { throw 'Full CAD 360 user guide incomplete; do not ship an AI-only manual' }
 
       - name: Prepare Rust
         uses: dtolnay/rust-toolchain@stable
