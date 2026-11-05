@@ -21,10 +21,16 @@ $sessionId = $null
 $failureKind = 'NONE'
 $screenshotStatus = 'NOT_ATTEMPTED'
 $windowRect = $null
+$windowStable = $false
+$executableIdentity = 'NOT_VERIFIED'
 try {
     $p = Start-Process -FilePath $exe -WorkingDirectory (Split-Path $exe -Parent) -RedirectStandardOutput $stdout -RedirectStandardError $stderr -PassThru
     $processId = $p.Id
     $sessionId = $p.SessionId
+    # Confirm the observed process points to the released executable, not a pre-existing CAD process.
+    $actualExecutable = $p.MainModule.FileName
+    if ([IO.Path]::GetFullPath($actualExecutable) -ne [IO.Path]::GetFullPath($exe)) { $failureKind = 'EXECUTABLE_IDENTITY_MISMATCH'; throw "Started process executable differs from expected binary: $actualExecutable" }
+    $executableIdentity = 'MATCHED'
     $deadline = (Get-Date).AddSeconds($WaitSeconds)
     while ((Get-Date) -lt $deadline) {
         Start-Sleep -Milliseconds 1000
@@ -42,9 +48,13 @@ try {
         throw "No top-level GUI window observed within $WaitSeconds seconds. Cannot distinguish noninteractive runner from GUI initialization failure."
     }
     # Observing the window is startup evidence only; it is not manual GUI acceptance.
-    Start-Sleep -Seconds 2
+    Start-Sleep -Seconds 3
     $p.Refresh()
     if ($p.HasExited) { $exitCode = $p.ExitCode; $failureKind = "PROCESS_EXITED_AFTER_WINDOW"; throw "GUI exited immediately after initial window creation (ExitCode=$exitCode)" }
+    if ($p.MainWindowHandle -eq [IntPtr]::Zero) { $failureKind = 'WINDOW_DISAPPEARED'; throw 'GUI process is alive but its top-level window disappeared after startup' }
+    $windowStable = $true
+    $windowHandle = [string]$p.MainWindowHandle.ToInt64()
+    $windowTitle = $p.MainWindowTitle
     # Capture evidence from this exact running executable, not a substituted CAD screenshot.
     # Screen capture may be blocked by CI runner desktop/session restrictions; do not
     # turn a healthy GUI process into FAIL solely because capturing pixels is unavailable.
@@ -108,6 +118,8 @@ public static class Cad360GuiEvidence {
         sessionName = $env:SESSIONNAME
         processId = $processId
         processSessionId = $sessionId
+        executableIdentity = $executableIdentity
+        windowStableAfterThreeSeconds = $windowStable
         userInteractive = [Environment]::UserInteractive
         failureKind = $failureKind
         status = $status
@@ -116,6 +128,7 @@ public static class Cad360GuiEvidence {
         mainWindowTitle = $windowTitle
         windowBounds = $windowRect
         screenshotStatus = $screenshotStatus
+        screenshotPixelContentVerified = $false
         exitCode = $exitCode
         manualGuiAcceptance = 'NOT_VERIFIED'
         independentAutocadInterop = 'NOT_VERIFIED'
@@ -123,6 +136,6 @@ public static class Cad360GuiEvidence {
     $record | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $report -Encoding utf8
     Write-Host ($record | ConvertTo-Json -Depth 5)
     if (-not [string]::IsNullOrEmpty($env:GITHUB_STEP_SUMMARY)) {
-        @("### CAD 360 V1.025 GUI startup smoke", "- Result: $status", "- Failure kind: $failureKind", "- Binary SHA256: $($record.exeSha256)", '- GUI manual acceptance: NOT_VERIFIED', '- Independent AutoCAD roundtrip: NOT_VERIFIED') | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+        @("### CAD 360 V1.025 GUI startup smoke", "- Result: $status", "- Failure kind: $failureKind", "- Binary SHA256: $($record.exeSha256)", "- Window stable after 3s: $windowStable", "- Screenshot capture: $screenshotStatus (pixel content not independently verified)", '- GUI manual acceptance: NOT_VERIFIED', '- Independent AutoCAD roundtrip: NOT_VERIFIED') | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
     }
 }
