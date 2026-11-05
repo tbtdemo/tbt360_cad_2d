@@ -9,7 +9,7 @@
 #![forbid(unsafe_code)]
 
 mod backend;
-mod raster_vector;
+pub mod raster_vector;
 pub mod control_token;
 mod server;
 mod tools;
