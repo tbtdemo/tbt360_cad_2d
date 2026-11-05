@@ -544,6 +544,56 @@ fn door_leaf_evidence(openings: &mut [Value], lines: &[Line]) {
     }
 }
 
+/// Recognize two short parallel sash strokes fully inside a paired wall-edge gap.
+/// This is an optical drafting clue, NOT a verified architectural window.
+fn window_sash_evidence(openings: &mut [Value], lines: &[Line]) {
+    if lines.len()>1000 {return;}
+    for candidate in openings {
+        if candidate["doorLeafCandidate"]==true || candidate["doorLeafAmbiguous"]==true {continue;}
+        let Some(corners)=candidate["outlinePixels"].as_array() else {continue};
+        if corners.len()!=4 {continue;}
+        let read=|idx:usize|->Option<[f64;2]> {
+            Some([corners[idx][0].as_f64()?,corners[idx][1].as_f64()?])
+        };
+        let (Some(a),Some(b),Some(c),Some(d))=(read(0),read(1),read(2),read(3)) else {continue};
+        let horizontal=(a[1]-b[1]).abs()<=0.75 && (c[1]-d[1]).abs()<=0.75;
+        let vertical=(a[0]-b[0]).abs()<=0.75 && (c[0]-d[0]).abs()<=0.75;
+        if !horizontal && !vertical {continue;}
+        let (along_min,along_max,cross_min,cross_max)=if horizontal {
+            (a[0].min(b[0]),a[0].max(b[0]),a[1].min(d[1]),a[1].max(d[1]))
+        } else {
+            (a[1].min(b[1]),a[1].max(b[1]),a[0].min(b[0]),a[0].max(b[0]))
+        };
+        let width=along_max-along_min;let thickness=cross_max-cross_min;
+        if width<5.0 || thickness<4.0 {continue;}
+        let mut sash:Vec<(usize,f64)>=Vec::new();
+        for (idx,l) in lines.iter().enumerate() {
+            let (lo,hi,cross)=if horizontal {
+                if (l.y0-l.y1).abs()>0.75 {continue;}
+                (l.x0.min(l.x1),l.x0.max(l.x1),(l.y0+l.y1)*0.5)
+            } else {
+                if (l.x0-l.x1).abs()>0.75 {continue;}
+                (l.y0.min(l.y1),l.y0.max(l.y1),(l.x0+l.x1)*0.5)
+            };
+            // Only near-complete sash strokes INSIDE the wall opening count.
+            if cross<=cross_min+1.0 || cross>=cross_max-1.0 {continue;}
+            if (lo-along_min).abs()>1.5 || (hi-along_max).abs()>1.5 {continue;}
+            if (hi-lo-width).abs()>1.5 {continue;}
+            sash.push((idx,cross));
+        }
+        // Two clean, separated internal rails are evidence; three or more are
+        // ambiguous and a single stroke could simply be a dimension line.
+        if sash.len()!=2 || (sash[0].1-sash[1].1).abs()<1.0 {continue;}
+        candidate["windowSashCandidate"]=json!(true);
+        candidate["windowSashEvidence"]=json!({
+            "sourceLineIndices":[sash[0].0,sash[1].0],
+            "railSpacingPixels":(sash[0].1-sash[1].1).abs(),
+            "classification":"possible-window-sash-rails-unverified",
+            "requiresHumanReview":true
+        });
+    }
+}
+
 /// Draw a quarter-circle swing drafting guide only for a single unambiguous
 /// observed leaf anchored to a geometrically paired wall opening. The source
 /// LINE is retained; the ARC is not a semantic door/block.
@@ -700,6 +750,13 @@ pub fn preview(args: &Value) -> Result<Value, String> {
     if args["doorLeafHints"].as_bool().unwrap_or(false) {
         if !paired_enabled {return Err("doorLeafHints requires pairedWallOpeningHints=true; no CAD changes made".into());}
         door_leaf_evidence(&mut paired_openings,&lines);
+    }
+    if args["windowSashHints"].as_bool().unwrap_or(false) {
+        if !paired_enabled {return Err("windowSashHints requires pairedWallOpeningHints=true; no CAD changes made".into());}
+        // Always check for competing door leaves before proposing a window sash,
+        // even when the door-leaf UI option is switched off.
+        if !args["doorLeafHints"].as_bool().unwrap_or(false) {door_leaf_evidence(&mut paired_openings,&lines);}
+        window_sash_evidence(&mut paired_openings,&lines);
     }
     for opening in &mut paired_openings {
         let Some(points)=opening["outlinePixels"].as_array() else {continue};
@@ -889,6 +946,8 @@ pub fn preview(args: &Value) -> Result<Value, String> {
         "pairedWallOpeningCandidates":paired_openings,"pairedWallOpeningCandidateCount":paired_openings.len(),
         "doorLeafCandidateCount":paired_openings.iter().filter(|v|v["doorLeafCandidate"]==true).count(),
         "doorLeafHintsRequested":args["doorLeafHints"].as_bool().unwrap_or(false),
+        "windowSashCandidateCount":paired_openings.iter().filter(|v|v["windowSashCandidate"]==true).count(),
+        "windowSashHintsRequested":args["windowSashHints"].as_bool().unwrap_or(false),
         "doorSwingArcs":door_arcs,"doorSwingArcsProposed":door_arcs.len(),
         "doorSwingArcsRequested":create_door_arcs,
         "doorBlockDrafts":door_blocks,"doorBlockDraftCount":door_blocks.len(),
@@ -1362,6 +1421,53 @@ mod tests {
         assert_eq!(result[0]["outlinePixels"],json!([[25.0,10.0],[35.0,10.0],[35.0,16.0],[25.0,16.0]]));
         assert_eq!(result[0]["wallThicknessPixels"],6.0);
         assert_eq!(result[0]["classification"],"paired-through-wall-gap-unverified");
+    }
+
+    #[test]
+    fn ai_window_sash_needs_two_inner_parallel_rails_and_no_competing_door_leaf() {
+        let gap=|y:f64|json!({"fromPixels":[39.5,y],"toPixels":[51.5,y]});
+        let baseline=||paired_wall_openings(&[gap(15.5),gap(22.5)],2.0,40.0);
+        let rail1=Line{x0:39.5,y0:17.5,x1:51.5,y1:17.5};
+        let rail2=Line{x0:39.5,y0:20.5,x1:51.5,y1:20.5};
+        let mut good=baseline();
+        window_sash_evidence(&mut good,&[rail1,rail2]);
+        assert_eq!(good[0]["windowSashCandidate"],true);
+        assert_eq!(good[0]["windowSashEvidence"]["sourceLineIndices"],json!([0,1]));
+        let mut one=baseline();
+        window_sash_evidence(&mut one,&[rail1]);
+        assert_ne!(one[0]["windowSashCandidate"],true);
+        let mut extra=baseline();
+        window_sash_evidence(&mut extra,&[rail1,rail2,Line{x0:39.5,y0:19.0,x1:51.5,y1:19.0}]);
+        assert_ne!(extra[0]["windowSashCandidate"],true);
+        let mut door=baseline();
+        let leaf=Line{x0:39.5,y0:3.5,x1:39.5,y1:15.5};
+        door_leaf_evidence(&mut door,&[leaf,rail1,rail2]);
+        window_sash_evidence(&mut door,&[leaf,rail1,rail2]);
+        assert_eq!(door[0]["doorLeafCandidate"],true);
+        assert_ne!(door[0]["windowSashCandidate"],true,"door evidence must suppress window guesses");
+    }
+
+    #[test]
+    fn ai_real_png_window_sash_hint_is_preview_only_and_preserves_source_geometry() {
+        let mut img=image::RgbImage::from_pixel(110,48,image::Rgb([255,255,255]));
+        for y in [15,22] {
+            for x in 5..=39 {img.put_pixel(x,y,image::Rgb([0,0,0]));}
+            for x in 51..=95 {img.put_pixel(x,y,image::Rgb([0,0,0]));}
+        }
+        for y in [17,20] {for x in 39..=51 {img.put_pixel(x,y,image::Rgb([0,0,0]));}}
+        let path=std::env::temp_dir().join(format!("cad360-window-sash-{}-{}.png",std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        img.save(&path).unwrap();
+        let args=json!({"path":path.to_string_lossy(),"minLengthPixels":8,
+            "includeDiagonals":false,"openingGapHints":true,"pairedWallOpeningHints":true,
+            "windowSashHints":true,"maxGapPixels":0,"unitsPerPixel":2.0});
+        let proposal=preview(&args).unwrap();
+        assert_eq!(proposal["pairedWallOpeningCandidateCount"],1);
+        assert_eq!(proposal["windowSashCandidateCount"],1);
+        assert_eq!(proposal["editableEntitiesCreated"],0);
+        assert!(proposal["lines"].as_array().unwrap().len()>=6);
+        assert_eq!(proposal["windowSashHintsRequested"],true);
+        let _=std::fs::remove_file(path);
     }
 
     #[test]
