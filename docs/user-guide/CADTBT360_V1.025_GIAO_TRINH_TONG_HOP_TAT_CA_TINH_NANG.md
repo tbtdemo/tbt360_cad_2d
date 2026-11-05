@@ -862,6 +862,10 @@ Nội dung nâng cấp kết nối hai phân tích **chỉ xem trước** trên 
 4. Nếu cần tìm cửa, giữ `maxGapPixels=0`, dùng thao tác kiểm tra thủ công để xác định vị trí mở. Không đánh đồng đoạn nét bị mờ với cửa thật.
 5. Kiểm tra **Undo**, số lượng LINE/PLINE và độ mở trên DXF sau khi tạo. Việc chuyển DWG phải được kiểm chứng độc lập.
 
+### Cách đọc dấu khoảng hở trên màn hình Preview
+
+Khi bật **Gợi ý khoảng hở có thể là cửa (chỉ Preview)**, màn hình Preview đánh dấu **hai đầu khoảng hở bằng vòng tròn màu vàng cam**. Hai dấu mốc này chỉ giúp nhận biết đoạn thiếu nét trên ảnh; chương trình **không vẽ đường nối màu cam** và không biến khoảng hở thành cửa đi đã xác định. Để xác minh cần mở ảnh nguồn, đo khoảng cách và xem tiếp đối tượng CAD sau khi tạo.
+
 ### Bài 47 — Kiểm thử Rust, MCP và nghiệm thu bộ cài
 
 1. Từ ZIP mã nguồn đúng commit, tại `CADTBT360_V1.000`, chạy `cargo test --locked -p cadcraft-mcp --lib ai_opening_gap_real_png_refuses_to_bridge_possible_door -- --nocapture`.
