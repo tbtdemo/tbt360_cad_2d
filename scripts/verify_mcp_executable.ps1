@@ -18,8 +18,14 @@ $fixtureId = [guid]::NewGuid().ToString("N")
 $png = Join-Path ([System.IO.Path]::GetTempPath()) ("cad360-mcp-smoke-" + $fixtureId + ".png")
 $dxf = Join-Path ([System.IO.Path]::GetTempPath()) ("cad360-mcp-smoke-" + $fixtureId + ".dxf")
 $dwg = Join-Path ([System.IO.Path]::GetTempPath()) ("cad360-mcp-smoke-" + $fixtureId + ".dwg")
-$pngBase64 = 'iVBORw0KGgoAAAANSUhEUgAAAEAAAAAgCAIAAAAt/+nTAAAAUUlEQVR4nO3WMQoAIAwEQU/8/5djL4iFxRLY6dJlu0tVjc4m/cAvA2gG0AygGUAzgLaOOwnyx9Nts8UxBzOAZgDNAJoBNANoBtAMoBlAax+wAU7iCTuV73xMAAAAAElFTkSuQmCC'
+$pngBase64 = 'iVBORw0KGgoAAAANSUhEUgAAAEAAAAAgCAIAAAAt/+nTAAAARUlEQVR42u3XsREAIAgEQd+x/5axAC1Axr2QiM0gVTU6N0fzAAAAAAAAAAAAGrfOUZI3d71e/vEPAAAAAAAAAAAAAHwL2LeWCTvTnrHuAAAAAElFTkSuQmCC'
 [System.IO.File]::WriteAllBytes($png, [Convert]::FromBase64String($pngBase64))
+$pngData = [System.IO.File]::ReadAllBytes($png)
+$signature = ([System.BitConverter]::ToString($pngData,0,8))
+if ($pngData.Length -lt 80 -or $signature -ne '89-50-4E-47-0D-0A-1A-0A') { throw 'Smoke fixture PNG header is invalid' }
+$width = ([uint32]$pngData[16] -shl 24) -bor ([uint32]$pngData[17] -shl 16) -bor ([uint32]$pngData[18] -shl 8) -bor [uint32]$pngData[19]
+$height = ([uint32]$pngData[20] -shl 24) -bor ([uint32]$pngData[21] -shl 16) -bor ([uint32]$pngData[22] -shl 8) -bor [uint32]$pngData[23]
+if ($width -ne 64 -or $height -ne 32) { throw "Smoke fixture PNG must be 64x32 pixels, got $width x $height" }
 $process = [System.Diagnostics.Process]::Start($psi)
 if ($null -eq $process) { Remove-Item -LiteralPath $png -ErrorAction SilentlyContinue; throw "Cannot launch installed MCP CLI: $exePath" }
 try {
