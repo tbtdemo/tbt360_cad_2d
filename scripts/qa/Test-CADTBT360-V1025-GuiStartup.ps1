@@ -16,13 +16,18 @@ $detail = ''
 $windowTitle = ''
 $windowHandle = '0'
 $exitCode = $null
+$processId = $null
+$sessionId = $null
+$failureKind = 'NONE'
 try {
     $p = Start-Process -FilePath $exe -WorkingDirectory (Split-Path $exe -Parent) -RedirectStandardOutput $stdout -RedirectStandardError $stderr -PassThru
+    $processId = $p.Id
+    $sessionId = $p.SessionId
     $deadline = (Get-Date).AddSeconds($WaitSeconds)
     while ((Get-Date) -lt $deadline) {
         Start-Sleep -Milliseconds 1000
         $p.Refresh()
-        if ($p.HasExited) { $exitCode = $p.ExitCode; throw "GUI exited before a window appeared (ExitCode=$exitCode)" }
+        if ($p.HasExited) { $exitCode = $p.ExitCode; $failureKind = "PROCESS_EXITED_BEFORE_WINDOW"; throw "GUI exited before a window appeared (ExitCode=$exitCode)" }
         if ($p.MainWindowHandle -ne [IntPtr]::Zero) {
             $windowHandle = [string]$p.MainWindowHandle.ToInt64()
             $windowTitle = $p.MainWindowTitle
@@ -31,15 +36,17 @@ try {
         }
     }
     if ($status -ne 'PROCESS_AND_TOP_LEVEL_WINDOW_OBSERVED') {
-        throw "No visible top-level GUI window within $WaitSeconds seconds. This runner may be noninteractive, or GUI initialization failed."
+        $failureKind = "WINDOW_NOT_OBSERVED"
+        throw "No top-level GUI window observed within $WaitSeconds seconds. Cannot distinguish noninteractive runner from GUI initialization failure."
     }
     # Observing the window is startup evidence only; it is not manual GUI acceptance.
     Start-Sleep -Seconds 2
     $p.Refresh()
-    if ($p.HasExited) { $exitCode = $p.ExitCode; throw "GUI exited immediately after initial window creation (ExitCode=$exitCode)" }
+    if ($p.HasExited) { $exitCode = $p.ExitCode; $failureKind = "PROCESS_EXITED_AFTER_WINDOW"; throw "GUI exited immediately after initial window creation (ExitCode=$exitCode)" }
     $detail = 'GUI process survived startup and exposed a top-level window on this Windows runner. Manual visual/functional acceptance remains NOT_VERIFIED.'
 } catch {
-    $status = 'FAIL_OR_INCONCLUSIVE'
+    if ($failureKind -eq 'NONE') { $failureKind = 'UNEXPECTED_ERROR' }
+    $status = if ($failureKind -eq 'WINDOW_NOT_OBSERVED') { 'INCONCLUSIVE' } else { 'FAIL' }
     $detail = $_.Exception.Message
     throw
 } finally {
@@ -61,6 +68,10 @@ try {
         sourceCommit = $env:GITHUB_SHA
         osVersion = [Environment]::OSVersion.VersionString
         sessionName = $env:SESSIONNAME
+        processId = $processId
+        processSessionId = $sessionId
+        userInteractive = [Environment]::UserInteractive
+        failureKind = $failureKind
         status = $status
         detail = $detail
         mainWindowHandle = $windowHandle
@@ -71,4 +82,7 @@ try {
     }
     $record | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $report -Encoding utf8
     Write-Host ($record | ConvertTo-Json -Depth 5)
+    if (-not [string]::IsNullOrEmpty($env:GITHUB_STEP_SUMMARY)) {
+        @("### CAD 360 V1.025 GUI startup smoke", "- Result: $status", "- Failure kind: $failureKind", "- Binary SHA256: $($record.exeSha256)", '- GUI manual acceptance: NOT_VERIFIED', '- Independent AutoCAD roundtrip: NOT_VERIFIED') | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+    }
 }
