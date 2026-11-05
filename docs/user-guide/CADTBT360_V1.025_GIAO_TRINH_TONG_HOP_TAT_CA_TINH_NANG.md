@@ -528,3 +528,47 @@ Việc ảnh PNG tạo ra một đối tượng LINE chưa đủ để kết lu�
 Script `scripts/validate_mcp_smoke_fixture.py` kiểm tra PNG tới **từng tọa độ pixel x=6…56, y=15**. Script `scripts/verify_mcp_executable.ps1` kiểm tra LINE đã quy đổi là **(65,165) → (565,165)**, chiều dài 500. Windows CI tiếp tục yêu cầu giáo trình Word tổng hợp có **đủ 21 bài cơ bản/nâng cao**, bảng Word thật và tài liệu chuyên đề. Đây là **điều kiện kiểm thử được bổ sung trong mã nguồn**, chưa phải xác nhận lượt Windows CI đã PASS.
 
 **Giới hạn:** Bộ thử ảnh này là một nét đơn, chưa chứng minh AI nhận dạng tường/cửa/cột, chữ kích thước hoặc mặt bằng kiến trúc thực tế. Không tự nâng trạng thái chức năng AI ngữ nghĩa lên Đạt.
+
+
+## 24. Đợt 184 — Bảng tra cứu nhanh và kiểm tra chất lượng hướng dẫn
+
+### 24.1. Bảng tra cứu lệnh CAD 2D dùng trong giáo trình
+
+Bảng này là **bản đồ học lệnh**, không thay thế bảng **Help → Command Reference** hiển thị thực tế trên từng phiên bản. Gõ đúng tên lệnh trong Command Line trên tab CAD và dùng bản vẽ thử.
+
+| Lệnh / nhóm lệnh | Công việc sử dụng | Điều kiện kiểm tra |
+|---|---|---|
+| NEW, OPEN, SAVEAS | Tạo/mở/lưu bản vẽ | Mở lại DXF không thay đổi nét |
+| LINE, PLINE | Đường thẳng và đường bao | LINE chỉnh sửa được; PLINE khép kín khi cần |
+| CIRCLE, ARC | Tròn và cung tròn | Bán kính/tâm/điểm đúng |
+| RECTANG, POLYGON | Hình chữ nhật/đa giác | Đối tượng ở đúng Layer |
+| MOVE, COPY, ROTATE | Dời/sao chép/xoay | Đo lại tọa độ và góc |
+| OFFSET, TRIM, EXTEND | Tường song song, cắt/nối nét | Không có nét thừa hoặc bị mất |
+| SCALE, MIRROR, ARRAY | Thay tỷ lệ, đối xứng, dãy | Không thay tỷ lệ bản vẽ ngoài ý muốn |
+| FILLET, CHAMFER | Bo góc, vát góc | Bán kính/khoảng vát đúng |
+| LAYER | Tổ chức bản vẽ theo lớp | Bật/tắt/khóa không làm mất entity |
+| BLOCK, INSERT | Ký hiệu sử dụng lặp lại | Kiểm tra Block Definition và số lần Insert |
+| XREF | Tham chiếu bản vẽ bên ngoài | Đường dẫn nguồn hợp lệ |
+| IMAGEATTACH, IMAGECLIP | Ảnh nền và cắt ảnh | Không nhầm Image với LINE |
+| TEXT, MTEXT, STYLE | Ghi chú và kiểu chữ | Tiếng Việt hiển thị, không lỗi font |
+| DIMLINEAR, DIMSTYLE | Ghi kích thước | Giá trị khớp DIST |
+| DIST, AREA | Kiểm tra chiều dài/diện tích | Quy đổi mm/m và mm²/m² đúng |
+| ZOOM, PAN | Điều hướng trong CAD | Không thay đổi tọa độ entity |
+| HATCH | Tô vật liệu/vùng kín | Hatch không tràn khỏi boundary |
+| UNDO, REDO | Hoàn tác và làm lại | Không ảnh hưởng đối tượng khác |
+| PLOT | In và xuất bản vẽ | Kiểm tra bản PDF bằng trình đọc độc lập |
+
+### 24.2. Bài 25 — Kiểm tra bộ giáo trình đi kèm Setup/Portable
+
+1. Lấy **Setup EXE** và **Portable ZIP** từ cùng một lượt GitHub Actions được xác nhận **Success**; không trộn tệp phát hành khác commit.
+2. Cài Setup vào thư mục thử và kiểm tra `HuongDan/GIAO_TRINH_TONG_HOP_CAD360.docx`. Mở tệp bằng Microsoft Word hoặc trình đọc DOCX tương thích.
+3. Giải nén Portable, kiểm tra `GIAO_TRINH_TONG_HOP_CAD360.docx` nằm cùng thư mục `CADTBT360.exe`. Mở và đối chiếu nội dung với bản Setup.
+4. Dùng tìm kiếm trong Word để tra các tên **`CADTBT360_CLI.exe`**, **`BT01_CAD_CoBan.dxf`**, **`GIAO_TRINH_TONG_HOP_CAD360.docx`**. Ba tên phải giữ nguyên dấu gạch dưới; nếu bị thành `CADTBT360CLI.exe` hoặc `BT01CADCoBan.dxf` là lỗi bộ sinh tài liệu.
+5. Chuyển đến chương có bảng tra cứu lệnh và ma trận nghiệm thu; xác nhận là **bảng Word thật** có thể chọn ô, không phải một dòng văn bản có dấu `|`.
+6. Kiểm tra 21 bài thực hành liên tục theo từng nhóm CAD/QTO/BIM/IFC/AI/MCP. Bản Word cũng có phần nâng cao và quy trình kiểm thử.
+7. Tại tab CAD, nhấn **HƯỚNG DẪN CAD 360** để mở file tổng hợp, đối chiếu có thể tra cứu đủ chương. Kiểm tra **HƯỚNG DẪN AI** chỉ là hướng dẫn chuyên đề.
+8. Kiểm tra `BUILD_INFO.txt` và bảng `SHA256SUMS.txt`; nếu chưa có bộ cài đã chạy thật, đánh dấu **Chưa kiểm chứng**, không ghi Đạt.
+
+**Thay đổi trong mã nguồn đợt 184:** Bộ sinh `docs/user-guide/build_word_guide.py` không còn xóa ký tự gạch dưới `_` trong tên file khi chuyển Markdown thành DOCX. `scripts/validate_word_guide.py` bắt buộc tìm được các tên tệp chính xác trước khi cho phép đóng gói Windows.
+
+**Giới hạn nghiệm thu:** Chưa có xác nhận Windows CI PASS cho các commit mới và chưa có ảnh chụp thao tác thực tế từ EXE đã phát hành. Phải tiếp tục kiểm tra DWG hai chiều bằng AutoCAD độc lập trước khi tuyên bố tương thích hoàn toàn.
