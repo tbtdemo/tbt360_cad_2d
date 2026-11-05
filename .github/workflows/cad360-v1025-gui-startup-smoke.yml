@@ -22,6 +22,14 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 20
     steps:
+      - name: Require V1.025 feature branch for manual QA
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        shell: pwsh
+        run: |
+          if ($env:GITHUB_REF -ne 'refs/heads/feature/CADTBT360_V1.025_xref-regression') {
+            throw "Select feature/CADTBT360_V1.025_xref-regression in Run workflow (current ref: $env:GITHUB_REF)"
+          }
+
       - name: Checkout QA script at current commit
         uses: actions/checkout@v4
         with:
