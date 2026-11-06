@@ -38,6 +38,8 @@ jobs:
         run: cargo test --locked -p cadcraft --bin cadcraft local_model_request_is_bounded_and_not_executed -- --nocapture
       - name: Confirm model proposed command cannot skip native CAD review
         run: cargo test --locked -p cadcraft --bin cadcraft ai_local_llm_is_optional_and_does_not_commit_native_cad_on_open -- --nocapture
+      - name: Verify AI-built native CAD survives standard R2018 DWG save and reopen
+        run: cargo test --locked -p cadcraft-ui-egui ai_review_native_three_object_plan_roundtrips_as_standard_r2018_dwg -- --nocapture
       - name: Validate actual multi-object commit with one Undo and Redo
         run: cargo test --locked -p cadcraft-ui-egui ai_multi_object_plan_commits_three_editable_entities_and_one_undo_group -- --nocapture
       - name: Validate rollback after partial native CAD AI execution failure
