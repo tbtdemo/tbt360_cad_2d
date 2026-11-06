@@ -678,6 +678,14 @@ fn erase_revision_step(removed:u64,before:u64,after:u64)->Result<u64,String> {
     Err("ERASE có xóa đối tượng nhưng Revision không tăng đúng một bước".into())
 }
 
+/// Stage278: a revision bump is not sufficient proof that this UNDO group contains
+/// a new Snapshot. Check the native undo-stack marker before ending the group.
+fn current_undo_group_has_snapshots(session:&Session)->Result<bool,String> {
+    let st=session.state().map_err(|e|e.to_string())?;
+    let start=st.undo_ctl.group.ok_or("Không có nhóm Undo đang hoạt động")?;
+    Ok(st.undo.len()>start)
+}
+
 /// One native Undo transaction; replacing old wall entities is allowed only for explicit,
 /// still-existing handles owned by this panel and tied to a fixed UID/Epoch/Revision.
 fn commit_steps(session:&mut Session,preview:&Preview)->Result<Vec<String>,String> {
@@ -819,14 +827,20 @@ fn commit_steps(session:&mut Session,preview:&Preview)->Result<Vec<String>,Strin
         // A foreign revision is not ours to rollback. Never undo someone else's content.
         return Err("Mất quyền sở hữu giao dịch; không Undo để tránh xóa dữ liệu khác".into());
     }
+    let group_has_snapshots=current_undo_group_has_snapshots(session)?;
     session.execute("undo",&json!({"mode":"end"})).map_err(|e|e.to_string())?;
     if let Some(error)=failure {
-        // UNDO BEGIN/END with no mutation adds no new history record. An unconditional
-        // UNDO here would erase the user's *previous* legitimate drawing command.
-        if succeeded>0 && same(session,expected,false) {
+        // An empty Undo group creates no undo history entry. Even if an earlier
+        // operation bumped Revision, never pop a pre-existing user snapshot.
+        if group_has_snapshots && same(session,expected,false) {
             session.execute("undo",&json!({"count":1})).map_err(|e|format!("{error}; rollback lỗi: {e}"))?;
+        } else if succeeded>0 && !group_has_snapshots {
+            return Err(format!("{error}; giao dịch có thay đổi Revision nhưng không tạo Undo Snapshot, giữ nguyên lịch sử người dùng"));
         }
         return Err(error);
+    }
+    if !group_has_snapshots {
+        return Err("CAD báo hoàn tất nhưng không có Undo Snapshot mới: không xác nhận thành công".into());
     }
     Ok(handles)
 }
@@ -1418,6 +1432,46 @@ mod tests {
         assert!(failed_command_revision_step(25,27).is_err());
         assert!(failed_command_revision_step(25,24).is_err());
         assert!(failed_command_revision_step(u64::MAX,0).is_err());
+    }
+
+    #[test]
+    fn stage278_undo_snapshot_marker_detects_empty_and_nonempty_groups() {
+        let mut session=Session::default();
+        session.execute("line",&json!({"points":[[10,500],[50,500]]})).unwrap();
+        assert!(current_undo_group_has_snapshots(&session).is_err());
+        session.execute("undo",&json!({"mode":"begin"})).unwrap();
+        assert!(!current_undo_group_has_snapshots(&session).unwrap(),
+            "begin alone cannot create a new undo snapshot");
+        session.execute("undo",&json!({"mode":"end"})).unwrap();
+        session.execute("undo",&json!({"mode":"begin"})).unwrap();
+        session.execute("line",&json!({"points":[[10,600],[50,600]]})).unwrap();
+        assert!(current_undo_group_has_snapshots(&session).unwrap(),
+            "one native drawing command must create a snapshot within the group");
+        session.execute("undo",&json!({"mode":"end"})).unwrap();
+        session.execute("undo",&json!({"count":1})).unwrap();
+        assert_eq!(session.doc().unwrap().entity_count(),1);
+        session.execute("undo",&json!({"count":1})).unwrap();
+        assert_eq!(session.doc().unwrap().entity_count(),0);
+    }
+
+    #[test]
+    fn stage278_empty_invalid_ai_transaction_keeps_prior_undo_snapshot() {
+        let mut session=Session::default();
+        let existing=session.execute("line",&json!({"points":[[0,600],[100,600]]})).unwrap();
+        let handle=cadcraft_doc::Handle::parse_hex(existing["handles"][0].as_str().unwrap()).unwrap();
+        let state=session.state().unwrap();
+        let preview=Preview {uid:state.uid,epoch:session.doc_epoch,revision:state.revision,
+            text:"test-empty-transaction".into(),
+            steps:vec![("line",json!({"points":[[2,2],[2,2]]}))],
+            description:"invalid LINE".into(),image_evidence:None,
+            selected_opening_guide:None,selected_door_arc:None,
+            replace_handles:None,replace_snapshot:None,review_token:None,image_controls:None,
+            owned_entities:None};
+        let before=session.state().unwrap().undo.len();
+        assert!(commit_steps(&mut session,&preview).is_err());
+        assert_eq!(session.state().unwrap().undo.len(),before);
+        assert!(session.doc().unwrap().entity(handle).is_some());
+        assert!(session.state().unwrap().undo_ctl.group.is_none());
     }
 
     #[test]
