@@ -2739,3 +2739,36 @@ Kế hoạch: Đợt 240 sửa lỗi CI, hoàn thiện thử DWG hai chiều v�
 5. Phần code/docs đã commit ≠ CI PASS ≠ nghiệm thu EXE/AutoCAD; theo dõi riêng ba mức khi lập báo cáo.
 
 **Đợt 261 có mã hình học cửa và quy trình 4 lệnh nhóm Undo, chưa có chứng cứ nghiệm thu Windows và DWG thực tế chỉ từ commit.**
+
+
+## 102. Đợt 262 — Đọc ảnh PNG/JPEG vào AI Review, xem trước nét CAD và gợi ý khoảng mở
+
+### Bài 225 — Từ ảnh mặt bằng đến bản Preview có thể kiểm tra
+1. Mở **Tools → CAD 360 AI Review...** trên ứng dụng Windows, mở đúng bản vẽ sẽ nhận hình học.
+2. Trong vùng **AI ảnh → nét CAD**, nhập đường dẫn PNG/JPEG trên máy tính; giới hạn file 16 MiB, chiều ảnh không quá 4096 pixel mỗi cạnh, tối đa 12 triệu pixel.
+3. Nhập **Đơn vị CAD trên mỗi pixel** (ví dụ 2 nếu ảnh đã được hiệu chuẩn sao cho mỗi pixel tương ứng 2 đơn vị CAD). Không tự mặc định ảnh bất kỳ có đúng tỷ lệ thực.
+4. Bấm **Đọc ảnh → Xem trước các nét CAD**. Bộ `cadcraft_mcp::raster_vector::preview` hiện có trích xuất các nét đậm ngang, dọc và chéo 45°; không gọi mạng, không phải LLM hoặc mô hình thị giác huấn luyện.
+5. Kiểm tra hình phác vector hiển thị trong cửa sổ và số nét LINE dự kiến. Bản vẽ chưa bị sửa; người dùng có thể hủy thay vì chấp nhận.
+
+### Bài 226 — Dấu hiệu cửa/khoảng mở chỉ là ứng viên
+1. Với `openingGapHints:true`, `pairedWallOpeningHints:true`, `doorLeafHints:true` và `maxGapPixels:0`, detector gợi ý các khoảng hở có thể có cửa nhưng không nối kín các khoảng hở đó.
+2. Hệ thống hiển thị số lượng **ứng viên khoảng mở** và **ứng viên nét giống cánh cửa** trong mô tả Preview. Đây là dữ liệu quan sát, chưa đủ để kết luận vị trí cửa thật.
+3. Khi đồng ý thực hiện, Đợt 262 chỉ gửi những nét vector đã được phát hiện thành LINE native của CAD Engine; không tự tạo Door Block, ARC quét, tường BIM hoặc tự ý xóa đối tượng hiện hữu.
+4. Để tạo cửa có khoảng mở theo kích thước được người dùng kiểm tra, dùng riêng cú pháp **Bài 221** của Đợt 261: `vẽ tường có cửa từ 0,0 đến 6000,0 dày 200 cửa 900 tại 3000 mở trái`.
+5. Nhận dạng cửa có ngữ nghĩa từ ảnh và liên kết tự động ứng viên với mẫu cửa CAD chuẩn vẫn là đầu việc chưa nghiệm thu.
+
+### Bài 227 — Xác nhận, bảo toàn nguồn và Undo/Redo
+1. Trước khi vẽ, AI Review giữ ảnh đã đọc và kết quả vector của Preview. Khi người dùng bấm **Tôi đồng ý – Vẽ vào CAD**, mã kiểm tra lại đúng file ảnh và kết quả Preview; ảnh đã sửa hoặc thay đổi sẽ bị từ chối.
+2. Đồng thời kiểm tra UID, Epoch, Revision của bản vẽ, trạng thái lệnh đang chạy và chế độ Undo Control All.
+3. Các LINE được thực thi bằng native CAD Engine trong một nhóm `UNDO BEGIN/END`, để một lần Undo bỏ toàn bộ nét nhập và Redo khôi phục.
+4. Khi lỗi, không tự Undo các thao tác ngoài giao dịch nếu đã mất quyền sở hữu UID/Revision. Người dùng phải kiểm tra bản vẽ trước khi lưu.
+5. Tính toàn vẹn này không thay thế xác thực OIDC: đây là sự chấp thuận tại cửa sổ ứng dụng cục bộ; tác nhân MCP bên ngoài vẫn phải qua HostScope và cơ chế approval riêng.
+
+### Bài 228 — Kiểm thử Windows và nghiệm thu bản vẽ
+1. Workflow `CAD 360 Stage262 Image AI Review to Native Geometry` kiểm tra Cargo compile trên Windows, regression PNG→CAD, hình học cửa Đợt 261 và bộ test raster hiện có.
+2. Bài `stage262_png_to_native_cad_preview_is_readonly_and_source_changes_are_detected` dùng ảnh PNG tổng hợp, kiểm tra Preview read-only, số LINE, Commit, Undo/Redo và sự khác biệt khi thay đổi nội dung ảnh nguồn.
+3. Khi GitHub Actions báo PASS tại SHA tương ứng, chạy EXE thật: chọn ảnh mặt bằng có kích thước đã hiệu chuẩn, kiểm tra hình phác Preview, tạo LINE, Undo/Redo và Save/Reopen.
+4. Xuất hoặc lưu **DWG chuẩn** và thử mở, chỉnh sửa, lưu lại qua AutoCAD độc lập; thử nghiệm file chỉ có LINE không chứng minh mọi loại đối tượng CAD hay mọi phiên bản DWG đều tương thích.
+5. Hạn chế còn lại: chưa có chọn file bằng nút duyệt ảnh riêng, chưa phân biệt cửa/tường/vách một cách đáng tin cậy, chưa tự dựng cửa từ ảnh, chưa nối giao diện với OIDC Host thật, chưa có CI PASS hoặc nghiệm thu EXE trong báo cáo này.
+
+**Phân biệt ba mức:** (a) Có code và test trong nhánh; (b) CI PASS đúng SHA; (c) Windows EXE/AutoCAD nghiệm thu thực tế. Đợt 262 hiện chỉ có bằng chứng (a).
