@@ -25,6 +25,9 @@ pub struct AiReview {
     image_scale: String,
     opening_index: String,
     door_arc_index: String,
+    door_width_override: String,
+    flip_door_hinge: bool,
+    flip_door_swing: bool,
     preview: Option<Preview>,
     message: String,
 }
@@ -256,6 +259,53 @@ fn select_door_swing_arc(preview:&mut Preview,index:usize)->Result<(),String> {
     Ok(())
 }
 
+/// Stage264: operator-reviewed changes to ONLY the extra drafted ARC.
+/// Source image LINEs, chosen source candidate and detector evidence stay immutable.
+#[cfg(not(target_arch = "wasm32"))]
+fn adjust_reviewed_door_arc(preview:&mut Preview, width_text:&str, flip_hinge:bool, flip_swing:bool)->Result<(),String> {
+    let index=preview.selected_door_arc.ok_or("Chưa chọn cung mở từ ảnh")?;
+    let (_,evidence,bytes)=preview.image_evidence.as_ref().ok_or("Thiếu chứng cứ ảnh đã Preview")?;
+    let args=&preview.image_evidence.as_ref().ok_or("Thiếu tham số ảnh")?.0;
+    let source=std::fs::read(args["path"].as_str().ok_or("Thiếu đường dẫn ảnh")?)
+        .map_err(|e|format!("Không đọc được ảnh: {e}"))?;
+    if source!=*bytes {return Err("Ảnh đã bị thay đổi, phải Preview lại".into());}
+    let arc=evidence["doorSwingArcs"].as_array().and_then(|items|items.get(index))
+        .ok_or("Ứng viên cung đã thay đổi; Preview lại")?;
+    if arc["classification"]!="confirmed-drafting-arc-not-door-block" {
+        return Err("Chưa đủ chứng cứ để hiệu chỉnh ARC".into());
+    }
+    let radius=if width_text.trim().is_empty() {arc["radius"].as_f64().ok_or("Thiếu bán kính cung gốc")?}
+        else {number(width_text.trim())?};
+    let original_radius=arc["radius"].as_f64().ok_or("Thiếu kích thước cửa gốc")?;
+    if radius<=1e-6 || radius>1e8 || radius>original_radius*2.0 || radius<original_radius*0.5 {
+        return Err("Bề rộng cửa phải dương, trong khoảng 50%–200% ứng viên ảnh; cần xác nhận tỷ lệ".into());
+    }
+    let hinge=if flip_hinge {&arc["oppositeHingeCAD"]} else {&arc["center"]};
+    let center=hinge.as_array().filter(|v|v.len()==2).ok_or("Không có tọa độ bản lề")?;
+    let (Some(cx),Some(cy),Some(mut leaf_angle),Some(mut opening_angle))=
+        (center[0].as_f64(),center[1].as_f64(),arc["leafAngleDegrees"].as_f64(),
+            arc["openingAngleDegrees"].as_f64()) else {
+        return Err("Dữ liệu bản lề hoặc góc không hợp lệ".into());
+    };
+    if flip_hinge {opening_angle=(opening_angle+180.0).rem_euclid(360.0);}
+    if flip_swing {leaf_angle=(leaf_angle+180.0).rem_euclid(360.0);}
+    let delta=(opening_angle-leaf_angle).rem_euclid(360.0);
+    let (start,end)=if (delta-90.0).abs()<=12.0 {(leaf_angle,opening_angle)}
+        else if (delta-270.0).abs()<=12.0 {(opening_angle,leaf_angle)}
+        else {return Err("Lựa chọn bản lề/hướng mở không tạo được cung 90 độ".into())};
+    if ![cx,cy,radius,start,end].iter().all(|n|n.is_finite())
+        || cx.abs()+radius>1e9 || cy.abs()+radius>1e9 {
+        return Err("Kích thước hoặc vị trí cung vượt giới hạn CAD".into());
+    }
+    let last=preview.steps.last_mut().ok_or("Thiếu đối tượng ARC trong Preview")?;
+    if last.0!="arc" {return Err("Phương án không còn cung mở; Preview lại".into());}
+    // Update only the draft; the shared image detector evidence remains as originally reviewed.
+    last.1=json!({"center":[cx,cy],"radius":radius,"start":start,"end":end});
+    preview.description=format!("Ảnh: {} LINE gốc và ARC cung mở #{} sau hiệu chỉnh: rộng {:.2}, đảo bản lề {}, đảo hướng mở {}. Không tự cắt tường.",
+        preview.steps.len()-1,index,radius,flip_hinge,flip_swing);
+    Ok(())
+}
+
 fn commit_steps(session:&mut Session,preview:&Preview)->Result<(),String> {
     #[cfg(not(target_arch = "wasm32"))]
     if let Some((args,approved_proposal,source_bytes))=&preview.image_evidence {
@@ -453,6 +503,23 @@ impl AiReview {
                     }
                 }
             }
+            if self.preview.as_ref().is_some_and(|p|p.selected_door_arc.is_some()) {
+                ui.separator();
+                ui.label("Hiệu chỉnh ARC đã chọn trước khi xác nhận:");
+                ui.label("Bề rộng cửa CAD (để trống giữ kích thước đề xuất):");
+                ui.text_edit_singleline(&mut self.door_width_override);
+                ui.checkbox(&mut self.flip_door_hinge,"Đổi vị trí bản lề sang mép kia");
+                ui.checkbox(&mut self.flip_door_swing,"Đảo hướng mở");
+                #[cfg(not(target_arch = "wasm32"))]
+                if ui.button("Áp dụng hiệu chỉnh vào Preview").clicked() {
+                    if let Some(p)=&mut self.preview {
+                        match adjust_reviewed_door_arc(p,&self.door_width_override,self.flip_door_hinge,self.flip_door_swing) {
+                            Ok(())=>self.message="Đã cập nhật ARC ở Preview, chưa sửa bản vẽ. Kiểm tra trước khi xác nhận.".into(),
+                            Err(e)=>self.message=e
+                        }
+                    }
+                }
+            }
             if let Some(p)=self.preview.as_ref() {
                 ui.separator();
                 ui.label(&p.description);
@@ -555,6 +622,43 @@ mod tests {
         assert!(parse_draft("vẽ phòng rộng NaN dài 4000 tại 0,0").is_err());
         assert!(parse_draft("xóa tất cả").is_err());
     }
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn stage264_reviewed_door_arc_width_hinge_and_swing_preserves_source_and_undo() {
+        use image::{GrayImage,Luma};
+        let mut img=GrayImage::from_pixel(110,48,Luma([255]));
+        for y in [15,22] {
+            for x in 5..=39 {img.put_pixel(x,y,Luma([0]));}
+            for x in 51..=95 {img.put_pixel(x,y,Luma([0]));}
+        }
+        for y in 3..=15 {img.put_pixel(39,y,Luma([0]));}
+        let path=std::env::temp_dir().join(format!("cad360-stage264-{}-{}.png",std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        img.save(&path).unwrap();
+        let mut session=Session::default();
+        let mut preview=preview_raster(&session,&path.to_string_lossy(),"2").unwrap();
+        let original_lines=preview.steps.clone();
+        assert!(adjust_reviewed_door_arc(&mut preview,"",false,false).is_err());
+        select_door_swing_arc(&mut preview,0).unwrap();
+        let original=preview.steps.last().unwrap().1.clone();
+        let width=original["radius"].as_f64().unwrap()*1.1;
+        assert!(adjust_reviewed_door_arc(&mut preview,"0",false,false).is_err());
+        assert!(adjust_reviewed_door_arc(&mut preview,"100000000",false,false).is_err());
+        adjust_reviewed_door_arc(&mut preview,&width.to_string(),true,true).unwrap();
+        assert_eq!(preview.steps.len(),original_lines.len()+1);
+        assert_eq!(&preview.steps[..original_lines.len()],&original_lines[..]);
+        assert_eq!(preview.steps.last().unwrap().1["radius"],json!(width));
+        assert_ne!(preview.steps.last().unwrap().1["center"],original["center"]);
+        assert_eq!(session.doc().unwrap().entity_count(),0);
+        commit_steps(&mut session,&preview).unwrap();
+        assert_eq!(session.doc().unwrap().entity_count(),preview.steps.len());
+        session.execute("undo",&json!({"count":1})).unwrap();
+        assert_eq!(session.doc().unwrap().entity_count(),0);
+        session.execute("redo",&json!({})).unwrap();
+        assert_eq!(session.doc().unwrap().entity_count(),preview.steps.len());
+        let _=std::fs::remove_file(path);
+    }
+
     #[cfg(not(target_arch = "wasm32"))]
     #[test]
     fn stage263_door_arc_requires_explicit_operator_selection_and_preserves_image_lines() {
