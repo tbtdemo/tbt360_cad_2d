@@ -205,7 +205,13 @@ fn stage282_dwg_ai_trace_lines_pline_arc_reopen_with_native_geometry() {
     let (original,handles)=stage282_trace_sample();
     let bytes=write(&original,"ai_trace.dwg").unwrap();
     assert!(cadcraft_dwg::is_dwg(&bytes),"DWG output must have the real DWG signature");
-    let back=read(&bytes,"ai_trace.dwg").unwrap();
+    let file=std::env::temp_dir().join(format!("cad360-stage282-{}-{}.dwg",
+        std::process::id(),std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+    std::fs::write(&file,&bytes).unwrap();
+    let saved=std::fs::read(&file).unwrap();
+    assert_eq!(saved,bytes,"the on-disk DWG must match the serialized bytes");
+    let back=read(&saved,&file.to_string_lossy()).unwrap();
     assert_eq!(back.entity_count(),handles.len());
     assert!(back.layer("AI-TRACE").is_some());
     for h in &handles {
@@ -233,6 +239,12 @@ fn stage282_dwg_ai_trace_lines_pline_arc_reopen_with_native_geometry() {
             _=>panic!("LINE/PLINE/ARC kind changed through the CAD 360 DWG bridge"),
         }
     }
+    let second=read(&write(&back,"ai_trace.dwg").unwrap(),"ai_trace.dwg").unwrap();
+    assert_eq!(second.entity_count(),handles.len(),"DWG second save/reopen must keep all AI-like geometry");
+    for h in &handles {
+        assert!(second.entity(*h).is_some(),"second DWG round-trip must preserve handle");
+    }
+    std::fs::remove_file(&file).unwrap();
 }
 
 #[test]
