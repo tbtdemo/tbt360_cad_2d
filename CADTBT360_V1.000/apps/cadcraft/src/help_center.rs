@@ -38,6 +38,7 @@ const GROUPS: &[(&str, &[(&str, &str)])] = &[
         ("5.1 MCP kết nối ứng dụng bên ngoài", "Ưu tiên kết nối MCP stdio/Remote localhost, kiểm tra danh sách công cụ, quyền và phiên CAD. Không cho phép Agent gọi lệnh xóa hoặc lưu đè không xác nhận."),
         ("5.2 API và tài khoản ChatGPT / Gemini", "Gói chat trên web không mặc định cấp quyền API tự động. Chỉ dùng kết nối ngoài theo phương thức chính thức được nhà cung cấp và ứng dụng chấp nhận. Không thu thập cookie/phiên đăng nhập của trình duyệt."),
         ("5.3 Kho kiến thức và nâng cấp kiểm thử", "Quản lý giáo trình, các mẫu DWG/DXF được phép dùng, bộ câu lệnh và phản hồi lỗi. Phiên bản nâng cấp cần code review, kiểm thử CI và khả năng rollback."),
+        ("5.4 Tiền kiểm quyền AI Agent — ai_cad_preflight", "Trước khi gọi công cụ CAD, Agent có thể hỏi ai_cad_preflight về loại thao tác. Kết quả allowed = chỉ đọc; preview_only = chưa đủ xác nhận; denied = công cụ không được duyệt; requires_backend_checks = vẫn cần CAD Engine kiểm tra UID, epoch, revision và quyền người dùng.\nTiền kiểm chỉ cung cấp thông tin, KHÔNG cấp quyền, không thay xác thực host, không tự chạy lệnh, không yêu cầu cookie hay API key."),
     ]),
 ];
 
