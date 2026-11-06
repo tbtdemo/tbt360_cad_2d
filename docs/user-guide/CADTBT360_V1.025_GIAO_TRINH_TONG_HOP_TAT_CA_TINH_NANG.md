@@ -1886,3 +1886,40 @@ Bản Word **CADTBT360_V1.025_GIAO_TRINH_FULL_CO_HINH_DOT229.docx** biên soạn
 **Giáo trình Word FULL:** Bản `CADTBT360_V1.025_GIAO_TRINH_FULL_CO_HINH_DOT231.docx` kế thừa 129 bài và 130 hình của đợt 230, bổ sung ba bài học mới về AI hai phòng, Undo và CI, có 133 hình/sơ đồ. Đây là bản **tổng hợp toàn bộ phần mềm**, không phải phụ lục chỉ riêng đợt 231. Hình minh họa chưa thay thế ảnh chụp EXE thật.
 
 **Trạng thái:** Mã AI và sửa test đã đẩy lên GitHub; CI đợt 230 được xác minh FAILED tại bài test cột trước khi sửa; đợt 231 cần tiếp tục xác nhận kết quả Windows CI mới.
+
+
+## 72. Đợt 232 — AI chừa khoảng mở cửa thật tại vách chung của hai phòng
+
+### Bài 133 — Dựng hai phòng có cửa thông trên tường chung
+
+1. Mở bản vẽ thử riêng trong CAD 360; xác nhận đơn vị (ví dụ mm) và kết nối MCP Agent.
+2. Nhập một dòng yêu cầu vào `ai_draw_plan_vietnamese`:
+   `vẽ hai phòng liền kề rộng 3000 và 4000 dài 4000 tại 0,0 cửa 900 giữa`
+3. Mặc định công cụ trả về **Preview**, không chỉnh sửa bản vẽ. Bản Preview gồm ba lệnh native: 1 RECTANG bao ngoài và 2 LINE ngăn phòng hai phía khoảng mở.
+4. Kiểm tra hình học: bao ngoài `(0,0) → (7000,4000)`; tường chung nằm tại `x=3000`; phần LINE dưới `(3000,0) → (3000,1550)` và phần LINE trên `(3000,2450) → (3000,4000)`. Khoảng hở không có LINE nối giữa `y=1550` và `y=2450`.
+5. Chỉ khi người dùng kiểm tra, xác nhận đúng tọa độ và chấp nhận phương án, gửi lại **cùng text** với `preview:false`, `confirm:true`, `expectedDocumentUid`, `expectedDocumentEpoch`, `expectedRevision` từ Preview.
+6. Kiểm tra thực tế bằng `query_entities`/ `inspect_drawing`: đối tượng CAD là RECTANG/LWPOLYLINE và hai LINE, không có LINE xuyên khoảng cửa. Undo phải hoàn tác đồng bộ nhóm thao tác đã xác nhận.
+
+![Sơ đồ hai phòng và khoảng mở cửa giữa](images/ai-two-room-centered-door-stage232.svg)
+
+*Hình 72.1: **Sơ đồ minh họa**, không phải ảnh chụp EXE. Màu vàng là hai LINE tường chung; khoảng giữa là khoảng mở cửa.*
+
+### Bài 134 — Kiểm soát lỗi AI không làm mất cửa
+
+1. Kiểm tra các biến thể sai: `cửa 0 giữa`, cửa rộng bằng chiều dài tường, cửa lớn đến mức mỗi đầu còn dưới 100 đơn vị, `cửa NaN giữa`, hoặc chữ khóa không đúng.
+2. Hệ thống phải từ chối kế hoạch hoàn toàn nếu đầu vào sai; không được tạo nửa bản vẽ hoặc đóng kín khoảng mở.
+3. Lệnh không có phần `cửa ... giữa` vẫn giữ hành vi đợt 231: một RECTANG bao ngoài và một LINE vách chung liên tục.
+4. Đây chỉ là **đường bao 2D**, chưa tự quyết định vị trí cửa theo quy chuẩn, chưa tạo BLOCK cửa/cánh cửa/cung mở và chưa thiết lập quan hệ phòng BIM. Phần cột, Layer và cấu tạo tường có chiều dày cần xử lý ở các bước khác.
+5. Cần kiểm tra trên ảnh xuất render và bằng danh sách entity trước khi chấp nhận chất lượng đầu ra.
+
+### Bài 135 — Sửa hồi quy Block cửa, cửa sổ và điều kiện phát hành
+
+1. GitHub CI đợt 231 run `42134714365` thất bại tại `ai_native_window_block_contains_one_frame_and_two_rails_and_undoes`. Bản fix đổi cách đọc kết quả `line` từ `value["handle"]` thành `value["handles"][0]` theo contract engine.
+2. Cùng contract được rà soát ở nhánh tạo BLOCK cửa, hai thanh cửa sổ, các bài kiểm thử BLOCK và Undo; các đối tượng `pline` hoặc `arc` vẫn dùng `handle` khi engine trả về dạng đơn.
+3. Chạy `cargo test --locked -p cadcraft-mcp --lib ai_vietnamese_adjacent_rooms_centered_door_keeps_real_opening -- --nocapture`.
+4. Chạy `cargo test --locked -p cadcraft --bin cadcraft ai_native_window_block_contains_one_frame_and_two_rails_and_undoes -- --nocapture` và các bài kiểm thử BLOCK cửa/Undo khác trong CI.
+5. **Chỉ coi là đã có bộ cài khi Windows CI trên SHA cuối PASS**, gồm compile, regression, packaging và smoke test. Việc commit mã và có hình minh họa không chứng minh đã phát hành EXE mới.
+
+### Cam kết giáo trình FULL
+
+Bản Word đợt 232 được nối tiếp **bản đầy đủ 132 bài có hình** của đợt 231, bổ sung các Bài 133–135 và sơ đồ mới, giữ các bài từ CAD 2D, Layer, Xref, QTO, BIM, ảnh→CAD, MCP và AI Agent. Mọi ảnh sơ đồ phải ghi rõ **minh họa**; ảnh giao diện chỉ được đánh dấu **ảnh chụp EXE** nếu thật sự lấy từ phần mềm.
