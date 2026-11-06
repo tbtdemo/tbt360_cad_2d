@@ -1044,7 +1044,7 @@ mod tests {
         let wall=session.execute("pline",&json!({"vertices":[[0.0,-100.0],[6000.0,-100.0],
             [6000.0,100.0],[0.0,100.0]],"closed":true})).unwrap();
         let wall_id=cadcraft_doc::Handle::parse_hex(wall["handle"].as_str().unwrap()).unwrap();
-        let neighbour=session.execute("line",&json!({"points":[[2450.0,110.0],[2600.0,90.0]]})).unwrap();
+        let neighbour=session.execute("line",&json!({"points":[[2500.0,90.0],[2600.0,120.0]]})).unwrap();
         let neighbour_id=cadcraft_doc::Handle::parse_hex(neighbour["handles"][0].as_str().unwrap()).unwrap();
         session.set_selection(vec![wall_id]);
         let plan=preview_selected_existing_wall(&session,"3000","900",false)
