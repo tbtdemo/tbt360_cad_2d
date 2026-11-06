@@ -823,8 +823,11 @@ fn stage245_scoped_mcp_server_rejects_wrong_document_and_viewer_write() {
     let inspect=call(&mut scoped,502,"tools/call",json!({"name":"inspect_drawing",
         "arguments":{"entities":false}}));
     assert!(inspect.get("result").is_some());
-    let wrong=HostScope::new("tenant-a","user-editor","editor",uid+1).unwrap();
-    let mut mismatched=Server::with_host_scope(Box::new(Headless::default()),wrong);
+    let mismatched_backend=Headless::default();
+    let other_uid=if uid==u64::MAX {0}else{u64::MAX};
+    assert_ne!(other_uid,uid,"regression fixture must bind a different document UID");
+    let wrong=HostScope::new("tenant-a","user-editor","editor",other_uid).unwrap();
+    let mut mismatched=Server::with_host_scope(Box::new(mismatched_backend),wrong);
     let blocked=call(&mut mismatched,503,"tools/call",json!({"name":"inspect_drawing",
         "arguments":{"entities":false}}));
     assert_eq!(blocked["error"]["code"],-32602);
