@@ -2193,3 +2193,37 @@ Kế hoạch: Đợt 240 sửa lỗi CI, hoàn thiện thử DWG hai chiều v�
 5. Word FULL có 162 bài và hình, nối tiếp bản 240 và có 3 sơ đồ bổ sung (ảnh minh họa **không phải** screenshot EXE). Code đầy đủ lấy qua GitHub ZIP đúng commit.
 
 **Trạng thái:** Đã bổ sung hai regression test trên Headless CAD Engine và đưa vào Windows workflow. Không xác nhận native test PASS hay EXE đạt khi chưa có workflow success trên commit cuối.
+
+
+## 82. Đợt 242 — Tab HƯỚNG DẪN dạng cây và kết nối AI bên ngoài qua MCP
+
+### Bài 163 — Sử dụng tab HƯỚNG DẪN ngay trong CAD 360
+
+1. Mở phần mềm CAD 360 bản được build từ commit có tích hợp `apps/cadcraft/src/help_center.rs`; chọn tab **HƯỚNG DẪN** trên thanh tab chính, bên cạnh CAD/ĐO BÓC/PDF/3D/BIM.
+2. Cây **HƯỚNG DẪN** ở cột trái có nhóm **1. NHÓM LỆNH VẼ**, **2. SỬ DỤNG AI**, **3. QUẢN LÝ BẢN VẼ**, **4. ĐO BÓC VÀ BIM**, **5. KẾT NỐI & AN TOÀN AI**.
+3. Bấm vào nhóm để mở rộng; bấm `1.1 Đường thẳng — LINE` để xem thao tác LINE, `1.2 Hình vuông / chữ nhật — RECTANG` để xem cách vẽ hình chữ nhật, `1.3 Đường tròn` để học CIRCLE.
+4. Chọn `2.1 Đọc ảnh vào`, `2.2 Xử lý ảnh`, `2.3 AI vẽ từ ảnh`, `2.4 AI vẽ bằng tiếng Việt` để theo đúng tiến trình sử dụng AI trong CAD 360.
+5. Khi chọn bài, cột phải hiển thị phần hướng dẫn, cùng **sơ đồ kỹ thuật được vẽ bằng giao diện**. Sơ đồ có nhãn minh họa, **không phải ảnh chụp từ EXE**.
+6. Gõ LINE, ảnh, BLOCK, MCP, DWG vào ô tìm kiếm; chỉ những bài phù hợp được hiển thị. Nút **Xóa tìm kiếm** trở về danh sách đầy đủ.
+7. Bật **Hiện toàn bộ giáo trình** để nạp toàn bộ bài học từ giáo trình tổng hợp Markdown nhúng vào EXE. Các bài bổ sung trong những đợt tới được đưa vào cùng Markdown này trước khi Windows CI và EXE đóng gói lại.
+8. Nút **HƯỚNG DẪN CAD 360** cũ tiếp tục mở Word từ bộ cài để đọc/in ngoại tuyến. Tab mới không yêu cầu đăng nhập hoặc kết nối Internet.
+
+### Bài 164 — AI kết nối bên ngoài bằng MCP chuẩn và phân quyền
+
+1. Mở tab HƯỚNG DẪN → **5. KẾT NỐI & AN TOÀN AI** và xem hướng dẫn MCP, quyền và thông tin nhà cung cấp.
+2. CAD 360 MCP có công cụ mới **`ai_cad_capabilities`** (chỉ đọc) để AI Agent bên ngoài lấy **danh mục lệnh AI/CAD**, các giới hạn, quy tắc Preview–Confirm, bộ UID/epoch/revision và yêu cầu Undo.
+3. AI ngoài phần mềm cần kết nối qua **host/bridge hỗ trợ MCP chính thức**, dùng kênh đã được cấp quyền; gói trò chuyện ChatGPT/Gemini trên website không tự động cung cấp API hoặc quyền điều khiển phần mềm.
+4. Khi gọi lệnh AI vẽ, luôn dùng Preview mặc định, cho người dùng kiểm tra bản vẽ, chỉ commit sau `confirm:true` và kiểm chứng phiên tài liệu. Không gửi cookie đăng nhập, session token hoặc dữ liệu khách hàng lên các kết nối không được phép.
+5. `ai_cad_capabilities` **không tự tạo kết nối với nhà cung cấp**; chưa triển khai bộ đăng nhập, OAuth và adapter Gemini/ChatGPT trực tiếp. Đây là chuẩn công bố năng lực, giúp Agent tương thích MCP khám phá và sử dụng các công cụ hiện có theo quyền.
+6. Ý tưởng AI nâng cấp qua phản hồi: khi người dùng đồng ý, lưu bài thử và lỗi, chạy benchmark, cho người duyệt kết quả, kiểm thử CI rồi mới phát hành. Không tự sửa trọng số ChatGPT/Gemini, không tự biến chatbot web thành API không được cấp phép.
+
+### Bài 165 — Kiểm thử và tiến độ sau khi thêm tab HƯỚNG DẪN
+
+1. Chạy `cargo test --locked -p cadcraft --bin cadcraft cad360_help_has_expected_hierarchy_and_offline_full_manual -- --nocapture`.
+2. Chạy `cargo test --locked -p cadcraft --bin cadcraft hierarchical_help_is_a_first_class_desktop_tab -- --nocapture`.
+3. Chạy `cargo test --locked -p cadcraft-mcp --lib ai_cad_capabilities_external_host_read_only_and_no_secret_requirement -- --nocapture`.
+4. Trên Windows, mở tab HƯỚNG DẪN trong EXE để nghiệm thu cây mẹ/con, tìm kiếm, ảnh/sơ đồ, đọc các bài đầy đủ và nút mở Word. **Không được ghi "ảnh EXE thật" khi chỉ có ảnh dựng từ mock/sơ đồ.**
+5. Bảng Excel đợt 242 phân tách tỷ lệ **có mã**, **CI PASS ở đúng commit** và **nghiệm thu EXE/MCP host thật**. Con số % của đợt không đồng nghĩa % hoàn tất toàn CAD 360.
+6. Đợt 243: cấu hình danh sách kết nối MCP được cho phép, phạm vi quyền và quản lý phản hồi AI có kiểm duyệt; đợt 244: thêm tình huống AI ảnh→CAD nhiều loại cấu kiện và benchmark hình học; đợt 245: đối chiếu QTO, DWG AutoCAD hai chiều và ảnh EXE.
+
+**Bộ nguồn:** `apps/cadcraft/src/main.rs` (tab), `apps/cadcraft/src/help_center.rs` (cây nội dung, Markdown nhúng), `crates/mcp/src/tools.rs` (khai báo năng lực AI), `.github/workflows/cad360-v1025-release.yml` (kiểm thử). Giáo trình Word FULL đợt 242 kế thừa 162 bài và các hình trước, thêm Bài 163–165; ghi rõ trạng thái CI và giới hạn tích hợp.
