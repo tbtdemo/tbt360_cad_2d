@@ -1,6 +1,7 @@
 //! Optional local LLM adapter for AI Studio. No network credentials or cloud API keys.
  //! Ollama CLI output is untrusted text: it is NEVER executed as a CAD command here.
 use std::io::Read as _;
+use std::sync::atomic::{AtomicBool,Ordering};
 use std::process::{Command,Stdio};
 use std::time::{Duration,Instant,SystemTime,UNIX_EPOCH};
 
@@ -60,9 +61,10 @@ fn parse_model_response(response:&str)->Result<String,String> {
 
 /// Call a separately installed local Ollama executable, using arguments (never a shell).
 /// The child is terminated at timeout; stdout is stored in a bounded temporary file.
-pub fn generate(model:&str,request:&str)->Result<String,String> {
+pub fn generate(model:&str,request:&str,cancel:&AtomicBool)->Result<String,String> {
     validate_model(model)?;
     let prompt=safe_input(request)?;
+    if cancel.load(Ordering::Relaxed) {return Err("Đã hủy yêu cầu AI cục bộ.".into());}
     let stamp=SystemTime::now().duration_since(UNIX_EPOCH).map_err(|e|e.to_string())?.as_nanos();
     let output=std::env::temp_dir().join(format!("cad360_ollama_{}_{}.txt",std::process::id(),stamp));
     let file=std::fs::File::create_new(&output).map_err(|e|format!("Không tạo được tệp kết quả AI: {e}"))?;
@@ -72,6 +74,10 @@ pub fn generate(model:&str,request:&str)->Result<String,String> {
             .map_err(|e|format!("Không chạy được Ollama ({e}). Cài Ollama, tải mô hình và thử lại."))?;
         let start=Instant::now();
         let status=loop {
+            if cancel.load(Ordering::Relaxed) {
+                let _=child.kill();let _=child.wait();
+                return Err("Đã hủy yêu cầu AI cục bộ và dừng tiến trình Ollama.".into());
+            }
             match child.try_wait() {
                 Ok(Some(status))=>break status,
                 Ok(None) if std::fs::metadata(&output).is_ok_and(|info|info.len()>MAX_OUTPUT)=>{
@@ -110,6 +116,13 @@ mod tests {
         let commands=vec!["vẽ tường có cửa từ 0,0 đến 6000,0 dày 200 cửa 900 tại 3000 mở trái";12].join(" | ");
         assert!(commands.len()>600);
         assert_eq!(parse_model_response(&commands).unwrap(),commands);
+    }
+
+    #[test]
+    fn cancelled_local_ai_request_never_launches_ollama() {
+        let cancel=AtomicBool::new(true);
+        let result=generate("qwen2.5:7b","vẽ phòng rộng 6000 dài 4000 tại 0,0",&cancel);
+        assert!(result.unwrap_err().contains("Đã hủy"));
     }
 
     #[test]
