@@ -34,6 +34,8 @@ jobs:
         run: cargo test --locked -p cadcraft --bin cadcraft ai_raster_commit_guard_rejects_changed_image_and_calibration_after_preview -- --nocapture
       - name: Detect modified source image before accepting AI raster preview
         run: cargo test --locked -p cadcraft --bin cadcraft ai_image_fingerprint_detects_same_size_source_mutation_without_timestamp_check -- --nocapture
+      - name: Ensure image recognition prompt never becomes a native CAD geometry command
+        run: cargo test --locked -p cadcraft --bin cadcraft ai_studio_separates_image_detection_instruction_from_native_cad_commands -- --nocapture
       - name: Validate local Ollama model ID protection
         run: cargo test --locked -p cadcraft --bin cadcraft model_id_refuses_shell_injection_and_path_tricks -- --nocapture
       - name: Reject fabricated and multi-command Ollama responses
