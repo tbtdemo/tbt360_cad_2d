@@ -16,6 +16,8 @@ struct Preview {
     selected_opening_guide: Option<usize>,
     selected_door_arc: Option<usize>,
     replace_handles: Option<Vec<String>>,
+    /// Exact snapshot of an explicitly user-selected existing wall entity, verified at commit.
+    replace_snapshot: Option<cadcraft_doc::Entity>,
 }
 
 #[derive(Clone, Debug)]
@@ -41,6 +43,9 @@ pub struct AiReview {
     flip_door_hinge: bool,
     flip_door_swing: bool,
     revised_center: String,
+    existing_door_center: String,
+    existing_door_width: String,
+    existing_open_right: bool,
     managed_wall: Option<ManagedDoorWall>,
     preview: Option<Preview>,
     message: String,
@@ -370,7 +375,68 @@ fn prepare_managed_wall_shift(session:&Session,managed:&ManagedDoorWall,new_cent
     Ok(Preview {uid:managed.uid,epoch:managed.epoch,revision:managed.revision,
         text:revised,steps,description:format!("Sẽ thay thế chỉ 4 entity AI Review đã tạo; {description}"),
         image_evidence:None,selected_opening_guide:None,selected_door_arc:None,
-        replace_handles:Some(managed.handles.clone())})
+        replace_handles:Some(managed.handles.clone()),replace_snapshot:None})
+}
+
+/// Stage267 conservative adapter: only one deliberately selected four-corner,
+/// axis-aligned, planar, zero-bulge LWPOLYLINE is eligible. No automatic wall search.
+fn preview_selected_existing_wall(session:&Session,center_text:&str,door_width_text:&str,open_right:bool)->Result<Preview,String> {
+    if !drawing_ready(session) {return Err("Kết thúc lệnh CAD trước khi chọn tường".into());}
+    let selected=session.selection();
+    if selected.len()!=1 {return Err("Chọn chính xác một đối tượng PLINE tường trước khi Preview".into());}
+    let handle=selected[0];
+    let doc=session.doc().map_err(|e|e.to_string())?;
+    let entity=doc.entity(handle).ok_or("Đối tượng đã chọn không còn tồn tại")?;
+    if doc.layer(&entity.common.layer).is_some_and(|layer|layer.locked) {
+        return Err("Layer đối tượng đang khóa: không được thay thế".into());
+    }
+    let cadcraft_doc::EntityKind::LwPolyline(poly)=&entity.kind else {
+        return Err("Chỉ hỗ trợ LWPOLYLINE tường 4 đỉnh, không nhận LINE/Block/Spline".into());
+    };
+    if !poly.closed || poly.vertices.len()!=4 || poly.const_width.abs()>1e-8
+        || poly.elevation.abs()>1e-8 || poly.vertices.iter().any(|v|
+            v.bulge.abs()>1e-8 || v.start_width.abs()>1e-8 || v.end_width.abs()>1e-8) {
+        return Err("Tường phải là PLINE kín 4 đỉnh, không cung bulge, không độ rộng nét hoặc cao độ".into());
+    }
+    let points=poly.vertices.iter().map(|v|[v.p.x,v.p.y]).collect::<Vec<_>>();
+    if points.iter().flatten().any(|v|!v.is_finite() || v.abs()>1e9) {
+        return Err("Tường có tọa độ ngoài giới hạn".into());
+    }
+    let min_x=points.iter().map(|p|p[0]).fold(f64::INFINITY,f64::min);
+    let max_x=points.iter().map(|p|p[0]).fold(f64::NEG_INFINITY,f64::max);
+    let min_y=points.iter().map(|p|p[1]).fold(f64::INFINITY,f64::min);
+    let max_y=points.iter().map(|p|p[1]).fold(f64::NEG_INFINITY,f64::max);
+    let dx=max_x-min_x;let dy=max_y-min_y;
+    if dx<=1e-6 || dy<=1e-6 || (dx-dy).abs()<=1e-6 {return Err("Không nhận dạng được trục và bề dày tường hình chữ nhật".into());}
+    let expected=[[min_x,min_y],[min_x,max_y],[max_x,min_y],[max_x,max_y]];
+    for target in expected {
+        if !points.iter().any(|p|(p[0]-target[0]).abs()<=1e-7 && (p[1]-target[1]).abs()<=1e-7) {
+            return Err("PLINE không phải hình chữ nhật thẳng trục: không được tự cắt".into());
+        }
+    }
+    for i in 0..4 {
+        let a=points[i];let b=points[(i+1)%4];
+        if (a[0]-b[0]).abs()>1e-7 && (a[1]-b[1]).abs()>1e-7 {
+            return Err("Các cạnh không song song trục CAD, chưa có kiểm thử cắt tường nghiêng".into());
+        }
+    }
+    let (start,end,thick)=if dx>dy {
+        ([min_x,(min_y+max_y)/2.0],[max_x,(min_y+max_y)/2.0],dy)
+    } else {
+        ([(min_x+max_x)/2.0,min_y],[(min_x+max_x)/2.0,max_y],dx)
+    };
+    let center=number(center_text.trim())?;let door=number(door_width_text.trim())?;
+    let side=if open_right {"phải"} else {"trái"};
+    let command=format!("vẽ tường có cửa từ {},{} đến {},{} dày {} cửa {} tại {} mở {}",
+        start[0],start[1],end[0],end[1],thick,door,center,side);
+    let (steps,summary)=parse_door_wall(&command)?
+        .ok_or("Không dựng được tường mới từ PLINE được chọn")?;
+    if steps.len()!=4 {return Err("Chỉ thay thế PLINE thành đúng bốn entity CAD đã Preview".into());}
+    let state=session.state().map_err(|e|e.to_string())?;
+    Ok(Preview {uid:state.uid,epoch:session.doc_epoch,revision:state.revision,
+        text:command,steps,description:format!("PLINE đã chọn #{}: {}. Sẽ thay thế đúng đối tượng này sau khi xác nhận. Không tự sửa tường khác.",handle.hex(),summary),
+        image_evidence:None,selected_opening_guide:None,selected_door_arc:None,
+        replace_handles:Some(vec![handle.hex()]),replace_snapshot:Some(entity.clone())})
 }
 
 fn returned_handles(result:&Value)->Result<Vec<String>,String> {
@@ -399,13 +465,19 @@ fn commit_steps(session:&mut Session,preview:&Preview)->Result<Vec<String>,Strin
     }
     if !drawing_ready(session) {return Err("CAD đang bận hoặc Undo không khả dụng".into());}
     if let Some(old)=&preview.replace_handles {
-        if old.len()!=4 || preview.steps.len()!=4 {return Err("Chỉ cho phép thay thế trọn bộ 4 entity tường/cửa".into());}
+        if !matches!(old.len(),1|4) || preview.steps.len()!=4
+            || (old.len()==1)!=preview.replace_snapshot.is_some() {
+            return Err("Chỉ cho phép thay đúng một PLINE do người dùng chọn hoặc trọn bộ 4 entity được quản lý".into());
+        }
         let mut unique=std::collections::HashSet::new();
         for raw in old {
             if !unique.insert(raw.as_str()) {return Err("Danh sách handle thay thế trùng lặp".into());}
             let handle=cadcraft_doc::Handle::parse_hex(raw).ok_or("Handle thay thế sai định dạng")?;
             let doc=session.doc().map_err(|e|e.to_string())?;
             let entity=doc.entity(handle).ok_or("Một đối tượng đã bị xóa: không được thay thế")?;
+            if preview.replace_snapshot.as_ref().is_some_and(|snapshot|snapshot!=entity) {
+                return Err("Đối tượng PLINE đã thay đổi từ Preview, phải làm lại".into());
+            }
             if doc.layer(&entity.common.layer).is_some_and(|l|l.locked) {
                 return Err("Không thay thế đối tượng thuộc layer khóa".into());
             }
@@ -513,7 +585,7 @@ fn preview_raster(session:&Session,path:&str,scale_text:&str)->Result<Preview,St
     let summary=format!("Ảnh: {} LINE chỉnh sửa được; {} khoảng mở nghi vấn; {} nét giống cánh cửa. Không tự suy đoán/cắt cửa.",steps.len(),gap_count,door_count);
     Ok(Preview {uid:s.uid,epoch:session.doc_epoch,revision:s.revision,
         text:format!("{}|{}",path,scale_text),steps,description:summary,
-        image_evidence:Some((args,proposal,source_bytes)),selected_opening_guide:None,selected_door_arc:None,replace_handles:None})
+        image_evidence:Some((args,proposal,source_bytes)),selected_opening_guide:None,selected_door_arc:None,replace_handles:None,replace_snapshot:None})
 }
 
 fn drawing_ready(session:&Session)->bool {
@@ -569,7 +641,7 @@ impl AiReview {
                     if !drawing_ready(session) {return Err("CAD đang có lệnh/Undo Group hoặc Block Editor: chưa thể Preview".into());}
                     let st=session.state().map_err(|e|e.to_string())?;
                     Ok(Preview {uid:st.uid,epoch:session.doc_epoch,revision:st.revision,
-                        text:self.prompt.clone(),steps,description,image_evidence:None,selected_opening_guide:None,selected_door_arc:None,replace_handles:None})
+                        text:self.prompt.clone(),steps,description,image_evidence:None,selected_opening_guide:None,selected_door_arc:None,replace_handles:None,replace_snapshot:None})
                 })();
                 match next {Ok(p)=>{self.preview=Some(p);self.message="Đã xem trước; chưa ghi đối tượng.".into();},Err(e)=>self.message=e}
             }
@@ -639,6 +711,21 @@ impl AiReview {
                     }
                 }
             }
+            ui.separator();
+            ui.label("CẮT Ô CỬA TRÊN TƯỜNG CÓ SẴN: chỉ một LWPOLYLINE chữ nhật được chọn");
+            ui.label("Chọn một tường PLINE trên bản vẽ, sau đó nhập khoảng cách tâm cửa dọc trục:");
+            ui.text_edit_singleline(&mut self.existing_door_center);
+            ui.label("Bề rộng cửa:");
+            ui.text_edit_singleline(&mut self.existing_door_width);
+            ui.checkbox(&mut self.existing_open_right,"Bản lề phải");
+            if ui.button("Preview ô cửa trên PLINE đã chọn").clicked() {
+                self.preview=None;
+                match preview_selected_existing_wall(session,&self.existing_door_center,
+                    &self.existing_door_width,self.existing_open_right) {
+                    Ok(p)=>{self.preview=Some(p);self.message="Đã xem trước hình học thay thế, chưa cắt/xóa PLINE gốc".into();},
+                    Err(e)=>self.message=format!("Không thể Preview tường được chọn: {e}")
+                }
+            }
             if self.managed_wall.is_some() {
                 ui.separator();
                 ui.label("ĐIỀU CHỈNH Ô CỬA ĐÃ TẠO BỞI AI REVIEW (chỉ 4 entity đang quản lý)");
@@ -657,7 +744,7 @@ impl AiReview {
             if let Some(p)=self.preview.as_ref() {
                 ui.separator();
                 ui.label(&p.description);
-                if p.image_evidence.is_some() {
+                if p.image_evidence.is_some() || p.replace_handles.is_some() {
                     // Draw both detected LINE strokes and the explicitly selected PLINE guide.
                     let mut segments:Vec<([f32;2],[f32;2],bool)>=Vec::new();
                     for (command,params) in &p.steps {
@@ -724,7 +811,11 @@ impl AiReview {
                 if let Some(p)=self.preview.take() {
                     let permitted=drawing_ready(session)&&session.state().is_ok_and(|s|
                         s.uid==p.uid&&s.revision==p.revision&&session.doc_epoch==p.epoch);
-                    let input_unchanged=if p.image_evidence.is_some() {
+                    let input_unchanged=if p.replace_handles.is_some() {
+                        // This plan was generated by an explicit selected-wall review, with
+                        // exact entity snapshot and UID/Revision rechecked before mutation.
+                        true
+                    } else if p.image_evidence.is_some() {
                         format!("{}|{}",self.image_path,self.image_scale)==p.text
                     } else {self.prompt==p.text};
                     if !permitted||!input_unchanged {
