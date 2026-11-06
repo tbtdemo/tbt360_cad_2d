@@ -21,6 +21,8 @@ struct Preview {
     /// Stage271: exact UI inputs which the operator reviewed and must not change silently.
     review_token: Option<String>,
     image_controls: Option<ImageControlSnapshot>,
+    /// Exact four owned entity snapshots, preventing silent edits outside Session revision.
+    owned_entities: Option<Vec<cadcraft_doc::Entity>>,
 }
 
 #[derive(Clone,Debug,Default,PartialEq,Eq)]
@@ -41,6 +43,7 @@ struct ManagedDoorWall {
     revision: u64,
     command_text: String,
     handles: Vec<String>,
+    owned_entities: Vec<cadcraft_doc::Entity>,
 }
 
 
@@ -364,13 +367,16 @@ fn prepare_managed_wall_shift(session:&Session,managed:&ManagedDoorWall,new_cent
     if state.uid!=managed.uid || session.doc_epoch!=managed.epoch || state.revision!=managed.revision {
         return Err("Bản vẽ đã đổi từ lần tạo tường/cửa; không được tự thay thế đối tượng".into());
     }
-    if managed.handles.len()!=4 {return Err("Không có đúng 4 handle đã quản lý".into());}
+    if managed.handles.len()!=4 || managed.owned_entities.len()!=4 {
+        return Err("Không có đủ 4 snapshot hình học tường/cửa để xác minh an toàn".into());
+    }
     let mut unique=std::collections::HashSet::new();
-    for raw in &managed.handles {
+    for (raw,snapshot) in managed.handles.iter().zip(&managed.owned_entities) {
         if !unique.insert(raw.as_str()) {return Err("Handle trùng lặp".into());}
         let handle=cadcraft_doc::Handle::parse_hex(raw).ok_or("Handle tường/cửa không hợp lệ")?;
         let entity=session.doc().map_err(|e|e.to_string())?
             .entity(handle).ok_or("Đối tượng tường/cửa đã bị xóa hoặc thay đổi")?;
+        if entity.as_ref()!=snapshot {return Err("Hình học hoặc thuộc tính của tường/cửa quản lý đã đổi; Preview lại".into());}
         let layer=session.doc().map_err(|e|e.to_string())?.layer(&entity.common.layer);
         if layer.is_some_and(|l|l.locked) {return Err("Layer của tường/cửa đang khóa".into());}
     }
@@ -390,7 +396,8 @@ fn prepare_managed_wall_shift(session:&Session,managed:&ManagedDoorWall,new_cent
         text:revised,steps,description:format!("Sẽ thay thế chỉ 4 entity AI Review đã tạo; {description}"),
         image_evidence:None,selected_opening_guide:None,selected_door_arc:None,
         replace_handles:Some(managed.handles.clone()),replace_snapshot:None,
-        review_token:Some(format!("managed|{new_center}")),image_controls:None})
+        review_token:Some(format!("managed|{new_center}")),image_controls:None,
+        owned_entities:Some(managed.owned_entities.clone())})
 }
 
 /// Stage268: derive the centerline of a four-vertex rotated rectangle.
@@ -607,7 +614,7 @@ fn preview_selected_existing_wall(session:&Session,center_text:&str,door_width_t
         text:command,steps,description:format!("PLINE đã chọn #{}: {}. Sẽ thay thế đúng đối tượng này sau khi xác nhận. Không tự sửa tường khác.",handle.hex(),summary),
         image_evidence:None,selected_opening_guide:None,selected_door_arc:None,
         replace_handles:Some(vec![handle.hex()]),replace_snapshot:Some(entity.clone()),
-        review_token:Some(format!("existing|{center_text}|{door_width_text}|{open_right}")),image_controls:None})
+        review_token:Some(format!("existing|{center_text}|{door_width_text}|{open_right}")),image_controls:None,owned_entities:None})
 }
 
 /// Stage271: freeze the exact operator controls that produced the approved Preview.
@@ -674,15 +681,20 @@ fn commit_steps(session:&mut Session,preview:&Preview)->Result<Vec<String>,Strin
     }
     if let Some(old)=&preview.replace_handles {
         if !matches!(old.len(),1|4) || preview.steps.len()!=4
-            || (old.len()==1)!=preview.replace_snapshot.is_some() {
+            || (old.len()==1)!=preview.replace_snapshot.is_some()
+            || (old.len()==4)!=preview.owned_entities.is_some()
+            || preview.owned_entities.as_ref().is_some_and(|snapshots|snapshots.len()!=4) {
             return Err("Chỉ cho phép thay đúng một PLINE do người dùng chọn hoặc trọn bộ 4 entity được quản lý".into());
         }
         let mut unique=std::collections::HashSet::new();
-        for raw in old {
+        for (index,raw) in old.iter().enumerate() {
             if !unique.insert(raw.as_str()) {return Err("Danh sách handle thay thế trùng lặp".into());}
             let handle=cadcraft_doc::Handle::parse_hex(raw).ok_or("Handle thay thế sai định dạng")?;
             let doc=session.doc().map_err(|e|e.to_string())?;
             let entity=doc.entity(handle).ok_or("Một đối tượng đã bị xóa: không được thay thế")?;
+            if preview.owned_entities.as_ref().is_some_and(|snapshots|snapshots[index]!=*entity.as_ref()) {
+                return Err("Bộ tường/cửa đã bị chỉnh sửa sau Preview; không thay thế".into());
+            }
             if preview.replace_snapshot.as_ref().is_some_and(|snapshot|snapshot!=entity.as_ref()) {
                 return Err("Đối tượng PLINE đã thay đổi từ Preview, phải làm lại".into());
             }
@@ -814,7 +826,7 @@ fn preview_raster(session:&Session,path:&str,scale_text:&str)->Result<Preview,St
     let summary=format!("Ảnh: {} LINE chỉnh sửa được; {} khoảng mở nghi vấn; {} nét giống cánh cửa. Không tự suy đoán/cắt cửa.",steps.len(),gap_count,door_count);
     Ok(Preview {uid:s.uid,epoch:session.doc_epoch,revision:s.revision,
         text:format!("{}|{}",path,scale_text),steps,description:summary,
-        image_evidence:Some((args,proposal,source_bytes)),selected_opening_guide:None,selected_door_arc:None,replace_handles:None,replace_snapshot:None,review_token:None,image_controls:None})
+        image_evidence:Some((args,proposal,source_bytes)),selected_opening_guide:None,selected_door_arc:None,replace_handles:None,replace_snapshot:None,review_token:None,image_controls:None,owned_entities:None})
 }
 
 fn drawing_ready(session:&Session)->bool {
@@ -870,7 +882,7 @@ impl AiReview {
                     if !drawing_ready(session) {return Err("CAD đang có lệnh/Undo Group hoặc Block Editor: chưa thể Preview".into());}
                     let st=session.state().map_err(|e|e.to_string())?;
                     Ok(Preview {uid:st.uid,epoch:session.doc_epoch,revision:st.revision,
-                        text:self.prompt.clone(),steps,description,image_evidence:None,selected_opening_guide:None,selected_door_arc:None,replace_handles:None,replace_snapshot:None,review_token:None,image_controls:None})
+                        text:self.prompt.clone(),steps,description,image_evidence:None,selected_opening_guide:None,selected_door_arc:None,replace_handles:None,replace_snapshot:None,review_token:None,image_controls:None,owned_entities:None})
                 })();
                 match next {Ok(p)=>{self.preview=Some(p);self.message="Đã xem trước; chưa ghi đối tượng.".into();},Err(e)=>self.message=e}
             }
@@ -1061,6 +1073,10 @@ impl AiReview {
                                         self.managed_wall=Some(ManagedDoorWall {
                                             uid:state.uid,epoch:session.doc_epoch,
                                             revision:state.revision,command_text:p.text.clone(),
+                                            owned_entities:handles.iter().filter_map(|raw|
+                                                cadcraft_doc::Handle::parse_hex(raw)
+                                                    .and_then(|id|session.doc().ok()?.entity(id).map(|e|e.as_ref().clone())))
+                                                .collect(),
                                             handles
                                         });
                                     } else {self.managed_wall=None;}
@@ -1102,7 +1118,7 @@ mod tests {
             uid:state.uid,epoch:session.doc_epoch,revision:state.revision,
             text:"vẽ đường thẳng từ 0,0 đến 100,0".into(),steps,description,
             image_evidence:None,selected_opening_guide:None,selected_door_arc:None,
-            replace_handles:None,replace_snapshot:None,review_token:None,image_controls:None,
+            replace_handles:None,replace_snapshot:None,review_token:None,image_controls:None,owned_entities:None,
         };
         let approved=ImageControlSnapshot {
             opening_index:"0".into(),door_arc_index:"1".into(),
@@ -1136,7 +1152,7 @@ mod tests {
         let preview=Preview {uid:state.uid,epoch:session.doc_epoch,revision:state.revision,
             text:"vẽ đường thẳng từ 0,0 đến 100,0".into(),steps,description,
             image_evidence:None,selected_opening_guide:None,selected_door_arc:None,
-            replace_handles:None,replace_snapshot:None,review_token:None,image_controls:None};
+            replace_handles:None,replace_snapshot:None,review_token:None,image_controls:None,owned_entities:None};
         assert!(review_inputs_match(&preview,&preview.text,"","","","",false,""));
         assert!(!review_inputs_match(&preview,"vẽ đường thẳng từ 0,0 đến 200,0","","","","",false,""));
         session.execute("line",&json!({"points":[[0,1000],[100,1000]]})).unwrap();
@@ -1362,7 +1378,7 @@ mod tests {
         let state=session.state().unwrap();
         let preview=Preview {uid:state.uid,epoch:session.doc_epoch,revision:state.revision,
             text:text.into(),steps,description,image_evidence:None,selected_opening_guide:None,
-            selected_door_arc:None,replace_handles:None,replace_snapshot:None,review_token:None,image_controls:None};
+            selected_door_arc:None,replace_handles:None,replace_snapshot:None,review_token:None,image_controls:None,owned_entities:None};
         let originals=commit_steps(&mut session,&preview).unwrap();
         assert_eq!(originals.len(),4);
         assert_eq!(session.doc().unwrap().entity_count(),5);
