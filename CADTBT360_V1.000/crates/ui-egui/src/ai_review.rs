@@ -1371,6 +1371,61 @@ mod tests {
         assert!(s.doc().unwrap().entity(wall).is_some());
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn stage275_end_to_end_png_preview_commit_undo_redo_keeps_other_entities() {
+        use image::{GrayImage,Luma};
+        let mut image=GrayImage::from_pixel(112,64,Luma([255]));
+        for x in 10..=96 {image.put_pixel(x,22,Luma([0]));}
+        for y in 10..=52 {image.put_pixel(20,y,Luma([0]));}
+        let path=std::env::temp_dir().join(format!("cad360-stage275-{}-{}.png",
+            std::process::id(),std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        image.save(&path).unwrap();
+        let mut session=Session::default();
+        let external=session.execute("line",&json!({"points":[[10000,10000],[12000,10000]]})).unwrap();
+        let external_id=cadcraft_doc::Handle::parse_hex(external["handles"][0].as_str().unwrap()).unwrap();
+        let draft=preview_raster(&session,&path.to_string_lossy(),"2").unwrap();
+        assert!(draft.steps.len()>=2,"synthetic PNG contains two real orthogonal pixel strokes");
+        assert!(draft.steps.iter().all(|(command,_)|*command=="line"));
+        assert_eq!(session.doc().unwrap().entity_count(),1,"Preview must be read-only");
+        let created=commit_steps(&mut session,&draft).unwrap();
+        assert_eq!(created.len(),draft.steps.len());
+        assert_eq!(session.doc().unwrap().entity_count(),created.len()+1);
+        assert!(session.state().unwrap().undo_ctl.group.is_none());
+        session.execute("undo",&json!({"count":1})).unwrap();
+        assert_eq!(session.doc().unwrap().entity_count(),1,"one Undo removes entire PNG import");
+        assert!(session.doc().unwrap().entity(external_id).is_some());
+        session.execute("redo",&json!({})).unwrap();
+        assert_eq!(session.doc().unwrap().entity_count(),created.len()+1);
+        for raw in &created {
+            assert!(session.doc().unwrap().entity(cadcraft_doc::Handle::parse_hex(raw).unwrap()).is_some());
+        }
+        assert!(session.doc().unwrap().entity(external_id).is_some());
+        let _=std::fs::remove_file(path);
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn stage275_changed_png_source_must_be_rejected_before_any_cad_mutation() {
+        use image::{GrayImage,Luma};
+        let mut image=GrayImage::from_pixel(112,64,Luma([255]));
+        for x in 10..=96 {image.put_pixel(x,22,Luma([0]));}
+        let path=std::env::temp_dir().join(format!("cad360-stage275-change-{}-{}.png",
+            std::process::id(),std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        image.save(&path).unwrap();
+        let mut session=Session::default();
+        let draft=preview_raster(&session,&path.to_string_lossy(),"1").unwrap();
+        image.put_pixel(40,22,Luma([255]));
+        image.save(&path).unwrap();
+        assert!(commit_steps(&mut session,&draft).is_err(),
+            "changing image bytes after Preview must refuse the reviewed plan");
+        assert_eq!(session.doc().unwrap().entity_count(),0);
+        assert!(session.state().unwrap().undo_ctl.group.is_none());
+        let _=std::fs::remove_file(path);
+    }
+
     #[test]
     fn stage274_single_native_line_uses_group_and_one_undo_redo() {
         let mut session=Session::default();
