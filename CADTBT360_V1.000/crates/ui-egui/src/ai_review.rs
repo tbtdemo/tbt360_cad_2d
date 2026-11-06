@@ -1754,8 +1754,8 @@ mod tests {
         assert_eq!(&bytes[..6],b"AC1032","DWG must retain standard Autodesk-compatible R2018 marker");
         let loaded=read(&bytes,"ai-multi-plan.dwg").expect("reopen saved DWG");
         assert_eq!(loaded.model.len(),3,"DWG must preserve all AI-created native CAD objects");
-        assert_eq!(loaded.model.iter().filter(|e|matches!(e.kind,cadcraft_doc::EntityKind::Line(_))).count(),1);
-        assert_eq!(loaded.model.iter().filter(|e|matches!(e.kind,cadcraft_doc::EntityKind::Circle(_))).count(),1);
+        assert_eq!(loaded.model.iter().filter(|e|matches!(&e.kind,cadcraft_doc::EntityKind::Line(_))).count(),1);
+        assert_eq!(loaded.model.iter().filter(|e|matches!(&e.kind,cadcraft_doc::EntityKind::Circle(_))).count(),1);
     }
 
     #[test]
