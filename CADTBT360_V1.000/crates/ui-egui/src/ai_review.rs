@@ -11,12 +11,16 @@ struct Preview {
     text: String,
     steps: Vec<(&'static str, Value)>,
     description: String,
+    /// For raster plans: exact preview snapshot for source revalidation before any CAD mutation.
+    image_evidence: Option<(Value, Value)>,
 }
 
 #[derive(Default)]
 pub struct AiReview {
     pub open: bool,
     prompt: String,
+    image_path: String,
+    image_scale: String,
     preview: Option<Preview>,
     message: String,
 }
@@ -161,6 +165,13 @@ fn plan_from_text(text:&str)->Result<(Vec<(&'static str,Value)>,String),String> 
 }
 
 fn commit_steps(session:&mut Session,preview:&Preview)->Result<(),String> {
+    #[cfg(not(target_arch = "wasm32"))]
+    if let Some((args,approved_proposal))=&preview.image_evidence {
+        let latest=cadcraft_mcp::raster_vector::preview(args)?;
+        if &latest!=approved_proposal {
+            return Err("Ảnh hoặc kết quả phát hiện đã đổi sau Preview; phải đọc ảnh lại".into());
+        }
+    }
     if !drawing_ready(session) {return Err("CAD đang bận hoặc Undo không khả dụng".into());}
     if preview.steps.len()==1 {
         let (command,params)=&preview.steps[0];
@@ -198,6 +209,42 @@ fn commit_steps(session:&mut Session,preview:&Preview)->Result<(),String> {
     Ok(())
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+fn preview_raster(session:&Session,path:&str,scale_text:&str)->Result<Preview,String> {
+    if !drawing_ready(session) {return Err("CAD đang bận; hãy kết thúc lệnh hiện tại trước khi đọc ảnh".into());}
+    if path.trim().is_empty() {return Err("Nhập đường dẫn PNG/JPEG trên máy tính".into());}
+    let scale=number(scale_text.trim())?;
+    if !(scale>0.0&&scale<=1000000.0) {return Err("Đơn vị CAD / pixel phải nằm trong (0, 1000000]".into());}
+    let args=json!({"path":path.trim(),"preview":true,"unitsPerPixel":scale,
+        "openingGapHints":true,"doorLeafHints":true,"maxGapPixels":0,
+        "minLengthPixels":12,"maxLines":128,"includeDiagonals":true});
+    let proposal=cadcraft_mcp::raster_vector::preview(&args)?;
+    let lines=proposal["lines"].as_array().ok_or("Ảnh không trả về mảng LINE hợp lệ")?;
+    if lines.is_empty() {return Err("Không phát hiện đường nét vector đủ dài; ảnh chưa được vẽ".into());}
+    if lines.len()>128 {return Err("Ảnh có quá 128 nét; cần lọc vùng ảnh nhỏ hơn".into());}
+    let mut steps=Vec::new();
+    for line in lines {
+        let endpoints=line.as_array().filter(|v|v.len()==2).ok_or("LINE ảnh sai số điểm")?;
+        let a:Vec<f64>=endpoints[0].as_array().filter(|v|v.len()==2)
+            .ok_or("Tọa độ ảnh A sai")?.iter().map(|v|v.as_f64().ok_or("Tọa độ A không phải số"))
+            .collect::<Result<_,_>>()?;
+        let b:Vec<f64>=endpoints[1].as_array().filter(|v|v.len()==2)
+            .ok_or("Tọa độ ảnh B sai")?.iter().map(|v|v.as_f64().ok_or("Tọa độ B không phải số"))
+            .collect::<Result<_,_>>()?;
+        if a.iter().chain(b.iter()).any(|v| !v.is_finite()||v.abs()>1e9) || a==b {
+            return Err("Ảnh trả về đoạn LINE rỗng hoặc vượt giới hạn CAD".into());
+        }
+        steps.push(("line",json!({"points":[a,b]})));
+    }
+    let s=session.state().map_err(|e|e.to_string())?;
+    let gap_count=proposal["openingGapCandidateCount"].as_u64().unwrap_or(0);
+    let door_count=proposal["doorLeafCandidateCount"].as_u64().unwrap_or(0);
+    let summary=format!("Ảnh: {} LINE chỉnh sửa được; {} khoảng mở nghi vấn; {} nét giống cánh cửa. Không tự suy đoán/cắt cửa.",steps.len(),gap_count,door_count);
+    Ok(Preview {uid:s.uid,epoch:session.doc_epoch,revision:s.revision,
+        text:format!("{}|{}",path,scale_text),steps,description:summary,
+        image_evidence:Some((args,proposal))})
+}
+
 fn drawing_ready(session:&Session)->bool {
     if session.prompting() {return false;}
     session.state().is_ok_and(|s|s.block_edit.is_none()&&s.undo_ctl.group.is_none()&&(s.undo_ctl.bits()&11)==1)
@@ -219,6 +266,23 @@ impl AiReview {
             ui.label("vẽ tường từ 0,0 đến 6000,0 dày 200");
             ui.label("vẽ tường có cửa từ 0,0 đến 6000,0 dày 200 cửa 900 tại 3000 mở trái");
             ui.text_edit_singleline(&mut self.prompt);
+            ui.separator();
+            ui.label("AI ảnh → nét CAD (PNG/JPEG, tập trung các nét đường; chưa tự xác nhận cửa):");
+            ui.label("Đường dẫn ảnh cục bộ:");
+            ui.text_edit_singleline(&mut self.image_path);
+            ui.label("Đơn vị CAD trên mỗi pixel (cần hiệu chuẩn thực tế):");
+            if self.image_scale.is_empty() {self.image_scale="1".into();}
+            ui.text_edit_singleline(&mut self.image_scale);
+            #[cfg(not(target_arch = "wasm32"))]
+            if ui.button("Đọc ảnh → Xem trước các nét CAD").clicked() {
+                self.preview=None;
+                match preview_raster(session,&self.image_path,&self.image_scale) {
+                    Ok(p)=>{self.message=p.description.clone();self.preview=Some(p);}
+                    Err(e)=>self.message=format!("Không thể xem trước ảnh: {e}")
+                }
+            }
+            #[cfg(target_arch = "wasm32")]
+            ui.label("Đọc ảnh cục bộ hiện hỗ trợ ứng dụng Windows/macOS/Linux, chưa hỗ trợ trình duyệt.");
             if ui.button("1. Xem trước").clicked() {
                 self.preview=None;
                 let next=(|| {
@@ -226,7 +290,7 @@ impl AiReview {
                     if !drawing_ready(session) {return Err("CAD đang có lệnh/Undo Group hoặc Block Editor: chưa thể Preview".into());}
                     let st=session.state().map_err(|e|e.to_string())?;
                     Ok(Preview {uid:st.uid,epoch:session.doc_epoch,revision:st.revision,
-                        text:self.prompt.clone(),steps,description})
+                        text:self.prompt.clone(),steps,description,image_evidence:None})
                 })();
                 match next {Ok(p)=>{self.preview=Some(p);self.message="Đã xem trước; chưa ghi đối tượng.".into();},Err(e)=>self.message=e}
             }
@@ -240,7 +304,10 @@ impl AiReview {
                 if let Some(p)=self.preview.take() {
                     let permitted=drawing_ready(session)&&session.state().is_ok_and(|s|
                         s.uid==p.uid&&s.revision==p.revision&&session.doc_epoch==p.epoch);
-                    if !permitted||self.prompt!=p.text {
+                    let input_unchanged=if p.image_evidence.is_some() {
+                        format!("{}|{}",self.image_path,self.image_scale)==p.text
+                    } else {self.prompt==p.text};
+                    if !permitted||!input_unchanged {
                         self.message="Preview cũ hoặc bản vẽ thay đổi; vui lòng Preview lại.".into();
                     } else {
                         match commit_steps(session,&p) {
@@ -252,7 +319,7 @@ impl AiReview {
             }
             if ui.button("Hủy").clicked() {self.preview=None;self.message="Đã hủy".into();}
             if !self.message.is_empty() {ui.separator();ui.label(&self.message);}
-            ui.small("Bộ phân tích lệnh quy tắc; chưa phải AI nhận dạng ảnh hoặc phê duyệt OIDC.");
+            ui.small("Ảnh được vector hóa theo pixel, có thể sai nét; chỉ vẽ sau xác nhận. Chưa phải AI hiểu tường/cửa ngữ nghĩa hoặc phê duyệt OIDC.");
         });
         self.open=open;
         if !open {self.preview=None;}
@@ -269,6 +336,32 @@ mod tests {
         assert!(parse_draft("vẽ phòng rộng NaN dài 4000 tại 0,0").is_err());
         assert!(parse_draft("xóa tất cả").is_err());
     }
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn stage262_png_to_native_cad_preview_is_readonly_and_source_changes_are_detected() {
+        use image::{GrayImage,Luma};
+        let mut img=GrayImage::from_pixel(96,64,Luma([255]));
+        for x in 8..=80 {img.put_pixel(x,16,Luma([0]));}
+        let filename=format!("stage262-raster-{}-{}.png",std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos());
+        let path=std::env::temp_dir().join(filename);
+        img.save(&path).unwrap();
+        let source=path.to_string_lossy().to_string();
+        let session=Session::default();
+        let p=preview_raster(&session,&source,"2").expect("PNG preview vectorization");
+        assert!(p.steps.len()>=1);
+        assert!(p.steps.iter().all(|(command,_)|*command=="line"),
+            "image hints must never silently fabricate CAD doors");
+        assert!(p.image_evidence.is_some());
+        let (args,accepted)=p.image_evidence.as_ref().unwrap();
+        assert_eq!(cadcraft_mcp::raster_vector::preview(args).unwrap(),*accepted);
+        for x in 8..=80 {img.put_pixel(x,16,Luma([255]));}
+        img.save(&path).unwrap();
+        let changed=cadcraft_mcp::raster_vector::preview(args).unwrap();
+        assert_ne!(changed,*accepted,"modified source must force a new preview");
+        let _=std::fs::remove_file(path);
+    }
+
     #[test]
     fn stage261_door_wall_keeps_a_real_gap_and_four_editable_native_entities() {
         let (steps,_) = plan_from_text("vẽ tường có cửa từ 0,0 đến 6000,0 dày 200 cửa 900 tại 3000 mở trái").unwrap();
