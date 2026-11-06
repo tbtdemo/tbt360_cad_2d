@@ -2868,3 +2868,36 @@ Kế hoạch: Đợt 240 sửa lỗi CI, hoàn thiện thử DWG hai chiều v�
 5. Mọi tỷ lệ hoàn thành phải tách **mã/kiểm thử đã viết**, **CI PASS** và **EXE/AutoCAD nghiệm thu**.
 
 **Phạm vi bàn giao:** `CADTBT360_V1.000/crates/ui-egui/src/ai_review.rs`, `.github/workflows/cad360-stage265-door-offset.yml` và giáo trình tổng hợp đến Bài 240. 
+
+
+## 106. Đợt 266 — Dịch chuyển ô cửa trên bộ tường/cửa do AI Review quản lý
+
+### Bài 241 — Khởi tạo bộ tường/cửa có quyền quản lý rõ ràng
+1. Mở CAD 360, chọn **Tools → CAD 360 AI Review...** và nhập `vẽ tường có cửa từ 0,0 đến 6000,0 dày 200 cửa 900 tại 3000 mở trái`.
+2. Bấm **1. Xem trước**, soát hình học rồi **2. Tôi đồng ý – Vẽ vào CAD**.
+3. CAD Engine tạo **bốn đối tượng CAD native**: hai PLINE kín (hai đoạn tường chừa ô), một LINE cánh cửa, một ARC cung mở.
+4. Chỉ khi CAD Engine trả về **đúng bốn handle** của bộ này, UI mới lưu `ManagedDoorWall` gồm UID, Epoch, Revision, nội dung lệnh ban đầu và các handle.
+5. Phạm vi quản lý chỉ là bộ do chính cửa sổ AI Review tạo **trong phiên hiện tại**; không áp dụng cho tường tùy ý hoặc các đối tượng bản vẽ khác.
+
+### Bài 242 — Dời vị trí tâm cửa trong tường
+1. Sau khi tạo bộ bốn đối tượng, tìm vùng **ĐIỀU CHỈNH Ô CỬA ĐÃ TẠO BỞI AI REVIEW**.
+2. Nhập vị trí tâm cửa mới tính dọc trục từ đầu tường, ví dụ **3500** thay vì **3000** trên tường dài 6000.
+3. Nhấn **Xem trước tường/cửa tại vị trí mới**. Hệ thống đọc câu lệnh gốc, thay riêng tọa độ tâm cửa và dựng lại **hai PLINE tường, một LINE cánh và một ARC** theo hình học mới, chưa xóa đối tượng cũ.
+4. Giá trị làm cửa đụng hai đầu tường, âm, phi số hoặc kích thước ngoài giới hạn bị từ chối.
+5. Kiểm tra vị trí khe cửa mới, chiều dày tường và hướng mở trước khi xác nhận. Đây là chỉnh hình học bộ 4 đối tượng riêng, không phải thuật toán TRIM mọi giao tường trong bản vẽ.
+
+### Bài 243 — Giao dịch ERASE và tái tạo theo handle
+1. Trước khi thay thế, chương trình xác nhận UID, Epoch, Revision **còn đúng phiên tạo**, đúng **4 handle duy nhất**, các đối tượng còn tồn tại và layer không khóa.
+2. Chỉ khi người dùng bấm **Tôi đồng ý – Vẽ vào CAD**, CAD Engine thực hiện `UNDO BEGIN`, `ERASE` với **đúng danh sách bốn handle**, tạo bốn đối tượng mới, rồi `UNDO END`.
+3. Lệnh `ERASE` phải báo xóa đủ bốn đối tượng; nếu xóa thiếu hoặc một lệnh tạo lỗi, chương trình chỉ rollback khi vẫn kiểm soát đúng UID/Revision của giao dịch.
+4. **Một lần Undo** sau khi thay thế được kỳ vọng khôi phục bộ hình học cũ; **Redo** khôi phục hình học mới. Các đối tượng không thuộc bộ tường/cửa quản lý phải giữ nguyên.
+5. Không tự xóa hoặc trim đối tượng bất kỳ nếu người dùng chỉnh bản vẽ, chuyển tài liệu, đổi Revision hoặc khóa layer kể từ khi bộ tường/cửa được tạo. Trong trường hợp này phải tạo Preview mới hoặc thao tác thủ công.
+
+### Bài 244 — Kiểm thử và phạm vi nghiệm thu
+1. Test `stage266_replace_only_managed_wall_door_with_one_undo_and_keep_unrelated_geometry` khởi tạo một LINE độc lập, dựng bộ tường/cửa, xem trước dời cửa 3000→3500, thay theo handle, kiểm tra số entity và Undo/Redo.
+2. Chạy `cargo test --locked -p cadcraft-ui-egui stage266 -- --nocapture` và `cargo check --locked -p cadcraft-ui-egui` tại `CADTBT360_V1.000`. Workflow Windows nằm ở `.github/workflows/cad360-stage266-managed-wall.yml`.
+3. Chưa tuyên bố build PASS cho đến khi có kết quả GitHub Actions cụ thể đúng SHA; bản commit chỉ chứng minh đã gửi mã và test lên nhánh.
+4. Kiểm tra EXE thực tế: tạo hai lần di dời, thử sửa một đối tượng giữa các bước (phải từ chối), thử layer khóa, Undo/Redo và Save/Reopen DWG.
+5. Dùng AutoCAD độc lập mở, chỉnh sửa, lưu DWG hai chiều. Không mã hóa hoặc thay đổi cấu trúc file DWG; chế độ CAD Free sử dụng ngay không bắt buộc đăng nhập và chỉ kiểm soát đăng nhập tại Export theo chính sách sản phẩm.
+
+**Giới hạn:** Đợt 266 mới kiểm soát **bộ tường/cửa AI Review tạo và nhận diện được bằng handle trong một phiên**. Chưa có thuật toán tìm/trim đối tượng tường đã có từ trước, chưa nhận dạng ngữ nghĩa từ mọi ảnh mặt bằng, chưa có chứng cứ nghiệm thu EXE hoặc DWG.
