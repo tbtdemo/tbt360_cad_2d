@@ -803,7 +803,9 @@ fn commit_steps(session:&mut Session,preview:&Preview)->Result<Vec<String>,Strin
     }
     session.execute("undo",&json!({"mode":"end"})).map_err(|e|e.to_string())?;
     if let Some(error)=failure {
-        if same(session,expected,false) {
+        // UNDO BEGIN/END with no mutation adds no new history record. An unconditional
+        // UNDO here would erase the user's *previous* legitimate drawing command.
+        if succeeded>0 && same(session,expected,false) {
             session.execute("undo",&json!({"count":1})).map_err(|e|format!("{error}; rollback lỗi: {e}"))?;
         }
         return Err(error);
@@ -1389,6 +1391,54 @@ mod tests {
         assert!(commit_steps(&mut s,&stale).is_err(),"revision mismatch must reject destructive replacement");
         assert_eq!(s.doc().unwrap().entity_count(),count);
         assert!(s.doc().unwrap().entity(wall).is_some());
+    }
+
+    #[test]
+    fn stage277_empty_failed_ai_group_must_never_undo_previous_user_command() {
+        let mut session=Session::default();
+        let before=session.execute("line",&json!({"points":[[10,200],[90,200]]})).unwrap();
+        let earlier=cadcraft_doc::Handle::parse_hex(before["handles"][0].as_str().unwrap()).unwrap();
+        let state=session.state().unwrap();
+        let draft=Preview {uid:state.uid,epoch:session.doc_epoch,revision:state.revision,
+            text:"intentional-invalid-first-command".into(),
+            steps:vec![("line",json!({"points":[[5,5],[5,5]]}))],
+            description:"Check empty failed Undo group".into(),image_evidence:None,
+            selected_opening_guide:None,selected_door_arc:None,replace_handles:None,
+            replace_snapshot:None,review_token:None,image_controls:None,owned_entities:None};
+        let rev=state.revision;
+        assert!(commit_steps(&mut session,&draft).is_err());
+        assert!(session.doc().unwrap().entity(earlier).is_some(),
+            "AI failed before any mutation: unrelated previous user LINE must remain");
+        assert_eq!(session.doc().unwrap().entity_count(),1);
+        assert_eq!(session.state().unwrap().revision,rev,
+            "empty failed group must not perform an Undo of earlier history");
+        assert!(session.state().unwrap().undo_ctl.group.is_none());
+        // User's own Undo history should remain functional.
+        session.execute("undo",&json!({"count":1})).unwrap();
+        assert_eq!(session.doc().unwrap().entity_count(),0);
+    }
+
+    #[test]
+    fn stage277_partial_failure_rolls_back_only_its_group_but_preserves_previous_undo() {
+        let mut session=Session::default();
+        let previous=session.execute("line",&json!({"points":[[10,200],[90,200]]})).unwrap();
+        let earlier=cadcraft_doc::Handle::parse_hex(previous["handles"][0].as_str().unwrap()).unwrap();
+        let state=session.state().unwrap();
+        let draft=Preview {uid:state.uid,epoch:session.doc_epoch,revision:state.revision,
+            text:"intentionally-invalid-second-command".into(),
+            steps:vec![("line",json!({"points":[[0,0],[100,0]]})),
+                ("line",json!({"points":[[50,50],[50,50]]}))],
+            description:"Check grouped partial rollback".into(),image_evidence:None,
+            selected_opening_guide:None,selected_door_arc:None,replace_handles:None,
+            replace_snapshot:None,review_token:None,image_controls:None,owned_entities:None};
+        assert!(commit_steps(&mut session,&draft).is_err());
+        assert_eq!(session.doc().unwrap().entity_count(),1,
+            "failed AI work must rollback, existing LINE survives");
+        assert!(session.doc().unwrap().entity(earlier).is_some());
+        assert!(session.state().unwrap().undo_ctl.group.is_none());
+        session.execute("undo",&json!({"count":1})).unwrap();
+        assert_eq!(session.doc().unwrap().entity_count(),0,
+            "user should still be able to undo earlier work separately");
     }
 
     #[test]
