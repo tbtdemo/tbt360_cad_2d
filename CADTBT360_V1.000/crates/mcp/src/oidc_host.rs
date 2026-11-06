@@ -50,7 +50,7 @@ impl OidcTrustPolicy {
         }
         let now=std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)
             .map_err(|_|"System clock invalid")?.as_secs();
-        if verified.not_before_unix>now || verified.expires_at_unix<=now {
+        if verified.not_before_unix>=verified.expires_at_unix || verified.not_before_unix>now || verified.expires_at_unix<=now {
             return Err("OIDC token not currently valid".into());
         }
         let until=verified.expires_at_unix.min(now.saturating_add(self.max_session_seconds));
@@ -105,6 +105,22 @@ mod tests {
         host.success=false;
         assert!(policy.admit(&host,"verified-token",42,&[]).is_err());
     }
+    #[test]
+    fn stage249_oidc_host_rejects_inverted_token_lifetime_and_future_not_before() {
+        let (policy,mut host)=fixture();
+        let now=std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+        host.claims.not_before_unix=now+30;
+        assert!(policy.admit(&host,"token",42,&["inspect_drawing"]).is_err());
+        host.claims.not_before_unix=now+10;
+        host.claims.expires_at_unix=now+5;
+        assert!(policy.admit(&host,"token",42,&["inspect_drawing"]).is_err());
+        host.claims.not_before_unix=now-10;
+        host.claims.expires_at_unix=now+120;
+        assert!(policy.admit(&host,"token",42,&["inspect_drawing"]).is_ok());
+        host.claims.audience="cad360-mcp-elevated".into();
+        assert!(policy.admit(&host,"token",42,&["inspect_drawing"]).is_err());
+    }
+
     #[test]
     fn stage248_oidc_host_never_accepts_unverified_provider_or_unsafe_issuer() {
         let (policy,mut host)=fixture();
