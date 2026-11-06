@@ -305,6 +305,10 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Stage249 OIDC .NET host compilation failed' }
           dotnet run --project integrations/oidc-host-dotnet/Cad360OidcHost.csproj --configuration Release --no-build -- --self-test
           if ($LASTEXITCODE -ne 0) { throw 'Stage250 OIDC host tenant, role and loopback policy tests failed' }
+          $previewSource = Get-Content 'integrations/oidc-host-dotnet/McpPreviewClient.cs' -Raw
+          if (-not $previewSource.Contains('name="ai_draw_plan_vietnamese"') -or -not $previewSource.Contains('preview=true,confirm=false')) { throw 'Stage251 AI host preview must use fixed tool with preview=true,confirm=false' }
+          $hostSource = Get-Content 'integrations/oidc-host-dotnet/Program.cs' -Raw
+          if (-not $hostSource.Contains('HostGrantPolicy.MayPreview') -or -not $hostSource.Contains('app.MapPost("/api/cad360/mcp/ai-preview"')) { throw 'Stage251 AI host preview must check tenant and role at endpoint' }
 
       - name: Require image-to-CAD and native raster regression before release packaging
         id: ai_tests
