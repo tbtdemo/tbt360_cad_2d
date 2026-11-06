@@ -55,9 +55,9 @@ impl OidcTrustPolicy {
         }
         let until=verified.expires_at_unix.min(now.saturating_add(self.max_session_seconds));
         HostScope::new(&verified.tenant,&verified.subject,&verified.role,document_uid)
-            .map_err(str::to_string)?
-            .with_verified_expiry(until).map_err(str::to_string)?
-            .restrict_tools(tools).map_err(str::to_string)
+            .map_err(|e|e.to_string())?
+            .with_verified_expiry(until).map_err(|e|e.to_string())?
+            .restrict_tools(tools).map_err(|e|e.to_string())
     }
 }
 
