@@ -1,0 +1,45 @@
+name: CAD 360 AI PDF to Image Windows Smoke
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/CADTBT360_V1.025_xref-regression
+    paths:
+      - 'scripts/verify_ai_pdf_renderer.py'
+      - '.github/workflows/cad360-ai-pdf-smoke.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cad360-ai-pdf-smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  real-pdf-raster-windows:
+    name: Pinned Poppler actual vector PDF to PNG pixels
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify and extract pinned Poppler with native DLLs
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $url = 'https://github.com/oschwartz10612/poppler-windows/releases/download/v26.07.0-0/Release-26.07.0-0.zip'
+          $checksum = 'A711B0563B06EDC488583D28198B6734C5A494AFBBD1B9D87D3D2866062FB7E2'
+          $zip = Join-Path $env:RUNNER_TEMP 'cad360-poppler.zip'
+          $directory = Join-Path $env:RUNNER_TEMP 'cad360-poppler'
+          Invoke-WebRequest -Uri $url -OutFile $zip -MaximumRedirection 5
+          if ((Get-FileHash $zip -Algorithm SHA256).Hash -ne $checksum) { throw 'Pinned Poppler digest mismatch' }
+          Expand-Archive $zip -DestinationPath $directory -Force
+          $renderer = Get-ChildItem $directory -Filter pdftoppm.exe -Recurse -File | Select-Object -First 1
+          if (!$renderer) { throw 'No pdftoppm.exe found' }
+          $env:CAD360_RENDERER = $renderer.FullName
+          python scripts/verify_ai_pdf_renderer.py $renderer.FullName
+          if ($LASTEXITCODE -ne 0) { throw 'Actual PDF to PNG visual pixel smoke failed' }
+          Write-Host "PASS pinned Poppler PDF image pipeline, source SHA=$env:GITHUB_SHA"
