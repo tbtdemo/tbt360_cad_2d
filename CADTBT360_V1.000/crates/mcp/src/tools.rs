@@ -804,6 +804,12 @@ mod ai_draft_vietnamese_tests {
                         "line"=>Ok(json!({"handles":[format!("L{n}")]})),
                         "arc"=>Ok(json!({"handle":format!("A{n}")})),
                         "rectang"=>Ok(json!({"handle":format!("R{n}")})),
+                        "laymch" => {
+                            assert_eq!(params["params"]["handles"].as_array().map(Vec::len),Some(1));
+                            assert!(["TBT_AI_ROOM","TBT_AI_WALL","TBT_AI_DOOR"]
+                                .contains(&params["params"]["layer"].as_str().unwrap_or("")));
+                            Ok(json!({"changed":1}))
+                        },
                         "block"=> {
                             assert_eq!(params["params"]["handles"],json!(["L4","A5"]));
                             assert_eq!(params["params"]["base"],json!([3000.0,1550.0]));
@@ -843,6 +849,43 @@ mod ai_draft_vietnamese_tests {
         assert_eq!(mock.create_commands.len(),5);
         assert!(!mock.group_open);
         assert_eq!(mock.undo_calls,1);
+    }
+
+    #[test]
+    fn ai_vietnamese_apply_layers_native_commands_and_undo_group() {
+        let mut mock=Stage235CadBackend{revision:8,group_open:false,fail_block:false,undo_calls:0,create_commands:Vec::new()};
+        let mut args=stage235_commit_args();
+        args["applyLayers"]=json!(true);
+        let result=super::ai_draw_plan_vietnamese(&mut mock,&args).unwrap();
+        assert_eq!(result["executed"],true);
+        assert_eq!(result["layerAssignmentsApplied"],true);
+        assert_eq!(mock.create_commands,vec!["rectang","line","line","line","arc","block",
+            "laymch","laymch","laymch","laymch"]);
+        assert_eq!(mock.undo_calls,0);
+        assert!(!mock.group_open);
+    }
+
+    #[test]
+    fn ai_vietnamese_apply_layers_preview_does_not_touch_canvas() {
+        use crate::backend::Backend;
+        struct Preview { calls:Vec<String> }
+        impl Backend for Preview {
+            fn call(&mut self,method:&str,_params:serde_json::Value)->Result<serde_json::Value,String>{
+                self.calls.push(method.into());
+                if method=="drawing.inspect" {return Ok(json!({"documentUid":15,"documentEpoch":2,"revision":8}));}
+                Err(format!("Unexpected native call: {method}"))
+            }
+            fn has_ui(&self)->bool {false}
+            fn describe(&self)->String {"LayerPreview".into()}
+        }
+        let mut b=Preview{calls:vec![]};
+        let result=super::ai_draw_plan_vietnamese(&mut b,&json!({
+            "text":"vẽ hai phòng liền kề rộng 3000 và 4000 dài 4000 tại 0,0 cửa 900 giữa bản lề dưới mở phải",
+            "applyLayers":true,"createDoorBlock":true})).unwrap();
+        assert_eq!(result["previewOnly"],true);
+        assert_eq!(result["plan"]["layerAssignmentsWillApplyOnConfirm"],true);
+        assert_eq!(result["plan"]["layerAssignmentsApplied"],false);
+        assert_eq!(b.calls,vec!["drawing.inspect"]);
     }
 
     #[test]
