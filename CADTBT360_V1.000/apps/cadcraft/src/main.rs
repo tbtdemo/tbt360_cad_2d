@@ -26,6 +26,7 @@ mod system_animations;
 mod workspace;
 mod takeoff;
 mod ai_raster_panel;
+mod help_center;
 mod takeoff_report;
 mod takeoff_composite;
 mod takeoff_road;
@@ -61,6 +62,7 @@ enum MainTab {
     Pdf,
     Model3d,
     BimCollab,
+    Guide,
 }
 
 /// Find the complete guide installed by Setup or bundled next to the Portable EXE.
@@ -95,6 +97,7 @@ struct App {
     active_tab: MainTab,
     takeoff_state: takeoff::State,
     ai_raster_state: ai_raster_panel::State,
+    help_state: help_center::State,
     bim_collab_state: bim_collab::State,
     paired_recovery: cad_bim_recovery::Recovery,
     model3d_state: model3d::State,
@@ -186,6 +189,7 @@ impl eframe::App for App {
             ui.selectable_value(&mut self.active_tab, MainTab::Pdf, "PDF / BẢN VẼ");
             ui.selectable_value(&mut self.active_tab, MainTab::Model3d, "3D / IFC");
             ui.selectable_value(&mut self.active_tab, MainTab::BimCollab, "BIM CỘNG TÁC");
+            ui.selectable_value(&mut self.active_tab, MainTab::Guide, "HƯỚNG DẪN");
             if self.active_tab == MainTab::Cad && ui.button("AI TỪ ẢNH → CAD").on_hover_text("Chọn PNG/JPEG, xem trước nét tự động và tạo LINE chỉnh sửa trực tiếp vào bản vẽ").clicked() {
                 self.ai_raster_state.open();
             }
@@ -243,6 +247,7 @@ impl eframe::App for App {
             }
             MainTab::Model3d => model3d::panel(ui, &mut self.model3d_state),
             MainTab::BimCollab => bim_collab::panel(ui, &mut self.cad, &mut self.bim_collab_state),
+            MainTab::Guide => help_center::panel(ui, &mut self.help_state),
         }
         ai_raster_panel::window(ui.ctx(), &mut self.cad, &mut self.ai_raster_state);
         #[cfg(target_os = "macos")]
@@ -558,6 +563,7 @@ fn main() -> eframe::Result {
                 active_tab: MainTab::default(),
                 takeoff_state: takeoff::State::default(),
                 ai_raster_state: ai_raster_panel::State::default(),
+                help_state: help_center::State::default(),
                 bim_collab_state: bim_collab::State::default(),
                 paired_recovery: cad_bim_recovery::Recovery::new(config_dir().map(|dir| dir.join("cad-bim-recovery"))),
                 model3d_state: model3d::State::default(),
@@ -652,6 +658,13 @@ mod tests {
             config_dir_from(env(&[("APPDATA", "C:\\Users\\u\\AppData\\Roaming")])),
             Some(PathBuf::from("C:\\Users\\u\\AppData\\Roaming").join("TBT360"))
         );
+    }
+
+    #[test]
+    fn hierarchical_help_is_a_first_class_desktop_tab() {
+        assert_ne!(super::MainTab::Guide,super::MainTab::Cad);
+        assert_ne!(super::MainTab::Guide,super::MainTab::Takeoff);
+        assert_ne!(super::MainTab::Guide,super::MainTab::BimCollab);
     }
 
     #[test]
