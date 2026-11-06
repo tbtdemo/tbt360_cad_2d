@@ -1987,3 +1987,35 @@ Bản Word đợt 232 được nối tiếp **bản đầy đủ 132 bài có h�
 4. Chỉ công bố Windows EXE PASS khi toàn bộ compile, kiểm thử, packaging và smoke test của chính bản phát hành đạt.
 
 **Giáo trình Word FULL đợt 234**: nối tiếp đầy đủ 138 bài trước, thêm Bài 139–141 và 3 hình minh họa ở chương cuối; toàn bộ 141 bài và 142 hình/sơ đồ. Các hình mới là minh họa kỹ thuật, không phải ảnh chụp EXE thật. Trạng thái Windows CI cần xác minh riêng.
+
+
+## 75. Đợt 235 — Tạo BLOCK cửa có kiểm soát, thống kê tiến độ và đề xuất Layer
+
+### Bài 142 — Khóa thao tác tạo BLOCK vào đúng ngữ cảnh AI đã duyệt
+
+1. Mở bản vẽ kiểm tra trong CAD 360 và kết nối MCP, gọi `ai_draw_plan_vietnamese` với:
+   `vẽ hai phòng liền kề rộng 3000 và 4000 dài 4000 tại 0,0 cửa 900 giữa bản lề dưới mở phải`.
+2. Đặt `createDoorBlock:true`, giữ Preview. Kế hoạch có 5 lệnh CAD vẽ hình học và bước chuyển cánh LINE/cung ARC cuối cùng thành BLOCK có INSERT sau khi được phê duyệt.
+3. Trường hợp không đúng câu hai phòng, có nhiều dòng, không có bản lề hoặc không có ARC phải được từ chối ngay cả khi người dùng đặt `createDoorBlock:true`.
+4. Chỉ commit với `preview:false`, `confirm:true` và đúng `expectedDocumentUid`, `expectedDocumentEpoch`, `expectedRevision` từ Preview.
+5. Sau mỗi lệnh native, MCP kiểm tra lại quyền sở hữu, Undo group và revision. LINE có đầu ra `handles[0]`, còn ARC có `handle`; lệnh `block` dùng `keep:convert` và kết quả `insert`.
+6. Nếu BLOCK thất bại, phải đóng Undo group đúng tài liệu và chỉ rollback một lần khi kiểm tra không có thay đổi ngoài luồng. Nếu tài liệu đã đổi, không được tự Undo sai bản vẽ.
+7. Các kiểm thử mới đợt 235 gồm: `ai_vietnamese_block_rejects_unrelated_plan_and_previews_without_mutation`, `ai_vietnamese_block_transaction_commits_native_insert_and_one_undo_group`, `ai_vietnamese_block_failure_rolls_back_owned_document_once`. Đây mới là test mô phỏng Backend; không thay thế kiểm thử native Engine/EXE.
+
+### Bài 143 — Phân loại Layer cho phòng, tường và cửa ở Preview
+
+1. Xem `plan.layerAssignmentsProposed`: `TBT_AI_ROOM` cho đường bao phòng; `TBT_AI_WALL` cho vách chung; `TBT_AI_DOOR` cho cánh cửa và cung mở/BLOCK.
+2. `plan.layerAssignmentsApplied` phải luôn là `false` ở phạm vi đợt này: **chưa tự tạo Layer hoặc gán các entity vào Layer**.
+3. Layer thực tế hiện có thể được người dùng tạo thủ công bằng lệnh native `layer.new` và `layer.current`/ `laymch`, cần kiểm tra Undo từng bước.
+4. Mở rộng phân Layer native với kiểm tra giao dịch và Undo là đầu việc ưu tiên của đợt 236; không mô tả Preview là chức năng đã hoàn thiện.
+
+### Bài 144 — Đọc tỷ lệ tiến độ có mẫu số và chứng cứ
+
+Tài liệu XLSX `CAD360_BAO_CAO_TIEN_DO_DOT235.xlsx` có 18 tiêu chí riêng của phạm vi đợt 235, tổng trọng số **125**, trọng số đã có mã/tài liệu **82** = **65,6%**. Cột **đã chứng minh CI/EXE** chưa có PASS đúng SHA cuối: **0/125 = 0%** tại thời điểm lập bảng.
+
+- Các số này **không phải % hoàn thành toàn phần mềm CAD 360** hay % sẵn sàng AI tổng thể. Tỷ lệ toàn sản phẩm chỉ đo sau khi có danh sách chức năng, trọng số và bằng chứng kiểm thử đủ các module.
+- Mỗi tiêu chí chỉ được chuyển `Đã kiểm chứng = 1` khi có kết quả khách quan từ đúng bản code/EXE; không đánh dấu từ commit, mô tả hoặc ảnh sơ đồ.
+- Dự kiến: Đợt 236 gán Layer thật và Undo; đợt 237 test BLOCK/roundtrip DWG với AutoCAD; đợt 238 mở rộng AI chỉnh sửa/hình học/QTO.
+- Mỗi lần bàn giao bao gồm mã nguồn qua nhánh GitHub để dùng tính năng **Code → Download ZIP**, giáo trình Word FULL có hình, Excel tiến độ, và liên kết CI/Setup khi có artifact. Môi trường biên soạn hiện không có bản clone đầy đủ của repository để đóng gói ZIP nguồn tại chỗ.
+
+**Giáo trình Word FULL đợt 235:** Kế thừa toàn bộ 141 bài và 142 hình/sơ đồ của đợt 234, bổ sung Bài 142–144 cùng ba hình minh họa mới về giao dịch Block, Layer dự kiến, và % tiến độ. Tất cả hình dựng là sơ đồ minh họa, chưa phải ảnh chụp EXE; bản phát hành chưa công nhận CI PASS.
