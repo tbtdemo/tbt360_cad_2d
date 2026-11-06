@@ -1428,7 +1428,7 @@ mod tests {
         let frame=engine.execute("pline",&json!({"vertices":[[10.0,10.0],[42.0,10.0],[42.0,42.0],[10.0,42.0]],"closed":true})).unwrap();
         let x=engine.execute("line",&json!({"points":[[21.0,26.0],[31.0,26.0]]})).unwrap();
         let y=engine.execute("line",&json!({"points":[[26.0,21.0],[26.0,31.0]]})).unwrap();
-        let (Some(hf),Some(hx),Some(hy))=(frame["handle"].as_str(),x["handle"].as_str(),y["handle"].as_str())
+        let (Some(hf),Some(hx),Some(hy))=(frame["handle"].as_str(),x["handles"][0].as_str(),y["handles"][0].as_str())
             else {panic!("column draft must return handles");};
         let block=engine.execute("block",&json!({"name":"TBT_AI_COLUMN_TEST","base":[10.0,10.0],
             "handles":[hf,hx,hy],"keep":"convert"})).unwrap();
