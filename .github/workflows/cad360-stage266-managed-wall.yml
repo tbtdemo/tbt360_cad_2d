@@ -1,0 +1,32 @@
+name: CAD 360 Stage266 Managed Wall Opening Relocation
+on:
+  push:
+    branches:
+      - feature/CADTBT360_V1.025_xref-regression
+    paths:
+      - CADTBT360_V1.000/crates/ui-egui/src/ai_review.rs
+      - .github/workflows/cad360-stage266-managed-wall.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  wall-opening:
+    runs-on: windows-latest
+    timeout-minutes: 95
+    defaults:
+      run:
+        working-directory: CADTBT360_V1.000
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: CADTBT360_V1.000
+      - name: Native Windows GUI compile
+        run: cargo check --locked -p cadcraft-ui-egui
+      - name: Exact-handle managed wall replacement and unrelated entity preservation
+        run: cargo test --locked -p cadcraft-ui-egui stage266 -- --nocapture
+      - name: Image door arc offset regression
+        run: cargo test --locked -p cadcraft-ui-egui stage265 -- --nocapture
+      - name: All prior reviewed AI UI tests
+        run: cargo test --locked -p cadcraft-ui-egui stage26 -- --nocapture
