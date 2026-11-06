@@ -2769,6 +2769,6 @@ Kế hoạch: Đợt 240 sửa lỗi CI, hoàn thiện thử DWG hai chiều v�
 2. Bài `stage262_png_to_native_cad_preview_is_readonly_and_source_changes_are_detected` dùng ảnh PNG tổng hợp, kiểm tra Preview read-only, số LINE, Commit, Undo/Redo và sự khác biệt khi thay đổi nội dung ảnh nguồn.
 3. Khi GitHub Actions báo PASS tại SHA tương ứng, chạy EXE thật: chọn ảnh mặt bằng có kích thước đã hiệu chuẩn, kiểm tra hình phác Preview, tạo LINE, Undo/Redo và Save/Reopen.
 4. Xuất hoặc lưu **DWG chuẩn** và thử mở, chỉnh sửa, lưu lại qua AutoCAD độc lập; thử nghiệm file chỉ có LINE không chứng minh mọi loại đối tượng CAD hay mọi phiên bản DWG đều tương thích.
-5. Hạn chế còn lại: chưa có chọn file bằng nút duyệt ảnh riêng, chưa phân biệt cửa/tường/vách một cách đáng tin cậy, chưa tự dựng cửa từ ảnh, chưa nối giao diện với OIDC Host thật, chưa có CI PASS hoặc nghiệm thu EXE trong báo cáo này.
+5. Đã có nút **Chọn ảnh PNG/JPEG...** sử dụng bộ chọn file cục bộ của desktop; khi chọn ảnh khác, Preview cũ bị hủy. Hạn chế còn lại: chưa phân biệt cửa/tường/vách đáng tin cậy, chưa tự dựng cửa từ ảnh, chưa nối giao diện với OIDC Host thật, chưa có CI PASS hoặc nghiệm thu EXE trong báo cáo này.
 
 **Phân biệt ba mức:** (a) Có code và test trong nhánh; (b) CI PASS đúng SHA; (c) Windows EXE/AutoCAD nghiệm thu thực tế. Đợt 262 hiện chỉ có bằng chứng (a).
