@@ -641,6 +641,14 @@ impl AiReview {
     /// Do not permit arbitrary model output to reach the CAD command executor.
     pub fn validates_native_command(command:&str)->bool { plan_from_text(command).is_ok() }
 
+    /// A structured, read-only summary of an AI plan before any native CAD execution.
+    /// A wall with an opening expands into multiple entities; report the true count.
+    pub fn describe_native_plan(command:&str)->Result<(usize,usize,String),String> {
+        let (steps,description)=plan_from_text(command)?;
+        let instructions=command.split('|').count();
+        Ok((instructions,steps.len(),description))
+    }
+
     /// Opens existing native, human-reviewed CAD command flow from the unified AI Studio.
     /// Changing the prompt invalidates all earlier previews and approvals.
     pub fn open_with_prompt(&mut self, prompt: &str) {
@@ -1244,6 +1252,16 @@ mod tests {
         review.open_with_prompt("vẽ đường thẳng từ 0,0 đến 100,0");
         assert!(review.preview.is_none());
         assert_eq!(parse_draft(&review.prompt).unwrap().0,"line");
+    }
+
+    #[test]
+    fn ai_review_plan_summary_counts_real_native_geometry_before_commit() {
+        let plan="vẽ phòng rộng 6000 dài 4000 tại 0,0 | vẽ tường có cửa từ 0,0 đến 6000,0 dày 200 cửa 900 tại 3000 mở trái";
+        let (instructions,entities,description)=AiReview::describe_native_plan(plan).unwrap();
+        assert_eq!(instructions,2);
+        assert_eq!(entities,5,"room plus four native entities for the wall opening");
+        assert!(description.contains("Phòng RECTANG"));
+        assert!(AiReview::describe_native_plan("xóa toàn bộ bản vẽ").is_err());
     }
 
     #[test]
