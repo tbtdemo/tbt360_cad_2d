@@ -727,9 +727,18 @@ fn commit_steps(session:&mut Session,preview:&Preview)->Result<Vec<String>,Strin
         } else {
             match session.execute("erase",&json!({"handles":old})) {
                 Ok(value)=>{
-                    succeeded+=1;
-                    if value["erased"].as_u64()!=Some(old.len() as u64) {
-                        failure=Some("Không xóa đủ bốn đối tượng; yêu cầu rollback".into());
+                    // ERASE can return Ok with erased=0 (and NO revision bump).
+                    // Count only actual native drawing mutations so we can always close our group.
+                    let removed=value["erased"].as_u64().unwrap_or(0);
+                    let expected_next=preview.revision.checked_add(succeeded).and_then(|rev|rev.checked_add(1));
+                    if removed>0 && expected_next.is_some_and(|rev|
+                        session.state().is_ok_and(|state|state.revision==rev)) {
+                        succeeded+=1;
+                    }
+                    if removed!=old.len() as u64 {
+                        failure=Some(format!("ERASE chỉ xóa {removed}/{} entity được duyệt; sẽ rollback nếu còn kiểm soát giao dịch",old.len()));
+                    } else if succeeded!=1 {
+                        failure=Some("ERASE báo đủ số lượng nhưng Revision không đúng, không tiếp tục tạo hình học".into());
                     }
                 }
                 Err(error)=>failure=Some(format!("Không xóa được tường/cửa quản lý: {error}"))
@@ -779,6 +788,7 @@ fn commit_steps(session:&mut Session,preview:&Preview)->Result<Vec<String>,Strin
     }
     let expected=preview.revision.checked_add(succeeded).ok_or("Revision vượt giới hạn")?;
     if !same(session,expected,true) {
+        // A foreign revision is not ours to rollback. Never undo someone else's content.
         return Err("Mất quyền sở hữu giao dịch; không Undo để tránh xóa dữ liệu khác".into());
     }
     session.execute("undo",&json!({"mode":"end"})).map_err(|e|e.to_string())?;
