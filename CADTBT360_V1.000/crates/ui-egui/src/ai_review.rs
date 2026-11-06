@@ -1735,6 +1735,39 @@ mod tests {
     }
 
     #[test]
+    fn ai_multi_object_plan_commits_three_editable_entities_and_one_undo_group() {
+        let mut session=Session::default();
+        let text="vẽ phòng rộng 6000 dài 4000 tại 0,0 | vẽ đường thẳng từ 0,0 đến 6000,0 | vẽ hình tròn tâm 3000,2000 bán kính 250";
+        let (steps,description)=plan_from_text(text).unwrap();
+        let st=session.state().unwrap();
+        let preview=Preview {uid:st.uid,epoch:session.doc_epoch,revision:st.revision,
+            text:text.into(),steps,description,image_evidence:None,selected_opening_guide:None,
+            selected_door_arc:None,replace_handles:None,replace_snapshot:None,
+            review_token:None,image_controls:None,owned_entities:None};
+        let handles=commit_steps(&mut session,&preview).expect("native AI plan commits atomically");
+        assert_eq!(handles.len(),3);
+        assert_eq!(session.doc().unwrap().entity_count(),3);
+        assert!(session.state().unwrap().undo_ctl.group.is_none());
+        for handle in handles {
+            let parsed=cadcraft_doc::Handle::parse_hex(&handle).unwrap();
+            assert!(session.doc().unwrap().entity(parsed).is_some());
+        }
+        session.execute("undo",&json!({"count":1})).unwrap();
+        assert_eq!(session.doc().unwrap().entity_count(),0,"single Undo reverts entire AI plan");
+        session.execute("redo",&json!({})).unwrap();
+        assert_eq!(session.doc().unwrap().entity_count(),3,"Redo restores all approved geometry");
+    }
+
+    #[test]
+    fn ai_multi_object_plan_rejects_bad_command_without_starting_undo_or_writing_cad() {
+        let mut session=Session::default();
+        let plan="vẽ đường thẳng từ 0,0 đến 100,0 | xóa tất cả";
+        assert!(plan_from_text(plan).is_err());
+        assert_eq!(session.doc().unwrap().entity_count(),0);
+        assert!(session.state().unwrap().undo_ctl.group.is_none());
+    }
+
+    #[test]
     fn stage274_single_native_line_uses_group_and_one_undo_redo() {
         let mut session=Session::default();
         let state=session.state().unwrap();
