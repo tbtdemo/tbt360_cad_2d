@@ -1302,7 +1302,7 @@ mod tests {
         let frame=engine.execute("pline",&json!({"vertices":[[10.0,10.0],[30.0,10.0],[30.0,16.0],[10.0,16.0]],"closed":true})).unwrap();
         let rail_a=engine.execute("line",&json!({"points":[[10.0,12.0],[30.0,12.0]]})).unwrap();
         let rail_b=engine.execute("line",&json!({"points":[[10.0,14.0],[30.0,14.0]]})).unwrap();
-        let (Some(hf),Some(ha),Some(hb))=(frame["handle"].as_str(),rail_a["handle"].as_str(),rail_b["handle"].as_str()) else {panic!("Missing native window entities")};
+        let (Some(hf),Some(ha),Some(hb))=(frame["handle"].as_str(),rail_a["handles"][0].as_str(),rail_b["handles"][0].as_str()) else {panic!("Missing native window entities")};
         let result=engine.execute("block",&json!({"name":"TBT_AI_WINDOW_TEST","base":[10.0,10.0],
             "handles":[hf,ha,hb],"keep":"convert"})).unwrap();
         assert!(result["insert"].as_str().is_some());
