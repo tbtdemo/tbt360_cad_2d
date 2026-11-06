@@ -4,6 +4,7 @@ on:
     branches:
       - feature/CADTBT360_V1.025_xref-regression
     paths:
+      - CADTBT360_V1.000/Cargo.lock
       - CADTBT360_V1.000/crates/ui-egui/Cargo.toml
       - CADTBT360_V1.000/crates/ui-egui/src/ai_review.rs
       - CADTBT360_V1.000/crates/mcp/src/raster_vector.rs
