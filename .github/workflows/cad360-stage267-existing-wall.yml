@@ -1,0 +1,32 @@
+name: CAD 360 Stage267 Selected Existing Wall Door Cut
+on:
+  push:
+    branches:
+      - feature/CADTBT360_V1.025_xref-regression
+    paths:
+      - CADTBT360_V1.000/crates/ui-egui/src/ai_review.rs
+      - .github/workflows/cad360-stage267-existing-wall.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  existing-wall:
+    runs-on: windows-latest
+    timeout-minutes: 95
+    defaults:
+      run:
+        working-directory: CADTBT360_V1.000
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: CADTBT360_V1.000
+      - name: Native Windows CAD GUI compilation
+        run: cargo check --locked -p cadcraft-ui-egui
+      - name: Selected rectangle wall door cut and safe Undo Redo
+        run: cargo test --locked -p cadcraft-ui-egui stage267 -- --nocapture
+      - name: Prior managed wall relocation regression
+        run: cargo test --locked -p cadcraft-ui-egui stage266 -- --nocapture
+      - name: Prior image opening regressions
+        run: cargo test --locked -p cadcraft-ui-egui stage263 -- --nocapture
