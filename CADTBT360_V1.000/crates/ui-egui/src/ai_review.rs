@@ -1775,6 +1775,17 @@ mod tests {
         assert_eq!(loaded.model.len(),3,"DWG must preserve all AI-created native CAD objects");
         assert_eq!(loaded.model.iter().filter(|e|matches!(&e.kind,cadcraft_doc::EntityKind::Line(_))).count(),1);
         assert_eq!(loaded.model.iter().filter(|e|matches!(&e.kind,cadcraft_doc::EntityKind::Circle(_))).count(),1);
+        let circle=loaded.model.iter().find_map(|entity|match &entity.kind {
+            cadcraft_doc::EntityKind::Circle(circle)=>Some(circle),_=>None
+        }).expect("AI circle survives DWG");
+        assert!((circle.center.x-3000.0).abs()<1e-6);
+        assert!((circle.center.y-2000.0).abs()<1e-6);
+        assert!((circle.radius-250.0).abs()<1e-6);
+        let line=loaded.model.iter().find_map(|entity|match &entity.kind {
+            cadcraft_doc::EntityKind::Line(line)=>Some(line),_=>None
+        }).expect("AI line survives DWG");
+        assert!((line.a.x-0.0).abs()<1e-6 && (line.a.y-0.0).abs()<1e-6);
+        assert!((line.b.x-6000.0).abs()<1e-6 && (line.b.y-0.0).abs()<1e-6);
     }
 
     #[test]
