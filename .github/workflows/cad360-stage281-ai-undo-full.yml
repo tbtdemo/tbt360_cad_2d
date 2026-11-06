@@ -1,0 +1,43 @@
+name: CAD 360 Stage281 AI Review Full Undo History
+on:
+  push:
+    branches:
+      - feature/CADTBT360_V1.025_xref-regression
+    paths:
+      - CADTBT360_V1.000/crates/ui-egui/src/ai_review.rs
+      - CADTBT360_V1.000/crates/engine/src/undoctl.rs
+      - .github/workflows/cad360-stage281-ai-undo-full.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  ai-review-undo-stress:
+    runs-on: windows-latest
+    timeout-minutes: 100
+    defaults:
+      run:
+        working-directory: CADTBT360_V1.000
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.95.0'
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: CADTBT360_V1.000
+      - name: Show exact commit and compiler
+        shell: pwsh
+        run: |
+          git rev-parse HEAD
+          rustc --version
+          cargo --version
+      - name: Compile Windows UI and CAD Engine
+        run: cargo check --locked -p cadcraft-ui-egui
+      - name: AI Review batch of 128 native LINEs at 2000 Undo limit
+        run: cargo test --locked -p cadcraft-ui-egui stage281 -- --nocapture
+      - name: Native Engine Undo stress at MAX_UNDO
+        run: cargo test --locked -p cadcraft-engine stage280 -- --nocapture
+      - name: Empty and partial transaction safety regression
+        run: cargo test --locked -p cadcraft-ui-egui stage277 -- --nocapture
+      - name: Real PNG preview, commit, Undo and Redo regression
+        run: cargo test --locked -p cadcraft-ui-egui stage275 -- --nocapture
