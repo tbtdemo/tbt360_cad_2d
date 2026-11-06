@@ -48,7 +48,7 @@ def png_sample_brightness(path: pathlib.Path, pixels: list[tuple[int, int]]) -> 
     prev=bytearray(stride); samples={}; offset=0
     target_rows={y for x,y in pixels}
     for y in range(max(target_rows)+1):
-        filter_type=raw[offset]; row=bytearray(raw[offset+1:offset+stride]); offset+=stride+1
+        filter_type=raw[offset]; row=bytearray(raw[offset+1:offset+1+stride]); offset+=stride+1
         for j in range(stride):
             a=row[j-channels] if j>=channels else 0
             b=prev[j]; c=prev[j-channels] if j>=channels else 0
