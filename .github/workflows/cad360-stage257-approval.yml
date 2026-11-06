@@ -1,0 +1,31 @@
+name: CAD 360 Stage257 Trusted AI Approval
+on:
+  push:
+    branches:
+      - feature/CADTBT360_V1.025_xref-regression
+    paths:
+      - CADTBT360_V1.000/crates/mcp/src/access_policy.rs
+      - CADTBT360_V1.000/crates/mcp/src/tests.rs
+      - .github/workflows/cad360-stage257-approval.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  trusted-approval:
+    runs-on: windows-latest
+    timeout-minutes: 90
+    defaults:
+      run:
+        working-directory: CADTBT360_V1.000
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: CADTBT360_V1.000
+      - name: Rust compile and test trusted approval
+        run: cargo test --locked -p cadcraft-mcp stage257 -- --nocapture
+      - name: Regression stage255 native AI
+        run: cargo test --locked -p cadcraft-mcp stage255 -- --nocapture
+      - name: Regression stage256 verified host
+        run: cargo test --locked -p cadcraft-mcp stage256 -- --nocapture
