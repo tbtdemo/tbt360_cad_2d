@@ -2227,3 +2227,35 @@ Kế hoạch: Đợt 240 sửa lỗi CI, hoàn thiện thử DWG hai chiều v�
 6. Đợt 243: cấu hình danh sách kết nối MCP được cho phép, phạm vi quyền và quản lý phản hồi AI có kiểm duyệt; đợt 244: thêm tình huống AI ảnh→CAD nhiều loại cấu kiện và benchmark hình học; đợt 245: đối chiếu QTO, DWG AutoCAD hai chiều và ảnh EXE.
 
 **Bộ nguồn:** `apps/cadcraft/src/main.rs` (tab), `apps/cadcraft/src/help_center.rs` (cây nội dung, Markdown nhúng), `crates/mcp/src/tools.rs` (khai báo năng lực AI), `.github/workflows/cad360-v1025-release.yml` (kiểm thử). Giáo trình Word FULL đợt 242 kế thừa 162 bài và các hình trước, thêm Bài 163–165; ghi rõ trạng thái CI và giới hạn tích hợp.
+
+
+## 83. Đợt 243 — Sửa CI AI BLOCK, tiền kiểm lệnh Agent và cập nhật HƯỚNG DẪN trong ứng dụng
+
+### Bài 166 — Kiểm tra lỗi regression AI BLOCK và chạy lại
+
+1. Trên GitHub Actions, mở run thất bại `42153841445` (SHA `5230e4f8...`), vào job Windows và bước `Require image-to-CAD and native raster regression before release packaging`.
+2. Log cho thấy `ai_vietnamese_block_rejects_unrelated_plan_and_previews_without_mutation` FAIL ở điều kiện thông báo lỗi chứa `createDoorBlock`. Hai test khác trong nhóm PASS; không được gộp thành kết luận build thành công.
+3. Nguồn gốc: chuỗi giả lập yêu cầu gồm hai dòng bị viết `\\n` theo nghĩa hai ký tự trong Rust, không tạo thành dấu xuống dòng cho parser. Test đã được chỉnh về `\n` để truyền đúng hai lệnh. Không thay đổi quy tắc AI chỉ cho phép tạo BLOCK cửa với hình học hợp lệ.
+4. Chạy lại `cargo test --locked -p cadcraft-mcp --lib ai_vietnamese_block_ -- --nocapture`, sau đó so sánh workflow mới đúng SHA; nếu CI chưa PASS thì giữ trạng thái chưa nghiệm thu.
+5. Bài test chống tạo BLOCK trên yêu cầu không hợp lệ vẫn phải đảm bảo `PreviewBackend.calls` rỗng — từ chối trước khi chạm vào bản vẽ CAD.
+
+### Bài 167 — Tiền kiểm quyền AI Agent bằng MCP `ai_cad_preflight`
+
+1. Kết nối một MCP host tương thích với CAD 360 (stdio hoặc bridge được phép); đọc `ai_cad_capabilities` để xác định các khả năng được khai báo.
+2. Gọi `ai_cad_preflight` với `{"tool":"inspect_drawing"}`: nhận `read_only / allowed`. Đây là chỉ thị phân loại để host quyết định quyền, không tự đọc bản vẽ.
+3. Gọi `{"tool":"execute"}`: nhận `unreviewed_operation / denied`, bởi đây là lệnh tổng quát có thể gây thay đổi mà không qua duyệt riêng.
+4. Gọi `{"tool":"ai_draw_plan_vietnamese"}`: nhận `reviewed_write / preview_only`. Người dùng cần xem hình học, kích thước, Layer và thao tác dự kiến.
+5. Nếu truyền `confirm:true` cùng `expectedDocumentUid`, `expectedDocumentEpoch`, `expectedRevision`, tiền kiểm chỉ trả `requires_backend_checks`; quyền và revision thực tế bắt buộc được kiểm tra tại CAD Engine trước thao tác.
+6. Không đưa cookie đăng nhập ChatGPT/Gemini vào hệ thống, không suy luận gói chat được cấp quyền API. Giới hạn quyền theo tài khoản, dự án và công cụ; lưu audit tối thiểu gồm tên lệnh, UID bản vẽ, quyết định cho phép/từ chối và kết quả, nhưng không ghi token hoặc nội dung bản vẽ khi chưa được đồng ý.
+7. Lưu ý: công cụ tiền kiểm **chưa** tự cấu hình OAuth, chưa tự kết nối Gemini/ChatGPT và không thể tự thay đổi trọng số mô hình. Nâng cấp AI dựa trên đánh giá phản hồi có duyệt, bộ benchmark, CI và phát hành theo phiên bản.
+
+### Bài 168 — Tích hợp vào cây HƯỚNG DẪN và kiểm thử
+
+1. Mở tab **HƯỚNG DẪN → 5. KẾT NỐI & AN TOÀN AI → 5.4 Tiền kiểm quyền AI Agent**. Xem giải thích các trạng thái allowed/preview_only/denied/requires_backend_checks.
+2. Bấm `6. GIÁO TRÌNH FULL` để xem bài học tích lũy trong Markdown nhúng EXE. Phần này cần build EXE mới trước khi thành nội dung đã nghiệm thu.
+3. Chạy kiểm thử MCP: `cargo test --locked -p cadcraft-mcp --lib ai_cad_preflight_is_read_only_and_denies_unsafe_external_agent_actions -- --nocapture`.
+4. Kiểm tra native AI Block regressions và các bài test tab hướng dẫn đợt 242 trong Windows workflow. Chỉ đánh dấu **CI PASS** nếu bản cuối báo `success`.
+5. Bảng Excel `CAD360_BAO_CAO_TIEN_DO_DOT243.xlsx` có 12 tiêu chí trọng số 100; báo cáo tỷ lệ có mã, CI PASS và nghiệm thu Windows EXE/MCP host tách biệt.
+6. Kế hoạch đợt 244: thiết lập danh sách MCP tool cho phép theo role/user/tenant, audit không lộ dữ liệu; kiểm thử trên host bên ngoài thật. Đợt 245: tăng cường ảnh→CAD có sai số định lượng; cập nhật hướng dẫn dạng cây liên tục và làm bộ ảnh EXE thật sau khi Windows CI thành công.
+
+**Phạm vi:** Stage243 bổ sung sửa regression fixture, MCP preflight chỉ đọc, nội dung cây hướng dẫn, tài liệu và CI gate; chưa coi preflight là lớp xác thực hay bằng chứng kết nối với ChatGPT/Gemini thật. Không công bố AI tự huấn luyện hoặc cập nhật trọng số mô hình bên ngoài.
