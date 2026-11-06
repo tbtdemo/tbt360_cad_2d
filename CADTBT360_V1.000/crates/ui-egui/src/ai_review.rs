@@ -74,7 +74,7 @@ impl AiReview {
                 if let Some(p)=self.preview.take() {
                     let permitted=session.state().is_ok_and(|s|s.uid==p.uid && s.revision==p.revision
                         && session.doc_epoch==p.epoch && s.block_edit.is_none()
-                        && s.undo_ctl.group.is_none() && s.undo_ctl.control==cadcraft_engine::undoctl::UndoControl::All);
+                        && s.undo_ctl.group.is_none() && (s.undo_ctl.bits() & 11)==1);
                     if !permitted || session.prompting() || self.prompt!=p.text {
                         self.message="Bản vẽ, lệnh hoặc Revision đã thay đổi. Hãy Preview lại.".into();
                     } else {
