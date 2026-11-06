@@ -16,6 +16,7 @@ pub fn tool_definitions(has_ui: bool) -> Value {
             "inputSchema": {"type": "object", "properties": {"command": {"type": "string"}, "params": {"type": "object"}}, "required": ["command"]}}),
         json!({"name":"ai_draw_plan_vietnamese","description":"CAD 360 AI deterministic multi-step Vietnamese drawing plan. Supply 2-8 native commands through newline-delimited drafts (LINE, CIRCLE, RECTANG, PLINE), or one high-level room pair: vẽ hai phòng liền kề rộng 3000 và 4000 dài 4000 tại 0,0 [cửa 900 giữa] (one outer RECTANG and two gap-preserving LINEs; optional explicit hinge/swing adds native door-leaf LINE and swing ARC, not a BLOCK or BIM door). Preview is default; commit requires confirm:true and exact document identity/revision from preview. Executes all steps as one guarded Undo group and attempts safe rollback on failure. Optional createDoorBlock=true converts the last explicitly described door leaf LINE and swing ARC into a native BLOCK/INSERT in the same Undo group; defaults false. applyLayers=true assigns native TBT_AI_ROOM/TBT_AI_WALL/TBT_AI_DOOR via laymch, opt-in only and verified against the active document. Does not interpret arbitrary natural language.","inputSchema":{"type":"object","properties":{"text":{"type":"string"},"preview":{"type":"boolean"},"confirm":{"type":"boolean"},"createDoorBlock":{"type":"boolean"},"applyLayers":{"type":"boolean"},"expectedDocumentUid":{"type":"integer","minimum":0},"expectedDocumentEpoch":{"type":"integer","minimum":0},"expectedRevision":{"type":"integer","minimum":0}},"required":["text"]}}),
         json!({"name":"ai_draw_vietnamese","description":"CAD 360 Vietnamese drafting bridge (bounded deterministic grammar, not a general LLM). Supports bounded LINE, CIRCLE, RECTANG, PLINE, plus dimensioned room 'vẽ phòng rộng 6000 dài 4000 tại 0,0' and wall 'vẽ tường từ 0,0 đến 6000,0 dày 200'. Room and wall are editable CAD outlines, NOT semantically verified BIM geometry. Preview by default; to commit, set preview:false, confirm:true and expectedDocumentUid, expectedDocumentEpoch, expectedRevision obtained from a fresh preview. Executes exactly one native CAD engine command, never saves or modifies DWG structure.","inputSchema":{"type":"object","properties":{"text":{"type":"string"},"preview":{"type":"boolean"},"confirm":{"type":"boolean"},"expectedDocumentUid":{"type":"integer","minimum":0},"expectedDocumentEpoch":{"type":"integer","minimum":0},"expectedRevision":{"type":"integer","minimum":0}},"required":["text"]}}),
+        json!({"name":"ai_cad_preflight","description":"Read-only external-agent preflight: classify an intended CAD tool call as read-only, preview-required, or denied. Never mutates CAD, never authenticates any provider, and does not grant permissions. Use before calling other tools; authorization and confirmation remain mandatory.","inputSchema":{"type":"object","properties":{"tool":{"type":"string"},"confirm":{"type":"boolean"},"expectedDocumentUid":{"type":"integer"},"expectedDocumentEpoch":{"type":"integer"},"expectedRevision":{"type":"integer"}},"required":["tool"]}}),
         json!({"name":"ai_cad_capabilities","description":"Read-only AI CAD 360 integration manifest for external MCP agent clients (ChatGPT-compatible MCP, Gemini-compatible MCP bridge or other approved hosts). Reports supported CAD operations and strict preview/confirm/Undo contract; never requests API keys, never authenticates into web chat sessions and never modifies the drawing.","inputSchema":{"type":"object","properties":{}}}),
         json!({"name": "list_commands", "description": "List commands with ids, labels, menu paths, aliases and parameter docs. Optional filter: a substring of the command id, label or an alias.",
             "inputSchema": {"type": "object", "properties": {"filter": {"type": "string"}}}}),
@@ -607,6 +608,24 @@ pub fn call_tool(b: &mut dyn Backend, name: &str, args: &Value) -> Result<Value,
         ),
         "ai_draw_vietnamese" => ai_draw_vietnamese(b, &a),
         "ai_draw_plan_vietnamese" => ai_draw_plan_vietnamese(b, &a),
+        "ai_cad_preflight" => {
+            let tool=a["tool"].as_str().unwrap_or("");
+            let (classification,decision,reason)=match tool {
+                "ai_cad_capabilities"|"list_commands"|"inspect_drawing"|"query_entities"|"render" =>
+                    ("read_only","allowed","Only exposes information; external host must still enforce its own access controls"),
+                "ai_draw_vietnamese"|"ai_draw_plan_vietnamese" =>
+                    ("reviewed_write",if a["confirm"]==true &&
+                        a["expectedDocumentUid"].as_u64().is_some() &&
+                        a["expectedDocumentEpoch"].as_u64().is_some() &&
+                        a["expectedRevision"].as_u64().is_some() {"requires_backend_checks"}else{"preview_only"},
+                        "Write requires an explicitly confirmed native CAD Preview with matching document identity and revision"),
+                _ => ("unreviewed_operation","denied","No implicit permission for arbitrary commands, scripts, UI clicks, local files or external network actions")
+            };
+            Ok(json!({"tool":tool,"classification":classification,"decision":decision,
+                "reason":reason,"mutatedDrawing":false,
+                "authority":"informational preflight only, not an authorization boundary",
+                "auditHint":"host should log tool name, scoped document UID, consent and result without secrets or drawing contents"}))
+        },
         "ai_cad_capabilities" => Ok(json!({
             "product":"CAD 360 Viet Nam","apiVersion":"stage242-mcp-1",
             "transport":"MCP stdio or approved authenticated local CAD control bridge",
@@ -1085,6 +1104,26 @@ mod ai_draft_vietnamese_tests {
         assert!(response.unwrap_err().contains("revision"));
         assert_eq!(cad.session.doc().unwrap().entity_count(),before,
             "stale AI commit cannot destroy or duplicate existing native edit");
+    }
+
+    #[test]
+    fn ai_cad_preflight_is_read_only_and_denies_unsafe_external_agent_actions() {
+        use crate::backend::Backend;
+        struct ReadOnly;
+        impl Backend for ReadOnly {
+            fn call(&mut self,method:&str,_params:serde_json::Value)->Result<serde_json::Value,String> {Err(format!("must not call CAD: {method}"))}
+            fn has_ui(&self)->bool {false}
+            fn describe(&self)->String {"preflight".into()}
+        }
+        let text=|name:&str,args:serde_json::Value|->serde_json::Value{
+            let response=super::call_tool(&mut ReadOnly,name,&args).unwrap();
+            serde_json::from_str(response["content"][0]["text"].as_str().unwrap()).unwrap()
+        };
+        assert_eq!(text("ai_cad_preflight",json!({"tool":"inspect_drawing"}))["decision"],"allowed");
+        assert_eq!(text("ai_cad_preflight",json!({"tool":"execute"}))["decision"],"denied");
+        assert_eq!(text("ai_cad_preflight",json!({"tool":"ai_draw_plan_vietnamese"}))["decision"],"preview_only");
+        assert_eq!(text("ai_cad_preflight",json!({"tool":"ai_draw_plan_vietnamese","confirm":true,"expectedDocumentUid":1,"expectedDocumentEpoch":2,"expectedRevision":3}))["decision"],"requires_backend_checks");
+        assert_eq!(text("ai_cad_preflight",json!({"tool":"script","confirm":true}))["mutatedDrawing"],false);
     }
 
     #[test]
