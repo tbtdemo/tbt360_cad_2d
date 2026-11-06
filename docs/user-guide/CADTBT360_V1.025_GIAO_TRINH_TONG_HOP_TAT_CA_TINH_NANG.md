@@ -2622,3 +2622,28 @@ Kế hoạch: Đợt 240 sửa lỗi CI, hoàn thiện thử DWG hai chiều v�
 5. Nghiệm thu thật còn yêu cầu triển khai nút chấp thuận trong EXE, kết nối AuthServer thực, kiểm tra giao dịch đồng thời/thu hồi chấp thuận, Undo/Redo GUI và DWG chuẩn hai chiều trên AutoCAD.
 
 **Phạm vi hoàn thành:** Đã viết logic ràng buộc host approval và bài test Rust/CI; chưa chứng minh nút chấp thuận hoạt động trên Windows EXE hoặc chữ ký JWT được AuthServer thực xác minh.
+
+
+## 98. Đợt 258 — Cửa sổ CAD 360 AI Review ngay trong ứng dụng
+
+### Bài 211 — Mở AI Review trên giao diện
+1. Mở CAD 360 V1.025, chọn bản vẽ muốn thao tác. Chức năng CAD Free vẫn được sử dụng không bắt buộc đăng nhập.
+2. Vào **Tools → CAD 360 AI Review...**. Một cửa sổ nổi hiển thị ô nhập và các nút Xem trước, Tôi đồng ý – Vẽ vào CAD, Hủy phương án.
+3. Nhập chính xác câu lệnh mẫu **vẽ phòng rộng 6000 dài 4000 tại 0,0**. Đây là cú pháp giới hạn của bộ phân tích quy tắc; không phải mô hình AI ngôn ngữ/ảnh có thể hiểu mọi yêu cầu.
+4. Chọn **1. Xem trước**. Xem tọa độ hình chữ nhật, UID, Epoch và Revision; bản vẽ chưa thay đổi. Nếu không phù hợp, hủy thay vì xác nhận.
+
+### Bài 212 — Xác nhận và kiểm tra Undo
+1. Kiểm tra bản vẽ đúng, đơn vị kích thước phù hợp. Bấm **2. Tôi đồng ý – Vẽ vào CAD**.
+2. Mã giao diện so sánh nội dung lệnh, UID, Epoch, Revision trước khi gọi lệnh `rectang` của CAD Engine. Bản vẽ phải không có lệnh tương tác hoặc nhóm Undo đang mở và Undo ở chế độ đầy đủ.
+3. Kiểm tra đối tượng RECTANG trên bản vẽ. Dùng UNDO một lần để bỏ đối tượng, REDO để khôi phục; xác minh lưu/mở lại trên EXE thật trước khi đánh dấu nghiệm thu.
+4. Khi sửa bản vẽ hoặc thay đổi câu lệnh sau Preview, yêu cầu Preview mới; không chấp thuận dữ liệu cũ.
+5. Cửa sổ này là **phê duyệt của người dùng tại UI cục bộ**, không cấp quyền cho Agent bên ngoài hoặc thay thế kiểm tra OIDC/HostScope ở MCP.
+
+### Bài 213 — Kiểm thử, giới hạn và kế hoạch
+1. Workflow Windows: `CAD 360 Stage258 Native AI Review Window`, chạy `cargo check --locked -p cadcraft-ui-egui` và `cargo test --locked -p cadcraft-ui-egui stage258_room_parser -- --nocapture`.
+2. Thử các giá trị width/height âm, NaN, lệnh không hỗ trợ, bản vẽ đang chạy lệnh khác, Undo Group đang mở và trường hợp sửa Revision trước xác nhận.
+3. Chụp ảnh EXE thật sau khi Windows CI PASS và mở cửa sổ AI Review. Chưa dùng sơ đồ giả định làm hình ảnh nghiệm thu.
+4. Nhận dạng ảnh → CAD quy mô lớn, cửa/tường ngữ nghĩa, kết nối Host OIDC thật với cửa sổ và kiểm thử DWG AutoCAD hai chiều vẫn chưa nghiệm thu.
+5. Hướng dẫn này chỉ công nhận mã UI được commit; không công nhận chức năng chạy thực tế nếu không có bằng chứng Windows GUI.
+
+**Các tệp chính Đợt 258:** `crates/ui-egui/src/ai_review.rs`, `crates/ui-egui/src/lib.rs`, `crates/ui-egui/src/menus.rs`, workflow Stage258. Chức năng hiện mới giới hạn vẽ phòng hình chữ nhật theo cú pháp đã định.
