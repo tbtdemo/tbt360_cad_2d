@@ -2597,3 +2597,28 @@ Kế hoạch: Đợt 240 sửa lỗi CI, hoàn thiện thử DWG hai chiều v�
 5. Giữ nguyên chính sách CAD Free không bắt buộc đăng nhập khi khởi động; chỉ áp dụng xác thực đúng với chức năng dịch vụ có yêu cầu. File DWG phải giữ cấu trúc chuẩn và tương thích hai chiều.
 
 **Trạng thái thực tế:** Đợt 256 bổ sung regression tests Rust dùng token verifier giả lập và Windows CI. Chưa có bằng chứng kết nối AuthServer/JWKS thật, UX xác nhận, Windows EXE và DWG qua AutoCAD.
+
+
+## 97. Đợt 257 — Chấp thuận AI do host tin cậy cấp, chống Agent tự xác nhận
+
+### Bài 208 — Vì sao confirm=true chưa đủ?
+1. Khi AI Agent gửi `confirm:true` và đúng UID/Epoch/Revision, đó mới là dữ liệu request, chưa chứng minh người dùng đã xem và đồng ý.
+2. Phải tách **phân quyền OIDC** (ai được thao tác) khỏi **chấp thuận phương án cụ thể** (được vẽ chính xác nội dung nào).
+3. Trong chế độ MCP có `HostScope`, nếu không có `approved_ai_plan` do host tin cậy tạo trước, yêu cầu AI `preview:false` sẽ bị từ chối.
+4. Chế độ Legacy/Reviewed cục bộ hiện chưa sử dụng cơ chế host approval này; không được quảng bá rằng mọi nguồn lệnh đã có xác nhận UI.
+
+### Bài 209 — Gắn sự chấp thuận vào phương án và Revision
+1. Host phải kiểm tra JWT/JWKS thực và hiển thị bản Preview cho người dùng thật. Chỉ sau hành động đồng ý rõ ràng mới gọi `HostScope::with_approved_ai_plan(tool,text,document_epoch,revision)`.
+2. Host ràng buộc tên công cụ AI, **toàn bộ text yêu cầu**, `documentEpoch` và `revision`; `HostScope` sẵn có ràng buộc `documentUid` và quyền Editor/Approver.
+3. MCP kiểm tra yêu cầu commit khớp tuyệt đối thông tin đã duyệt; các thay đổi text/UID/Epoch/Revision sẽ bị từ chối trước khi thực thi.
+4. Sau khi một giao dịch thực thi làm tăng Revision, việc gửi lại thông tin cũ sẽ bị CAD Engine chặn. Đây không phải cơ chế one-time nonce hoàn chỉnh, phải tiếp tục xử lý trên host.
+5. Không đưa JWT, refresh token hay nội dung bản vẽ nhạy cảm vào audit log; chỉ lưu metadata, trạng thái và định danh giao dịch được kiểm soát.
+
+### Bài 210 — Kiểm thử và nghiệm thu
+1. Chạy `cargo test --locked -p cadcraft-mcp stage257 -- --nocapture` trong thư mục `CADTBT360_V1.000`.
+2. Test `stage257_trusted_host_approval_cannot_be_forged_or_reused_for_changed_text` kiểm tra Agent tự confirm bị từ chối; text thay đổi, UID/Epoch/Revision sai, Viewer và tool không hỗ trợ bị chặn.
+3. Test `stage257_scoped_editor_cannot_forge_ai_consent_by_setting_confirm_true` kiểm tra phía MCP từ chối commit không được host phê duyệt dù có đúng UID/Epoch/Revision.
+4. Windows workflow `CAD 360 Stage257 Trusted AI Approval` chạy lại regression 255–257. Không đánh dấu PASS nếu GitHub chưa trả kết quả chính xác trên commit tương ứng.
+5. Nghiệm thu thật còn yêu cầu triển khai nút chấp thuận trong EXE, kết nối AuthServer thực, kiểm tra giao dịch đồng thời/thu hồi chấp thuận, Undo/Redo GUI và DWG chuẩn hai chiều trên AutoCAD.
+
+**Phạm vi hoàn thành:** Đã viết logic ràng buộc host approval và bài test Rust/CI; chưa chứng minh nút chấp thuận hoạt động trên Windows EXE hoặc chữ ký JWT được AuthServer thực xác minh.
