@@ -1035,14 +1035,14 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
                     for (index,draft) in drafts.iter().enumerate() {
                         let l=cad.run("line",json!({"points":draft["leaf"]}));
                         let leaf_handle=match l {
-                            Ok(value) => {created+=1; value["handle"].as_str().map(str::to_string)},
+                            Ok(value) => {created+=1; value["handles"][0].as_str().map(str::to_string)},
                             Err(e) => {failure=Some(e);break;}
                         };
                         let Some(leaf_handle)=leaf_handle else {failure=Some("AI Door BLOCK: lệnh LINE không trả Handle hợp lệ".into());break;};
                         let arc=&draft["arc"];
                         let ar=cad.run("arc",json!({"center":arc["center"],"radius":arc["radius"],"start":arc["start"],"end":arc["end"]}));
                         let arc_handle=match ar {
-                            Ok(value) => {created+=1;value["handle"].as_str().map(str::to_string)},
+                            Ok(value) => {created+=1;value["handles"][0].as_str().map(str::to_string)},
                             Err(e) => {failure=Some(e);break;}
                         };
                         let Some(arc_handle)=arc_handle else {failure=Some("AI Door BLOCK: lệnh ARC không trả Handle hợp lệ".into());break;};
@@ -1068,7 +1068,7 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
                         if let Some(rails)=draft["rails"].as_array() {
                             for rail in rails {
                                 match cad.run("line",json!({"points":rail})) {
-                                    Ok(v)=>{created+=1;if let Some(handle)=v["handle"].as_str(){handles.push(handle.to_string());}
+                                    Ok(v)=>{created+=1;if let Some(handle)=v["handles"][0].as_str(){handles.push(handle.to_string());}
                                         else {failure=Some("AI Window BLOCK: LINE không trả Handle hợp lệ".into());break;}},
                                     Err(e)=>{failure=Some(e);break;}
                                 }
@@ -1544,7 +1544,7 @@ mod tests {
         engine.state_mut().unwrap().begin_undo_group();
         let l=engine.execute("line",&json!({"points":[[10.0,10.0],[10.0,22.0]]})).unwrap();
         let a=engine.execute("arc",&json!({"center":[10.0,10.0],"radius":12.0,"start":0.0,"end":90.0})).unwrap();
-        let (Some(lh),Some(ah))=(l["handle"].as_str(),a["handle"].as_str()) else {panic!("CAD engine did not return entity handles")};
+        let (Some(lh),Some(ah))=(l["handles"][0].as_str(),a["handle"].as_str()) else {panic!("CAD engine did not return entity handles")};
         let block=engine.execute("block",&json!({"name":"TBT_AI_DOOR_TEST","base":[10.0,10.0],"handles":[lh,ah],"keep":"convert"})).unwrap();
         assert!(block["insert"].as_str().is_some(),"native CAD BLOCK must have one INSERT");
         assert_eq!(engine.doc().unwrap().entity_count(),original+1);
