@@ -1,0 +1,42 @@
+name: CAD 360 Stage277 Protect Earlier Undo History
+on:
+  push:
+    branches:
+      - feature/CADTBT360_V1.025_xref-regression
+    paths:
+      - CADTBT360_V1.000/crates/ui-egui/src/ai_review.rs
+      - .github/workflows/cad360-stage277-undo-history.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  undo-isolation:
+    runs-on: windows-latest
+    timeout-minutes: 100
+    defaults:
+      run:
+        working-directory: CADTBT360_V1.000
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.95.0'
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: CADTBT360_V1.000
+      - name: Show exact SHA and compiler
+        shell: pwsh
+        run: |
+          git rev-parse HEAD
+          rustc --version
+          cargo --version
+      - name: Compile native Windows AI Review
+        run: cargo check --locked -p cadcraft-ui-egui
+      - name: Stage277 failed transaction and earlier user history regression
+        run: cargo test --locked -p cadcraft-ui-egui stage277 -- --nocapture
+      - name: Stage276 ERASE zero-revision regression
+        run: cargo test --locked -p cadcraft-ui-egui stage276 -- --nocapture
+      - name: Stage275 real PNG import regression
+        run: cargo test --locked -p cadcraft-ui-egui stage275 -- --nocapture
+      - name: Stage274 native single Undo regression
+        run: cargo test --locked -p cadcraft-ui-egui stage274 -- --nocapture
