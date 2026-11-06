@@ -66,6 +66,39 @@ fn parse_draft(text:&str)->Result<(&'static str,Value,String),String> {
             if r<=0.0 {return Err("Bán kính phải lớn hơn 0".into());}
             Ok(("circle",json!({"center":p,"radius":r}),format!("CIRCLE: tâm ({},{}) bán kính {}",p[0],p[1],r)))
         }
+        ["vẽ","polyline","qua",vertices] => {
+            let raw:Vec<&str>=vertices.split(';').collect();
+            if !(2..=64).contains(&raw.len()) {return Err("POLYLINE yêu cầu từ 2 đến 64 điểm".into());}
+            let pts:Vec<[f64;2]>=raw.iter().map(|p|pair(p)).collect::<Result<_,_>>()?;
+            if pts.windows(2).any(|p|p[0]==p[1]) {return Err("POLYLINE có đoạn dài bằng 0".into());}
+            Ok(("pline",json!({"vertices":pts,"closed":false}),
+                format!("POLYLINE: {} đỉnh, {} đoạn",pts.len(),pts.len()-1)))
+        }
+        ["vẽ","cung","tâm",center,"bán","kính",radius,"từ",start,"đến",end] => {
+            let p=pair(center)?;let r=number(radius)?;let a=number(start)?;let b=number(end)?;
+            if r<=1e-9 || r>1e8 || a<0.0 || a>=360.0 || b<=a || b>360.0 {
+                return Err("Cung yêu cầu bán kính > 0 và góc 0 <= bắt đầu < kết thúc <= 360".into());
+            }
+            if p.iter().any(|v|v.abs()+r>1e9) {return Err("Cung vượt giới hạn tọa độ".into());}
+            Ok(("arc",json!({"center":p,"radius":r,"start":a,"end":b}),
+                format!("ARC tâm ({},{}) R={} từ {}° đến {}°",p[0],p[1],r,a,b)))
+        }
+        ["vẽ","tường","từ",from,"đến",to,"dày",thick] => {
+            let a=pair(from)?;let b=pair(to)?;nonzero(a,b)?;
+            let width=number(thick)?;
+            let dx=b[0]-a[0];let dy=b[1]-a[1];let len=dx.hypot(dy);
+            if !len.is_finite() || len<=1e-9 || width<=0.0 || width>len*100.0 {
+                return Err("Trục tường hoặc chiều dày không hợp lệ".into());
+            }
+            let nx=-dy/len*width/2.0;let ny=dx/len*width/2.0;
+            let pts=[[a[0]+nx,a[1]+ny],[b[0]+nx,b[1]+ny],
+                [b[0]-nx,b[1]-ny],[a[0]-nx,a[1]-ny]];
+            if pts.iter().flatten().any(|v|!v.is_finite()||v.abs()>1e9) {
+                return Err("Tường vượt giới hạn tọa độ".into());
+            }
+            Ok(("pline",json!({"vertices":pts,"closed":true}),
+                format!("TƯỜNG HÌNH HỌC: trục ({},{}) đến ({},{}), dày {} (PLINE kín)",a[0],a[1],b[0],b[1],width)))
+        }
         _ => Err("Lệnh hỗ trợ: vẽ phòng rộng 6000 dài 4000 tại 0,0; vẽ đường thẳng từ 0,0 đến 100,0; vẽ hình chữ nhật từ 0,0 đến 100,50; vẽ hình tròn tâm 0,0 bán kính 50".into())
     }
 }
@@ -86,6 +119,9 @@ impl AiReview {
             ui.label("vẽ đường thẳng từ 0,0 đến 100,0");
             ui.label("vẽ hình chữ nhật từ 0,0 đến 100,50");
             ui.label("vẽ hình tròn tâm 0,0 bán kính 50");
+            ui.label("vẽ polyline qua 0,0;100,0;100,50");
+            ui.label("vẽ cung tâm 0,0 bán kính 100 từ 0 đến 90");
+            ui.label("vẽ tường từ 0,0 đến 6000,0 dày 200");
             ui.text_edit_singleline(&mut self.prompt);
             if ui.button("1. Xem trước").clicked() {
                 self.preview=None;
@@ -136,6 +172,22 @@ mod tests {
         assert!(parse_draft("vẽ phòng rộng -1 dài 4000 tại 0,0").is_err());
         assert!(parse_draft("vẽ phòng rộng NaN dài 4000 tại 0,0").is_err());
         assert!(parse_draft("xóa tất cả").is_err());
+    }
+    #[test]
+    fn stage260_polyline_arc_and_wall_are_editable_native_entities() {
+        let (cmd,p,_) = parse_draft("vẽ polyline qua 0,0;100,0;100,50").unwrap();
+        assert_eq!(cmd,"pline");assert_eq!(p["vertices"].as_array().unwrap().len(),3);
+        assert_eq!(p["closed"],false);
+        let (cmd,p,_) = parse_draft("vẽ cung tâm 0,0 bán kính 100 từ 0 đến 90").unwrap();
+        assert_eq!(cmd,"arc");assert_eq!(p["start"],0.0);assert_eq!(p["end"],90.0);
+        let (cmd,p,_) = parse_draft("vẽ tường từ 0,0 đến 6000,0 dày 200").unwrap();
+        assert_eq!(cmd,"pline");assert_eq!(p["closed"],true);
+        assert_eq!(p["vertices"],json!([[0.0,100.0],[6000.0,100.0],[6000.0,-100.0],[0.0,-100.0]]));
+        assert!(parse_draft("vẽ polyline qua 0,0;0,0").is_err());
+        assert!(parse_draft("vẽ cung tâm 0,0 bán kính 100 từ 90 đến 0").is_err());
+        assert!(parse_draft("vẽ tường từ 0,0 đến 0,0 dày 200").is_err());
+        assert!(parse_draft("vẽ tường từ 0,0 đến 6000,0 dày 0").is_err());
+        assert!(parse_draft("vẽ polyline qua 0,0;NaN,20").is_err());
     }
     #[test]
     fn stage259_multiple_native_shapes_are_validated_before_preview() {
