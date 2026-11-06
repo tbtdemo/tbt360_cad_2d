@@ -519,7 +519,12 @@ fn check_door_opening_is_clear(session:&Session,source:cadcraft_doc::Handle,step
     let zone=cadcraft_geom::Bounds2::from_points(quad).expand(1e-6);
     if zone.is_empty() {return Err("Khoảng mở không hợp lệ".into());}
     let eps=(zone.width().max(zone.height())*1e-10).max(1e-8);
-    if (0..4).any(|i|signed_cross(quad[i],quad[(i+1)%4],quad[(i+2)%4])<=eps) {
+    let first=signed_cross(quad[0],quad[1],quad[2]);
+    if !first.is_finite() || first.abs()<=eps
+        || (1..4).any(|i| {
+            let turn=signed_cross(quad[i],quad[(i+1)%4],quad[(i+2)%4]);
+            !turn.is_finite() || turn*first<=eps*first.abs()
+        }) {
         return Err("Khoảng mở không tạo thành tứ giác lồi theo thứ tự hợp lệ".into());
     }
     let doc=session.doc().map_err(|e|e.to_string())?;
