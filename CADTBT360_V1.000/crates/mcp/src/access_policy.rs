@@ -243,7 +243,7 @@ mod tests {
         assert!(editor.allowed("script",&json!({})).is_err());
         let valid=json!({"preview":false,"confirm":true,"expectedDocumentUid":7,"expectedDocumentEpoch":1,"expectedRevision":6});
         assert!(editor.allowed("ai_draw_plan_vietnamese",&valid).is_err());
-        let approved=editor.with_approved_ai_plan("ai_draw_plan_vietnamese",
+        let approved=editor.clone().with_approved_ai_plan("ai_draw_plan_vietnamese",
             "vẽ phòng",1,6).unwrap();
         let mut approved_valid=valid.clone();approved_valid["text"]=json!("vẽ phòng");
         assert!(approved.allowed("ai_draw_plan_vietnamese",&approved_valid).is_ok());
