@@ -104,6 +104,7 @@ impl HostScope {
     /// Trusted host only: bind an already-reviewed AI plan to a specific tool,
     /// exact user-visible text and CAD state. This is not itself a user-consent UI.
     /// The host MUST obtain approval from a real user before calling it.
+    /// Advanced options applyLayers/createDoorBlock are deliberately denied on this grant.
     pub fn with_approved_ai_plan(mut self,tool:&str,text:&str,document_epoch:u64,revision:u64)->Result<Self,&'static str> {
         if !["ai_draw_plan_vietnamese","ai_draw_vietnamese"].contains(&tool)
             || text.trim().is_empty() || text.len()>4000 || text.chars().any(char::is_control) {
@@ -154,7 +155,9 @@ impl HostScope {
                 let approval=self.approved_ai_plan.as_ref().ok_or("Host has not approved this AI plan")?;
                 if approval.tool!=tool || args.get("text").and_then(Value::as_str)!=Some(approval.text.as_str())
                     || args.get("expectedDocumentEpoch").and_then(Value::as_u64)!=Some(approval.document_epoch)
-                    || args.get("expectedRevision").and_then(Value::as_u64)!=Some(approval.revision) {
+                    || args.get("expectedRevision").and_then(Value::as_u64)!=Some(approval.revision)
+                    || args.get("applyLayers")==Some(&Value::Bool(true))
+                    || args.get("createDoorBlock")==Some(&Value::Bool(true)) {
                     return Err("AI plan does not match the trusted-host approval");
                 }
             }
@@ -183,6 +186,10 @@ mod tests {
         assert!(approved.allowed("ai_draw_plan_vietnamese",&accepted).is_ok());
         let mut changed=accepted.clone();
         changed["text"]=json!("vẽ hai phòng liền kề rộng 8000 và 4000 dài 4000 tại 0,0");
+        assert!(approved.allowed("ai_draw_plan_vietnamese",&changed).is_err());
+        changed=accepted.clone();changed["applyLayers"]=json!(true);
+        assert!(approved.allowed("ai_draw_plan_vietnamese",&changed).is_err());
+        changed=accepted.clone();changed["createDoorBlock"]=json!(true);
         assert!(approved.allowed("ai_draw_plan_vietnamese",&changed).is_err());
         changed=accepted.clone();changed["expectedRevision"]=json!(4);
         assert!(approved.allowed("ai_draw_plan_vietnamese",&changed).is_err());
