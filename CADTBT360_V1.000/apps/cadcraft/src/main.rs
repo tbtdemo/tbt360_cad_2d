@@ -25,6 +25,7 @@ mod spacemouse;
 mod system_animations;
 mod workspace;
 mod takeoff;
+mod ai_local_provider;
 mod ai_raster_panel;
 mod help_center;
 mod takeoff_report;
