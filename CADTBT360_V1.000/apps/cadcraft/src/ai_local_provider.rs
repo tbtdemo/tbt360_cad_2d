@@ -107,7 +107,7 @@ mod tests {
         assert!(parse_model_response(&format!("```python\n{line}\n```")).is_err());
         assert!(parse_model_response("KHONG_HO_TRO").is_err());
         assert!(parse_model_response(&"A".repeat(MAX_COMMAND_BYTES+1)).is_err());
-        let commands=vec!["vẽ đường thẳng từ 0,0 đến 100,0";12].join(" | ");
+        let commands=vec!["vẽ tường có cửa từ 0,0 đến 6000,0 dày 200 cửa 900 tại 3000 mở trái";12].join(" | ");
         assert!(commands.len()>600);
         assert_eq!(parse_model_response(&commands).unwrap(),commands);
     }
