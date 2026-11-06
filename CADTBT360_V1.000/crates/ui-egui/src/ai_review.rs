@@ -865,6 +865,56 @@ mod tests {
         assert!(parse_draft("xóa tất cả").is_err());
     }
     #[test]
+    fn stage267_explicitly_selected_existing_wall_is_replaced_without_touching_other_entities() {
+        let mut s=Session::default();
+        let external=s.execute("line",&json!({"points":[[0.0,9000.0],[6000.0,9000.0]]})).unwrap();
+        let keep=cadcraft_doc::Handle::parse_hex(external["handles"][0].as_str().unwrap()).unwrap();
+        let result=s.execute("pline",&json!({"vertices":[[0.0,-100.0],[6000.0,-100.0],
+            [6000.0,100.0],[0.0,100.0]],"closed":true})).unwrap();
+        let wall=cadcraft_doc::Handle::parse_hex(result["handle"].as_str().unwrap()).unwrap();
+        assert_eq!(s.doc().unwrap().entity_count(),2);
+        assert!(preview_selected_existing_wall(&s,"3000","900",false).is_err(),"selection must be explicit");
+        s.set_selection(vec![wall]);
+        let preview=preview_selected_existing_wall(&s,"3000","900",false).unwrap();
+        assert_eq!(preview.replace_handles.as_ref().unwrap(),&vec![wall.hex()]);
+        assert_eq!(preview.steps.len(),4);
+        assert_eq!(s.doc().unwrap().entity_count(),2,"Preview cannot alter original wall");
+        let created=commit_steps(&mut s,&preview).unwrap();
+        assert_eq!(created.len(),4);
+        assert_eq!(s.doc().unwrap().entity_count(),5);
+        assert!(s.doc().unwrap().entity(wall).is_none());
+        assert!(s.doc().unwrap().entity(keep).is_some());
+        s.execute("undo",&json!({"count":1})).unwrap();
+        assert_eq!(s.doc().unwrap().entity_count(),2);
+        assert!(s.doc().unwrap().entity(wall).is_some());
+        assert!(s.doc().unwrap().entity(keep).is_some());
+        s.execute("redo",&json!({})).unwrap();
+        assert_eq!(s.doc().unwrap().entity_count(),5);
+        assert!(s.doc().unwrap().entity(wall).is_none());
+        assert!(s.doc().unwrap().entity(keep).is_some());
+    }
+
+    #[test]
+    fn stage267_refuses_non_rectangular_or_stale_existing_wall_selection() {
+        let mut s=Session::default();
+        let non_rectangle=s.execute("pline",&json!({"vertices":[[0,0],[6000,0],[6000,200],[500,200]],"closed":true})).unwrap();
+        let non_rect_handle=cadcraft_doc::Handle::parse_hex(non_rectangle["handle"].as_str().unwrap()).unwrap();
+        s.set_selection(vec![non_rect_handle]);
+        assert!(preview_selected_existing_wall(&s,"3000","900",false).is_err());
+        let result=s.execute("pline",&json!({"vertices":[[0.0,-100.0],[6000.0,-100.0],
+            [6000.0,100.0],[0.0,100.0]],"closed":true})).unwrap();
+        let wall=cadcraft_doc::Handle::parse_hex(result["handle"].as_str().unwrap()).unwrap();
+        s.set_selection(vec![wall]);
+        assert!(preview_selected_existing_wall(&s,"50","900",false).is_err(),"opening cannot meet wall end");
+        let stale=preview_selected_existing_wall(&s,"3000","900",false).unwrap();
+        s.execute("line",&json!({"points":[[0,9000],[6000,9000]]})).unwrap();
+        let count=s.doc().unwrap().entity_count();
+        assert!(commit_steps(&mut s,&stale).is_err(),"revision mismatch must reject destructive replacement");
+        assert_eq!(s.doc().unwrap().entity_count(),count);
+        assert!(s.doc().unwrap().entity(wall).is_some());
+    }
+
+    #[test]
     fn stage266_replace_only_managed_wall_door_with_one_undo_and_keep_unrelated_geometry() {
         let mut session=Session::default();
         // Existing, unrelated CAD content must survive an AI Review-managed wall relocation.
@@ -875,7 +925,7 @@ mod tests {
         let state=session.state().unwrap();
         let preview=Preview {uid:state.uid,epoch:session.doc_epoch,revision:state.revision,
             text:text.into(),steps,description,image_evidence:None,selected_opening_guide:None,
-            selected_door_arc:None,replace_handles:None};
+            selected_door_arc:None,replace_handles:None,replace_snapshot:None};
         let originals=commit_steps(&mut session,&preview).unwrap();
         assert_eq!(originals.len(),4);
         assert_eq!(session.doc().unwrap().entity_count(),5);
