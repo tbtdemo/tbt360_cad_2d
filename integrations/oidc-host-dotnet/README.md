@@ -43,3 +43,33 @@ Do not accept a raw JWT payload parsed without signature verification; do not us
 7. No claims, token, or customer DWG content in audit logs.
 
 Status: source/template provided; no live AuthServer tokens, signature-verification integration log, or Windows build PASS has been supplied. Do not treat this sample as proof of end-to-end OIDC.
+
+
+## Stage250 — Authenticated read-only MCP to running desktop CAD
+
+The host now exposes `GET /api/cad360/mcp/read-drawing` with the same JWT bearer authorization as the identity endpoint. This endpoint performs a **read-only** `inspect_drawing` MCP call against the running CAD desktop's loopback control service using the CAD CLI.
+
+Host setup, PowerShell:
+
+```powershell
+$env:CAD360_OIDC_AUTHORITY = "https://YOUR-AUTH-SERVER-ISSUER"
+$env:CAD360_OIDC_AUDIENCE = "cad360-mcp"
+$env:CAD360_LOCAL_TENANT_ID = "YOUR-TRUSTED-TENANT-ID"
+$env:CAD360_MCP_CLI_PATH = "C:\\path\\to\\cadcraft-cli.exe"
+$env:CAD360_MCP_CONNECT_ADDRESS = "127.0.0.1:7979"
+dotnet run --project .\\integrations\\oidc-host-dotnet\\Cad360OidcHost.csproj
+```
+
+In the *same desktop user account* start CAD 360 with its protected local control server available. The CLI must support `cadcraft-cli mcp --connect 127.0.0.1:7979` and use the existing private per-user loopback control-token file.
+
+The endpoint denies access when the JWT has no valid `sub`/`tenant_id`/`role`, the verified JWT tenant does not match `CAD360_LOCAL_TENANT_ID`, the executable path is not absolute and present, or the control target is not IPv4 loopback. The host does not accept a filename, shell command, tool name or TCP address from HTTP request parameters. It launches the CLI with `CAD360_MCP_ACCESS_MODE=readonly`, completes MCP initialize/initialized, invokes only `inspect_drawing`, then terminates the subprocess (10-second maximum).
+
+**Scope limitation:** This enables verified OIDC host -> local read-only MCP bridge **in source**, not a signed JWT-to-Rust credential exchange. The Rust MCP subprocess itself is limited to read-only tools and the local desktop control token; tenant enforcement is at the authenticated .NET endpoint, not in Rust. It is not a cross-tenant shared-host service or a safe generic MCP proxy. Do not expose the sample beyond loopback or use it with concurrent cross-tenant CAD desktop sessions.
+
+To run unit-style policy checks without credentials or a CAD process:
+
+```powershell
+dotnet run --project .\\integrations\\oidc-host-dotnet\\Cad360OidcHost.csproj -- --self-test
+```
+
+Expected: checks for same-tenant viewer/editor, different tenant denial, missing identity, bad role and non-loopback addresses. This does **not** test JWKS signatures or desktop connectivity. Those require the actual AuthServer, desktop EXE and CI acceptance.
