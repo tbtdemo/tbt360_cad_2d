@@ -8,6 +8,7 @@
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 #![forbid(unsafe_code)]
 
+pub mod ai_review;
 pub mod aliasdlg;
 pub mod animation;
 pub mod autosave;
@@ -302,6 +303,7 @@ pub struct CadApp {
     pub hatch_dlg: Option<hatchdlg::HatchDlgState>,
     /// The Edit Block Definition dialog ([`bedit`]).
     pub bedit: bedit::State,
+    pub ai_review: ai_review::AiReview,
 }
 
 impl CadApp {
@@ -352,6 +354,7 @@ impl CadApp {
             alias_dlg: None,
             hatch_dlg: None,
             bedit: bedit::State::default(),
+            ai_review: ai_review::AiReview::default(),
         }
     }
 
@@ -861,6 +864,7 @@ impl CadApp {
             }
         });
         self.opening.show(ui.ctx());
+        self.ai_review.show(ui.ctx(), &mut self.session);
         #[cfg(not(target_arch = "wasm32"))]
         dialogs::show(self, ui.ctx());
         palettes::patterns::prompt_picker(self, ui.ctx());
