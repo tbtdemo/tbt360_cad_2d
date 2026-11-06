@@ -289,7 +289,6 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Stage237 native Block Layer Undo regression failed' }
           cargo test --locked -p cadcraft-mcp --lib ai_vietnamese_stage238_native_dwg_save_reopen_preserves_door_layers -- --nocapture
           if ($LASTEXITCODE -ne 0) { throw 'Stage238 DWG 2018 AI Block/Layer save/reopen regression failed' }
-          if ($LASTEXITCODE -ne 0) { throw 'Stage237 native engine door BLOCK Layer and Undo integration failed' }
           cargo test --locked -p cadcraft-mcp --lib ai_vietnamese_apply_layers_ -- --nocapture
           if ($LASTEXITCODE -ne 0) { throw 'Stage236 AI native Layer opt-in and Preview regressions failed' }
           cargo test --locked -p cadcraft-mcp --lib ai_vietnamese_block_ -- --nocapture
