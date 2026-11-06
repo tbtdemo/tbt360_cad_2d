@@ -1014,9 +1014,17 @@ fn stage256_verified_editor_can_preview_and_commit_native_ai_only_with_matching_
     }};
     let policy=OidcTrustPolicy::new("https://auth.example.test","cad360-mcp").unwrap();
     let grants=["inspect_drawing","query_entities","ai_draw_plan_vietnamese"];
-    let mut s=Server::with_verified_oidc(Box::new(backend),&policy,&verifier,"signed-fixture",uid,&grants).unwrap();
-    assert_eq!(s.access_mode(),"scoped");
     let text="vẽ hai phòng liền kề rộng 3000 và 4000 dài 4000 tại 0,0";
+    let epoch=identity["documentEpoch"].as_u64().expect("epoch");
+    let revision=identity["revision"].as_u64().expect("revision");
+    let scope=policy.admit(&verifier,"signed-fixture",uid,&grants).unwrap();
+    assert!(scope.allowed("ai_draw_plan_vietnamese",&json!({"text":text,"preview":false,
+        "confirm":true,"expectedDocumentUid":uid,"expectedDocumentEpoch":epoch,
+        "expectedRevision":revision})).is_err(),"OIDC role alone must not approve AI writing");
+    // Simulate trusted host approval after human review. No UI approval is asserted here.
+    let approved=scope.with_approved_ai_plan("ai_draw_plan_vietnamese",text,epoch,revision).unwrap();
+    let mut s=Server::with_host_scope(Box::new(backend),approved);
+    assert_eq!(s.access_mode(),"scoped");
     let preview=tool(&mut s,"ai_draw_plan_vietnamese",json!({"text":text,"preview":true}));
     assert_eq!(preview["previewOnly"],true);
     assert_eq!(tool(&mut s,"query_entities",json!({}))["count"],0);
@@ -1034,6 +1042,28 @@ fn stage256_verified_editor_can_preview_and_commit_native_ai_only_with_matching_
     let forbidden=call(&mut s,2562,"tools/call",json!({"name":"script",
         "arguments":{"text":"erase all"}}));
     assert_eq!(forbidden["error"]["code"],-32602);
+}
+
+#[test]
+fn stage257_scoped_editor_cannot_forge_ai_consent_by_setting_confirm_true() {
+    use crate::backend::Backend;
+    use crate::access_policy::HostScope;
+    let mut backend=Headless::default();
+    let identity=backend.call("drawing.inspect",json!({"entities":false})).unwrap();
+    let uid=identity["documentUid"].as_u64().unwrap();
+    let scope=HostScope::new("tenant-1","editor-1","editor",uid).unwrap()
+        .restrict_tools(&["inspect_drawing","query_entities","ai_draw_plan_vietnamese"]).unwrap();
+    let mut server=Server::with_host_scope(Box::new(backend),scope);
+    let text="vẽ hai phòng liền kề rộng 3000 và 4000 dài 4000 tại 0,0";
+    let preview=tool(&mut server,"ai_draw_plan_vietnamese",json!({"text":text,"preview":true}));
+    let plan=&preview["plan"];
+    let denied=call(&mut server,2571,"tools/call",json!({"name":"ai_draw_plan_vietnamese",
+        "arguments":{"text":text,"preview":false,"confirm":true,
+            "expectedDocumentUid":plan["documentUid"],"expectedDocumentEpoch":plan["documentEpoch"],
+            "expectedRevision":plan["revision"]}}));
+    assert_eq!(denied["error"]["code"],-32602,
+        "Agent-supplied confirm cannot substitute trusted host review");
+    assert_eq!(tool(&mut server,"query_entities",json!({}))["count"],0);
 }
 
 #[test]
