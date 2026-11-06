@@ -3493,3 +3493,39 @@ Kế hoạch: Đợt 240 sửa lỗi CI, hoàn thiện thử DWG hai chiều v�
 6. Trọng tâm Đợt 285 là thu thập log Windows CI và xử lý **lỗi thật** của DWG bridge nếu các test mới chỉ ra sai khác về XData/màu, không hạ yêu cầu kiểm thử cho dễ PASS.
 
 **Trạng thái Đợt 284:** Đã commit fixture 38 entity, hai bài test DXF/DWG đa layer, ràng buộc XData, Windows workflow và giáo trình đến Bài 316. Chưa có bằng chứng nghiệm thu Windows EXE hoặc AutoCAD độc lập.
+
+
+## 125. Đợt 285 — Mở lại DWG/DXF, chỉnh sửa hình học native rồi lưu lần nữa
+
+### Bài 317 — Chuyển từ kiểm tra đọc lại sang kiểm tra khả năng chỉnh sửa thực thể
+1. Đợt 284 đã kiểm tra bộ mẫu 38 entity native trên ba layer `AI-WALLS`, `AI-DOORS`, `AI-CONTROL`, bao gồm XData `TBT360_BIM`.
+2. Đợt 285 bổ sung trường hợp **đọc file lại rồi chỉnh sửa tiếp**, gần hơn với quy trình trao đổi bản vẽ: Save → Reopen → sửa đối tượng → Save → Reopen.
+3. Bài thử bắt đầu từ chính bộ mẫu ba layer ở Đợt 284. Các LINE/ARC phải là entity native thực của Drawing, không phải ảnh raster hoặc một gói dữ liệu DWG giả.
+4. Dữ liệu được mở bằng `cadcraft_io::read`, chỉnh sửa qua `Drawing::modify_entity`, lưu bằng `cadcraft_io::write`. Bài test được chạy riêng cho DXF và DWG.
+5. Thử nghiệm nội bộ không thay thế việc mở/sửa/lưu bằng AutoCAD độc lập; kết quả Windows CI chưa có thì chưa được kết luận PASS.
+
+### Bài 318 — Thao tác sửa LINE và ARC sau khi mở bản vẽ
+1. Chọn một LINE đang ở layer `AI-DOORS`, chuyển qua layer `AI-WALLS`, đổi sang màu Index 4 và `ltscale = 2.25`.
+2. Dời đầu cuối LINE thêm 125 đơn vị theo X và 75 đơn vị theo Y; giữ handle entity.
+3. Chọn ARC thuộc layer `AI-DOORS`, chuyển màu về `ByLayer`, tăng bán kính thêm 35 và tăng góc kết thúc thêm 0,25 radian.
+4. Sau chỉnh sửa, kiểm tra số entity không đổi và các thay đổi được lưu. LINE chứa XData BIM ở vị trí khác phải không bị ảnh hưởng.
+5. Nếu thao tác sửa gây mất handle, đổi loại entity hoặc làm rơi thuộc tính của các entity độc lập, coi đây là lỗi dữ liệu, không được bỏ qua để cho qua test.
+
+### Bài 319 — Lưu lại hai lần và kiểm tra hồi quy dữ liệu
+1. Test `stage285_dxf_reopened_ai_drawing_remains_editable_and_resaves` thực hiện hai lần lưu/đọc tiếp theo dưới DXF.
+2. Test `stage285_dwg_reopened_ai_drawing_remains_editable_and_resaves` thực hiện tương tự với DWG; đầu vào và đầu ra sử dụng bộ đọc/ghi nội bộ `cadcraft-io`.
+3. Sau mỗi lần mở lại, dùng `stage284_compare_multilayer` so 38 handle, layer, màu, `ltscale`, tọa độ LINE, đỉnh PLINE, bán kính/góc ARC và XData.
+4. Riêng LINE đã sửa phải có màu Index 4, layer `AI-WALLS`, `ltscale=2.25` và tọa độ đầu cuối mới. ARC đã sửa phải giữ bán kính/góc mới và `ByLayer`.
+5. Metadata `TBT360_BIM` trên LINE độc lập phải giữ nguyên sau cả hai chu kỳ; mọi sai khác là lỗi kiểm thử, chưa được coi là tương thích.
+6. Mức so hình học áp dụng ở test là sai số tuyệt đối 1e-6 đơn vị CAD; không tự nới ngưỡng khi phát hiện thất bại.
+
+### Bài 320 — Windows CI, nghiệm thu và mốc phát hành
+1. Workflow `CAD 360 Stage285 Reopened DWG Native Editing` chạy `cargo check --locked -p cadcraft-io`, `cargo test --locked -p cadcraft-io stage285 -- --nocapture` trên Windows với Rust 1.95.0.
+2. Workflow chạy thêm hồi quy Stage283–284 và bài DWG extension-data, cho phép phát hiện lỗi do bổ sung thao tác sửa entity sau khi đọc.
+3. Tại thời điểm bàn giao, cần log GitHub Actions thành công ở đúng SHA mới được đánh dấu CI PASS. Không có log thì trạng thái vẫn là `chưa xác nhận`.
+4. Trên **EXE Windows thực**, thử PNG/JPEG → AI Preview → Confirm → DWG native → đóng/mở lại → sửa LINE/ARC → Save/Reopen lần nữa; chụp ảnh giao diện thật đưa vào giáo trình.
+5. Để nghiệm thu DWG **hai chiều**, mở DWG bằng Autodesk AutoCAD độc lập, chỉnh sửa và lưu rồi mở về CAD 360; chỉ test nội bộ chưa đủ chứng minh tương thích.
+6. Giữ file `.DWG` chuẩn, không mã hóa, không đóng gói đổi cấu trúc khiến các phần mềm CAD khác không mở được.
+7. Đợt tiếp theo ưu tiên kiểm tra Windows CI thực tế, khắc phục các bài test thất bại nếu có, và mở rộng kiểm tra các đối tượng/thuộc tính có rủi ro như XRef, XData và nhiều layout.
+
+**Đợt 285:** Đã commit hai bài test mở/sửa/lưu lại DWG/DXF cùng workflow Windows và giáo trình đến Bài 320. CI PASS, EXE phát hành và AutoCAD độc lập chưa được nghiệm thu.
