@@ -1,0 +1,34 @@
+name: CAD 360 Stage260 AI Review Geometry
+on:
+  push:
+    branches:
+      - feature/CADTBT360_V1.025_xref-regression
+    paths:
+      - CADTBT360_V1.000/crates/ui-egui/src/ai_review.rs
+      - CADTBT360_V1.000/crates/ui-egui/src/lib.rs
+      - CADTBT360_V1.000/crates/ui-egui/src/menus.rs
+      - .github/workflows/cad360-stage260-ai-review.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  native-geometry:
+    runs-on: windows-latest
+    timeout-minutes: 95
+    defaults:
+      run:
+        working-directory: CADTBT360_V1.000
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: CADTBT360_V1.000
+      - name: Compile native Windows GUI
+        run: cargo check --locked -p cadcraft-ui-egui
+      - name: Test original room/shape commands
+        run: cargo test --locked -p cadcraft-ui-egui stage258_room_parser -- --nocapture
+      - name: Test line rectangle circle
+        run: cargo test --locked -p cadcraft-ui-egui stage259_multiple_native_shapes -- --nocapture
+      - name: Test polyline arc and closed wall outline
+        run: cargo test --locked -p cadcraft-ui-egui stage260_polyline_arc_and_wall -- --nocapture
