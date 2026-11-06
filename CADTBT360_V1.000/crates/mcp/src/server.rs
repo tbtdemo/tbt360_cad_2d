@@ -5,7 +5,7 @@ use std::io::{BufRead, Write};
 use serde_json::{Value, json};
 
 use crate::backend::Backend;
-use crate::access_policy::AccessMode;
+use crate::access_policy::{AccessMode,HostScope};
 use crate::tools::{call_tool, tool_definitions};
 
 pub const PROTOCOL_VERSION: &str = "2025-06-18";
@@ -25,6 +25,7 @@ pub struct Server {
     backend: Box<dyn Backend>,
     initialized: bool,
     access_mode: AccessMode,
+    host_scope: Option<HostScope>,
 }
 
 fn response(id: Value, result: Value) -> Value {
@@ -37,13 +38,20 @@ fn error(id: Value, code: i64, message: impl Into<String>) -> Value {
 impl Server {
     pub fn new(backend: Box<dyn Backend>) -> Self {
         let configured=std::env::var("CAD360_MCP_ACCESS_MODE").unwrap_or_else(|_| "legacy".into());
-        Self { backend, initialized: false, access_mode: AccessMode::from_setting(&configured) }
+        Self { backend, initialized: false, access_mode: AccessMode::from_setting(&configured),host_scope:None }
     }
     /// Explicitly scoped server for an approved external MCP host.
     pub fn with_access_mode(backend:Box<dyn Backend>,mode:&str)->Self {
-        Self {backend,initialized:false,access_mode:AccessMode::from_setting(mode)}
+        Self {backend,initialized:false,access_mode:AccessMode::from_setting(mode),host_scope:None}
     }
-    pub fn access_mode(&self)->&'static str { self.access_mode.as_str() }
+    /// HostScope must be supplied by a trusted native host after authenticating
+    /// the caller. JSON-RPC clients cannot set or override this scope.
+    pub fn with_host_scope(backend:Box<dyn Backend>,scope:HostScope)->Self {
+        Self {backend,initialized:false,access_mode:AccessMode::Reviewed,host_scope:Some(scope)}
+    }
+    pub fn access_mode(&self)->&'static str {
+        if self.host_scope.is_some() {"scoped"} else {self.access_mode.as_str()}
+    }
     pub fn backend(&mut self) -> &mut dyn Backend {
         self.backend.as_mut()
     }
@@ -121,11 +129,14 @@ impl Server {
             "tools/call" => {
                 let name = params.get("name").and_then(Value::as_str).ok_or((INVALID_PARAMS, "missing tool `name`".to_string()))?;
                 let args = params.get("arguments").unwrap_or(&Value::Null);
-                let access=self.access_mode.allowed(name,args);
+                let access=match self.host_scope.as_ref() {
+                    Some(scope)=>scope.allowed(name,args),
+                    None=>self.access_mode.allowed(name,args),
+                };
                 // Audit only policy, safe tool identifier and allow/deny. Never store arguments.
                 let safe_name:String=name.chars().filter(|c|c.is_ascii_alphanumeric()||*c=='_').take(64).collect();
                 eprintln!("CAD360_MCP_AUDIT mode={} tool={} decision={}",
-                    self.access_mode.as_str(),safe_name,if access.is_ok(){"allow"}else{"deny"});
+                    self.access_mode(),safe_name,if access.is_ok(){"allow"}else{"deny"});
                 access.map_err(|reason|(INVALID_PARAMS,reason.to_string()))?;
                 call_tool(self.backend.as_mut(), name, args).map_err(|m| (INVALID_PARAMS, m))
             }
