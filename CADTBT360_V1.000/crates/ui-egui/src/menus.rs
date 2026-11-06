@@ -62,6 +62,7 @@ pub const UI_COMMANDS: &[(&str, &str, &[&str], Option<&str>)] = &[
     ("ui.newtemplate", "New from Template...", &["File", "New from Template..."], None),
     ("ui.saveas", "Save As...", &[], None),
     ("ui.sample", "Open Sample Drawing", &["Help", "Open Sample Drawing"], None),
+    ("ui.ai.review", "CAD 360 AI Review...", &["Tools", "CAD 360 AI Review..."], None),
     ("ui.toggle.toolsets", "Tool Sets", &["Window", "Tool Sets"], Some("Cmd+3")),
     ("ui.panel.properties", "Properties Inspector", &["Window", "Properties Inspector"], Some("Cmd+1")),
     ("ui.panel.layers", "Layers Palette", &["Window", "Layers Palette"], None),
@@ -981,6 +982,10 @@ fn run_ui_command_inner(app: &mut CadApp, id: &str, params: &Value) -> Option<Re
                 Err(e) => e.clone(),
             });
             r
+        }
+        "ui.ai.review" => {
+            app.ai_review.open=true;
+            Ok(Value::Null)
         }
         "ui.sample" => {
             let d = cadcraft_engine::sample::default_sample();
