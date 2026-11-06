@@ -303,6 +303,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Stage249 OIDC .NET host restore failed' }
           dotnet build integrations/oidc-host-dotnet/Cad360OidcHost.csproj --configuration Release --no-restore
           if ($LASTEXITCODE -ne 0) { throw 'Stage249 OIDC .NET host compilation failed' }
+          dotnet run --project integrations/oidc-host-dotnet/Cad360OidcHost.csproj --configuration Release --no-build -- --self-test
+          if ($LASTEXITCODE -ne 0) { throw 'Stage250 OIDC host tenant, role and loopback policy tests failed' }
 
       - name: Require image-to-CAD and native raster regression before release packaging
         id: ai_tests
