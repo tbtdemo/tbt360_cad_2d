@@ -831,3 +831,37 @@ fn stage245_scoped_mcp_server_rejects_wrong_document_and_viewer_write() {
     let resource=call(&mut mismatched,504,"resources/read",json!({"uri":"cadcraft://drawing"}));
     assert_eq!(resource["error"]["code"],-32602);
 }
+
+#[test]
+fn stage246_tool_discovery_only_advertises_host_approved_tools() {
+    use crate::backend::Backend;
+    use crate::access_policy::HostScope;
+    let mut backend=Headless::default();
+    let inspected=backend.call("drawing.inspect",json!({"entities":false})).unwrap();
+    let uid=inspected["documentUid"].as_u64().unwrap();
+    let scope=HostScope::new("tenant-test","editor-test","editor",uid).unwrap()
+        .restrict_tools(&["inspect_drawing","ai_draw_plan_vietnamese"]).unwrap();
+    let mut server=Server::with_host_scope(Box::new(backend),scope);
+    let response=call(&mut server,601,"tools/list",json!({}));
+    let names:Vec<&str>=response["result"]["tools"].as_array().unwrap().iter()
+        .filter_map(|v|v["name"].as_str()).collect();
+    assert!(names.contains(&"inspect_drawing"));
+    assert!(names.contains(&"ai_draw_plan_vietnamese"));
+    assert!(!names.contains(&"execute"));
+    assert!(!names.contains(&"script"));
+    assert!(!names.contains(&"list_commands"),"Tool discovery must honor trusted host scope");
+    let denied=call(&mut server,602,"tools/call",json!({"name":"list_commands","arguments":{}}));
+    assert_eq!(denied["error"]["code"],-32602);
+}
+
+#[test]
+fn stage246_readonly_server_hides_mutating_commands_from_discovery() {
+    let mut server=Server::with_access_mode(Box::new(Headless::default()),"readonly");
+    let response=call(&mut server,603,"tools/list",json!({}));
+    let names:Vec<&str>=response["result"]["tools"].as_array().unwrap().iter()
+        .filter_map(|v|v["name"].as_str()).collect();
+    assert!(names.contains(&"inspect_drawing"));
+    assert!(!names.contains(&"execute"));
+    assert!(!names.contains(&"command_line"));
+    assert!(!names.contains(&"ai_draw_vietnamese"));
+}
