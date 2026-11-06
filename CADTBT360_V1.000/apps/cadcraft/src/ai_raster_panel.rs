@@ -16,6 +16,7 @@ struct PdfRenderTask {
     receiver: std::sync::mpsc::Receiver<Result<std::path::PathBuf,String>>,
     source: std::path::PathBuf,
     page: u32,
+    source_fingerprint: (u64,u64),
 }
 
 struct PreviewTask {
@@ -274,6 +275,30 @@ fn pdf_renderer() -> std::path::PathBuf {
 }
 
 /// Convert one PDF page to PNG with Poppler. Never edits the PDF and does not launch a shell.
+/// Fingerprint the PDF bytes, not just its path or last-modified time.
+/// A changed page source must never be accepted as the same AI raster job.
+fn fingerprint_pdf(pdf:&std::path::Path)->Result<(u64,u64),String> {
+    use std::hash::{Hash,Hasher};
+    use std::io::Read as _;
+    let file=std::fs::File::open(pdf).map_err(|e|format!("Không mở được PDF AI: {e}"))?;
+    let meta=file.metadata().map_err(|e|e.to_string())?;
+    if !meta.is_file() || meta.len()==0 || meta.len()>100*1024*1024 {
+        return Err("PDF đầu vào phải là tệp thường và có dung lượng tối đa 100 MB.".into());
+    }
+    let mut reader=std::io::BufReader::new(file);
+    let mut hash=std::collections::hash_map::DefaultHasher::new();
+    let mut size=0u64;
+    let mut chunk=[0u8;32768];
+    loop {
+        let read=reader.read(&mut chunk).map_err(|e|format!("Không đọc được PDF AI: {e}"))?;
+        if read==0 {break;}
+        size+=read as u64;
+        if size>100*1024*1024 {return Err("PDF thay đổi kích thước quá 100 MB.".into());}
+        chunk[..read].hash(&mut hash);
+    }
+    Ok((size,hash.finish()))
+}
+
 fn render_pdf_page(pdf: &std::path::Path, page: u32) -> Result<std::path::PathBuf,String> {
     if !(1..=500).contains(&page) { return Err("Số trang PDF phải từ 1 đến 500.".into()); }
     let metadata=std::fs::metadata(pdf).map_err(|e|format!("Không truy cập được PDF: {e}"))?;
@@ -317,14 +342,30 @@ fn start_pdf_render(state: &mut State, ctx: &egui::Context) {
     if state.pdf_pending.is_some() { return; }
     let path=std::path::PathBuf::from(&state.pdf_path);
     let page=state.pdf_page;
+    let source_fingerprint=match fingerprint_pdf(&path) {
+        Ok(fingerprint)=>fingerprint,
+        Err(error)=>{state.error=Some(error);return;}
+    };
     let (sender,receiver)=std::sync::mpsc::channel();
     let ctx=ctx.clone();
-    state.pdf_pending=Some(PdfRenderTask{receiver,source:path.clone(),page});
+    state.pdf_pending=Some(PdfRenderTask{receiver,source:path.clone(),page,source_fingerprint});
     state.path.clear(); // Never reuse an earlier image if a different PDF page fails to render.
     state.preview=None;state.preview_document_uid=None;state.preview_revision=None;state.preview_document_epoch=None;
     state.error=None;
     std::thread::spawn(move || {
-        let result=render_pdf_page(&path,page);
+        let result=render_pdf_page(&path,page).and_then(|png| {
+            match fingerprint_pdf(&path) {
+                Ok(fingerprint) if fingerprint==source_fingerprint=>Ok(png),
+                Ok(_)=>{
+                    let _=std::fs::remove_file(&png);
+                    Err("Nội dung PDF đã bị sửa trong khi kết xuất. Hãy nạp lại trang.".into())
+                },
+                Err(error)=>{
+                    let _=std::fs::remove_file(&png);
+                    Err(error)
+                },
+            }
+        });
         // A closed dialog drops the receiver; never leak an unclaimed temporary raster file.
         if let Err(undelivered)=sender.send(result) {
             if let Ok(png)=undelivered.0 {let _=std::fs::remove_file(png);}
@@ -342,7 +383,8 @@ fn poll_pdf_render(state: &mut State, ctx: &egui::Context) {
     };
     if let Some(result)=result {
         let Some(task)=state.pdf_pending.take() else {return};
-        if task.source!=std::path::PathBuf::from(&state.pdf_path) || task.page!=state.pdf_page {
+        if task.source!=std::path::PathBuf::from(&state.pdf_path) || task.page!=state.pdf_page
+            || fingerprint_pdf(&task.source).ok()!=Some(task.source_fingerprint) {
             if let Ok(png)=result {let _=std::fs::remove_file(png);}
             state.error=Some("Trang PDF hoặc tệp nguồn đã thay đổi; cần nạp lại trang đã chọn.".into());
             return;
@@ -2119,6 +2161,18 @@ mod tests {
         assert_eq!(state.local_model,"qwen2.5:7b");
         assert!(cadcraft_ui_egui::ai_review::AiReview::validates_native_command("vẽ phòng rộng 6000 dài 4000 tại 0,0"));
         assert!(!cadcraft_ui_egui::ai_review::AiReview::validates_native_command("xóa toàn bộ bản vẽ"));
+    }
+
+    #[test]
+    fn ai_pdf_source_fingerprint_rejects_same_length_mutation() {
+        let file=std::env::temp_dir().join(format!("cad360_pdf_fingerprint_{}.pdf",std::process::id()));
+        std::fs::write(&file,b"%PDF-1.4\nsource-aa").unwrap();
+        let before=fingerprint_pdf(&file).unwrap();
+        std::fs::write(&file,b"%PDF-1.4\nsource-bb").unwrap();
+        let after=fingerprint_pdf(&file).unwrap();
+        assert_eq!(before.0,after.0);
+        assert_ne!(before.1,after.1);
+        let _=std::fs::remove_file(file);
     }
 
     #[test]
