@@ -51,6 +51,8 @@ pub struct HostScope {
     user_id: String,
     role: HostRole,
     document_uid: u64,
+    expires_at_unix: u64,
+    allowed_tools: Option<Vec<String>>,
 }
 impl HostScope {
     pub fn new(tenant_id:&str,user_id:&str,role:&str,document_uid:u64)->Result<Self,&'static str> {
@@ -60,13 +62,44 @@ impl HostScope {
             "viewer"=>HostRole::Viewer,"editor"=>HostRole::Editor,"approver"=>HostRole::Approver,
             _=>return Err("Unknown host role; deny by default")
         };
-        Ok(Self{tenant_id:tenant_id.into(),user_id:user_id.into(),role,document_uid})
+        let now=std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)
+            .map_err(|_|"System clock before UNIX epoch")?.as_secs();
+        Ok(Self{tenant_id:tenant_id.into(),user_id:user_id.into(),role,document_uid,
+            expires_at_unix:now.saturating_add(900),allowed_tools:None})
     }
+    /// Trusted host sets the session expiry derived from a previously VERIFIED OIDC
+    /// access token; this method does not parse or verify tokens itself.
+    pub fn with_verified_expiry(mut self,expires_at_unix:u64)->Result<Self,&'static str> {
+        let now=std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)
+            .map_err(|_|"System clock before UNIX epoch")?.as_secs();
+        if expires_at_unix<=now || expires_at_unix>now.saturating_add(3600) {
+            return Err("OIDC host-scope expiry must be in the next hour");
+        }
+        self.expires_at_unix=expires_at_unix;
+        Ok(self)
+    }
+    /// Restrict the tools permitted by this trusted host session. This can only
+    /// NARROW existing role permissions; it never elevates a Viewer to an Editor.
+    pub fn restrict_tools(mut self,tools:&[&str])->Result<Self,&'static str> {
+        if tools.len()>64 || tools.iter().any(|t|t.is_empty()||t.len()>80
+            || !t.bytes().all(|b|b.is_ascii_alphanumeric()||b==b'_')) {
+            return Err("Invalid MCP host tool restriction");
+        }
+        self.allowed_tools=Some(tools.iter().map(|t|t.to_string()).collect());
+        Ok(self)
+    }
+    pub fn expires_at_unix(&self)->u64 {self.expires_at_unix}
     pub fn document_uid(&self)->u64 {self.document_uid}
     pub fn tenant_id(&self)->&str {&self.tenant_id}
     pub fn user_id(&self)->&str {&self.user_id}
     pub fn role(&self)->&HostRole {&self.role}
     pub fn allowed(&self,tool:&str,args:&Value)->Result<&'static str,&'static str> {
+        let now=std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)
+            .map_err(|_|"Cannot validate MCP host session clock")?.as_secs();
+        if now>=self.expires_at_unix {return Err("MCP scoped session expired; host must re-authenticate");}
+        if self.allowed_tools.as_ref().is_some_and(|tools|!tools.iter().any(|t|t==tool)) {
+            return Err("Tool is outside host-granted scope");
+        }
         let checked=AccessMode::Reviewed.allowed(tool,args)?;
         if self.role==HostRole::Viewer&&
             !["ai_cad_capabilities","ai_cad_preflight","list_commands","inspect_drawing","query_entities","render","ui_inspect"].contains(&tool) {
@@ -88,6 +121,26 @@ mod tests {
     use super::*;
     use serde_json::json;
 
+
+    #[test]
+    fn stage246_host_scope_expires_and_restricts_tools_without_role_escalation() {
+        let now=std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+        let editor=HostScope::new("tenant-a","user-editor","editor",15).unwrap()
+            .with_verified_expiry(now+60).unwrap()
+            .restrict_tools(&["inspect_drawing","ai_draw_plan_vietnamese"]).unwrap();
+        assert!(editor.allowed("inspect_drawing",&json!({})).is_ok());
+        assert!(editor.allowed("list_commands",&json!({})).is_err());
+        let viewer=HostScope::new("tenant-a","user-viewer","viewer",15).unwrap()
+            .restrict_tools(&["ai_draw_plan_vietnamese","inspect_drawing"]).unwrap();
+        assert!(viewer.allowed("inspect_drawing",&json!({})).is_ok());
+        assert!(viewer.allowed("ai_draw_plan_vietnamese",&json!({})).is_err());
+        assert!(HostScope::new("tenant-a","u","editor",15).unwrap()
+            .with_verified_expiry(now.saturating_sub(1)).is_err());
+        assert!(HostScope::new("tenant-a","u","editor",15).unwrap()
+            .with_verified_expiry(now+7200).is_err());
+        assert!(HostScope::new("tenant-a","u","editor",15).unwrap()
+            .restrict_tools(&["execute; rm -rf"]).is_err());
+    }
 
     #[test]
     fn stage245_scoped_host_enforces_tenant_user_role_and_drawing_uid() {
