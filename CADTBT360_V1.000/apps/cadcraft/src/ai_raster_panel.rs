@@ -616,9 +616,15 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
         .show(ctx, |ui| {
             egui::ScrollArea::vertical().id_salt("cad360.ai.studio.scroll").auto_shrink([false,false]).show(ui, |ui| {
             ui.heading("AI DRAWING STUDIO");
-            ui.label(egui::RichText::new("Từ ảnh đến bản vẽ CAD chỉnh sửa được").strong().size(16.0));
-            ui.label("01  Nguồn ảnh    →    02  AI nhận dạng    →    03  Xem trước    →    04  Xác nhận vào CAD");
+            ui.small("Nguồn ảnh/PDF → Xem trước → Xác nhận CAD. Mọi thay đổi đều cần phê duyệt.");
+            ui.horizontal_wrapped(|ui| {
+                for (index,label) in ["01  Ảnh / PDF","02  Vẽ bằng AI","03  Thiết lập nhận dạng","04  Kết nối & Hướng dẫn"].iter().enumerate() {
+                    if ui.selectable_label(state.studio_tab==index,*label).clicked() {state.studio_tab=index;}
+                }
+            });
             ui.separator();
+
+            if state.studio_tab==1 {
             egui::Frame::group(ui.style()).show(ui, |ui| {
                 ui.strong("Trợ lý thao tác AI");
                 ui.small("Ra lệnh theo các chức năng đang được hỗ trợ; không tự ý ghi hoặc sửa bản vẽ.");
@@ -710,6 +716,9 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
                 });
 
             });
+            }
+            if state.studio_tab==3 {
+            ui.heading("Kết nối AI & Tài liệu");
             ui.collapsing("Kết nối trợ lý AI ngoài qua MCP", |ui| {
                 ui.label("CAD 360 có MCP server kết nối với ứng dụng AI hỗ trợ Model Context Protocol.");
                 ui.label("Để AI thao tác trên bản vẽ đang mở, chạy CAD 360 với --control 7979 và kết nối:");
@@ -717,6 +726,8 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
                 ui.small("Chỉ cấp quyền cho AI đáng tin cậy; kiểm tra từng thay đổi và sao lưu trước khi cho phép ghi.");
                 ui.small("Đây là hướng dẫn sử dụng cầu nối MCP hiện có, không phải kết nối tài khoản ChatGPT/Gemini hoặc đăng nhập OAuth trực tiếp.");
             });
+            }
+            if state.studio_tab==0 {
             ui.add_space(8.0);
             ui.heading("Nguồn bản vẽ");
             ui.small("PNG/JPG hoặc PDF nhiều trang. PDF được đưa về PNG để AI nhận dạng; hỗ trợ Poppler đi kèm bộ cài hoặc công cụ trong PATH.");
@@ -792,7 +803,11 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
                 ui.label("Đơn vị CAD/pixel");
                 if ui.add(egui::DragValue::new(&mut state.scale).speed(0.01).range(0.000001..=1_000_000.0)).changed() { state.preview = None; }
             });
-            egui::CollapsingHeader::new("Thiết lập chuyên sâu: hiệu chuẩn, tường, cửa, cột và ngưỡng phát hiện").default_open(false).show(ui, |ui| {
+            }
+            if state.studio_tab==2 {
+            ui.heading("Thiết lập nhận dạng nâng cao");
+            ui.small("Đặt tham số tại đây rồi quay lại tab Ảnh / PDF để chạy nhận dạng.");
+            ui.group(|ui| {
             ui.group(|ui| {
                 ui.label("Hiệu chuẩn tỷ lệ theo chiều dài đã biết (không tự nhận dạng kích thước):");
                 ui.horizontal(|ui| {
@@ -1069,6 +1084,8 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
                 }
             });
             });
+            }
+            if state.studio_tab==0 {
             ui.separator();
             ui.heading("Nhận dạng và kiểm tra kết quả");
             if ui.add_enabled(state.pdf_pending.is_none() && state.preview_task.is_none() && !state.path.is_empty(),
@@ -1705,6 +1722,7 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
                     state.preview_document_epoch = None;
                     state.open = false;
                 }
+            }
             }
             });
         });
