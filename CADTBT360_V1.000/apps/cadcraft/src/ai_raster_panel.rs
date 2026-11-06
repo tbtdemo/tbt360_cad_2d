@@ -9,6 +9,8 @@ pub struct State {
     pub open: bool,
     pub show_help: bool,
     assistant_instruction: String,
+    pdf_path: String,
+    pdf_page: u32,
     path: String,
     preview: Option<Value>,
     preview_document_uid: Option<u64>,
@@ -218,6 +220,32 @@ impl State {
     }
 }
 
+/// Convert one PDF page to PNG with Poppler. Never edits the PDF and does not launch a shell.
+fn render_pdf_page(pdf: &std::path::Path, page: u32) -> Result<std::path::PathBuf,String> {
+    if !(1..=500).contains(&page) { return Err("Số trang PDF phải từ 1 đến 500.".into()); }
+    let metadata=std::fs::metadata(pdf).map_err(|e|format!("Không truy cập được PDF: {e}"))?;
+    if !metadata.is_file() || metadata.len()>100*1024*1024 { return Err("PDF phải là tệp thường và không vượt quá 100 MB.".into()); }
+    let mut file=std::fs::File::open(pdf).map_err(|e|format!("Không mở được PDF: {e}"))?;
+    let mut header=[0u8;5];
+    use std::io::Read as _;
+    file.read_exact(&mut header).map_err(|e|format!("Không đọc được đầu tệp PDF: {e}"))?;
+    if &header!=b"%PDF-" { return Err("Tệp được chọn không có chữ ký PDF hợp lệ.".into()); }
+    let unique=std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_err(|e|e.to_string())?.as_nanos();
+    let prefix=std::env::temp_dir().join(format!("cad360_ai_pdf_{}_{}",std::process::id(),unique));
+    let png=prefix.with_extension("png");
+    let result=std::process::Command::new("pdftoppm")
+        .arg("-f").arg(page.to_string()).arg("-l").arg(page.to_string())
+        .arg("-singlefile").arg("-scale-to").arg("2400").arg("-png")
+        .arg(pdf).arg(&prefix).output()
+        .map_err(|e|format!("Không chạy được Poppler pdftoppm ({e}). Hãy cài Poppler và thêm thư mục bin vào PATH."))?;
+    if !result.status.success() {
+        return Err(format!("Không chuyển được trang {page} của PDF: {}",String::from_utf8_lossy(&result.stderr).chars().take(300).collect::<String>()));
+    }
+    let size=std::fs::metadata(&png).map_err(|e|format!("Không tìm thấy ảnh trang PDF: {e}"))?.len();
+    if size==0 || size>80*1024*1024 { let _=std::fs::remove_file(&png); return Err("Ảnh PDF tạo ra rỗng hoặc quá 80 MB.".into()); }
+    Ok(png)
+}
+
 /// Applies a safe, deterministic AI workflow preset. A text instruction never writes CAD directly.
 fn apply_ai_instruction(state: &mut State, instruction: &str) -> Result<&'static str, &'static str> {
     let q=instruction.trim().to_lowercase();
@@ -288,7 +316,7 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
             });
             ui.add_space(8.0);
             ui.heading("Nguồn bản vẽ");
-            ui.small("Đầu vào hiện được hỗ trợ: PNG/JPG/JPEG. PDF cần được chuyển thành ảnh ở bước nhập liệu; chưa nhận PDF trực tiếp ở màn hình này.");
+            ui.small("PNG/JPG hoặc trang PDF: chuyển PDF sang PNG để dùng chung lõi AI nhận dạng. PDF cần Poppler pdftoppm trên máy.");
             if ui.toggle_value(&mut state.show_help, "📖 Hướng dẫn từng bước").clicked() {
                 state.error = None;
             }
@@ -312,6 +340,7 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
                         .add_filter("Images", &["png","jpg","jpeg"]).pick_file()
                 {
                     state.path = path.to_string_lossy().into_owned();
+                    state.pdf_path.clear();
                     // Per-door indices refer only to the OLD image's candidate order.
                     // Never transfer reviewed geometry to a newly selected image.
                     state.reset_door_reviews_for_new_source();
@@ -322,8 +351,32 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
                     state.preview_document_epoch = None;
                     state.error = None;
                 }
+                if ui.button("Chọn PDF…").clicked()
+                    && let Some(pdf)=rfd::FileDialog::new().add_filter("PDF",&["pdf"]).pick_file()
+                {
+                    state.pdf_path=pdf.to_string_lossy().into_owned();state.pdf_page=1;
+                    match render_pdf_page(&pdf,1) {
+                        Ok(png)=>{state.path=png.to_string_lossy().into_owned();state.reset_door_reviews_for_new_source();state.preview=None;
+                            state.preview_document_uid=None;state.preview_revision=None;state.preview_document_epoch=None;state.error=None;},
+                        Err(e)=>{state.pdf_path.clear();state.error=Some(e);}
+                    }
+                }
                 ui.label(state.path.rsplit(['/', '\\']).next().unwrap_or("(Chưa chọn ảnh)"));
             });
+            if !state.pdf_path.is_empty() {
+                ui.horizontal(|ui| {
+                    ui.label(format!("PDF: {}",std::path::Path::new(&state.pdf_path).file_name().unwrap_or_default().to_string_lossy()));
+                    ui.label("Trang:");
+                    ui.add(egui::DragValue::new(&mut state.pdf_page).range(1..=500));
+                    if ui.button("Nạp trang PDF").clicked() {
+                        match render_pdf_page(std::path::Path::new(&state.pdf_path),state.pdf_page) {
+                            Ok(png)=>{state.path=png.to_string_lossy().into_owned();state.reset_door_reviews_for_new_source();state.preview=None;
+                                state.preview_document_uid=None;state.preview_revision=None;state.preview_document_epoch=None;state.error=None;},
+                            Err(e)=>state.error=Some(e),
+                        }
+                    }
+                });
+            }
             ui.horizontal(|ui| {
                 ui.label("Nét tối thiểu (px)");
                 if ui.add(egui::DragValue::new(&mut state.min_length).range(2..=4096)).changed() { state.preview = None; }
@@ -1639,6 +1692,12 @@ mod tests {
         state.confirm_door_swing_arcs=true;
         assert_eq!(state.params()["confirmDoorSwingArcs"],true);
         assert_eq!(state.params()["preview"],true);
+    }
+
+    #[test]
+    fn ai_pdf_page_gate_rejects_invalid_page_without_external_process() {
+        assert!(render_pdf_page(std::path::Path::new("unused.pdf"),0).is_err());
+        assert!(render_pdf_page(std::path::Path::new("unused.pdf"),501).is_err());
     }
 
     #[test]
