@@ -212,6 +212,72 @@ mod stage279_tests {
     }
 
     #[test]
+    fn stage280_native_line_commands_near_undo_limit_preserve_source_and_redo() {
+        use crate::Session;
+        use serde_json::json;
+        let mut session=Session::default();
+        let earlier=session.execute("line",&json!({"points":[[5000.0,5000.0],[5200.0,5000.0]]})).unwrap();
+        let earlier_handle=cadcraft_doc::Handle::parse_hex(earlier["handles"][0].as_str().unwrap()).unwrap();
+        // Fill history with lightweight snapshots without growing the actual drawing.
+        // Following operations use the genuine Session::execute CAD command and Undo/Redo.
+        while session.state().unwrap().undo.len()<MAX_UNDO {
+            let previous={
+                let state=session.state().unwrap();
+                Snapshot {label:"prior-history".into(),doc:state.doc.clone(),selection:Vec::new()}
+            };
+            session.state_mut().unwrap().push_undo(previous);
+        }
+        assert_eq!(session.state().unwrap().undo.len(),MAX_UNDO);
+        let baseline=session.doc().unwrap().entity_count();
+        session.execute("undo",&json!({"mode":"begin"})).unwrap();
+        let mut native_handles=Vec::new();
+        for n in 0..96 {
+            let y=6000.0+f64::from(n)*50.0;
+            let response=session.execute("line",&json!({"points":[[100.0,y],[900.0,y]]})).unwrap();
+            let handle=cadcraft_doc::Handle::parse_hex(response["handles"][0].as_str().unwrap()).unwrap();
+            native_handles.push(handle);
+            assert_eq!(session.state().unwrap().undo.len(),MAX_UNDO);
+            assert_eq!(session.state().unwrap().undo_ctl.group,Some(MAX_UNDO-1));
+        }
+        assert_eq!(session.doc().unwrap().entity_count(),baseline+native_handles.len());
+        assert!(session.execute("undo",&json!({"mode":"end"})).is_ok());
+        assert!(session.state().unwrap().undo_ctl.group.is_none());
+        assert_eq!(session.state().unwrap().undo.len(),MAX_UNDO);
+        session.execute("undo",&json!({"count":1})).unwrap();
+        assert_eq!(session.doc().unwrap().entity_count(),baseline);
+        assert!(session.doc().unwrap().entity(earlier_handle).is_some());
+        for h in &native_handles {assert!(session.doc().unwrap().entity(*h).is_none());}
+        session.execute("redo",&json!({})).unwrap();
+        assert_eq!(session.doc().unwrap().entity_count(),baseline+native_handles.len());
+        assert!(session.doc().unwrap().entity(earlier_handle).is_some());
+        for h in &native_handles {assert!(session.doc().unwrap().entity(*h).is_some());}
+    }
+
+    #[test]
+    fn stage280_native_zero_mutation_group_near_history_limit_never_undoes_prior_line() {
+        use crate::Session;
+        use serde_json::json;
+        let mut session=Session::default();
+        let earlier=session.execute("line",&json!({"points":[[5000.0,5000.0],[5100.0,5000.0]]})).unwrap();
+        let h=cadcraft_doc::Handle::parse_hex(earlier["handles"][0].as_str().unwrap()).unwrap();
+        while session.state().unwrap().undo.len()<MAX_UNDO {
+            let snapshot={
+                let state=session.state().unwrap();
+                Snapshot {label:"prior-history".into(),doc:state.doc.clone(),selection:Vec::new()}
+            };
+            session.state_mut().unwrap().push_undo(snapshot);
+        }
+        session.execute("undo",&json!({"mode":"begin"})).unwrap();
+        let response=session.execute("erase",&json!({"handles":["FFFFFFFFFFFFFFFE"]})).unwrap();
+        assert_eq!(response["erased"],0);
+        assert_eq!(session.state().unwrap().undo_ctl.group,Some(MAX_UNDO));
+        assert_eq!(session.state().unwrap().undo.len(),MAX_UNDO);
+        session.execute("undo",&json!({"mode":"end"})).unwrap();
+        assert_eq!(session.state().unwrap().undo.len(),MAX_UNDO);
+        assert!(session.doc().unwrap().entity(h).is_some());
+    }
+
+    #[test]
     fn stage279_group_with_many_more_steps_than_history_limit_remains_undoable() {
         let mut st=DocState::new(Drawing::default(),"Stage279",None);
         st.begin_undo_group();
