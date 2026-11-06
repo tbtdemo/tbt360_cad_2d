@@ -1,0 +1,42 @@
+name: CAD 360 Stage286 Multi Layout and BIM XData
+on:
+  push:
+    branches:
+      - feature/CADTBT360_V1.025_xref-regression
+    paths:
+      - CADTBT360_V1.000/crates/io/src/tests.rs
+      - .github/workflows/cad360-stage286-layout-xdata.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  multi-layout-integrity:
+    runs-on: windows-latest
+    timeout-minutes: 110
+    defaults:
+      run:
+        working-directory: CADTBT360_V1.000
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.95.0'
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: CADTBT360_V1.000
+      - name: Print tested SHA and toolchain
+        shell: pwsh
+        run: |
+          git rev-parse HEAD
+          cargo --version
+          rustc --version
+      - name: Compile file format reader and writer
+        run: cargo check --locked -p cadcraft-io
+      - name: Model space and two paper layouts with BIM XData
+        run: cargo test --locked -p cadcraft-io stage286 -- --nocapture
+      - name: Reopened DWG editing and resaving
+        run: cargo test --locked -p cadcraft-io stage285 -- --nocapture
+      - name: Multilayer geometry and management XData
+        run: cargo test --locked -p cadcraft-io stage284 -- --nocapture
+      - name: Existing XRef file-format regressions
+        run: cargo test --locked -p cadcraft-io xref -- --nocapture
