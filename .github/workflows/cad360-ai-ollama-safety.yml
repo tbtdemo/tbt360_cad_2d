@@ -40,6 +40,8 @@ jobs:
         run: cargo test --locked -p cadcraft --bin cadcraft ai_local_llm_is_optional_and_does_not_commit_native_cad_on_open -- --nocapture
       - name: Validate actual multi-object commit with one Undo and Redo
         run: cargo test --locked -p cadcraft-ui-egui ai_multi_object_plan_commits_three_editable_entities_and_one_undo_group -- --nocapture
+      - name: Validate rollback after partial native CAD AI execution failure
+        run: cargo test --locked -p cadcraft-ui-egui ai_multi_object_runtime_failure_rolls_back_first_created_native_entity -- --nocapture
       - name: Validate invalid multi-command plan never mutates document
         run: cargo test --locked -p cadcraft-ui-egui ai_multi_object_plan_rejects_bad_command_without_starting_undo_or_writing_cad -- --nocapture
       - name: Validate atomic multi-object CAD plan and step count limits
