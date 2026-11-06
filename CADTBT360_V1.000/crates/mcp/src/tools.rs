@@ -1015,6 +1015,56 @@ mod ai_draft_vietnamese_tests {
         std::fs::remove_file(path).expect("remove DXF fixture");
     }
 
+    /// Stage241: stale confirmation must never start an undo group or create
+    /// native entities.  Tests the actual Headless engine, not a mock.
+    #[test]
+    fn ai_vietnamese_stage241_native_stale_preview_rejected_before_mutation() {
+        use crate::backend::{Backend,Headless};
+        let mut cad=Headless::default();
+        let text="vẽ hai phòng liền kề rộng 3000 và 4000 dài 4000 tại 0,0 cửa 900 giữa bản lề dưới mở phải";
+        let preview=super::ai_draw_plan_vietnamese(&mut cad,
+            &json!({"text":text,"createDoorBlock":true,"applyLayers":true})).unwrap();
+        let plan=&preview["plan"];
+        let baseline=cad.session.doc().unwrap().entity_count();
+        let response=super::ai_draw_plan_vietnamese(&mut cad,&json!({
+            "text":text,"createDoorBlock":true,"applyLayers":true,
+            "preview":false,"confirm":true,
+            "expectedDocumentUid":plan["documentUid"],
+            "expectedDocumentEpoch":plan["documentEpoch"],
+            "expectedRevision":plan["revision"].as_u64().unwrap()+1
+        }));
+        assert!(response.unwrap_err().contains("revision"),"stale revision must be rejected");
+        assert_eq!(cad.session.doc().unwrap().entity_count(),baseline,
+            "rejected confirmation must not create any entity");
+        let inspected=cad.call("drawing.inspect",json!({"entities":false})).unwrap();
+        assert_eq!(inspected["undoGroupOpen"],false,"rejected commit must not open undo group");
+        assert_eq!(inspected["revision"],plan["revision"],"rejected commit must not advance revision");
+    }
+
+    /// A changed drawing must invalidate its previous AI Preview.  Even a
+    /// valid user confirmation cannot overwrite another user's intervening edit.
+    #[test]
+    fn ai_vietnamese_stage241_native_intervening_edit_invalidates_preview() {
+        use crate::backend::{Backend,Headless};
+        let mut cad=Headless::default();
+        let text="vẽ hai phòng liền kề rộng 3000 và 4000 dài 4000 tại 0,0 cửa 900 giữa bản lề dưới mở phải";
+        let preview=super::ai_draw_plan_vietnamese(&mut cad,&json!({"text":text,"applyLayers":true})).unwrap();
+        let plan=&preview["plan"];
+        cad.call("engine.execute",json!({"command":"line","params":{
+            "points":[[1.0,2.0],[3.0,4.0]]
+        }})).expect("intervening native CAD edit");
+        let before=cad.session.doc().unwrap().entity_count();
+        let response=super::ai_draw_plan_vietnamese(&mut cad,&json!({
+            "text":text,"applyLayers":true,"preview":false,"confirm":true,
+            "expectedDocumentUid":plan["documentUid"],
+            "expectedDocumentEpoch":plan["documentEpoch"],
+            "expectedRevision":plan["revision"]
+        }));
+        assert!(response.unwrap_err().contains("revision"));
+        assert_eq!(cad.session.doc().unwrap().entity_count(),before,
+            "stale AI commit cannot destroy or duplicate existing native edit");
+    }
+
     #[test]
     fn ai_vietnamese_plan_is_atomic_on_parser_validation() {
         assert!(super::parse_vietnamese_plan("vẽ đường thẳng từ 0,0 đến 10,0").is_err());
