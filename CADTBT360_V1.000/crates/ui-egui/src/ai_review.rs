@@ -777,7 +777,8 @@ mod tests {
     fn stage266_replace_only_managed_wall_door_with_one_undo_and_keep_unrelated_geometry() {
         let mut session=Session::default();
         // Existing, unrelated CAD content must survive an AI Review-managed wall relocation.
-        session.execute("line",&json!({"points":[[0.0,9000.0],[6000.0,9000.0]]})).unwrap();
+        let external=session.execute("line",&json!({"points":[[0.0,9000.0],[6000.0,9000.0]]})).unwrap();
+        let external_handle=cadcraft_doc::Handle::parse_hex(external["handles"][0].as_str().unwrap()).unwrap();
         let text="vẽ tường có cửa từ 0,0 đến 6000,0 dày 200 cửa 900 tại 3000 mở trái";
         let (steps,description)=plan_from_text(text).unwrap();
         let state=session.state().unwrap();
@@ -802,6 +803,7 @@ mod tests {
         assert_eq!(newest.len(),4);
         assert_eq!(session.doc().unwrap().entity_count(),5,"only four reviewed entities get replaced");
         assert_ne!(originals,newest);
+        assert!(session.doc().unwrap().entity(external_handle).is_some(),"Unrelated LINE must not be erased");
         session.execute("undo",&json!({"count":1})).unwrap();
         assert_eq!(session.doc().unwrap().entity_count(),5);
         for raw in &originals {
@@ -812,6 +814,7 @@ mod tests {
         for raw in &newest {
             assert!(session.doc().unwrap().entity(cadcraft_doc::Handle::parse_hex(raw).unwrap()).is_some());
         }
+        assert!(session.doc().unwrap().entity(external_handle).is_some(),"Unrelated LINE survives Undo and Redo");
     }
 
     #[cfg(not(target_arch = "wasm32"))]
