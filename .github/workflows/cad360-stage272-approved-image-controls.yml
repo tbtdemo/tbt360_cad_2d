@@ -1,0 +1,39 @@
+name: CAD 360 Stage272 AI Reviewed Controls Regression
+on:
+  push:
+    branches:
+      - feature/CADTBT360_V1.025_xref-regression
+    paths:
+      - CADTBT360_V1.000/crates/ui-egui/src/ai_review.rs
+      - CADTBT360_V1.000/crates/ui-egui/Cargo.toml
+      - .github/workflows/cad360-stage272-approved-image-controls.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  approved-image-controls:
+    runs-on: windows-latest
+    timeout-minutes: 100
+    defaults:
+      run:
+        working-directory: CADTBT360_V1.000
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: CADTBT360_V1.000
+      - name: Show exact commit and compiler
+        shell: pwsh
+        run: |
+          git rev-parse HEAD
+          rustc --version
+          cargo --version
+      - name: Compile Windows native GUI
+        run: cargo check --locked -p cadcraft-ui-egui
+      - name: Test frozen image candidate and door-control options
+        run: cargo test --locked -p cadcraft-ui-egui stage272 -- --nocapture
+      - name: Test all Stage258–271 reviewed AI regressions
+        run: cargo test --locked -p cadcraft-ui-egui stage2 -- --nocapture
+      - name: Test image raster vectorizer
+        run: cargo test --locked -p cadcraft-mcp raster -- --nocapture
