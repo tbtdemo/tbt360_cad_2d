@@ -21,7 +21,7 @@ fn safe_input(request:&str)->Result<String,String> {
         return Err("Yêu cầu AI cần từ 1 đến 1200 ký tự, không chứa ký tự điều khiển.".into());
     }
     Ok(format!(
-        "Bạn là bộ phiên dịch yêu cầu thành một lệnh CAD 2D. CHỈ xuất ra đúng MỘT DÒNG lệnh, không Markdown, không giải thích. \
+        "Bạn là bộ phiên dịch yêu cầu thành lệnh CAD 2D. CHỈ xuất ra MỘT DÒNG, không giải thích. Được tạo từ 1 đến 12 lệnh CAD hợp lệ, ngăn cách bằng dấu |, không xuống dòng. \
 Chỉ dùng một trong các mẫu sau: \
 vẽ phòng rộng 6000 dài 4000 tại 0,0; \
 vẽ đường thẳng từ 0,0 đến 100,0; \
@@ -30,7 +30,7 @@ vẽ hình tròn tâm 0,0 bán kính 50; \
 vẽ polyline qua 0,0;100,0;100,50; \
 vẽ cung tâm 0,0 bán kính 100 từ 0 đến 90; \
 vẽ tường từ 0,0 đến 6000,0 dày 200. \
-Nếu yêu cầu không tạo ra được một lệnh hợp lệ, trả lời KHONG_HO_TRO. \
+Nếu yêu cầu không chuyển được thành các lệnh trong danh sách, trả lời KHONG_HO_TRO. Không đoán kích thước, góc hoặc vị trí khi người dùng chưa cung cấp. \
 Không bao giờ tạo lệnh xóa, ghi file, chạy hệ thống, gọi mạng hoặc thay đổi bảo mật. \
 YÊU CẦU NGƯỜI DÙNG: {request}"
     ))
