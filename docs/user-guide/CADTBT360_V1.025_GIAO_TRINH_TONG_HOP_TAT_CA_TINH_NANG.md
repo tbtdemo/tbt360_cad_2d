@@ -1957,3 +1957,33 @@ Bản Word đợt 232 được nối tiếp **bản đầy đủ 132 bài có h�
 *Hình 73.1 — Minh họa vị trí cửa trên vách chung hai phòng, không phải ảnh chụp màn hình EXE. Hình mới chi tiết về bản lề và cung quay nằm trong giáo trình Word FULL đợt 233.*
 
 **Trạng thái:** Đã lập trình parser có bản lề/hướng mở tường chung, native LINE/ARC, bổ sung regression test vào CI; **chưa hoàn thiện BLOCK cửa riêng, Layer theo bộ môn hay thiết kế kiến trúc tự động từ mô tả tự do**. Word FULL cần giữ toàn bộ bài 1–135 và cập nhật bài 136–138 có hình.
+
+
+## 74. Đợt 234 — AI tạo BLOCK cửa thật sau khi duyệt LINE/ARC
+
+### Bài 139 — Chuyển phương án cánh cửa thành BLOCK/INSERT CAD
+
+1. Mở bản vẽ thực hành, xác định đơn vị mm và kết nối MCP `ai_draw_plan_vietnamese`.
+2. Nhập `vẽ hai phòng liền kề rộng 3000 và 4000 dài 4000 tại 0,0 cửa 900 giữa bản lề dưới mở phải`.
+3. **Bật `createDoorBlock:true`, giữ Preview mặc định.** Phương án có 5 lệnh hình học (RECTANG + 2 LINE tường chung + LINE cánh + ARC cung quay), đồng thời mô tả thao tác bổ sung chuyển LINE/ARC cuối thành BLOCK/INSERT.
+4. Kiểm tra điểm bản lề (3000,1550), đầu cánh (3900,1550), ARC 0°–90°, khoảng cửa trên tường chung 900 vẫn trống.
+5. Khi đồng ý, gửi cùng `text`, `createDoorBlock:true`, `preview:false`, `confirm:true` và `expectedDocumentUid`, `expectedDocumentEpoch`, `expectedRevision` từ Preview.
+6. MCP lấy `handles[0]` của LINE cánh và `handle` của ARC, gọi native `block` với `keep:"convert"`, kiểm tra kết quả có `insert`. Tên BLOCK theo dạng `TBT_AI_DOOR_<documentUid>_<revision>`.
+7. Kiểm tra bằng `inspect_drawing`, `query_entities` và Undo trên bản vẽ thử. Không coi BLOCK là cửa BIM, chưa tự sinh thuộc tính loại cửa hoặc thông số thoát nạn.
+
+### Bài 140 — Kiểm tra xác nhận, quyền sở hữu tài liệu và Undo
+
+1. Khi `createDoorBlock:false`, kế hoạch giữ nguyên LINE + ARC độc lập như đợt 233.
+2. Khi `createDoorBlock:true` nhưng thiếu mô tả bản lề và hướng mở, hệ thống phải từ chối trước khi chỉnh sửa.
+3. Trong nhóm Undo, phải đối chiếu `documentUid`, `documentEpoch`, `revision` trước các bước CAD và trước khi chuyển thành BLOCK; không tự Undo khi mất quyền sở hữu bản vẽ.
+4. Nếu BLOCK không trả INSERT hoặc không có native handles, ghi lỗi rõ ràng; chỉ thử rollback sau khi đã kiểm tra an toàn của cùng bản vẽ.
+5. Sau khi test compile, kiểm tra tính nguyên vẹn DXF và DWG trên bản EXE thực trước khi tuyên bố hoàn thiện khả năng trao đổi hai chiều.
+
+### Bài 141 — Kiểm thử hồi quy và nghiệm thu
+
+1. Kiểm thử parser và nhận diện hình học nguồn: `cargo test --locked -p cadcraft-mcp --lib ai_vietnamese_door_block_uses_final_line_and_arc_in_one_plan -- --nocapture`.
+2. Kiểm thử chiều mở/bản lề: `cargo test --locked -p cadcraft-mcp --lib ai_vietnamese_door_hinge_right_and_left_create_native_leaf_arc -- --nocapture`.
+3. Kiểm tra thêm test BLOCK/INSERT/Undo cửa, cửa sổ, cột và Build Windows ở đúng SHA. Chưa có đầy đủ test tích hợp thật cho thao tác BLOCK của công cụ MCP mới; cần bổ sung.
+4. Chỉ công bố Windows EXE PASS khi toàn bộ compile, kiểm thử, packaging và smoke test của chính bản phát hành đạt.
+
+**Giáo trình Word FULL đợt 234**: nối tiếp đầy đủ 138 bài trước, thêm Bài 139–141 và 3 hình minh họa ở chương cuối; toàn bộ 141 bài và 142 hình/sơ đồ. Các hình mới là minh họa kỹ thuật, không phải ảnh chụp EXE thật. Trạng thái Windows CI cần xác minh riêng.
