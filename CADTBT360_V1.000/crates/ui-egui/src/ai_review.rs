@@ -281,6 +281,14 @@ impl AiReview {
             ui.separator();
             ui.label("AI ảnh → nét CAD (PNG/JPEG, tập trung các nét đường; chưa tự xác nhận cửa):");
             ui.label("Đường dẫn ảnh cục bộ:");
+            #[cfg(not(target_arch = "wasm32"))]
+            if ui.button("Chọn ảnh PNG/JPEG...").clicked() {
+                if let Some(path)=rfd::FileDialog::new().add_filter("Ảnh bản vẽ", &["png","jpg","jpeg"]).pick_file() {
+                    self.image_path=path.to_string_lossy().to_string();
+                    self.preview=None; // Choosing a new image invalidates any earlier approval.
+                    self.message="Đã chọn ảnh; hãy Xem trước trước khi vẽ".into();
+                }
+            }
             ui.text_edit_singleline(&mut self.image_path);
             ui.label("Đơn vị CAD trên mỗi pixel (cần hiệu chuẩn thực tế):");
             if self.image_scale.is_empty() {self.image_scale="1".into();}
