@@ -627,25 +627,28 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          # Pinned Poppler Windows build, verified by SHA256 before extraction.
+          # Pinned verified Windows build; no untrusted shell or unverified archive.
           $url = 'https://github.com/oschwartz10612/poppler-windows/releases/download/v26.07.0-0/Release-26.07.0-0.zip'
           $sha = 'A711B0563B06EDC488583D28198B6734C5A494AFBBD1B9D87D3D2866062FB7E2'
           $zip = Join-Path $env:RUNNER_TEMP 'cad360-poppler-26.07.zip'
           $unpacked = Join-Path $env:RUNNER_TEMP 'cad360-poppler-26.07'
           Invoke-WebRequest -Uri $url -OutFile $zip -MaximumRedirection 5
-          $actual = (Get-FileHash $zip -Algorithm SHA256).Hash
-          if ($actual -ne $sha) { throw "Poppler supply-chain checksum mismatch: expected $sha, found $actual" }
+          if ((Get-FileHash $zip -Algorithm SHA256).Hash -ne $sha) { throw 'Poppler SHA256 mismatch' }
           Expand-Archive $zip -DestinationPath $unpacked -Force
           $candidate = Get-ChildItem $unpacked -Filter pdftoppm.exe -File -Recurse | Select-Object -First 1
-          if ($null -eq $candidate) { throw 'Verified Poppler archive does not contain pdftoppm.exe' }
-          $sourceBin = $candidate.Directory.FullName
+          if ($null -eq $candidate) { throw 'Verified archive lacks pdftoppm.exe' }
           $destBin = 'dist/v1025/pdf-tools/bin'
           New-Item -ItemType Directory -Force $destBin | Out-Null
-          Copy-Item (Join-Path $sourceBin '*') $destBin -Recurse -Force
-          if (!(Test-Path (Join-Path $destBin 'pdftoppm.exe'))) { throw 'Bundled pdftoppm.exe missing after packaging' }
+          Copy-Item (Join-Path $candidate.Directory.FullName '*') $destBin -Recurse -Force
+          if (!(Test-Path (Join-Path $destBin 'pdftoppm.exe'))) { throw 'Missing renderer after copy' }
           & (Resolve-Path (Join-Path $destBin 'pdftoppm.exe')) -v
-          if ($LASTEXITCODE -ne 0) { throw 'Bundled Poppler cannot execute on Windows runner' }
-          $licenseFiles = Get-ChildItem $unpacked -Recurse -File | Where-Object { $_.Name -match '^(COPYING|LICENSE)([.]txt)?
+          if ($LASTEXITCODE -ne 0) { throw 'Bundled Poppler cannot run on Windows' }
+          New-Item -ItemType Directory -Force 'dist/v1025/pdf-tools/licenses' | Out-Null
+          Get-ChildItem $unpacked -Recurse -File | Where-Object { $_.Name -match '^(COPYING|LICENSE)([.]txt)?$' } | ForEach-Object {
+            Copy-Item $_.FullName (Join-Path 'dist/v1025/pdf-tools/licenses' $_.Name) -Force
+          }
+
+      - name: Install Inno Setup and create version metadata
         id: prepare_installer
         shell: pwsh
         run: |
@@ -672,7 +675,7 @@ jobs:
           Copy-Item dist/v1025/BUILD_INFO.txt dist/v1025/portable/BUILD_INFO.txt
           New-Item -ItemType Directory -Force dist/v1025/portable/Tools/Poppler/bin | Out-Null
           Copy-Item dist/v1025/pdf-tools/bin/* dist/v1025/portable/Tools/Poppler/bin/ -Recurse -Force
-          if (!(Test-Path dist/v1025/portable/Tools/Poppler/bin/pdftoppm.exe)) { throw 'Portable PDF renderer missing' }
+          if (!(Test-Path dist/v1025/portable/Tools/Poppler/bin/pdftoppm.exe)) { throw 'Portable renderer missing' }
           $guide = 'docs/user-guide/CADTBT360_V1.025_HUONG_DAN_AI_TU_ANH_THANH_CAD.md'
           if (!(Test-Path $guide)) { throw "Missing required Vietnamese user guide: $guide" }
           Copy-Item $guide dist/v1025/portable/HUONG_DAN_AI_TU_ANH_THANH_CAD.md
@@ -848,385 +851,6 @@ jobs:
           $tmp = Join-Path $env:RUNNER_TEMP 'CADTBT360_V1025_PortableTest'
           Expand-Archive $zip -DestinationPath $tmp -Force
           foreach ($n in @('CADTBT360.exe', 'CADTBT360_CLI.exe', 'BUILD_INFO.txt', 'Tools/Poppler/bin/pdftoppm.exe', 'HUONG_DAN_AI_TU_ANH_THANH_CAD.md', 'HUONG_DAN_AI_TU_ANH_THANH_CAD.docx', 'GIAO_TRINH_TONG_HOP_CAD360.docx')) {
-            if (!(Test-Path (Join-Path $tmp $n))) { throw "Portable archive missing $n" }
-          }
-          $guideHash = (Get-FileHash (Join-Path $tmp 'HUONG_DAN_AI_TU_ANH_THANH_CAD.md') -Algorithm SHA256).Hash
-          $sourceGuideHash = (Get-FileHash 'docs/user-guide/CADTBT360_V1.025_HUONG_DAN_AI_TU_ANH_THANH_CAD.md' -Algorithm SHA256).Hash
-          $docxHash = (Get-FileHash (Join-Path $tmp 'HUONG_DAN_AI_TU_ANH_THANH_CAD.docx') -Algorithm SHA256).Hash
-          $releaseDocxHash = (Get-FileHash 'dist/v1025/CADTBT360_V1.025_HUONG_DAN_AI_TU_ANH_THANH_CAD.docx' -Algorithm SHA256).Hash
-          if ($docxHash -ne $releaseDocxHash) { throw 'Portable Word manual differs from the packaged release manual' }
-          $fullGuideSource = 'dist/v1025/CADTBT360_V1.025_GIAO_TRINH_TONG_HOP.docx'
-          $fullGuidePortable = Join-Path $tmp 'GIAO_TRINH_TONG_HOP_CAD360.docx'
-          if ((Get-FileHash $fullGuideSource -Algorithm SHA256).Hash -ne (Get-FileHash $fullGuidePortable -Algorithm SHA256).Hash) { throw 'Full-product user guide in Portable differs from published guide' }
-          python -c "import sys,zipfile,xml.etree.ElementTree as ET; z=zipfile.ZipFile(sys.argv[1]); assert z.testzip() is None; x=ET.fromstring(z.read('word/document.xml')); assert len(z.read('word/document.xml')) > 8000" $fullGuidePortable
-          if ($LASTEXITCODE -ne 0) { throw 'Whole-product Word curriculum is damaged or empty' }
-          # Run the same structural and curriculum gate on the extracted Portable document as on Setup.
-          # ZIP/XML readability alone cannot catch missing lessons, missing tables, or mangled Windows filenames.
-          python scripts/validate_word_guide.py $fullGuidePortable
-          if ($LASTEXITCODE -ne 0) { throw 'Portable full-product Word manual failed curriculum validation' }
-          python -c "import sys,zipfile,xml.etree.ElementTree as ET; p=sys.argv[1]; z=zipfile.ZipFile(p); assert z.testzip() is None; ET.fromstring(z.read('word/document.xml')); assert len(z.read('word/document.xml')) > 1500" (Join-Path $tmp 'HUONG_DAN_AI_TU_ANH_THANH_CAD.docx')
-          if ($LASTEXITCODE -ne 0) { throw 'Portable Word manual is damaged or invalid' }
-          if ($guideHash -ne $sourceGuideHash) { throw 'Portable user guide differs from release source' }
-          $portableGuiHash = (Get-FileHash (Join-Path $tmp 'CADTBT360.exe') -Algorithm SHA256).Hash
-          $portableCliHash = (Get-FileHash (Join-Path $tmp 'CADTBT360_CLI.exe') -Algorithm SHA256).Hash
-          $nativeGuiHash = (Get-FileHash 'CADTBT360_V1.000/target/release/cadcraft.exe' -Algorithm SHA256).Hash
-          $nativeCliHash = (Get-FileHash 'CADTBT360_V1.000/target/release/cadcraft-cli.exe' -Algorithm SHA256).Hash
-          if ($portableGuiHash -ne $nativeGuiHash -or $portableCliHash -ne $nativeCliHash) { throw 'Portable executables do not match freshly compiled release' }
-          & ./scripts/verify_mcp_executable.ps1 -Exe (Join-Path $tmp 'CADTBT360_CLI.exe')
-          if ($LASTEXITCODE -ne 0) { throw 'Portable MCP stdio smoke failed' }
-          $portableInfoHash = (Get-FileHash (Join-Path $tmp 'BUILD_INFO.txt') -Algorithm SHA256).Hash
-          $releaseInfoHash = (Get-FileHash 'dist/v1025/BUILD_INFO.txt' -Algorithm SHA256).Hash
-          if ($portableInfoHash -ne $releaseInfoHash) { throw 'Portable BUILD_INFO.txt does not match the Setup release metadata' }
-          $portableBuildInfo = Get-Content (Join-Path $tmp 'BUILD_INFO.txt')
-          if ($portableBuildInfo -notcontains 'Release=CADTBT360_V1.025' -or $portableBuildInfo -notcontains "SourceCommit=$env:GITHUB_SHA" -or $portableBuildInfo -notcontains 'NativeBuild=true') {
-            throw "Portable archive metadata does not identify this native release commit: $($portableBuildInfo -join '; ')"
-          }
-          $portableCli = Join-Path $tmp 'CADTBT360_CLI.exe'
-          $portableVersion = & $portableCli --version
-          if ($LASTEXITCODE -ne 0 -or $portableVersion -notmatch '^cadcraft-cli [0-9]+[.][0-9]+[.][0-9]+') { throw "Portable CLI startup failed: $portableVersion" }
-          # Run the executable extracted from the ZIP, not the build-tree or installed
-          # CLI. Require it to create a real DXF, convert that DXF to DWG R2018,
-          # and reopen both without losing editable CAD entities.
-          $portableDxf = Join-Path $tmp 'Portable Roundtrip Test.dxf'
-          $portableDwg = Join-Path $tmp 'Portable Roundtrip Test.dwg'
-          & $portableCli sample bracket $portableDxf | Out-Host
-          if ($LASTEXITCODE -ne 0 -or !(Test-Path $portableDxf)) { throw 'Portable CLI cannot create DXF from sample' }
-          & $portableCli convert $portableDxf $portableDwg | Out-Host
-          if ($LASTEXITCODE -ne 0 -or !(Test-Path $portableDwg)) { throw 'Portable CLI cannot convert DXF to DWG' }
-          $portableDwgBytes = [System.IO.File]::ReadAllBytes($portableDwg)
-          if ($portableDwgBytes.Length -lt 64 -or [System.Text.Encoding]::ASCII.GetString($portableDwgBytes, 0, 6) -ne 'AC1032') {
-            throw 'Portable CLI did not produce an R2018 DWG'
-          }
-          $portableDxfInfo = & $portableCli info $portableDxf
-          if ($LASTEXITCODE -ne 0) { throw 'Portable CLI cannot reopen its DXF' }
-          $portableDwgInfo = & $portableCli info $portableDwg
-          if ($LASTEXITCODE -ne 0) { throw 'Portable CLI cannot reopen its DWG' }
-          $portableDxfDrawing = ($portableDxfInfo -join [char]10) | ConvertFrom-Json
-          $portableDwgDrawing = ($portableDwgInfo -join [char]10) | ConvertFrom-Json
-          if ($portableDxfDrawing.entityCount -le 0 -or $portableDwgDrawing.entityCount -ne $portableDxfDrawing.entityCount) {
-            throw "Portable DXF/DWG entity roundtrip mismatch: DXF=$($portableDxfDrawing.entityCount), DWG=$($portableDwgDrawing.entityCount)"
-          }
-          # Release exactly the same committed source as the binaries and guide,
-          # rather than leaving users to reconstruct a moving branch snapshot.
-          $sourceZip = 'dist/v1025/CADTBT360_V1.025_Full_Source.zip'
-          $headSha = (git rev-parse HEAD).Trim()
-          if ($LASTEXITCODE -ne 0 -or $headSha -ne $env:GITHUB_SHA) { throw 'Source checkout SHA differs from release build' }
-          git archive --format=zip --output=$sourceZip HEAD
-          if ($LASTEXITCODE -ne 0 -or !(Test-Path $sourceZip)) { throw 'Failed to archive complete CAD 360 source at release commit' }
-          python scripts/verify_source_bundle.py $sourceZip
-          if ($LASTEXITCODE -ne 0) { throw 'Full source ZIP missing files or differs from the exact release SHA' }
-          $hashes = @()
-          foreach ($name in @('CADTBT360_V1.025_Setup_Windows_x64.exe', 'CADTBT360_V1.025_Portable_Windows_x64.zip', 'CADTBT360_V1.025_Full_Source.zip')) {
-            $h = Get-FileHash (Join-Path 'dist/v1025' $name) -Algorithm SHA256
-            $hashes += "$($h.Hash)  $name"
-          }
-          $hashes | Set-Content dist/v1025/SHA256SUMS.txt -Encoding ascii
-
-      - name: Upload V1.025 Windows Setup and Portable
-        uses: actions/upload-artifact@v4
-        with:
-          name: CADTBT360_V1.025_Windows_x64_Setup_Portable
-          path: |
-            dist/v1025/CADTBT360_V1.025_Setup_Windows_x64.exe
-            dist/v1025/CADTBT360_V1.025_Portable_Windows_x64.zip
-            dist/v1025/CADTBT360_V1.025_Full_Source.zip
-            dist/v1025/BUILD_INFO.txt
-            dist/v1025/SHA256SUMS.txt
-            dist/v1025/HUONG_DAN_AI_TU_ANH_THANH_CAD.md
-            dist/v1025/CADTBT360_V1.025_HUONG_DAN_AI_TU_ANH_THANH_CAD.docx
-            dist/v1025/CADTBT360_V1.025_GIAO_TRINH_TONG_HOP.docx
-          if-no-files-found: error
-          retention-days: 30
-
-      - name: Publish verified Setup and Portable to GitHub prereleases
-        if: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/feature/CADTBT360_V1.025_xref-regression' }}
-        shell: pwsh
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          $tag = "CADTBT360_V1.025_B$($env:GITHUB_RUN_NUMBER)_A$($env:GITHUB_RUN_ATTEMPT)"
-          $assets = @(
-            'dist/v1025/CADTBT360_V1.025_Setup_Windows_x64.exe',
-            'dist/v1025/CADTBT360_V1.025_Portable_Windows_x64.zip',
-            'dist/v1025/CADTBT360_V1.025_Full_Source.zip',
-            'dist/v1025/BUILD_INFO.txt',
-            'dist/v1025/SHA256SUMS.txt',
-            'dist/v1025/HUONG_DAN_AI_TU_ANH_THANH_CAD.md',
-            'dist/v1025/CADTBT360_V1.025_HUONG_DAN_AI_TU_ANH_THANH_CAD.docx',
-            'dist/v1025/CADTBT360_V1.025_GIAO_TRINH_TONG_HOP.docx'
-          )
-          foreach ($asset in $assets) { if (!(Test-Path $asset)) { throw "Verified release asset missing: $asset" } }
-          $notes = "CAD 360 Viet Nam V1.025 Windows x64 - verified automated build `nSource commit: $env:GITHUB_SHA`nRun: $env:GITHUB_RUN_ID`nSetup install/uninstall, CLI DXF/DWG roundtrips, real-PNG IMAGE attachment with supplied trace vertices, and Portable hashes checked. Setup/Portable MCP smoke checks real-PNG LINE recognition, grouped Undo, and save/reopen of AI-generated DXF/DWG R2018 using the shipped CLI. The release also bundles a full-source ZIP from the exact build commit and the editable Vietnamese Word user guide. Independent AutoCAD interoperability, real-world AI accuracy and manual GUI acceptance are not verified."
-          gh release create $tag @assets --title "CAD 360 Viet Nam V1.025 - Build $env:GITHUB_RUN_NUMBER" --target $env:GITHUB_SHA --prerelease --notes $notes
-          if ($LASTEXITCODE -ne 0) { throw "Failed to publish verified Windows prerelease $tag" }
-          # Verify what GitHub actually accepted, not just the local files and
-          # gh upload exit code. Every release asset must exist with the same
-          # nonzero byte length; the tag must identify the build's exact SHA.
-          $releaseJson = gh release view $tag --json tagName,targetCommitish,isPrerelease,assets
-          if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace(($releaseJson -join ''))) { throw "Cannot verify newly published Windows release $tag" }
-          $published = ($releaseJson -join [char]10) | ConvertFrom-Json
-          if ($published.tagName -ne $tag -or $published.targetCommitish -ne $env:GITHUB_SHA -or $published.isPrerelease -ne $true) {
-            throw "GitHub release identity does not match expected tag, exact source commit and prerelease status: $tag"
-          }
-          foreach ($asset in $assets) {
-            $name = Split-Path $asset -Leaf
-            $expectedSize = (Get-Item $asset).Length
-            $match = @($published.assets | Where-Object { $_.name -eq $name })
-            if ($expectedSize -le 0 -or $match.Count -ne 1 -or [long]$match[0].size -ne $expectedSize) {
-              throw "GitHub release $tag is missing or has an invalid uploaded asset: $name (expected $expectedSize bytes)"
-            }
-          }
-          Write-Host "Verified GitHub prerelease $tag with all $($assets.Count) assets, matching sizes and source commit"
-          "GitHub prerelease: https://github.com/$env:GITHUB_REPOSITORY/releases/tag/$tag" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
-
-      - name: Save failed or cancelled build diagnostics for V1.025
-        if: ${{ failure() || cancelled() }}
-        shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Force dist/v1025/diagnostics | Out-Null
-          Write-Host 'Preparing diagnostic artifact for failed or cancelled Windows release'
-          $lines = @(
-            'Release=CADTBT360_V1.025',
-            "SourceCommit=$env:GITHUB_SHA",
-            "RunId=$env:GITHUB_RUN_ID",
-            "RunAttempt=$env:GITHUB_RUN_ATTEMPT",
-            "RunnerOS=$env:RUNNER_OS",
-            'FixtureValidation=${{ steps.validate_fixture.outcome }}',
-            'FullManuals=${{ steps.manuals.outcome }}',
-            'Preflight=${{ steps.preflight.outcome }}',
-            'TestDiscovery=${{ steps.discover.outcome }}',
-            'CliJsonContract=${{ steps.cli_contract.outcome }}',
-            'ImageMCPTests=${{ steps.ai_tests.outcome }}',
-            'XrefDWGTests=${{ steps.cad_tests.outcome }}',
-            'ReleaseBuild=${{ steps.release_build.outcome }}',
-            'InstallerPrepare=${{ steps.prepare_installer.outcome }}',
-            'Package=${{ steps.package.outcome }}',
-            'InstalledSmoke=${{ steps.installed_smoke.outcome }}',
-            'PortableSmoke=${{ steps.portable_smoke.outcome }}'
-          )
-          $lines | Set-Content dist/v1025/diagnostics/CI_FAILURE.txt -Encoding utf8
-          rustc --version 2>&1 | Out-File dist/v1025/diagnostics/RUST_VERSION.txt -Encoding utf8
-          cargo --version 2>&1 | Out-File dist/v1025/diagnostics/CARGO_VERSION.txt -Encoding utf8
-          Get-ChildItem dist/v1025 -File -ErrorAction SilentlyContinue | Select-Object Name,Length,LastWriteTimeUtc | Format-Table -AutoSize | Out-String | Set-Content dist/v1025/diagnostics/DIST_FILES.txt -Encoding utf8
-          $lines | ForEach-Object { Write-Host $_ }
-          "### CAD 360 V1.025 - failed Windows release" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
-          ($lines -join "`n") | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
-
-      - name: Upload V1.025 diagnostics on failed or cancelled build
-        if: ${{ failure() || cancelled() }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: CADTBT360_V1.025_Windows_x64_Failure_Diagnostics
-          path: dist/v1025/diagnostics/
-          if-no-files-found: warn
-          retention-days: 30
- }
-          New-Item -ItemType Directory -Force 'dist/v1025/pdf-tools/licenses' | Out-Null
-          foreach ($license in $licenseFiles) {
-            Copy-Item $license.FullName (Join-Path 'dist/v1025/pdf-tools/licenses' $license.Name) -Force
-          }
-          Write-Host "Verified PDF renderer packaged with checksum: $sha"
-
-      - name: Install Inno Setup and create version metadata
-        id: prepare_installer
-        shell: pwsh
-        run: |
-          $iscc = 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe'
-          if (!(Test-Path $iscc)) { choco install innosetup -y --no-progress }
-          if (!(Test-Path $iscc)) { throw 'Inno Setup compiler not installed' }
-          New-Item -ItemType Directory -Force dist/v1025 | Out-Null
-          @('Release=CADTBT360_V1.025', "SourceCommit=$env:GITHUB_SHA", 'Architecture=windows-x64', 'NativeBuild=true', 'GUIAcceptance=NOT_VERIFIED') | Set-Content dist/v1025/BUILD_INFO.txt -Encoding utf8
-          if (!(Test-Path 'dist/v1025/CADTBT360_V1.025_HUONG_DAN_AI_TU_ANH_THANH_CAD.docx') -or !(Test-Path 'dist/v1025/CADTBT360_V1.025_GIAO_TRINH_TONG_HOP.docx')) { throw 'Preflight-generated Word manuals missing at packaging time' }
-
-      - name: Package new Setup and Portable
-        id: package
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Continue'
-          New-Item -ItemType Directory -Force dist/v1025/diagnostics | Out-Null
-          & 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe' /Qp installer/CADTBT360_V1.025_Windows.iss 2>&1 | Out-String -Stream | Tee-Object -FilePath dist/v1025/diagnostics/INNO_SETUP_BUILD.log | Out-Host
-          if ($LASTEXITCODE -ne 0) { throw 'V1.025 Inno Setup failed; inspect INNO_SETUP_BUILD.log in failure diagnostics' }
-          $setup = 'dist/v1025/CADTBT360_V1.025_Setup_Windows_x64.exe'
-          if (!(Test-Path $setup)) { throw 'V1.025 Setup output missing' }
-          New-Item -ItemType Directory -Force dist/v1025/portable | Out-Null
-          Copy-Item CADTBT360_V1.000/target/release/cadcraft.exe dist/v1025/portable/CADTBT360.exe
-          Copy-Item CADTBT360_V1.000/target/release/cadcraft-cli.exe dist/v1025/portable/CADTBT360_CLI.exe
-          Copy-Item dist/v1025/BUILD_INFO.txt dist/v1025/portable/BUILD_INFO.txt
-          $guide = 'docs/user-guide/CADTBT360_V1.025_HUONG_DAN_AI_TU_ANH_THANH_CAD.md'
-          if (!(Test-Path $guide)) { throw "Missing required Vietnamese user guide: $guide" }
-          Copy-Item $guide dist/v1025/portable/HUONG_DAN_AI_TU_ANH_THANH_CAD.md
-          Copy-Item $guide dist/v1025/HUONG_DAN_AI_TU_ANH_THANH_CAD.md
-          Copy-Item dist/v1025/CADTBT360_V1.025_HUONG_DAN_AI_TU_ANH_THANH_CAD.docx dist/v1025/portable/HUONG_DAN_AI_TU_ANH_THANH_CAD.docx
-          Copy-Item dist/v1025/CADTBT360_V1.025_GIAO_TRINH_TONG_HOP.docx dist/v1025/portable/GIAO_TRINH_TONG_HOP_CAD360.docx
-          Compress-Archive -Path dist/v1025/portable/* -DestinationPath dist/v1025/CADTBT360_V1.025_Portable_Windows_x64.zip -Force
-
-      - name: Smoke test installed application, uninstall and binary identity
-        id: installed_smoke
-        shell: pwsh
-        run: |
-          $setup = (Resolve-Path 'dist/v1025/CADTBT360_V1.025_Setup_Windows_x64.exe').Path
-          # Test a genuine Windows install path with spaces. Start-Process joins its
-          # ArgumentList into a command line, so Inno Setup's /DIR value must be quoted.
-          $dest = Join-Path $env:RUNNER_TEMP 'CADTBT360 V1025 Install Test'
-          $dirArgument = '/DIR="{0}"' -f $dest
-          $proc = Start-Process -FilePath $setup -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', $dirArgument) -Wait -PassThru
-          if ($proc.ExitCode -ne 0) { throw "Installer failed with code $($proc.ExitCode)" }
-          foreach ($n in @('CADTBT360.exe', 'CADTBT360_CLI.exe', 'BUILD_INFO.txt', 'HuongDan/HUONG_DAN_AI_TU_ANH_THANH_CAD.md', 'HuongDan/HUONG_DAN_AI_TU_ANH_THANH_CAD.docx', 'HuongDan/GIAO_TRINH_TONG_HOP_CAD360.docx')) {
-            if (!(Test-Path (Join-Path $dest $n))) { throw "Installed file missing: $n" }
-          }
-          # Verify that both user manuals installed by Inno Setup match the freshly generated release documents.
-          # Existence-only checks can pass even if the installer bundles an outdated or damaged manual.
-          $installedGuides = @(
-            @{ Installed='HuongDan/HUONG_DAN_AI_TU_ANH_THANH_CAD.docx'; Source='dist/v1025/CADTBT360_V1.025_HUONG_DAN_AI_TU_ANH_THANH_CAD.docx' },
-            @{ Installed='HuongDan/GIAO_TRINH_TONG_HOP_CAD360.docx'; Source='dist/v1025/CADTBT360_V1.025_GIAO_TRINH_TONG_HOP.docx' },
-            @{ Installed='HuongDan/HUONG_DAN_AI_TU_ANH_THANH_CAD.md'; Source='docs/user-guide/CADTBT360_V1.025_HUONG_DAN_AI_TU_ANH_THANH_CAD.md' }
-          )
-          foreach ($guide in $installedGuides) {
-            $installedPath = Join-Path $dest $guide.Installed
-            $expectedHash = (Get-FileHash $guide.Source -Algorithm SHA256).Hash
-            $actualHash = (Get-FileHash $installedPath -Algorithm SHA256).Hash
-            if ($actualHash -ne $expectedHash) { throw "Installed manual does not match this release: $($guide.Installed)" }
-          }
-          python scripts/validate_word_guide.py (Join-Path $dest 'HuongDan/GIAO_TRINH_TONG_HOP_CAD360.docx')
-          if ($LASTEXITCODE -ne 0) { throw 'Installed full-product Word manual failed curriculum validation' }
-          $srcGui = (Get-FileHash 'CADTBT360_V1.000/target/release/cadcraft.exe' -Algorithm SHA256).Hash
-          $srcCli = (Get-FileHash 'CADTBT360_V1.000/target/release/cadcraft-cli.exe' -Algorithm SHA256).Hash
-          $instGui = (Get-FileHash (Join-Path $dest 'CADTBT360.exe') -Algorithm SHA256).Hash
-          $instCli = (Get-FileHash (Join-Path $dest 'CADTBT360_CLI.exe') -Algorithm SHA256).Hash
-          if ($srcGui -ne $instGui -or $srcCli -ne $instCli) { throw 'Installed binaries do not match current source build' }
-          & ./scripts/verify_mcp_executable.ps1 -Exe (Join-Path $dest 'CADTBT360_CLI.exe')
-          if ($LASTEXITCODE -ne 0) { throw 'Installed MCP stdio smoke failed' }
-          # SHA identity alone cannot detect a package built for the wrong CPU or a
-          # GUI shipped as a console executable. Inspect PE headers in the actual
-          # installed EXEs; portable files are independently hash-matched to these.
-          function Assert-WindowsPE([string]$path, [int]$expectedSubsystem) {
-            $data = [System.IO.File]::ReadAllBytes($path)
-            if ($data.Length -lt 512 -or $data[0] -ne 77 -or $data[1] -ne 90) { throw "Invalid Windows MZ executable: $path" }
-            $offset = [System.BitConverter]::ToInt32($data, 60)
-            if ($offset -lt 64 -or $offset + 94 -gt $data.Length) { throw "Invalid Windows PE header offset: $path" }
-            if ([System.Text.Encoding]::ASCII.GetString($data, $offset, 4) -ne "PE`0`0") { throw "Missing Windows PE signature: $path" }
-            $machine = [System.BitConverter]::ToUInt16($data, $offset + 4)
-            $magic = [System.BitConverter]::ToUInt16($data, $offset + 24)
-            $subsystem = [System.BitConverter]::ToUInt16($data, $offset + 92)
-            if ($machine -ne 0x8664 -or $magic -ne 0x20b) { throw "Expected native x64 PE32+ executable: $path (machine=$machine, magic=$magic)" }
-            if ($subsystem -ne $expectedSubsystem) { throw "Wrong Windows subsystem in $path : expected $expectedSubsystem, got $subsystem" }
-          }
-          Assert-WindowsPE (Join-Path $dest 'CADTBT360.exe') 2
-          Assert-WindowsPE (Join-Path $dest 'CADTBT360_CLI.exe') 3
-          $installedCli = Join-Path $dest 'CADTBT360_CLI.exe'
-          $cliVersion = & $installedCli --version
-          if ($LASTEXITCODE -ne 0 -or $cliVersion -notmatch '^cadcraft-cli [0-9]+[.][0-9]+[.][0-9]+') { throw "Installed CLI smoke test failed: $cliVersion" }
-          $imageCommands = & $installedCli commands image
-          if ($LASTEXITCODE -ne 0 -or ($imageCommands -join [char]10) -notmatch 'imageattach') { throw 'Installed CLI does not expose IMAGEATTACH command' }
-          $roundTripFile = Join-Path $env:RUNNER_TEMP 'CADTBT360_V1025_Installed_Smoke.dxf'
-          & $installedCli sample floorplan $roundTripFile | Out-Host
-          if ($LASTEXITCODE -ne 0 -or !(Test-Path $roundTripFile)) { throw 'Installed CLI cannot create an editable DXF drawing' }
-          $roundTripInfo = & $installedCli info $roundTripFile
-          if ($LASTEXITCODE -ne 0) { throw 'Installed CLI cannot reopen generated DXF drawing' }
-          $drawingInfo = ($roundTripInfo -join [char]10) | ConvertFrom-Json
-          if ($null -eq $drawingInfo.entityCount -or $drawingInfo.entityCount -le 0) { throw 'Installed CLI reopened DXF without CAD entities' }
-          $dwgFile = Join-Path $env:RUNNER_TEMP 'CADTBT360_V1025_Installed_Interop.dwg'
-          & $installedCli run --metric --cmd 'line {"points":[[0,0],[12,3],[25,8]]}' --save $dwgFile | Out-Host
-          if ($LASTEXITCODE -ne 0 -or !(Test-Path $dwgFile)) { throw 'Installed CLI cannot write an editable DWG drawing' }
-          $dwgBytes = [System.IO.File]::ReadAllBytes($dwgFile)
-          if ($dwgBytes.Length -lt 64 -or [System.Text.Encoding]::ASCII.GetString($dwgBytes, 0, 6) -ne 'AC1032') { throw 'Installed CLI did not produce an R2018 DWG (AC1032)' }
-          $dwgInfoLines = & $installedCli info $dwgFile
-          if ($LASTEXITCODE -ne 0) { throw 'Installed CLI cannot reopen exported DWG' }
-          $dwgInfo = ($dwgInfoLines -join [char]10) | ConvertFrom-Json
-          if ($dwgInfo.counts.Line -ne 2) { throw "DWG roundtrip lost CAD geometry: $($dwgInfoLines -join [char]10)" }
-
-          # Use a real PNG source. A fabricated 'reference.png' string would only test
-          # IMAGE metadata, not the installed application's ability to link an image file.
-          Add-Type -AssemblyName System.Drawing
-          $referenceFile = Join-Path $env:RUNNER_TEMP 'CADTBT360_V1025_TraceReference.png'
-          $bitmap = [System.Drawing.Bitmap]::new(200, 100)
-          try {
-            $bitmap.SetPixel(0, 0, [System.Drawing.Color]::Red)
-            $bitmap.SetPixel(199, 99, [System.Drawing.Color]::Blue)
-            $bitmap.Save($referenceFile, [System.Drawing.Imaging.ImageFormat]::Png)
-          } finally { $bitmap.Dispose() }
-          if (!(Test-Path $referenceFile) -or (Get-Item $referenceFile).Length -le 0) { throw 'Cannot generate real PNG fixture for IMAGE trace smoke' }
-          $referencePath = $referenceFile.Replace([char]92, [char]47)
-          $attachJson = @{ path = $referencePath; pixels = @(200, 100); width = 20; height = 10 } | ConvertTo-Json -Compress
-          $traceFile = Join-Path $env:RUNNER_TEMP 'CADTBT360_V1025_AI_ImageTrace_Smoke.dxf'
-          & $installedCli run --metric --cmd "imageattach $attachJson" --cmd 'imagetrace {"handle":"{last}","points":[[0,100],[200,100],[200,0]]}' --save $traceFile | Out-Host
-          if ($LASTEXITCODE -ne 0 -or !(Test-Path $traceFile)) { throw 'Installed CLI cannot produce AI-traced DXF with IMAGE and LWPOLYLINE' }
-          $traceInfo = & $installedCli info $traceFile
-          if ($LASTEXITCODE -ne 0) { throw 'Installed CLI cannot reopen AI-traced DXF' }
-          $traceDrawing = ($traceInfo -join [char]10) | ConvertFrom-Json
-          if ($traceDrawing.entityCount -ne 2 -or $traceDrawing.counts.'Raster Image' -ne 1 -or $traceDrawing.counts.Polyline -ne 1) {
-            throw "AI image-trace DXF must contain exactly one Raster Image and one editable Polyline, found: $($traceInfo -join [char]10)"
-          }
-          # Check the linked PNG path after DXF save/reopen. EntityKind uses
-          # #[serde(tag = "type", rename_all = "camelCase")]: the IMAGE's path is
-          # directly under geometry, not geometry.Image.path.
-          $imageOutput = & $installedCli run $traceFile --cmd 'entities {"type":"IMAGE"}'
-          if ($LASTEXITCODE -ne 0) { throw 'Installed CLI cannot query saved IMAGE reference' }
-          $imageQuery = ($imageOutput -join [char]10) | ConvertFrom-Json
-          if ($imageQuery.count -ne 1 -or @($imageQuery.entities).Count -ne 1) { throw 'DXF reopened with missing or duplicated IMAGE reference' }
-          $savedImage = $imageQuery.entities[0].geometry
-          if ($null -eq $savedImage -or $savedImage.type -ne 'image' -or [string]::IsNullOrWhiteSpace($savedImage.path)) { throw 'DXF lost internally tagged IMAGE geometry or its source path' }
-          $savedImagePath = ([string]$savedImage.path).Replace([char]92, [char]47)
-          if ($savedImagePath -ne $referencePath) { throw "DXF IMAGE path changed: expected $referencePath, found $savedImagePath" }
-          if (!(Test-Path $savedImagePath)) { throw "Reopened DXF references a missing PNG: $savedImagePath" }
-          $openedImage = [System.Drawing.Image]::FromFile($savedImagePath)
-          try {
-            if ($openedImage.Width -ne 200 -or $openedImage.Height -ne 100) { throw 'Reopened DXF source PNG has incorrect dimensions' }
-          } finally { $openedImage.Dispose() }
-          $geometryOutput = & $installedCli run $traceFile --cmd 'entities {"type":"LWPOLYLINE"}'
-          if ($LASTEXITCODE -ne 0) { throw 'Installed CLI cannot query persisted editable LWPOLYLINE' }
-          $geometry = ($geometryOutput -join [char]10) | ConvertFrom-Json
-          if ($geometry.count -ne 1 -or $geometry.entities.Count -ne 1) { throw 'Saved AI trace does not contain exactly one queryable Polyline' }
-          # EntityKind is internally tagged: geometry.type = 'lwPolyline' and
-          # editable vertices live directly under geometry.vertices.
-          $polylineEntity = $geometry.entities[0]
-          $polyline = $polylineEntity.geometry
-          if ($polylineEntity.type -ne 'Polyline' -or $null -eq $polyline -or $polyline.type -ne 'lwPolyline') {
-            throw "Saved AI trace returned the wrong entity kind: $($polylineEntity | ConvertTo-Json -Depth 8 -Compress)"
-          }
-          $vertices = @($polyline.vertices)
-          if ($vertices.Count -ne 3 -or $polyline.closed -ne $false) {
-            throw "Saved AI trace must be one open editable three-vertex LWPOLYLINE, got $($polyline | ConvertTo-Json -Depth 8 -Compress)"
-          }
-          $expected = @(
-            [pscustomobject]@{ x = 0.0; y = 0.0 },
-            [pscustomobject]@{ x = 20.0; y = 0.0 },
-            [pscustomobject]@{ x = 20.0; y = 10.0 }
-          )
-          for ($i = 0; $i -lt $expected.Count; $i++) {
-            $point = $vertices[$i].p
-            if ($null -eq $point -or [math]::Abs([double]$point.x - $expected[$i].x) -gt 1e-7 -or [math]::Abs([double]$point.y - $expected[$i].y) -gt 1e-7) {
-              throw "Saved AI trace vertex $i mismatch: actual=$($point | ConvertTo-Json -Compress), expected=($($expected[$i].x),$($expected[$i].y))"
-            }
-          }
-          $installedBuildInfo = Get-Content (Join-Path $dest 'BUILD_INFO.txt')
-          if ($installedBuildInfo -notcontains 'Release=CADTBT360_V1.025' -or $installedBuildInfo -notcontains "SourceCommit=$env:GITHUB_SHA" -or $installedBuildInfo -notcontains 'NativeBuild=true') {
-            throw "Installed build metadata does not identify this native release commit: $($installedBuildInfo -join '; ')"
-          }
-          $installedGeneralGuide = Join-Path $dest 'HuongDan/GIAO_TRINH_TONG_HOP_CAD360.docx'
-          if ((Get-FileHash $installedGeneralGuide -Algorithm SHA256).Hash -ne (Get-FileHash 'dist/v1025/CADTBT360_V1.025_GIAO_TRINH_TONG_HOP.docx' -Algorithm SHA256).Hash) { throw 'Installed full-product curriculum differs from release manual' }
-          $installedDocx = Join-Path $dest 'HuongDan/HUONG_DAN_AI_TU_ANH_THANH_CAD.docx'
-          $sourceDocx = 'dist/v1025/CADTBT360_V1.025_HUONG_DAN_AI_TU_ANH_THANH_CAD.docx'
-          if ((Get-FileHash $installedDocx -Algorithm SHA256).Hash -ne (Get-FileHash $sourceDocx -Algorithm SHA256).Hash) {
-            throw 'Installed Word guide does not match release document'
-          }
-          $packagedBuildInfoHash = (Get-FileHash 'dist/v1025/BUILD_INFO.txt' -Algorithm SHA256).Hash
-          $installedBuildInfoHash = (Get-FileHash (Join-Path $dest 'BUILD_INFO.txt') -Algorithm SHA256).Hash
-          if ($installedBuildInfoHash -ne $packagedBuildInfoHash) { throw 'Installed BUILD_INFO.txt differs from verified release metadata' }
-          $uninstaller = Join-Path $dest 'unins000.exe'
-          if (!(Test-Path $uninstaller)) { throw 'Missing Inno Setup uninstaller' }
-          $uninstall = Start-Process -FilePath $uninstaller -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART') -Wait -PassThru
-          if ($uninstall.ExitCode -ne 0) { throw "Uninstaller failed with code $($uninstall.ExitCode)" }
-          if (Test-Path (Join-Path $dest 'CADTBT360.exe')) { throw 'Uninstaller left main executable behind' }
-
-      - name: Verify portable archive, create SHA256 checksums
-        id: portable_smoke
-        shell: pwsh
-        run: |
-          $zip = 'dist/v1025/CADTBT360_V1.025_Portable_Windows_x64.zip'
-          $tmp = Join-Path $env:RUNNER_TEMP 'CADTBT360_V1025_PortableTest'
-          Expand-Archive $zip -DestinationPath $tmp -Force
-          foreach ($n in @('CADTBT360.exe', 'CADTBT360_CLI.exe', 'BUILD_INFO.txt', 'HUONG_DAN_AI_TU_ANH_THANH_CAD.md', 'HUONG_DAN_AI_TU_ANH_THANH_CAD.docx', 'GIAO_TRINH_TONG_HOP_CAD360.docx')) {
             if (!(Test-Path (Join-Path $tmp $n))) { throw "Portable archive missing $n" }
           }
           $guideHash = (Get-FileHash (Join-Path $tmp 'HUONG_DAN_AI_TU_ANH_THANH_CAD.md') -Algorithm SHA256).Hash
