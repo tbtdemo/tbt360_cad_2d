@@ -14,7 +14,7 @@ pub fn tool_definitions(has_ui: bool) -> Value {
             "inputSchema": {"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]}}),
         json!({"name": "execute", "description": "Run any command with JSON parameters (no prompts or dialogs). Use list_commands to find ids and parameter docs. Examples: line {points:[[0,0],[10,0]]}, circle {center:[0,0], radius:5}, layer.new {name:\"Walls\", color:\"red\", current:true}, move {handles:[\"10A\"], delta:[5,0]}, zoom {mode:\"extents\"}.",
             "inputSchema": {"type": "object", "properties": {"command": {"type": "string"}, "params": {"type": "object"}}, "required": ["command"]}}),
-        json!({"name":"ai_draw_plan_vietnamese","description":"CAD 360 AI deterministic multi-step Vietnamese drawing plan. Supply 2-8 native commands through newline-delimited drafts (LINE, CIRCLE, RECTANG, PLINE), or one high-level room pair: vẽ hai phòng liền kề rộng 3000 và 4000 dài 4000 tại 0,0 (one outer RECTANG plus one shared LINE, no duplicate room boundaries). Preview is default; commit requires confirm:true and exact document identity/revision from preview. Executes all steps as one guarded Undo group and attempts safe rollback on failure. Does not interpret arbitrary natural language.","inputSchema":{"type":"object","properties":{"text":{"type":"string"},"preview":{"type":"boolean"},"confirm":{"type":"boolean"},"expectedDocumentUid":{"type":"integer","minimum":0},"expectedDocumentEpoch":{"type":"integer","minimum":0},"expectedRevision":{"type":"integer","minimum":0}},"required":["text"]}}),
+        json!({"name":"ai_draw_plan_vietnamese","description":"CAD 360 AI deterministic multi-step Vietnamese drawing plan. Supply 2-8 native commands through newline-delimited drafts (LINE, CIRCLE, RECTANG, PLINE), or one high-level room pair: vẽ hai phòng liền kề rộng 3000 và 4000 dài 4000 tại 0,0 [cửa 900 giữa] (one outer RECTANG, with one whole common LINE or two separate LINE segments preserving a centered opening; no door leaf or inferred BIM objects). Preview is default; commit requires confirm:true and exact document identity/revision from preview. Executes all steps as one guarded Undo group and attempts safe rollback on failure. Does not interpret arbitrary natural language.","inputSchema":{"type":"object","properties":{"text":{"type":"string"},"preview":{"type":"boolean"},"confirm":{"type":"boolean"},"expectedDocumentUid":{"type":"integer","minimum":0},"expectedDocumentEpoch":{"type":"integer","minimum":0},"expectedRevision":{"type":"integer","minimum":0}},"required":["text"]}}),
         json!({"name":"ai_draw_vietnamese","description":"CAD 360 Vietnamese drafting bridge (bounded deterministic grammar, not a general LLM). Supports bounded LINE, CIRCLE, RECTANG, PLINE, plus dimensioned room 'vẽ phòng rộng 6000 dài 4000 tại 0,0' and wall 'vẽ tường từ 0,0 đến 6000,0 dày 200'. Room and wall are editable CAD outlines, NOT semantically verified BIM geometry. Preview by default; to commit, set preview:false, confirm:true and expectedDocumentUid, expectedDocumentEpoch, expectedRevision obtained from a fresh preview. Executes exactly one native CAD engine command, never saves or modifies DWG structure.","inputSchema":{"type":"object","properties":{"text":{"type":"string"},"preview":{"type":"boolean"},"confirm":{"type":"boolean"},"expectedDocumentUid":{"type":"integer","minimum":0},"expectedDocumentEpoch":{"type":"integer","minimum":0},"expectedRevision":{"type":"integer","minimum":0}},"required":["text"]}}),
         json!({"name": "list_commands", "description": "List commands with ids, labels, menu paths, aliases and parameter docs. Optional filter: a substring of the command id, label or an alias.",
             "inputSchema": {"type": "object", "properties": {"filter": {"type": "string"}}}}),
@@ -294,16 +294,17 @@ fn parse_two_adjacent_rooms(text: &str) -> Result<Option<Vec<(String,Value)>>,St
     let lower=text.trim().to_lowercase();
     if !lower.starts_with("vẽ hai phòng liền kề ") {return Ok(None);}
     let words:Vec<&str>=lower.split_whitespace().collect();
-    if words.len()!=13 || words[5]!="rộng" || words[7]!="và" || words[9]!="dài" || words[11]!="tại" {
-        return Err("AI CAD: cú pháp phải là 'vẽ hai phòng liền kề rộng W1 và W2 dài L tại X,Y'".into());
+    let has_door=words.len()==16;
+    if !(words.len()==13 || has_door) || words[5]!="rộng" || words[7]!="và" || words[9]!="dài" || words[11]!="tại" ||
+        (has_door && (words[13]!="cửa" || words[15]!="giữa")) {
+        return Err("AI CAD: cú pháp 'vẽ hai phòng liền kề rộng W1 và W2 dài L tại X,Y [cửa C giữa]'".into());
     }
     let width1=words[6].parse::<f64>().map_err(|_|"AI CAD: W1 không hợp lệ")?;
     let width2=words[8].parse::<f64>().map_err(|_|"AI CAD: W2 không hợp lệ")?;
     let length=words[10].parse::<f64>().map_err(|_|"AI CAD: L không hợp lệ")?;
-    let parts:Vec<&str>=words[12].split(',').collect();
-    if parts.len()!=2 {return Err("AI CAD: điểm gốc phải là X,Y".into());}
-    let x=parts[0].parse::<f64>().map_err(|_|"AI CAD: X không hợp lệ")?;
-    let y=parts[1].parse::<f64>().map_err(|_|"AI CAD: Y không hợp lệ")?;
+    let (sx,sy)=words[12].split_once(',').ok_or("AI CAD: điểm gốc phải là X,Y")?;
+    let x=sx.parse::<f64>().map_err(|_|"AI CAD: X không hợp lệ")?;
+    let y=sy.parse::<f64>().map_err(|_|"AI CAD: Y không hợp lệ")?;
     if [width1,width2,length].iter().any(|v|!v.is_finite()||!(0.01..=1_000_000.0).contains(v)) ||
         [x,y].iter().any(|v|!v.is_finite()||v.abs()>1.0e9) {
         return Err("AI CAD: kích thước hoặc tọa độ phòng vượt phạm vi an toàn".into());
@@ -312,12 +313,23 @@ fn parse_two_adjacent_rooms(text: &str) -> Result<Option<Vec<(String,Value)>>,St
     if [right,mid,top].iter().any(|v|!v.is_finite()||v.abs()>1.0e9) {
         return Err("AI CAD: tọa độ sau tính toán vượt phạm vi an toàn".into());
     }
-    Ok(Some(vec![
-        ("rectang".into(),json!({"p1":[x,y],"p2":[right,top]})),
-        ("line".into(),json!({"points":[[mid,y],[mid,top]]}))
-    ]))
+    let mut steps=vec![("rectang".into(),json!({"p1":[x,y],"p2":[right,top]}))];
+    if has_door {
+        let door=words[14].parse::<f64>().map_err(|_|"AI CAD: chiều rộng cửa không hợp lệ")?;
+        if !door.is_finite() || door<=0.0 || door>=length || (length-door)*0.5<100.0 {
+            return Err("AI CAD: cửa phải có chiều rộng dương và chừa >=100 đơn vị mép tường mỗi phía".into());
+        }
+        let low=y+(length-door)*0.5;let high=y+(length+door)*0.5;
+        if !low.is_finite() || !high.is_finite() {return Err("AI CAD: vị trí cửa không hợp lệ".into());}
+        // Two separate native LINE entities create a real geometric opening.
+        // Never bridge the gap, invent a door leaf, or classify it as BIM.
+        steps.push(("line".into(),json!({"points":[[mid,y],[mid,low]]})));
+        steps.push(("line".into(),json!({"points":[[mid,high],[mid,top]]})));
+    } else {
+        steps.push(("line".into(),json!({"points":[[mid,y],[mid,top]]})));
+    }
+    Ok(Some(steps))
 }
-
 fn parse_vietnamese_plan(text: &str) -> Result<Vec<(String,Value)>,String> {
     if text.len()>4000 {return Err("AI CAD: kế hoạch vượt 4000 ký tự".into());}
     let commands:Vec<&str>=text.lines().map(str::trim).filter(|line|!line.is_empty()).collect();
@@ -578,6 +590,22 @@ mod ai_draft_vietnamese_tests {
         assert!(super::parse_vietnamese_plan("vẽ hai phòng liền kề rộng 0 và 4000 dài 4000 tại 0,0").is_err());
         assert!(super::parse_vietnamese_plan("vẽ hai phòng liền kề rộng 3000 và 4000 dài NaN tại 0,0").is_err());
         assert!(super::parse_vietnamese_plan("vẽ hai phòng liền kề rộng 3000 và 4000 dài 4000 tại 1000000000,0").is_err());
+    }
+
+    #[test]
+    fn ai_vietnamese_adjacent_rooms_centered_door_keeps_real_opening() {
+        let steps=super::parse_vietnamese_plan("vẽ hai phòng liền kề rộng 3000 và 4000 dài 4000 tại 0,0 cửa 900 giữa").unwrap();
+        assert_eq!(steps.len(),3);
+        assert_eq!(steps[0].0,"rectang");
+        assert_eq!(steps[1],("line".to_string(),json!({"points":[[3000.0,0.0],[3000.0,1550.0]]})));
+        assert_eq!(steps[2],("line".to_string(),json!({"points":[[3000.0,2450.0],[3000.0,4000.0]]})));
+        for input in [
+            "vẽ hai phòng liền kề rộng 3000 và 4000 dài 4000 tại 0,0 cửa 0 giữa",
+            "vẽ hai phòng liền kề rộng 3000 và 4000 dài 4000 tại 0,0 cửa 4000 giữa",
+            "vẽ hai phòng liền kề rộng 3000 và 4000 dài 4000 tại 0,0 cửa 3900 giữa",
+            "vẽ hai phòng liền kề rộng 3000 và 4000 dài 4000 tại 0,0 cửa NaN giữa",
+            "vẽ hai phòng liền kề rộng 3000 và 4000 dài 4000 tại 0,0 cửa 900 lệch"
+        ] {assert!(super::parse_vietnamese_plan(input).is_err(),"{input} must be refused");}
     }
 
     #[test]
