@@ -32,6 +32,8 @@ jobs:
         run: cargo check --locked -p cadcraft
       - name: Verify actual raster CAD commit rejects source and calibration changes after preview
         run: cargo test --locked -p cadcraft --bin cadcraft ai_raster_commit_guard_rejects_changed_image_and_calibration_after_preview -- --nocapture
+      - name: Refuse CAD commit if source PDF changed after raster preview
+        run: cargo test --locked -p cadcraft --bin cadcraft ai_pdf_commit_guard_refuses_modified_original_after_successful_page_preview -- --nocapture
       - name: Reject silently changed PDF source between raster render and AI Studio accept
         run: cargo test --locked -p cadcraft --bin cadcraft ai_pdf_source_fingerprint_rejects_same_length_mutation -- --nocapture
       - name: Detect modified source image before accepting AI raster preview
