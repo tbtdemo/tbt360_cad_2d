@@ -251,6 +251,78 @@ fn stage284_multilayer_dwg_two_roundtrips_keep_colors_scale_geometry_and_handles
     stage284_compare_multilayer(&original,&two,&handles);
 }
 
+/// Stage286: preserve separate model-space and two paper-space layouts with
+/// editable geometry, handles and third-party BIM metadata. This does not claim
+/// independent AutoCAD interoperability or full external XRef coverage.
+fn stage286_layouts_sample() -> (Drawing,Vec<(Handle,Space)>) {
+    let mut d=Drawing::new_metric();
+    d.layers.push(Layer {name:"AI-MODEL".into(),color:Color::Index(3),..Layer::default()});
+    d.layers.push(Layer {name:"AI-SHEETS".into(),color:Color::Index(5),..Layer::default()});
+    let mut entities=Vec::new();
+    let model=d.add(&Space::Model,Common {layer:"AI-MODEL".into(),..Common::default()},
+        EntityKind::Line(Line {a:Vec3::new(0.0,0.0,0.0),b:Vec3::new(3500.0,0.0,0.0)})).unwrap();
+    d.modify_entity(model,|e|e.common.xdata=vec![
+        RawTag{code:1001,value:"TBT360_BIM".into()},
+        RawTag{code:1000,value:"stage=286;scope=model;approved=yes".into()}
+    ]).unwrap();
+    entities.push((model,Space::Model));
+    for (name,dx) in [("Layout1",0.0),("Layout2",500.0)] {
+        let paper=Space::Paper(name.into());
+        let common=Common {layer:"AI-SHEETS".into(),color:Color::Index(2),
+            ltscale:1.25,..Common::default()};
+        let h=d.add(&paper,common,EntityKind::Line(Line {
+            a:Vec3::new(30.0+dx,20.0,0.0),
+            b:Vec3::new(230.0+dx,20.0,0.0)
+        })).unwrap();
+        entities.push((h,paper));
+    }
+    (d,entities)
+}
+
+fn stage286_compare_layouts(original:&Drawing,reopened:&Drawing,entities:&[(Handle,Space)]) {
+    assert_eq!(reopened.model.len(),original.model.len(),"model-space geometry count changed");
+    assert_eq!(reopened.entity_count(),original.entity_count());
+    for (name,_) in [("Layout1",0.0),("Layout2",500.0)] {
+        assert_eq!(reopened.layout(name).expect("layout is missing").entities.len(),1,
+            "paper-space geometry count changed");
+    }
+    for (handle,space) in entities {
+        assert_eq!(reopened.space_of(*handle).as_ref(),Some(space),
+            "entity moved between Model Space and paper-space layout");
+        let before=original.entity(*handle).unwrap();
+        let after=reopened.entity(*handle).expect("entity handle missing after Save/Reopen");
+        assert_eq!(before.common.layer,after.common.layer);
+        assert_eq!(before.common.color,after.common.color);
+        assert_eq!(before.common.xdata,after.common.xdata,
+            "BIM metadata should survive through standard entity XData");
+        let (EntityKind::Line(a),EntityKind::Line(b))=(&before.kind,&after.kind) else {
+            panic!("layout LINE turned into a different native entity type");
+        };
+        for (x,y) in [(a.a.x,b.a.x),(a.a.y,b.a.y),(a.b.x,b.b.x),(a.b.y,b.b.y)] {
+            assert!((x-y).abs()<1e-6);
+        }
+    }
+}
+
+#[test]
+fn stage286_dxf_model_and_two_layouts_preserve_handles_and_bim_xdata() {
+    let (original,entities)=stage286_layouts_sample();
+    let first=read(&write(&original,"multi-layout-ai.dxf").unwrap(),"multi-layout-ai.dxf").unwrap();
+    let second=read(&write(&first,"multi-layout-ai.dxf").unwrap(),"multi-layout-ai.dxf").unwrap();
+    stage286_compare_layouts(&original,&first,&entities);
+    stage286_compare_layouts(&original,&second,&entities);
+}
+
+#[cfg(not(target_arch="wasm32"))]
+#[test]
+fn stage286_dwg_model_and_two_layouts_preserve_handles_and_bim_xdata() {
+    let (original,entities)=stage286_layouts_sample();
+    let first=read(&write(&original,"multi-layout-ai.dwg").unwrap(),"multi-layout-ai.dwg").unwrap();
+    let second=read(&write(&first,"multi-layout-ai.dwg").unwrap(),"multi-layout-ai.dwg").unwrap();
+    stage286_compare_layouts(&original,&first,&entities);
+    stage286_compare_layouts(&original,&second,&entities);
+}
+
 /// Stage285: edit an already reopened drawing and verify both source and
 /// edited entities survive the next standard DXF/DWG write-read cycle.
 fn stage285_edit_reopened_entities(d:&mut Drawing,handles:&[Handle]) {
