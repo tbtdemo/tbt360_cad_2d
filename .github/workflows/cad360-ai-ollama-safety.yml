@@ -1,0 +1,40 @@
+name: CAD 360 AI Ollama Native Safety Gate
+on:
+  push:
+    branches:
+      - feature/CADTBT360_V1.025_xref-regression
+    paths:
+      - 'CADTBT360_V1.000/apps/cadcraft/src/ai_local_provider.rs'
+      - 'CADTBT360_V1.000/apps/cadcraft/src/ai_raster_panel.rs'
+      - 'CADTBT360_V1.000/crates/ui-egui/src/ai_review.rs'
+      - '.github/workflows/cad360-ai-ollama-safety.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: cad360-ollama-safety-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  native-ollama-safety:
+    name: Rust Windows compile and Ollama CAD validation tests
+    runs-on: windows-latest
+    timeout-minutes: 70
+    defaults:
+      run:
+        working-directory: CADTBT360_V1.000
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: CADTBT360_V1.000
+      - name: Validate desktop native compilation including Ollama adapter
+        run: cargo check --locked -p cadcraft
+      - name: Validate local Ollama model ID protection
+        run: cargo test --locked -p cadcraft --bin cadcraft model_id_refuses_shell_injection_and_path_tricks -- --nocapture
+      - name: Validate local prompt length and control-character boundary
+        run: cargo test --locked -p cadcraft --bin cadcraft local_model_request_is_bounded_and_not_executed -- --nocapture
+      - name: Confirm model proposed command cannot skip native CAD review
+        run: cargo test --locked -p cadcraft --bin cadcraft ai_local_llm_is_optional_and_does_not_commit_native_cad_on_open -- --nocapture
+      - name: Verify native command review parser rejects destructive requests
+        run: cargo test --locked -p cadcraft-ui-egui stage258_room_parser_accepts_vietnamese_and_rejects_invalid_geometry -- --nocapture
