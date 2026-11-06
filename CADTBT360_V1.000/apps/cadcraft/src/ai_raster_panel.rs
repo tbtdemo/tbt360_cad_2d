@@ -8,6 +8,7 @@ use serde_json::{Value, json};
 pub struct State {
     pub open: bool,
     pub show_help: bool,
+    assistant_instruction: String,
     path: String,
     preview: Option<Value>,
     preview_document_uid: Option<u64>,
@@ -217,14 +218,67 @@ impl State {
     }
 }
 
+/// Applies a safe, deterministic AI workflow preset. A text instruction never writes CAD directly.
+fn apply_ai_instruction(state: &mut State, instruction: &str) -> Result<&'static str, &'static str> {
+    let q=instruction.trim().to_lowercase();
+    if q.is_empty() { return Err("Hãy nhập yêu cầu, ví dụ: nhận dạng tường, cửa, cột hoặc nét."); }
+    // Switch off mutually exclusive draft generation on a new request. Native changes still need Preview + confirmation.
+    state.create_column_guides=false; state.confirm_column_guides=false; state.create_column_blocks=false; state.confirm_column_blocks=false;
+    state.create_wall_panel_guides=false; state.confirm_wall_panel_guides=false; state.create_wall_blocks=false; state.confirm_wall_blocks=false;
+    state.create_door_blocks=false; state.confirm_door_blocks=false; state.create_door_swing_arcs=false; state.confirm_door_swing_arcs=false;
+    state.create_window_guides=false; state.confirm_window_guides=false; state.create_window_blocks=false; state.confirm_window_blocks=false;
+    state.create_opening_guides=false; state.confirm_opening_guides=false;
+    state.closed_rectangles=false;
+    let description=if q.contains("tường") || q.contains("wall") {
+        state.wall_pair_hints=true; state.wall_panel_hints=true; state.opening_gap_hints=true; state.paired_wall_opening_hints=true;
+        "Đã chọn phân tích mép tường, dải tường và khoảng mở ở chế độ xem trước."
+    } else if q.contains("cửa") || q.contains("door") || q.contains("window") {
+        state.wall_pair_hints=true; state.wall_panel_hints=true; state.opening_gap_hints=true; state.paired_wall_opening_hints=true;
+        state.door_leaf_hints=true; state.window_sash_hints=true;
+        "Đã chọn phân tích ứng viên cửa đi và cửa sổ ở chế độ xem trước."
+    } else if q.contains("cột") || q.contains("column") {
+        state.column_hatch_hints=true;
+        "Đã chọn phát hiện ứng viên cột từ ảnh ở chế độ xem trước."
+    } else if q.contains("nét") || q.contains("line") || q.contains("vector") || q.contains("vẽ") {
+        state.include_diagonals=true; state.arbitrary_angles=true;
+        "Đã chọn vector hóa nét ngang, dọc và góc bất kỳ."
+    } else { return Err("Yêu cầu chưa được hỗ trợ nội bộ. Hãy chọn gợi ý tường, cửa, cột hoặc nét."); };
+    state.preview=None; state.preview_document_uid=None; state.preview_revision=None; state.preview_document_epoch=None; state.error=None;
+    Ok(description)
+}
+
 pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
     if !state.open { return; }
     let mut open = state.open;
-    egui::Window::new("AI từ ảnh → CAD | TBT 360")
-        .open(&mut open).resizable(true).default_width(520.0)
+    egui::Window::new("CAD 360 | AI Drawing Studio")
+        .open(&mut open).resizable(true).default_width(780.0).min_width(610.0).default_height(720.0)
         .show(ctx, |ui| {
-            ui.label("Tự nhận dạng các nét thẳng trong PNG/JPEG để tạo LINE chỉnh sửa được.");
-            ui.label("Đây là vector hóa pixel, chưa tự hiểu tường/cửa/kích thước.");
+            ui.heading("AI DRAWING STUDIO");
+            ui.label(egui::RichText::new("Từ ảnh đến bản vẽ CAD chỉnh sửa được").strong().size(16.0));
+            ui.label("01  Nguồn ảnh    →    02  AI nhận dạng    →    03  Xem trước    →    04  Xác nhận vào CAD");
+            ui.separator();
+            egui::Frame::group(ui.style()).show(ui, |ui| {
+                ui.strong("Trợ lý thao tác AI");
+                ui.small("Ra lệnh theo các chức năng đang được hỗ trợ; không tự ý ghi hoặc sửa bản vẽ.");
+                ui.add(egui::TextEdit::multiline(&mut state.assistant_instruction).desired_rows(2)
+                    .hint_text("Ví dụ: Nhận dạng tường và khoảng mở, hoặc vẽ lại các nét từ ảnh..."));
+                ui.horizontal_wrapped(|ui| {
+                    for (label,query) in [("Vẽ lại nét","vẽ lại nét"),("Tìm tường","nhận dạng tường"),("Tìm cửa","nhận dạng cửa"),("Tìm cột","nhận dạng cột")] {
+                        if ui.button(label).clicked() { state.assistant_instruction=query.into(); }
+                    }
+                    if ui.button("Áp dụng yêu cầu").clicked() {
+                        let instruction=state.assistant_instruction.clone();
+                        match apply_ai_instruction(state,&instruction) {
+                            Ok(message)=>cad.set_status(message.to_owned()),
+                            Err(message)=>state.error=Some(message.to_owned()),
+                        }
+                    }
+                });
+                ui.small("Yêu cầu chọn chế độ phân tích. Nhấn Nhận dạng và xem trước để thực thi; kiểm tra kết quả trước khi tạo CAD.");
+            });
+            ui.add_space(8.0);
+            ui.heading("Nguồn bản vẽ");
+            ui.small("Đầu vào hiện được hỗ trợ: PNG/JPG/JPEG. PDF cần được chuyển thành ảnh ở bước nhập liệu; chưa nhận PDF trực tiếp ở màn hình này.");
             if ui.toggle_value(&mut state.show_help, "📖 Hướng dẫn từng bước").clicked() {
                 state.error = None;
             }
@@ -266,6 +320,7 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
                 ui.label("Đơn vị CAD/pixel");
                 if ui.add(egui::DragValue::new(&mut state.scale).speed(0.01).range(0.000001..=1_000_000.0)).changed() { state.preview = None; }
             });
+            egui::CollapsingHeader::new("Thiết lập chuyên sâu: hiệu chuẩn, tường, cửa, cột và ngưỡng phát hiện").default_open(false).show(ui, |ui| {
             ui.group(|ui| {
                 ui.label("Hiệu chuẩn tỷ lệ theo chiều dài đã biết (không tự nhận dạng kích thước):");
                 ui.horizontal(|ui| {
@@ -541,6 +596,9 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
                     state.preview_revision = None; state.preview_document_epoch = None;
                 }
             });
+            });
+            ui.separator();
+            ui.heading("Nhận dạng và kiểm tra kết quả");
             if ui.button("1. Nhận dạng và xem trước").clicked() {
                 state.reset_wall_junction_review();
                 match cadcraft_mcp::raster_vector::preview(&state.params()) {
@@ -1571,6 +1629,19 @@ mod tests {
         state.confirm_door_swing_arcs=true;
         assert_eq!(state.params()["confirmDoorSwingArcs"],true);
         assert_eq!(state.params()["preview"],true);
+    }
+
+    #[test]
+    fn ai_instruction_presets_are_preview_only_and_never_auto_confirm_cad() {
+        let mut state=State::default(); state.open();
+        assert!(apply_ai_instruction(&mut state,"nhận dạng tường").is_ok());
+        assert!(state.wall_pair_hints && state.wall_panel_hints);
+        assert!(!state.confirm_wall_blocks && !state.create_wall_blocks);
+        assert!(apply_ai_instruction(&mut state,"tìm cửa").is_ok());
+        assert!(state.door_leaf_hints && state.window_sash_hints);
+        assert!(!state.confirm_door_blocks);
+        assert_eq!(state.params()["preview"],true);
+        assert!(apply_ai_instruction(&mut state,"đặt mật khẩu").is_err());
     }
 
     #[test]
