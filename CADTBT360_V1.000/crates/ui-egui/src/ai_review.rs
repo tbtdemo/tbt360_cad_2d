@@ -731,8 +731,8 @@ impl AiReview {
                 }
             }
             ui.separator();
-            ui.label("CẮT Ô CỬA TRÊN TƯỜNG CÓ SẴN: chỉ một LWPOLYLINE chữ nhật được chọn");
-            ui.label("Chọn một tường PLINE trên bản vẽ, sau đó nhập khoảng cách tâm cửa dọc trục:");
+            ui.label("CẮT Ô CỬA TRÊN TƯỜNG CÓ SẴN: chọn một LWPOLYLINE chữ nhật (cả tường nghiêng)");
+            ui.label("Chọn một tường PLINE chữ nhật kín, kể cả nghiêng, rồi nhập khoảng cách tâm cửa dọc trục:");
             ui.text_edit_singleline(&mut self.existing_door_center);
             ui.label("Bề rộng cửa:");
             ui.text_edit_singleline(&mut self.existing_door_width);
