@@ -2137,3 +2137,30 @@ Bảng `CAD360_BAO_CAO_TIEN_DO_DOT239.xlsx`: **12 tiêu chí**, tổng **100 đi
 Kế hoạch: Đợt 240 sửa lỗi CI, hoàn thiện thử DWG hai chiều với AutoCAD và bổ sung hình chụp EXE; Đợt 241 tăng độ chính xác AI ảnh→CAD; Đợt 242 hỗ trợ AI chỉnh sửa và QTO theo vùng. Giáo trình Word FULL đợt 239 kế thừa **153 bài, 154 hình** của đợt 238, bổ sung **3 bài và 3 hình minh họa**, thành **156 bài, 157 hình nhúng** (trang có thể thay đổi theo định dạng và trình render). Hình dựng là **sơ đồ**, không được mô tả như screenshot từ EXE.
 
 **Phát hành:** Chỉ nhận Windows EXE/Portable nếu GitHub Actions của commit cuối báo PASS và artifact có sẵn. Mã nguồn đầy đủ tải từ ZIP archive của GitHub tại commit cuối.
+
+
+## 80. Đợt 240 — DWG mở, chỉnh sửa, lưu lại lần hai và kiểm tra hình học AI
+
+### Bài 157 — Đọc trạng thái Windows CI đúng SHA
+1. Trên GitHub Actions, lọc workflow phát hành V1.025 theo nhánh `feature/CADTBT360_V1.025_xref-regression`.
+2. Đối chiếu `head_sha` của workflow với commit cuối đợt 240. Job đã PASS ở một SHA cũ không phải bằng chứng release mới hoàn thành.
+3. Xem riêng compile, native test, DWG/DXF test, Windows packaging và smoke test. Nếu bất kỳ bước nào failed/cancelled/pending thì ghi chưa nghiệm thu.
+4. Dùng file Excel đợt 240 theo ba cột tỷ lệ: có mã; CI PASS đúng SHA; chạy EXE/AutoCAD thật.
+
+### Bài 158 — Lưu, sửa và lưu tiếp DWG 2018
+1. Khởi tạo Headless CAD Engine, lấy `documentUid`, `documentEpoch`, `revision`; nhập `vẽ hai phòng liền kề rộng 3000 và 4000 dài 4000 tại 0,0 cửa 900 giữa bản lề dưới mở phải` với `createDoorBlock:true`, `applyLayers:true`.
+2. Xem Preview mặc định rồi xác nhận bằng `preview:false`, `confirm:true`, `expectedDocumentUid`, `expectedDocumentEpoch`, `expectedRevision`.
+3. Lưu bản vẽ thử `*.dwg` với `version:2018`. Mở lại bằng Headless CAD Engine khác; kiểm tra `TBT_AI_ROOM=1`, `TBT_AI_WALL=2`, `TBT_AI_DOOR=1` và tên BLOCK cửa.
+4. Trong phiên CAD thứ hai, dùng native `line` vẽ đoạn từ (50,100) đến (250,100), sau đó **lưu DWG thứ hai** thay vì ghi đè dữ liệu khách hàng.
+5. Mở DWG thứ hai trong phiên thứ ba, kiểm tra 5 entity top-level (4 đối tượng AI cũ + 1 LINE mới), tất cả 3 Layer và BLOCK định nghĩa vẫn còn.
+6. Bài test này bổ sung trong `ai_vietnamese_stage238_native_dwg_save_reopen_preserves_door_layers` trên commit đợt 240. Kết quả PASS chỉ được ghi khi CI của chính commit đạt. Kiểm thử này **không chứng minh AutoCAD đã mở/chỉnh sửa DWG**.
+
+### Bài 159 — Bảng kiểm nghiệm thu AutoCAD hai chiều (chưa thực hiện)
+1. Tải DWG mẫu được sinh bởi bản CAD 360 Windows đã PASS; ghi tên file, dung lượng, checksum, đơn vị và phiên bản.
+2. Mở bằng AutoCAD thật, kiểm tra ba Layer, một door INSERT, thuộc tính BLOCK và kích thước hai phòng.
+3. Chỉnh sửa một đối tượng và thêm một đối tượng thử; lưu DWG mà không đổi phần mở rộng hay mã hóa.
+4. Mở lại DWG vừa lưu trong CAD 360; so sánh entity count, tọa độ, BLOCK, Layer và hình hiển thị.
+5. Chỉ đánh dấu mục AutoCAD hoàn thành nếu có file trước/sau, ảnh chụp EXE thực, kết quả đo và biên bản thử có thể lặp lại.
+6. Đợt 241 dự kiến sửa lỗi CI/build phát sinh, bổ sung bộ fixture DWG/DXF đa tình huống và ảnh EXE thật; đợt 242 tiếp tục AI ảnh→CAD và QTO.
+
+**Chú ý:** Bản Word đợt 240 giữ toàn bộ 156 bài và hình trước, bổ sung Bài 157–159 có sơ đồ minh họa riêng. Nguồn chính thức là repository GitHub theo SHA cuối, không được coi ảnh sơ đồ là ảnh EXE thực. Tỷ lệ chỉ đo danh mục công việc đợt 240, không suy ra % hoàn thiện toàn CAD 360.
