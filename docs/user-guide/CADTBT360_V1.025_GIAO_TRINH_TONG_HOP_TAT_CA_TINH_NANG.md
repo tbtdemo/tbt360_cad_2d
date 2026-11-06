@@ -2315,3 +2315,31 @@ Kế hoạch: Đợt 240 sửa lỗi CI, hoàn thiện thử DWG hai chiều v�
 5. Đợt 247: AI ảnh→CAD mạnh hơn, benchmark sai số, phân lớp cấu kiện, Undo và vòng phản hồi có duyệt; đợt 248: thử trao đổi DWG hai chiều với AutoCAD cùng QTO có số đo đối chứng.
 
 **Trạng thái:** Mã HostScope và các bài kiểm thử đã commit. Chưa có chứng cứ host ngoài thật xác thực OIDC; chưa chứng minh cô lập tenant hoặc nghiệm thu Windows EXE/AutoCAD. Các tỷ lệ hoàn thành chỉ giới hạn trong danh mục tiêu chí đợt 245.
+
+
+## 86. Đợt 246 — Phiên AI Agent có thời hạn và danh sách quyền công cụ được giới hạn
+
+### Bài 175 — Giới hạn thời gian phiên MCP
+1. Khi host tin cậy tạo `HostScope::new(tenantId,userId,role,documentUid)`, phiên mặc định có thời hạn **15 phút** kể từ lúc tạo scope.
+2. Host phải xác minh OIDC Access Token tại phía host (chữ ký, issuer, audience, thời hạn, vai trò và Tenant); chỉ **sau khi xác minh thật** mới truyền thời điểm hết hạn vào `with_verified_expiry(unixSeconds)`.
+3. Mã mới không xử lý hoặc tự tuyên bố xác thực JWT/OIDC. Thời điểm hết hạn truyền vào phải còn hiệu lực và không được quá 1 giờ so với đồng hồ Server.
+4. Khi phiên quá hạn, MCP phải từ chối thao tác thay vì duy trì quyền cho Agent; phải tạo phiên mới sau khi host xác thực lại.
+5. Việc thay đổi này chỉ áp dụng phiên MCP scoped, không bắt buộc người dùng đăng nhập để vẽ CAD Free offline.
+
+### Bài 176 — Chỉ cấp công cụ MCP theo vai trò và phạm vi
+1. Host tạo HostScope cho Viewer hoặc Editor từ danh tính đã xác thực. Ví dụ nhóm công cụ cho Viewer có thể chỉ gồm `inspect_drawing` và `list_commands`.
+2. Host gọi `restrict_tools(&["inspect_drawing","ai_draw_plan_vietnamese"])` để thu hẹp quyền Editor. Lệnh không có trong danh sách phải bị từ chối kể cả khi Agent cố gọi trực tiếp.
+3. `tools/list` chỉ công bố các tool đã được chính sách cho phép. Trong readonly mode, các lệnh thay đổi như `execute`, `command_line`, `ai_draw_vietnamese` không được quảng bá.
+4. Kiểm tra Viewer khi danh sách có tên tool vẽ: vẫn **không** được vẽ, vì danh sách không vượt qua quyền role.
+5. Bảo vệ dữ liệu: không dùng Cookie phiên ChatGPT/Gemini, không đưa token vào prompt/log, không gửi hồ sơ bản vẽ ra AI host không được phép.
+6. Gói chat web của nhà cung cấp AI không đồng nghĩa quyền sử dụng API/bridge. Host cần cơ chế kết nối được nhà cung cấp hỗ trợ.
+
+### Bài 177 — Kiểm thử chính sách và bằng chứng nghiệm thu
+1. Chạy `cargo test --locked -p cadcraft-mcp --lib stage246_ -- --nocapture`; các test kiểm tra hết hạn, hạn chế danh sách tool, readonly discovery và chặn vượt quyền.
+2. Kiểm tra CI đúng commit cuối gồm test Stage243–246, Windows compilation, EXE smoke và artifact. Không lấy kết quả PASS của commit cũ.
+3. Trong tab **HƯỚNG DẪN** mở **5.9 Giới hạn thời gian phiên MCP**, **5.10 Danh sách công cụ MCP theo quyền**, và bật **6. GIÁO TRÌNH FULL** để đọc các bài mới từ Markdown nhúng trong EXE.
+4. Bảng Excel `CAD360_BAO_CAO_TIEN_DO_DOT246.xlsx` tách % có mã/tài liệu, % CI PASS đúng SHA và % nghiệm thu EXE/MCP host thực.
+5. Đợt 247: tích hợp và kiểm thử thật OIDC host, kiểm tra issuer/audience/signature, quyền người dùng/tenant và khả năng thu hồi; đợt 248: AI ảnh→CAD có bộ dữ liệu benchmark, hình học chỉnh sửa và sai số định lượng; đợt 249: QTO/DWG AutoCAD hai chiều.
+6. Bản Word FULL kế thừa Bài 1–174 và bổ sung Bài 175–177 có sơ đồ; sơ đồ không thay thế ảnh chụp Windows EXE thật.
+
+**Giới hạn và an toàn:** Đây là cơ chế thu hẹp quyền trong tiến trình MCP sau khi host đã xác thực; chưa có adapter OAuth/OIDC hoạt động end-to-end hoặc RLS Tenant. Không thể coi việc thêm kiểm thử là có kết quả PASS nếu chưa xác nhận trên workflow cùng SHA.
