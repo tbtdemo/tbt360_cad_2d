@@ -529,7 +529,7 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
                         ui.code(&command);
                         if ui.button("Chuyển lệnh sang AI Review để xem trước").clicked() {
                             cad.ai_review.open_with_prompt(&command);
-                            cad.set_status("Đã chuyển lệnh mô hình AI sang bộ kiểm duyệt và Preview CAD; chưa thực thi.".into());
+                            cad.set_status("Đã chuyển lệnh mô hình AI sang bộ kiểm duyệt và Preview CAD; chưa thực thi.");
                             state.local_command=None;
                         }
                     }
@@ -540,7 +540,7 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
                 if ui.button("Mở AI Review - vẽ trực tiếp bằng lệnh").clicked() {
                     let prompt=state.assistant_instruction.clone();
                     cad.ai_review.open_with_prompt(&prompt);
-                    cad.set_status("Đã mở AI Review. Kiểm tra và xác nhận Preview trước khi tạo CAD.".into());
+                    cad.set_status("Đã mở AI Review. Kiểm tra và xác nhận Preview trước khi tạo CAD.");
                 }
 
             });
