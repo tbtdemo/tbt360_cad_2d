@@ -806,3 +806,28 @@ fn stage244_server_denies_unapproved_mcp_calls_before_backend_dispatch() {
         "preview":false,"confirm":true}}));
     assert_eq!(rejected["error"]["code"],-32602);
 }
+
+#[test]
+fn stage245_scoped_mcp_server_rejects_wrong_document_and_viewer_write() {
+    use crate::backend::Backend;
+    use crate::access_policy::HostScope;
+    let mut backend=Headless::default();
+    let identity=backend.call("drawing.inspect",json!({"entities":false})).unwrap();
+    let uid=identity["documentUid"].as_u64().unwrap();
+    let viewer=HostScope::new("tenant-a","user-viewer","viewer",uid).unwrap();
+    let mut scoped=Server::with_host_scope(Box::new(backend),viewer);
+    assert_eq!(scoped.access_mode(),"scoped");
+    let denied=call(&mut scoped,501,"tools/call",json!({"name":"ai_draw_plan_vietnamese",
+        "arguments":{"text":"vẽ phòng rộng 6000 dài 4000 tại 0,0"}}));
+    assert_eq!(denied["error"]["code"],-32602);
+    let inspect=call(&mut scoped,502,"tools/call",json!({"name":"inspect_drawing",
+        "arguments":{"entities":false}}));
+    assert!(inspect.get("result").is_some());
+    let wrong=HostScope::new("tenant-a","user-editor","editor",uid+1).unwrap();
+    let mut mismatched=Server::with_host_scope(Box::new(Headless::default()),wrong);
+    let blocked=call(&mut mismatched,503,"tools/call",json!({"name":"inspect_drawing",
+        "arguments":{"entities":false}}));
+    assert_eq!(blocked["error"]["code"],-32602);
+    let resource=call(&mut mismatched,504,"resources/read",json!({"uri":"cadcraft://drawing"}));
+    assert_eq!(resource["error"]["code"],-32602);
+}
