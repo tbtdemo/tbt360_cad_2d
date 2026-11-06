@@ -488,6 +488,12 @@ fn preview_selected_existing_wall(session:&Session,center_text:&str,door_width_t
     if !entity.common.xdata.is_empty() {
         return Err("PLINE có XData/BIM metadata riêng: chưa hỗ trợ sao chép định danh an toàn, không được cắt".into());
     }
+    if entity.common.extrusion!=cadcraft_geom::Vec3::Z || entity.common.thickness.abs()>1e-8 {
+        return Err("PLINE có extrusion hoặc thickness ngoài XY: không được thay thế".into());
+    }
+    if doc.space_of(handle)!=Some(session.space()) {
+        return Err("PLINE nằm ở layout khác với CAD Engine đang vẽ".into());
+    }
     check_door_opening_is_clear(session,handle,&steps)?;
     let state=session.state().map_err(|e|e.to_string())?;
     Ok(Preview {uid:state.uid,epoch:session.doc_epoch,revision:state.revision,
@@ -584,7 +590,23 @@ fn commit_steps(session:&mut Session,preview:&Preview)->Result<Vec<String>,Strin
                 Ok(value)=>{
                     succeeded+=1;
                     match returned_handles(&value) {
-                        Ok(mut new)=>handles.append(&mut new),
+                        Ok(mut new)=>{
+                            if let Some(snapshot)=&preview.replace_snapshot {
+                                for raw in &new {
+                                    let Some(handle)=cadcraft_doc::Handle::parse_hex(raw) else {
+                                        failure=Some("Không đọc được handle mới".into());break;
+                                    };
+                                    let common=snapshot.common.clone();
+                                    let updated=session.doc_mut().map_err(|e|e.to_string()).and_then(|doc|
+                                        doc.modify_entity(handle,|entity|entity.common=common).map_err(|e|e.to_string()));
+                                    if let Err(error)=updated {
+                                        failure=Some(format!("Không giữ được thuộc tính tường gốc: {error}"));break;
+                                    }
+                                }
+                            }
+                            handles.append(&mut new);
+                            if failure.is_some() {break;}
+                        }
                         Err(error)=>{failure=Some(error);break;}
                     }
                 }
