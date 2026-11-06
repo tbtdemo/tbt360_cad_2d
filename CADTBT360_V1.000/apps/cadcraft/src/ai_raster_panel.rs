@@ -256,6 +256,7 @@ fn start_pdf_render(state: &mut State, ctx: &egui::Context) {
     let (sender,receiver)=std::sync::mpsc::channel();
     let ctx=ctx.clone();
     state.pdf_pending=Some(receiver);
+    state.path.clear(); // Never reuse an earlier image if a different PDF page fails to render.
     state.preview=None;state.preview_document_uid=None;state.preview_revision=None;state.preview_document_epoch=None;
     state.error=None;
     std::thread::spawn(move || {
@@ -1741,6 +1742,15 @@ mod tests {
         assert!(apply_ai_instruction(&mut state,"không rõ lệnh").is_err());
         assert!(apply_ai_instruction(&mut state,"wall").is_ok());
         assert!(state.wall_pair_hints && !state.door_leaf_hints && !state.column_hatch_hints);
+    }
+
+    #[test]
+    fn ai_pdf_rejects_non_pdf_file_before_launching_external_renderer() {
+        let path=std::env::temp_dir().join(format!("cad360_ai_not_pdf_{}_{}.pdf",std::process::id(),std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        std::fs::write(&path,b"not actually a PDF").unwrap();
+        let err=render_pdf_page(&path,1).unwrap_err();
+        let _=std::fs::remove_file(&path);
+        assert!(err.contains("chữ ký PDF"),"unexpected validation error: {err}");
     }
 
     #[test]
