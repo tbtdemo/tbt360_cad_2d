@@ -643,6 +643,8 @@ jobs:
           if (!(Test-Path (Join-Path $destBin 'pdftoppm.exe'))) { throw 'Missing renderer after copy' }
           & (Resolve-Path (Join-Path $destBin 'pdftoppm.exe')) -v
           if ($LASTEXITCODE -ne 0) { throw 'Bundled Poppler cannot run on Windows' }
+          python scripts/verify_ai_pdf_renderer.py (Join-Path $destBin 'pdftoppm.exe')
+          if ($LASTEXITCODE -ne 0) { throw 'Bundled AI PDF to PNG actual image smoke failed' }
           New-Item -ItemType Directory -Force 'dist/v1025/pdf-tools/licenses' | Out-Null
           Get-ChildItem $unpacked -Recurse -File | Where-Object { $_.Name -match '^(COPYING|LICENSE)([.]txt)?$' } | ForEach-Object {
             Copy-Item $_.FullName (Join-Path 'dist/v1025/pdf-tools/licenses' $_.Name) -Force
@@ -698,6 +700,8 @@ jobs:
           foreach ($n in @('CADTBT360.exe', 'CADTBT360_CLI.exe', 'BUILD_INFO.txt', 'Tools/Poppler/bin/pdftoppm.exe', 'HuongDan/HUONG_DAN_AI_TU_ANH_THANH_CAD.md', 'HuongDan/HUONG_DAN_AI_TU_ANH_THANH_CAD.docx', 'HuongDan/GIAO_TRINH_TONG_HOP_CAD360.docx')) {
             if (!(Test-Path (Join-Path $dest $n))) { throw "Installed file missing: $n" }
           }
+          python scripts/verify_ai_pdf_renderer.py (Join-Path $dest 'Tools/Poppler/bin/pdftoppm.exe')
+          if ($LASTEXITCODE -ne 0) { throw 'Installed AI PDF renderer cannot convert a real PDF to PNG' }
           # Verify that both user manuals installed by Inno Setup match the freshly generated release documents.
           # Existence-only checks can pass even if the installer bundles an outdated or damaged manual.
           $installedGuides = @(
@@ -853,6 +857,8 @@ jobs:
           foreach ($n in @('CADTBT360.exe', 'CADTBT360_CLI.exe', 'BUILD_INFO.txt', 'Tools/Poppler/bin/pdftoppm.exe', 'HUONG_DAN_AI_TU_ANH_THANH_CAD.md', 'HUONG_DAN_AI_TU_ANH_THANH_CAD.docx', 'GIAO_TRINH_TONG_HOP_CAD360.docx')) {
             if (!(Test-Path (Join-Path $tmp $n))) { throw "Portable archive missing $n" }
           }
+          python scripts/verify_ai_pdf_renderer.py (Join-Path $tmp 'Tools/Poppler/bin/pdftoppm.exe')
+          if ($LASTEXITCODE -ne 0) { throw 'Portable AI PDF renderer cannot convert a real PDF to PNG' }
           $guideHash = (Get-FileHash (Join-Path $tmp 'HUONG_DAN_AI_TU_ANH_THANH_CAD.md') -Algorithm SHA256).Hash
           $sourceGuideHash = (Get-FileHash 'docs/user-guide/CADTBT360_V1.025_HUONG_DAN_AI_TU_ANH_THANH_CAD.md' -Algorithm SHA256).Hash
           $docxHash = (Get-FileHash (Join-Path $tmp 'HUONG_DAN_AI_TU_ANH_THANH_CAD.docx') -Algorithm SHA256).Hash
