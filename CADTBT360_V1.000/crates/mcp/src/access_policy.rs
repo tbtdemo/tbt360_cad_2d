@@ -106,7 +106,7 @@ impl HostScope {
     /// The host MUST obtain approval from a real user before calling it.
     pub fn with_approved_ai_plan(mut self,tool:&str,text:&str,document_epoch:u64,revision:u64)->Result<Self,&'static str> {
         if !["ai_draw_plan_vietnamese","ai_draw_vietnamese"].contains(&tool)
-            || text.trim().is_empty() || text.len()>4000 || text.chars().any(|c|c=='\\0') {
+            || text.trim().is_empty() || text.len()>4000 || text.chars().any(char::is_control) {
             return Err("Invalid trusted-host AI approval");
         }
         self.ensure_live()?;
