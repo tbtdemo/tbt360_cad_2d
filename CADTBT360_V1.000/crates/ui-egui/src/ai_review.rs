@@ -373,7 +373,17 @@ fn prepare_managed_wall_shift(session:&Session,managed:&ManagedDoorWall,new_cent
         replace_handles:Some(managed.handles.clone())})
 }
 
-fn commit_steps(session:&mut Session,preview:&Preview)->Result<(),String> {
+fn returned_handles(result:&Value)->Result<Vec<String>,String> {
+    if let Some(handle)=result["handle"].as_str() {return Ok(vec![handle.to_string()]);}
+    if let Some(handles)=result["handles"].as_array() {
+        return handles.iter().map(|h|h.as_str().map(str::to_string).ok_or("Handle không hợp lệ".into())).collect();
+    }
+    Err("CAD Engine không trả về handle để quản lý đối tượng".into())
+}
+
+/// One native Undo transaction; replacing old wall entities is allowed only for explicit,
+/// still-existing handles owned by this panel and tied to a fixed UID/Epoch/Revision.
+fn commit_steps(session:&mut Session,preview:&Preview)->Result<Vec<String>,String> {
     #[cfg(not(target_arch = "wasm32"))]
     if let Some((args,approved_proposal,source_bytes))=&preview.image_evidence {
         let path=args["path"].as_str().ok_or("Ảnh Preview thiếu đường dẫn")?;
@@ -388,40 +398,80 @@ fn commit_steps(session:&mut Session,preview:&Preview)->Result<(),String> {
         }
     }
     if !drawing_ready(session) {return Err("CAD đang bận hoặc Undo không khả dụng".into());}
-    if preview.steps.len()==1 {
+    if let Some(old)=&preview.replace_handles {
+        if old.len()!=4 || preview.steps.len()!=4 {return Err("Chỉ cho phép thay thế trọn bộ 4 entity tường/cửa".into());}
+        let mut unique=std::collections::HashSet::new();
+        for raw in old {
+            if !unique.insert(raw.as_str()) {return Err("Danh sách handle thay thế trùng lặp".into());}
+            let handle=cadcraft_doc::Handle::parse_hex(raw).ok_or("Handle thay thế sai định dạng")?;
+            let doc=session.doc().map_err(|e|e.to_string())?;
+            let entity=doc.entity(handle).ok_or("Một đối tượng đã bị xóa: không được thay thế")?;
+            if doc.layer(&entity.common.layer).is_some_and(|l|l.locked) {
+                return Err("Không thay thế đối tượng thuộc layer khóa".into());
+            }
+        }
+    }
+    if preview.steps.len()==1 && preview.replace_handles.is_none() {
         let (command,params)=&preview.steps[0];
-        session.execute(command,params).map_err(|e|e.to_string())?;
-        return Ok(());
+        let result=session.execute(command,params).map_err(|e|e.to_string())?;
+        return returned_handles(&result);
     }
     let same=|s:&Session,rev:u64,group:bool| {
         s.doc_epoch==preview.epoch && s.state().is_ok_and(|st|
             st.uid==preview.uid && st.revision==rev && st.undo_ctl.group.is_some()==group)
     };
+    // The GUI checked state immediately before this function. The transaction is serialized
+    // through the UI thread; no arbitrary command is accepted between these operations.
+    if !same(session,preview.revision,false) {return Err("Bản vẽ hoặc Revision thay đổi trước giao dịch".into());}
     session.execute("undo",&json!({"mode":"begin"})).map_err(|e|e.to_string())?;
     let mut succeeded=0_u64;
-    let mut failure=None;
-    for (command,params) in &preview.steps {
-        let Some(expected)=preview.revision.checked_add(succeeded) else {
-            failure=Some("Revision vượt giới hạn".to_string());break;
-        };
-        if !same(session,expected,true) {failure=Some("Bản vẽ thay đổi trong lúc AI vẽ".into());break;}
-        match session.execute(command,params) {
-            Ok(_)=>succeeded+=1,
-            Err(e)=>{failure=Some(format!("{command}: {e}"));break;}
+    let mut handles=Vec::<String>::new();
+    let mut failure:Option<String>=None;
+    if let Some(old)=&preview.replace_handles {
+        if !same(session,preview.revision,true) {
+            failure=Some("Mất giao dịch trước khi xóa đối tượng quản lý".into());
+        } else {
+            match session.execute("erase",&json!({"handles":old})) {
+                Ok(value)=>{
+                    succeeded+=1;
+                    if value["erased"].as_u64()!=Some(old.len() as u64) {
+                        failure=Some("Không xóa đủ bốn đối tượng; yêu cầu rollback".into());
+                    }
+                }
+                Err(error)=>failure=Some(format!("Không xóa được tường/cửa quản lý: {error}"))
+            }
+        }
+    }
+    if failure.is_none() {
+        for (command,params) in &preview.steps {
+            let Some(expected)=preview.revision.checked_add(succeeded) else {
+                failure=Some("Revision vượt giới hạn".into());break;
+            };
+            if !same(session,expected,true) {failure=Some("Bản vẽ bị thay đổi trong lúc AI vẽ".into());break;}
+            match session.execute(command,params) {
+                Ok(value)=>{
+                    succeeded+=1;
+                    match returned_handles(&value) {
+                        Ok(mut new)=>handles.append(&mut new),
+                        Err(error)=>{failure=Some(error);break;}
+                    }
+                }
+                Err(error)=>{failure=Some(format!("Lệnh {command} thất bại: {error}"));break;}
+            }
         }
     }
     let expected=preview.revision.checked_add(succeeded).ok_or("Revision vượt giới hạn")?;
     if !same(session,expected,true) {
-        return Err("Mất quyền sở hữu giao dịch; không tự Undo để tránh xóa dữ liệu khác".into());
+        return Err("Mất quyền sở hữu giao dịch; không Undo để tránh xóa dữ liệu khác".into());
     }
     session.execute("undo",&json!({"mode":"end"})).map_err(|e|e.to_string())?;
     if let Some(error)=failure {
-        if succeeded>0 && same(session,expected,false) {
+        if same(session,expected,false) {
             session.execute("undo",&json!({"count":1})).map_err(|e|format!("{error}; rollback lỗi: {e}"))?;
         }
         return Err(error);
     }
-    Ok(())
+    Ok(handles)
 }
 
 #[cfg(not(target_arch = "wasm32"))]
