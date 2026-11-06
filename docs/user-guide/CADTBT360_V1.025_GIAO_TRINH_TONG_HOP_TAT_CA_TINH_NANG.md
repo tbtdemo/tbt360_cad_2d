@@ -3363,3 +3363,35 @@ Kế hoạch: Đợt 240 sửa lỗi CI, hoàn thiện thử DWG hai chiều v�
 6. Chỉ nghiệm thu AI ảnh→CAD khi có kết quả chạy thực tế trên bản vẽ mẫu, không suy ra chất lượng nhận dạng kiến trúc từ các bài stress test về Undo.
 
 **Đợt 280:** bổ sung kiểm thử tích hợp Engine native ở giới hạn 2.000 bước và workflow Windows. Đây là công việc kiểm chứng; không tuyên bố Windows CI, EXE hoặc AutoCAD đã PASS khi chưa có bằng chứng.
+
+
+## 121. Đợt 281 — Kiểm tra AI Review nhập 128 LINE khi lịch sử Undo đã đầy
+
+### Bài 301 — Kiểm chứng hành vi tại AI Review thay vì chỉ kiểm tra Engine
+1. Đợt 279–280 đã có các kiểm thử Undo trực tiếp ở CAD Engine khi ngăn xếp đạt 2.000 bước. Đợt 281 bổ sung kiểm thử gọi **`AI Review::commit_steps`**, là đường thực thi được nút `Tôi đồng ý – Vẽ vào CAD` sử dụng.
+2. Chuẩn bị một bản vẽ mẫu chứa LINE độc lập, ghi nhớ handle, sau đó lấp đầy lịch sử Undo tới `MAX_UNDO = 2000`. Lịch sử thử nghiệm được nạp bằng Snapshot nhẹ; đối tượng vẽ mới vẫn đi qua lệnh LINE native.
+3. Tạo Preview có **128 bước LINE**, mỗi LINE ở một cao độ khác nhau, chưa sửa bản vẽ khi xem trước. Ghi nhận Revision và UID/Epoch tại thời điểm Preview.
+4. Chỉ sau xác nhận, `commit_steps` mới gọi `UNDO BEGIN`, thực hiện các lệnh, kiểm tra handle rồi `UNDO END`.
+
+### Bài 302 — Kiểm tra handle, Undo/Redo và đối tượng độc lập
+1. AI Review phải nhận đúng **128 handle mới và không trùng nhau**; từng handle phải trỏ đến entity đang tồn tại và không được trùng handle đối tượng cũ đang được thay thế.
+2. Sau Commit thành công, `entity_count` phải tăng đúng 128, nhóm Undo phải đóng và độ sâu lịch sử không vượt 2.000.
+3. Bấm `UNDO` một lần phải xóa đúng 128 LINE mới. LINE độc lập đã có từ trước vẫn còn, cả handle và hình học của nó không bị thay.
+4. Bấm `REDO`: 128 LINE phải được khôi phục, các handle trở lại tồn tại và LINE gốc vẫn còn.
+5. Test `stage281_ai_review_large_native_group_at_full_undo_limit_preserves_handles_and_source` thực hiện chuỗi kiểm tra này.
+
+### Bài 303 — Chặn handle trả về bị trùng hoặc tái sử dụng sai
+1. Các lệnh CAD của bộ AI Review hiện sinh một đối tượng native trên mỗi bước. Từ Đợt 274, mỗi lệnh phải trả đúng một handle hợp lệ thuộc tài liệu đang mở.
+2. Đợt 281 bổ sung `seen_new_handles` kiểm tra các handle **không bị lặp giữa các bước của cùng giao dịch**; cũng không cho dùng lại handle thuộc danh sách đối tượng cũ đang thay thế.
+3. Khi kết quả không hợp lệ, phải từ chối xác nhận thành công và sử dụng đường rollback có kiểm soát theo UID/Epoch/Revision cùng Snapshot của nhóm Undo.
+4. Đây là rào chắn để tránh báo số lượng thành công sai, không thay thế các phép thử tính đúng đắn hình học hoặc kiểm thử tương thích DWG.
+
+### Bài 304 — Windows CI và nghiệm thu ảnh → CAD → DWG
+1. Workflow `CAD 360 Stage281 AI Review Full Undo History` chạy Windows Rust 1.95.0, `cargo check --locked -p cadcraft-ui-egui` và `cargo test --locked -p cadcraft-ui-egui stage281 -- --nocapture`.
+2. Workflow có hồi quy Stage280 Engine, Stage277 bảo vệ Undo khi lỗi và Stage275 PNG → CAD native → Undo/Redo.
+3. Kết quả CI PASS chỉ được công nhận khi workflow có log thực tế ở đúng commit. **Mã đã commit không có nghĩa test đã qua**.
+4. Trên EXE Windows thật, thử ảnh mặt bằng PNG/JPEG, xem Preview, xác nhận, Undo một lần và Redo; so sánh vị trí LINE, tỷ lệ CAD/pixel, layer và các thực thể có trước.
+5. Kiểm tra lưu/mở DWG chuẩn trong CAD 360, mở/chỉnh sửa/lưu lại bằng AutoCAD độc lập để nghiệm thu hai chiều. Không mã hóa cấu trúc DWG làm mất khả năng trao đổi.
+6. Giáo trình này chưa thay thế ảnh chụp EXE thực tế và chưa phải chứng nhận AI tự hiểu ngữ nghĩa toàn bộ mặt bằng kiến trúc.
+
+**Đợt 281:** Đã commit mã kiểm tra handle và test AI Review tại giới hạn Undo; Windows CI, EXE và DWG hai chiều còn chờ nghiệm thu. Giáo trình tổng hợp đến Bài 304.
