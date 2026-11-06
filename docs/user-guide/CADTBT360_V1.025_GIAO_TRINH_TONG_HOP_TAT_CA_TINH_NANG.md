@@ -2804,3 +2804,34 @@ Kế hoạch: Đợt 240 sửa lỗi CI, hoàn thiện thử DWG hai chiều v�
 5. Nghiệm thu thực tế vẫn cần Windows EXE, ảnh chụp giao diện thật, kiểm tra trên nhiều ảnh mặt bằng thực tế, Undo/Redo, lưu/mở lại DWG với AutoCAD độc lập và rà soát các tình huống nhận dạng sai.
 
 **Phân biệt khả năng:** Đây là công cụ đề xuất và chấp thuận **hình học cửa dạng chỉ dẫn**, chưa đạt nhận dạng tường/cửa có ngữ nghĩa, chưa có tự động cắt tường hoặc BIM Door, chưa xác minh GUI/CI/AutoCAD PASS chỉ từ commit.
+
+
+## 104. Đợt 264 — Hiệu chỉnh bề rộng, bản lề và hướng mở của ARC từ ảnh
+
+### Bài 233 — Chọn cung cửa có bằng chứng trên ảnh
+1. Tại **Tools → CAD 360 AI Review**, chọn PNG/JPEG, khai báo tỷ lệ CAD/pixel rồi bấm **Đọc ảnh → Xem trước các nét CAD**.
+2. Khi hệ thống tìm thấy nét giống cánh cửa và ứng viên khoảng mở, nhập chỉ số cung từ 0, bấm **Thêm ARC cung mở của ứng viên đã chọn vào Preview**.
+3. Cửa sổ cho xem các nét LINE nguồn màu xanh và ARC dự kiến màu vàng. Nếu không tìm thấy ARC có chứng cứ, chức năng phải báo lỗi thay vì bịa ra một cánh cửa.
+4. Trước khi vẽ hãy kiểm tra tọa độ, kích thước, đơn vị CAD và hướng mở trên hình.
+
+### Bài 234 — Hiệu chỉnh trước khi ghi CAD
+1. Sau khi chọn ARC, vùng **Hiệu chỉnh ARC đã chọn** xuất hiện. Nhập **Bề rộng cửa CAD** mới (để trống giữ giá trị suy ra từ ảnh).
+2. Tùy chọn **Đổi vị trí bản lề sang mép kia** sử dụng `oppositeHingeCAD` của đúng ứng viên đang duyệt; tùy chọn **Đảo hướng mở** thay đổi hướng cánh tương ứng.
+3. Bấm **Áp dụng hiệu chỉnh vào Preview**. Chương trình tính lại `center/radius/start/end` của chỉ ARC được chọn, kiểm tra góc mở 90° và tọa độ hữu hạn. Nếu tổ hợp bản lề/hướng mở không tạo được cung hợp lệ, từ chối.
+4. Bề rộng được giới hạn trong 50%–200% bề rộng ứng viên từ ảnh, đồng thời phải lớn hơn 0, không vượt giới hạn CAD. Đây là rào chắn kỹ thuật, **không phải tiêu chuẩn kích thước cửa thiết kế**; người dùng phải tự xác minh kích thước thực tế.
+5. Các LINE gốc nhận dạng từ ảnh **không thay đổi**; ảnh và kết quả detector vẫn là bằng chứng ban đầu để kiểm tra lại trước Commit.
+
+### Bài 235 — Chấp thuận, Undo và kiểm thử hình học
+1. Chỉ bấm **Tôi đồng ý – Vẽ vào CAD** sau khi xem bản Preview điều chỉnh và chọn đúng bản vẽ.
+2. Trước khi Commit chương trình so sánh lại byte ảnh và kết quả vector, UID, Epoch, Revision; tạo các LINE nguồn và ARC đã điều chỉnh thông qua CAD Engine trong một nhóm Undo.
+3. Kiểm thử Rust `stage264_reviewed_door_arc_width_hinge_and_swing_preserves_source_and_undo` kiểm tra không có lệnh ghi trước xác nhận, bán kính/bản lề được đổi, từ chối giá trị sai, LINE nguồn giữ nguyên và một lần Undo/Redo.
+4. Workflow Windows `CAD 360 Stage264 Reviewed Door Geometry Adjustments` chạy `cargo check --locked -p cadcraft-ui-egui` và các bài Stage262–264.
+5. **Chưa nghiệm thu** cho đến khi CI PASS, chạy Windows EXE thật, thử ảnh mặt bằng thực, chụp giao diện, Save/Reopen DWG và kiểm tra AutoCAD hai chiều.
+
+### Bài 236 — Giới hạn và việc cần làm tiếp
+1. Việc đổi bề rộng, bản lề và hướng mở hiện áp dụng cho **ARC chỉ dẫn riêng**, không tạo hoặc hiệu chỉnh Dynamic Block cửa, không tự cắt tường đã có và chưa tạo BIM Door.
+2. Vị trí bản lề chỉ đổi giữa hai đầu của ứng viên có bằng chứng; chưa cho kéo/thả tự do vị trí trên toàn bộ tường. Muốn thay đổi vị trí cửa tùy ý phải phát triển thêm Preview sửa hình học tường và kiểm tra giao nhau.
+3. Đây là vector hóa ảnh hình học + người dùng duyệt, **chưa phải AI thị giác ngữ nghĩa** đủ để đọc mọi bản vẽ, và chưa nối bước phê duyệt này vào AuthServer OIDC thực tế.
+4. Báo cáo tiến độ phải phân biệt phần đã commit, phần CI thực sự PASS và phần nghiệm thu EXE/AutoCAD. Không dùng số bài học để suy diễn tỷ lệ AI hoàn thành.
+
+**Tệp mã chính:** `CADTBT360_V1.000/crates/ui-egui/src/ai_review.rs`; workflow `.github/workflows/cad360-stage264-door-adjust.yml`.
