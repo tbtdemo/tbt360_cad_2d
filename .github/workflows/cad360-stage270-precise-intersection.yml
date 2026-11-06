@@ -1,0 +1,32 @@
+name: CAD 360 Stage270 Precise Wall Gap Intersection
+on:
+  push:
+    branches:
+      - feature/CADTBT360_V1.025_xref-regression
+    paths:
+      - CADTBT360_V1.000/crates/ui-egui/src/ai_review.rs
+      - .github/workflows/cad360-stage270-precise-intersection.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  precise-intersection:
+    runs-on: windows-latest
+    timeout-minutes: 95
+    defaults:
+      run:
+        working-directory: CADTBT360_V1.000
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: CADTBT360_V1.000
+      - name: Compile native CAD Windows GUI
+        run: cargo check --locked -p cadcraft-ui-egui
+      - name: Exact LINE and polyline collision tests
+        run: cargo test --locked -p cadcraft-ui-egui stage270 -- --nocapture
+      - name: Regress conservative metadata and wall-neighbour guards
+        run: cargo test --locked -p cadcraft-ui-egui stage269 -- --nocapture
+      - name: Regress rotated wall opening
+        run: cargo test --locked -p cadcraft-ui-egui stage268 -- --nocapture
