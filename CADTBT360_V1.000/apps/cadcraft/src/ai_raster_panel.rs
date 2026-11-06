@@ -42,6 +42,7 @@ pub struct State {
     pdf_page: u32,
     pdf_pending: Option<PdfRenderTask>,
     pdf_owned_image: Option<std::path::PathBuf>,
+    pdf_render_fingerprint: Option<(u64,u64)>,
     path: String,
     preview: Option<Value>,
     preview_task: Option<PreviewTask>,
@@ -350,6 +351,7 @@ fn start_pdf_render(state: &mut State, ctx: &egui::Context) {
     let ctx=ctx.clone();
     state.pdf_pending=Some(PdfRenderTask{receiver,source:path.clone(),page,source_fingerprint});
     state.path.clear(); // Never reuse an earlier image if a different PDF page fails to render.
+    state.pdf_render_fingerprint=None;
     state.preview=None;state.preview_document_uid=None;state.preview_revision=None;state.preview_document_epoch=None;
     state.error=None;
     std::thread::spawn(move || {
@@ -393,6 +395,7 @@ fn poll_pdf_render(state: &mut State, ctx: &egui::Context) {
             Ok(png)=>{
                 if let Some(old)=state.pdf_owned_image.replace(png.clone()) {let _=std::fs::remove_file(old);}
                 state.path=png.to_string_lossy().into_owned();
+                state.pdf_render_fingerprint=Some(task.source_fingerprint);
                 state.reset_door_reviews_for_new_source();
                 state.error=None;
             },
@@ -461,6 +464,11 @@ fn ensure_raster_preview_input_unchanged(state:&State)->Result<(),String> {
     let source=state.preview_source_fingerprint.ok_or("AI chưa có bản xem trước gắn với ảnh nguồn.")?;
     if state.preview_params.as_ref()!=Some(&state.params()) {
         return Err("Thông số AI đã thay đổi sau Preview; hãy nhận dạng lại.".into());
+    }
+    if let Some(approved_pdf)=state.pdf_render_fingerprint {
+        if fingerprint_pdf(std::path::Path::new(&state.pdf_path))?!=approved_pdf {
+            return Err("PDF gốc đã bị sửa kể từ khi tạo ảnh Preview; cần chuyển trang PDF và nhận dạng lại.".into());
+        }
     }
     let current=fingerprint_image(&state.path)?;
     if current!=source {
@@ -715,6 +723,7 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
                 {
                     state.path = path.to_string_lossy().into_owned();
                     state.pdf_path.clear();
+                    state.pdf_render_fingerprint=None;
                     if let Some(old)=state.pdf_owned_image.take() {let _=std::fs::remove_file(old);}
                     // Per-door indices refer only to the OLD image's candidate order.
                     // Never transfer reviewed geometry to a newly selected image.
@@ -2161,6 +2170,26 @@ mod tests {
         assert_eq!(state.local_model,"qwen2.5:7b");
         assert!(cadcraft_ui_egui::ai_review::AiReview::validates_native_command("vẽ phòng rộng 6000 dài 4000 tại 0,0"));
         assert!(!cadcraft_ui_egui::ai_review::AiReview::validates_native_command("xóa toàn bộ bản vẽ"));
+    }
+
+    #[test]
+    fn ai_pdf_commit_guard_refuses_modified_original_after_successful_page_preview() {
+        let dir=std::env::temp_dir();
+        let pdf=dir.join(format!("cad360-ai-pdf-approval-{}.pdf",std::process::id()));
+        let png=dir.join(format!("cad360-ai-pdf-approval-{}.png",std::process::id()));
+        std::fs::write(&pdf,b"%PDF-1.4\nframe-one").unwrap();
+        std::fs::write(&png,b"sample raster content").unwrap();
+        let mut state=State::default();state.open();
+        state.path=png.to_string_lossy().into_owned();
+        state.pdf_path=pdf.to_string_lossy().into_owned();
+        state.pdf_render_fingerprint=Some(fingerprint_pdf(&pdf).unwrap());
+        state.preview_source_fingerprint=Some(fingerprint_image(&state.path).unwrap());
+        state.preview_params=Some(state.params());
+        assert!(ensure_raster_preview_input_unchanged(&state).is_ok());
+        std::fs::write(&pdf,b"%PDF-1.4\nframe-two").unwrap();
+        assert!(ensure_raster_preview_input_unchanged(&state).is_err());
+        let _=std::fs::remove_file(pdf);
+        let _=std::fs::remove_file(png);
     }
 
     #[test]
