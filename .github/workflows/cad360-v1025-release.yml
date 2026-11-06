@@ -677,6 +677,8 @@ jobs:
           Copy-Item dist/v1025/BUILD_INFO.txt dist/v1025/portable/BUILD_INFO.txt
           New-Item -ItemType Directory -Force dist/v1025/portable/Tools/Poppler/bin | Out-Null
           Copy-Item dist/v1025/pdf-tools/bin/* dist/v1025/portable/Tools/Poppler/bin/ -Recurse -Force
+          New-Item -ItemType Directory -Force dist/v1025/portable/Tools/Poppler/licenses | Out-Null
+          Copy-Item dist/v1025/pdf-tools/licenses/* dist/v1025/portable/Tools/Poppler/licenses/ -Recurse -Force -ErrorAction SilentlyContinue
           if (!(Test-Path dist/v1025/portable/Tools/Poppler/bin/pdftoppm.exe)) { throw 'Portable renderer missing' }
           $guide = 'docs/user-guide/CADTBT360_V1.025_HUONG_DAN_AI_TU_ANH_THANH_CAD.md'
           if (!(Test-Path $guide)) { throw "Missing required Vietnamese user guide: $guide" }
