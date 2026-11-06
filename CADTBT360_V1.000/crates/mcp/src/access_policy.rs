@@ -182,7 +182,7 @@ mod tests {
             "expectedDocumentUid":42,"expectedDocumentEpoch":8,"expectedRevision":3});
         assert!(base.allowed("ai_draw_plan_vietnamese",&accepted).is_err());
         assert!(base.allowed("ai_draw_plan_vietnamese",&json!({"text":text,"preview":true})).is_ok());
-        let approved=base.with_approved_ai_plan("ai_draw_plan_vietnamese",text,8,3).unwrap();
+        let approved=base.clone().with_approved_ai_plan("ai_draw_plan_vietnamese",text,8,3).unwrap();
         assert!(approved.allowed("ai_draw_plan_vietnamese",&accepted).is_ok());
         let mut changed=accepted.clone();
         changed["text"]=json!("vẽ hai phòng liền kề rộng 8000 và 4000 dài 4000 tại 0,0");
