@@ -1,0 +1,42 @@
+name: CAD 360 Stage278 Native Undo Snapshot Ownership
+on:
+  push:
+    branches:
+      - feature/CADTBT360_V1.025_xref-regression
+    paths:
+      - CADTBT360_V1.000/crates/ui-egui/src/ai_review.rs
+      - .github/workflows/cad360-stage278-undo-snapshot.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  snapshot-ownership:
+    runs-on: windows-latest
+    timeout-minutes: 100
+    defaults:
+      run:
+        working-directory: CADTBT360_V1.000
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.95.0'
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: CADTBT360_V1.000
+      - name: Verify tested commit and Rust toolchain
+        shell: pwsh
+        run: |
+          git rev-parse HEAD
+          rustc --version
+          cargo --version
+      - name: Compile Windows GUI AI Review
+        run: cargo check --locked -p cadcraft-ui-egui
+      - name: Native Undo group marker and history preservation
+        run: cargo test --locked -p cadcraft-ui-egui stage278 -- --nocapture
+      - name: Failed first and partial AI transactions
+        run: cargo test --locked -p cadcraft-ui-egui stage277 -- --nocapture
+      - name: Zero ERASE and Revision semantics
+        run: cargo test --locked -p cadcraft-ui-egui stage276 -- --nocapture
+      - name: PNG to native CAD one Undo regression
+        run: cargo test --locked -p cadcraft-ui-egui stage275 -- --nocapture
