@@ -2459,3 +2459,33 @@ Kế hoạch: Đợt 240 sửa lỗi CI, hoàn thiện thử DWG hai chiều v�
 5. Chỉ thu thập dữ liệu/feedback AI khi khách hàng đồng ý; không tự huấn luyện trọng số ChatGPT/Gemini, không sử dụng cookie của giao diện chat thay cho OAuth API.
 
 **Giới hạn:** Mã bridge đọc readonly đã được cập nhật trong repository; chưa có xác nhận hoạt động cùng AuthServer thực tế và CAD Windows EXE. Host không nhận lệnh tùy ý từ AI, không cấp quyền sửa CAD và không cho kết nối ngoài loopback.
+
+
+## 91. Đợt 251 — AI Agent bên ngoài tạo Preview CAD qua OIDC, chưa được ghi trực tiếp
+
+### Bài 190 — Gọi AI Preview bằng tiếng Việt qua host OIDC
+1. Chuẩn bị CAD 360 Windows đang chạy điều khiển local, `cadcraft-cli.exe` và host ASP.NET Core trên cùng tài khoản Windows. Trước khi thử, kiểm tra AuthServer đã phát hành access token thật có chữ ký và đúng audience/issuer.
+2. Trong host .NET 8, đặt `CAD360_OIDC_AUTHORITY`, `CAD360_OIDC_AUDIENCE`, `CAD360_LOCAL_TENANT_ID`, `CAD360_MCP_CLI_PATH` và `CAD360_MCP_CONNECT_ADDRESS=127.0.0.1:7979`.
+3. Gọi `POST http://127.0.0.1:5049/api/cad360/mcp/ai-preview` với Bearer token hợp lệ và body JSON ví dụ `{"text":"vẽ hai phòng liền kề rộng 3000 và 4000 dài 4000 tại 0,0"}`.
+4. Host kiểm tra tenant trùng cục bộ, vai trò `editor` hoặc `approver`; `viewer` không được sử dụng AI Preview. Nội dung dài tối đa 4.000 ký tự và không có ký tự điều khiển.
+5. Host khởi chạy `cadcraft-cli mcp --connect 127.0.0.1:7979` trong chế độ `reviewed`, khởi tạo giao thức MCP, gọi cố định `ai_draw_plan_vietnamese` với `preview:true`, `confirm:false`.
+6. Phản hồi phải chứa kế hoạch vẽ xem trước, không được tự tạo đối tượng CAD hoặc thực thi thao tác ghi. Host không cho Agent gửi tên lệnh khác, shell command, đường dẫn DWG hoặc `confirm:true`.
+7. Đây là mã endpoint mới; cần Windows CI PASS và thử thực tế với AuthServer và EXE mới trước khi tuyên bố vận hành.
+
+### Bài 191 — Kiểm thử quyền Viewer, Tenant, dữ liệu và thao tác ghi
+1. Kiểm tra `HostGrantPolicy.MayPreview`: editor/approver cùng Tenant được Preview; viewer, role lạ, hoặc khác Tenant phải bị từ chối.
+2. Text rỗng, trên 4.000 ký tự, hoặc có ký tự xuống dòng/điều khiển phải bị từ chối trong host. Các điều kiện bảo vệ đầu vào được đưa vào `--self-test` của host .NET.
+3. Kiểm tra mã `McpPreviewClient.cs`: công cụ MCP được hardcode `ai_draw_plan_vietnamese`, và đối số `preview=true`, `confirm=false`. Không có chức năng nhận một tên tool tùy ý từ HTTP.
+4. Workflow Windows bổ sung kiểm tra tĩnh các rào chắn trên cùng `dotnet build` và `dotnet run -- --self-test`. Điều này không thay thế kiểm thử chức năng đầu cuối.
+5. Nếu bản vẽ đã thay đổi sau Preview, mọi yêu cầu commit tương lai phải có `documentUid`, `documentEpoch`, `revision` đúng, user-confirmation và Undo transaction nguyên tử.
+6. Đợt 251 **không** tạo API commit, vì cần một cơ chế phê duyệt từ người dùng trên chính ứng dụng CAD và kiểm tra bảo mật độc lập.
+
+### Bài 192 — Tích hợp HƯỚNG DẪN và kế hoạch AI tiếp theo
+1. Trong CAD 360 chọn **HƯỚNG DẪN → 5. Kết nối và an toàn AI → 5.15 AI Agent xem trước bản vẽ qua OIDC**.
+2. Bật nhánh **6. GIÁO TRÌNH FULL** để xem bài 190–192 từ tài liệu Markdown nhúng EXE. Bộ Word FULL bổ sung ba sơ đồ mô tả kết nối, phân quyền và test.
+3. Trong Excel đợt 251, phân biệt ba thước đo: có mã; Windows CI PASS đúng commit; chạy thật với AuthServer/OIDC và EXE CAD. Tỷ lệ riêng của đợt không phải tỷ lệ hoàn thiện toàn bộ phần mềm.
+4. Đợt 252 ưu tiên AI ảnh→CAD với bộ mẫu và sai số đo được, đồng thời thiết kế kênh ghi có xác nhận tại giao diện CAD. Đợt 253 kiểm thử DWG AutoCAD hai chiều và QTO, thay sơ đồ minh họa bằng ảnh chụp EXE thật.
+5. Không được thu thập cookie/gói chat ChatGPT hoặc Gemini để giả lập API. Việc kết nối Agent ngoài phải dựa trên host được phép và phiên có xác thực.
+6. Không huấn luyện lại trọng số AI trên dữ liệu khách hàng khi chưa có sự đồng ý, quy trình kiểm thử và cơ chế phát hành có kiểm soát.
+
+**Phạm vi đã commit:** `HostGrantPolicy.MayPreview`, `McpPreviewClient.PreviewAsync`, endpoint `POST /api/cad360/mcp/ai-preview`, mục 5.15 và CI guard. Chưa có kết quả CI/EXE thật chứng minh hoạt động đầu cuối; chưa có API AI commit từ host.
