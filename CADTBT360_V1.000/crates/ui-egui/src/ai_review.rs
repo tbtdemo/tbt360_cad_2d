@@ -9,8 +9,7 @@ struct Preview {
     epoch: u64,
     revision: u64,
     text: String,
-    command: &'static str,
-    params: Value,
+    steps: Vec<(&'static str, Value)>,
     description: String,
 }
 
@@ -103,6 +102,107 @@ fn parse_draft(text:&str)->Result<(&'static str,Value,String),String> {
     }
 }
 
+/// Stage261: two separate wall pieces (an opening), a native leaf LINE and a native swing ARC.
+/// Door dimensions and the opening side are *explicit*; no image/semantic inference occurs.
+fn parse_door_wall(text:&str)->Result<Option<(Vec<(&'static str,Value)>,String)>,String> {
+    let normalized=text.trim().to_lowercase();
+    let w:Vec<&str>=normalized.split_whitespace().collect();
+    let ["vẽ","tường","có","cửa","từ",from,"đến",to,"dày",thick,"cửa",opening,"tại",at,"mở",direction]=w.as_slice() else {
+        return Ok(None);
+    };
+    if *direction!="trái" && *direction!="phải" {
+        return Err("Hướng mở chỉ hỗ trợ trái hoặc phải".into());
+    }
+    let a=pair(from)?;let b=pair(to)?;nonzero(a,b)?;
+    let thickness=number(thick)?;let door=number(opening)?;let center=number(at)?;
+    let dx=b[0]-a[0];let dy=b[1]-a[1];let length=dx.hypot(dy);
+    if !length.is_finite() || length<1e-6 || thickness<=0.0 || door<=0.0
+        || door>=length || thickness>=length || center-door/2.0<=1e-6
+        || center+door/2.0>=length-1e-6 || thickness>door {
+        return Err("Cửa phải nằm hoàn toàn trong tường, chiều rộng lớn hơn chiều dày và không chạm mép".into());
+    }
+    let ux=dx/length;let uy=dy/length;
+    let nx=-uy*thickness/2.0;let ny=ux*thickness/2.0;
+    let start=[a[0]+ux*(center-door/2.0),a[1]+uy*(center-door/2.0)];
+    let end=[a[0]+ux*(center+door/2.0),a[1]+uy*(center+door/2.0)];
+    let rect=|p:[f64;2],q:[f64;2]| -> Vec<[f64;2]> {
+        vec![[p[0]+nx,p[1]+ny],[q[0]+nx,q[1]+ny],
+            [q[0]-nx,q[1]-ny],[p[0]-nx,p[1]-ny]]
+    };
+    let (hinge,angle,leaf)=if *direction=="trái" {
+        (start,uy.atan2(ux).to_degrees().rem_euclid(360.0),
+            [start[0]-uy*door,start[1]+ux*door])
+    } else {
+        (end,(-uy).atan2(-ux).to_degrees().rem_euclid(360.0),
+            [end[0]+uy*door,end[1]-ux*door])
+    };
+    let (arc_start,arc_end)=if *direction=="trái" {
+        (angle,angle+90.0)
+    } else {
+        // Native ARC is always counterclockwise; right hinge uses the perpendicular-to-axis leaf
+        // as start and the wall-axis ray as end.
+        (angle-90.0,angle)
+    };
+    let arc_start=arc_start.rem_euclid(360.0);
+    let arc_end=arc_start+90.0;
+    let points=[a,b,start,end,hinge,leaf];
+    if points.iter().flatten().any(|v|!v.is_finite()||v.abs()>1e9)
+        || [a,b,start,end].iter().any(|p|p.iter().any(|v|v.abs()+door>1e9)) {
+        return Err("Hình học tường và cửa vượt giới hạn tọa độ".into());
+    }
+    let steps=vec![
+        ("pline",json!({"vertices":rect(a,start),"closed":true})),
+        ("pline",json!({"vertices":rect(end,b),"closed":true})),
+        ("line",json!({"points":[hinge,leaf]})),
+        ("arc",json!({"center":hinge,"radius":door,"start":arc_start,"end":arc_end}))
+    ];
+    Ok(Some((steps,format!("Tường 2 đoạn + cửa {} tại khoảng cách {} theo trục; bản lề phía {}. Cửa có khoảng mở thực, một LINE cánh và một ARC cung quét (sơ đồ 2D).",door,center,direction))))
+}
+
+fn plan_from_text(text:&str)->Result<(Vec<(&'static str,Value)>,String),String> {
+    if let Some(door)=parse_door_wall(text)? {return Ok(door);}
+    let (command,params,description)=parse_draft(text)?;
+    Ok((vec![(command,params)],description))
+}
+
+fn commit_steps(session:&mut Session,preview:&Preview)->Result<(),String> {
+    if !drawing_ready(session) {return Err("CAD đang bận hoặc Undo không khả dụng".into());}
+    if preview.steps.len()==1 {
+        let (command,params)=&preview.steps[0];
+        session.execute(command,params).map_err(|e|e.to_string())?;
+        return Ok(());
+    }
+    let same=|s:&Session,rev:u64,group:bool| {
+        s.doc_epoch==preview.epoch && s.state().is_ok_and(|st|
+            st.uid==preview.uid && st.revision==rev && st.undo_ctl.group.is_some()==group)
+    };
+    session.execute("undo",&json!({"mode":"begin"})).map_err(|e|e.to_string())?;
+    let mut succeeded=0_u64;
+    let mut failure=None;
+    for (command,params) in &preview.steps {
+        let Some(expected)=preview.revision.checked_add(succeeded) else {
+            failure=Some("Revision vượt giới hạn".to_string());break;
+        };
+        if !same(session,expected,true) {failure=Some("Bản vẽ thay đổi trong lúc AI vẽ".into());break;}
+        match session.execute(command,params) {
+            Ok(_)=>succeeded+=1,
+            Err(e)=>{failure=Some(format!("{command}: {e}"));break;}
+        }
+    }
+    let expected=preview.revision.checked_add(succeeded).ok_or("Revision vượt giới hạn")?;
+    if !same(session,expected,true) {
+        return Err("Mất quyền sở hữu giao dịch; không tự Undo để tránh xóa dữ liệu khác".into());
+    }
+    session.execute("undo",&json!({"mode":"end"})).map_err(|e|e.to_string())?;
+    if let Some(error)=failure {
+        if succeeded>0 && same(session,expected,false) {
+            session.execute("undo",&json!({"count":1})).map_err(|e|format!("{error}; rollback lỗi: {e}"))?;
+        }
+        return Err(error);
+    }
+    Ok(())
+}
+
 fn drawing_ready(session:&Session)->bool {
     if session.prompting() {return false;}
     session.state().is_ok_and(|s|s.block_edit.is_none()&&s.undo_ctl.group.is_none()&&(s.undo_ctl.bits()&11)==1)
@@ -122,15 +222,16 @@ impl AiReview {
             ui.label("vẽ polyline qua 0,0;100,0;100,50");
             ui.label("vẽ cung tâm 0,0 bán kính 100 từ 0 đến 90");
             ui.label("vẽ tường từ 0,0 đến 6000,0 dày 200");
+            ui.label("vẽ tường có cửa từ 0,0 đến 6000,0 dày 200 cửa 900 tại 3000 mở trái");
             ui.text_edit_singleline(&mut self.prompt);
             if ui.button("1. Xem trước").clicked() {
                 self.preview=None;
                 let next=(|| {
-                    let (command,params,description)=parse_draft(&self.prompt)?;
+                    let (steps,description)=plan_from_text(&self.prompt)?;
                     if !drawing_ready(session) {return Err("CAD đang có lệnh/Undo Group hoặc Block Editor: chưa thể Preview".into());}
                     let st=session.state().map_err(|e|e.to_string())?;
                     Ok(Preview {uid:st.uid,epoch:session.doc_epoch,revision:st.revision,
-                        text:self.prompt.clone(),command,params,description})
+                        text:self.prompt.clone(),steps,description})
                 })();
                 match next {Ok(p)=>{self.preview=Some(p);self.message="Đã xem trước; chưa ghi đối tượng.".into();},Err(e)=>self.message=e}
             }
@@ -147,9 +248,9 @@ impl AiReview {
                     if !permitted||self.prompt!=p.text {
                         self.message="Preview cũ hoặc bản vẽ thay đổi; vui lòng Preview lại.".into();
                     } else {
-                        match session.execute(p.command,&p.params) {
-                            Ok(_)=>self.message=format!("Đã thực hiện {} trong CAD Engine. Kiểm tra Undo/Redo.",p.command),
-                            Err(e)=>self.message=format!("CAD từ chối lệnh: {e}")
+                        match commit_steps(session,&p) {
+                            Ok(())=>self.message=format!("Đã thực hiện {} bước CAD. Kiểm tra Undo/Redo.",p.steps.len()),
+                            Err(e)=>self.message=format!("CAD từ chối giao dịch: {e}")
                         }
                     }
                 }
@@ -173,6 +274,26 @@ mod tests {
         assert!(parse_draft("vẽ phòng rộng NaN dài 4000 tại 0,0").is_err());
         assert!(parse_draft("xóa tất cả").is_err());
     }
+    #[test]
+    fn stage261_door_wall_keeps_a_real_gap_and_four_editable_native_entities() {
+        let (steps,_) = plan_from_text("vẽ tường có cửa từ 0,0 đến 6000,0 dày 200 cửa 900 tại 3000 mở trái").unwrap();
+        assert_eq!(steps.len(),4);
+        assert_eq!(steps.iter().map(|s|s.0).collect::<Vec<_>>(),vec!["pline","pline","line","arc"]);
+        assert_eq!(steps[0].1["vertices"],json!([[0.0,100.0],[2550.0,100.0],[2550.0,-100.0],[0.0,-100.0]]));
+        assert_eq!(steps[1].1["vertices"],json!([[3450.0,100.0],[6000.0,100.0],[6000.0,-100.0],[3450.0,-100.0]]));
+        assert_eq!(steps[2].1["points"],json!([[2550.0,0.0],[2550.0,900.0]]));
+        assert_eq!(steps[3].1["radius"],900.0);
+        assert_eq!(steps[3].1["start"],0.0);assert_eq!(steps[3].1["end"],90.0);
+        let right=plan_from_text("vẽ tường có cửa từ 0,0 đến 6000,0 dày 200 cửa 900 tại 3000 mở phải").unwrap().0;
+        assert_eq!(right.len(),4);
+        assert_eq!(right[2].1["points"],json!([[3450.0,0.0],[3450.0,-900.0]]));
+        assert!(plan_from_text("vẽ tường có cửa từ 0,0 đến 6000,0 dày 200 cửa 7000 tại 3000 mở trái").is_err());
+        assert!(plan_from_text("vẽ tường có cửa từ 0,0 đến 6000,0 dày 200 cửa 900 tại 100 mở trái").is_err());
+        assert!(plan_from_text("vẽ tường có cửa từ 0,0 đến 6000,0 dày 200 cửa 900 tại 3000 mở lên").is_err());
+        let tilted=plan_from_text("vẽ tường có cửa từ 0,0 đến 3000,4000 dày 200 cửa 900 tại 2500 mở trái").unwrap().0;
+        assert_eq!(tilted.len(),4);
+    }
+
     #[test]
     fn stage260_polyline_arc_and_wall_are_editable_native_entities() {
         let (cmd,p,_) = parse_draft("vẽ polyline qua 0,0;100,0;100,50").unwrap();
