@@ -250,7 +250,7 @@ fn render_pdf_page(pdf: &std::path::Path, page: u32) -> Result<std::path::PathBu
 fn apply_ai_instruction(state: &mut State, instruction: &str) -> Result<&'static str, &'static str> {
     let q=instruction.trim().to_lowercase();
     if q.is_empty() { return Err("Hãy nhập yêu cầu, ví dụ: nhận dạng toàn bộ mặt bằng, tường, cửa, cột hoặc nét."); }
-    let all=["toàn bộ","mặt bằng","floor plan","all"].iter().any(|word|q.contains(word));
+    let all=["toàn bộ","mặt bằng","floor plan"].iter().any(|word|q.contains(word)) || q.split_whitespace().any(|word|word=="all");
     let wall=all || ["tường","wall"].iter().any(|word|q.contains(word));
     let door=all || ["cửa","door","window"].iter().any(|word|q.contains(word));
     let column=all || ["cột","column"].iter().any(|word|q.contains(word));
@@ -1703,6 +1703,8 @@ mod tests {
         assert!(!state.confirm_door_blocks && !state.confirm_column_blocks && !state.confirm_wall_blocks);
         assert_eq!(state.params()["preview"],true);
         assert!(apply_ai_instruction(&mut state,"không rõ lệnh").is_err());
+        assert!(apply_ai_instruction(&mut state,"wall").is_ok());
+        assert!(state.wall_pair_hints && !state.door_leaf_hints && !state.column_hatch_hints);
     }
 
     #[test]
