@@ -199,6 +199,58 @@ fn stage282_dxf_ai_trace_lines_pline_arc_survive_two_save_reopen_cycles() {
     }
 }
 
+/// Compare every AI-derived native entity after one or several DWG save/reopen cycles.
+/// The first Stage282 test only checked handles after its second cycle.
+#[cfg(not(target_arch="wasm32"))]
+fn stage283_assert_dwg_geometry_integrity(original:&Drawing,back:&Drawing,handles:&[Handle]) {
+    use std::collections::HashSet;
+    assert_eq!(back.entity_count(),handles.len(),"DWG must not duplicate or lose entities");
+    let unique=back.model.iter().map(|e|e.handle).collect::<HashSet<_>>();
+    assert_eq!(unique.len(),handles.len(),"DWG must not duplicate entity handles");
+    let layer=back.layer("AI-TRACE").expect("missing AI-TRACE layer");
+    assert_eq!(layer.color,Color::Index(3));
+    for handle in handles {
+        let old=original.entity(*handle).expect("original handle");
+        let new=back.entity(*handle).expect("reopened handle");
+        assert_eq!(new.common.layer,old.common.layer,"layer must survive DWG");
+        assert!((new.common.ltscale-old.common.ltscale).abs()<1e-6,
+            "individual entity linetype scale must survive DWG");
+        match (&old.kind,&new.kind) {
+            (EntityKind::Line(a),EntityKind::Line(b))=>{
+                for (u,v) in [(a.a.x,b.a.x),(a.a.y,b.a.y),(a.a.z,b.a.z),
+                    (a.b.x,b.b.x),(a.b.y,b.b.y),(a.b.z,b.b.z)] {
+                    assert!((u-v).abs()<1e-6,"LINE point changed after DWG Save/Reopen");
+                }
+            }
+            (EntityKind::LwPolyline(a),EntityKind::LwPolyline(b))=>{
+                assert_eq!(a.closed,b.closed);
+                assert_eq!(a.vertices.len(),b.vertices.len());
+                for (u,v) in a.vertices.iter().zip(b.vertices.iter()) {
+                    assert!((u.p.x-v.p.x).abs()<1e-6 && (u.p.y-v.p.y).abs()<1e-6,
+                        "PLINE vertex changed after DWG Save/Reopen");
+                }
+            }
+            (EntityKind::Arc(a),EntityKind::Arc(b))=>{
+                for (u,v) in [(a.center.x,b.center.x),(a.center.y,b.center.y),
+                    (a.radius,b.radius),(a.start,b.start),(a.end,b.end)] {
+                    assert!((u-v).abs()<1e-6,"ARC geometry changed after DWG Save/Reopen");
+                }
+            }
+            _=>panic!("Entity type changed through DWG file"),
+        }
+    }
+}
+
+#[cfg(not(target_arch="wasm32"))]
+#[test]
+fn stage283_dwg_two_consecutive_reopens_keep_exact_native_geometry() {
+    let (original,handles)=stage282_trace_sample();
+    let first=read(&write(&original,"ai_trace.dwg").unwrap(),"ai_trace.dwg").unwrap();
+    let second=read(&write(&first,"ai_trace.dwg").unwrap(),"ai_trace.dwg").unwrap();
+    stage283_assert_dwg_geometry_integrity(&original,&first,&handles);
+    stage283_assert_dwg_geometry_integrity(&original,&second,&handles);
+}
+
 #[cfg(not(target_arch="wasm32"))]
 #[test]
 fn stage282_dwg_ai_trace_lines_pline_arc_reopen_with_native_geometry() {
@@ -241,9 +293,8 @@ fn stage282_dwg_ai_trace_lines_pline_arc_reopen_with_native_geometry() {
     }
     let second=read(&write(&back,"ai_trace.dwg").unwrap(),"ai_trace.dwg").unwrap();
     assert_eq!(second.entity_count(),handles.len(),"DWG second save/reopen must keep all AI-like geometry");
-    for h in &handles {
-        assert!(second.entity(*h).is_some(),"second DWG round-trip must preserve handle");
-    }
+    stage283_assert_dwg_geometry_integrity(&original,&back,&handles);
+    stage283_assert_dwg_geometry_integrity(&original,&second,&handles);
     std::fs::remove_file(&file).unwrap();
 }
 
