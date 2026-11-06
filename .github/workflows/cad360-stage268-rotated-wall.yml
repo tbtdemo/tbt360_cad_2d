@@ -1,0 +1,32 @@
+name: CAD 360 Stage268 Rotated Existing Wall Door Cut
+on:
+  push:
+    branches:
+      - feature/CADTBT360_V1.025_xref-regression
+    paths:
+      - CADTBT360_V1.000/crates/ui-egui/src/ai_review.rs
+      - .github/workflows/cad360-stage268-rotated-wall.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  rotated-wall:
+    runs-on: windows-latest
+    timeout-minutes: 95
+    defaults:
+      run:
+        working-directory: CADTBT360_V1.000
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: CADTBT360_V1.000
+      - name: Compile native Windows GUI
+        run: cargo check --locked -p cadcraft-ui-egui
+      - name: Rotated wall and rejected skewed wall tests
+        run: cargo test --locked -p cadcraft-ui-egui stage268 -- --nocapture
+      - name: Previous existing wall regressions
+        run: cargo test --locked -p cadcraft-ui-egui stage267 -- --nocapture
+      - name: Previous managed door Undo regressions
+        run: cargo test --locked -p cadcraft-ui-egui stage266 -- --nocapture
