@@ -137,6 +137,7 @@ jobs:
             @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_vietnamese_adjacent_rooms_generate_one_envelope_and_shared_boundary' },
             @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_vietnamese_adjacent_rooms_centered_door_keeps_real_opening' },
             @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_vietnamese_door_hinge_right_and_left_create_native_leaf_arc' },
+            @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_vietnamese_door_block_uses_final_line_and_arc_in_one_plan' },
             @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_vietnamese_room_wall_plan_produces_closed_native_outlines' },
             @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_vietnamese_plan_parses_four_native_commands' },
             @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_vietnamese_plan_is_atomic_on_parser_validation' },
@@ -277,6 +278,8 @@ jobs:
           if ($namedTests.Count -lt 4) { $imageTests | Out-Host; throw "V1.025 image test discovery unexpectedly found only $($namedTests.Count) tests" }
           cargo test --locked -p cadcraft-engine --lib image -- --nocapture
           if ($LASTEXITCODE -ne 0) { throw 'V1.025 IMAGE engine regression failed' }
+          cargo test --locked -p cadcraft-mcp --lib ai_vietnamese_door_block_uses_final_line_and_arc_in_one_plan -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'AI confirmed door BLOCK preview source regression failed' }
           cargo test --locked -p cadcraft-mcp --lib ai_vietnamese_door_hinge_right_and_left_create_native_leaf_arc -- --nocapture
           if ($LASTEXITCODE -ne 0) { throw 'AI Vietnamese door hinge and swing geometry regression failed' }
           cargo test --locked -p cadcraft-mcp --lib ai_vietnamese_adjacent_rooms_centered_door_keeps_real_opening -- --nocapture
