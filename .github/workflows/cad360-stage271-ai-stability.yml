@@ -36,6 +36,8 @@ jobs:
         run: cargo test --locked -p cadcraft-ui-egui stage271 -- --nocapture
       - name: Earlier native shape and image review regressions
         run: cargo test --locked -p cadcraft-ui-egui stage26 -- --nocapture
+      - name: Stage270 exact intersection regressions
+        run: cargo test --locked -p cadcraft-ui-egui stage270 -- --nocapture
       - name: Original AI Review and parser regressions
         run: cargo test --locked -p cadcraft-ui-egui stage25 -- --nocapture
       - name: Raster vectorizer native module regression
