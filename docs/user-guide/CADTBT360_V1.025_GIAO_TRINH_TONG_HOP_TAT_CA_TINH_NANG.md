@@ -1849,3 +1849,40 @@ Bản Word **CADTBT360_V1.025_GIAO_TRINH_FULL_CO_HINH_DOT229.docx** biên soạn
 *Hình 70.1 — Sơ đồ nguyên lý AI Agent, KHÔNG phải ảnh chụp từ EXE. Bản Word FULL đợt 230 có thêm minh họa riêng cho phòng kích thước 6000 × 4000 và tường dài 6000, dày 200.*
 
 **Mức độ hoàn thiện:** Đã bổ sung parser phòng và dải tường CAD, kiểm thử đầu vào/hình học và đưa kiểm thử vào Windows CI. Chưa hoàn thiện việc suy luận đa đối tượng từ mô tả thiết kế tự do, chưa xác nhận Windows CI PASS hoặc thao tác thực tế trên EXE.
+
+
+## 71. Đợt 231 — AI vẽ hai phòng liền kề từ một yêu cầu, không trùng cạnh chung
+
+### Bài 127 (theo giáo trình nguồn Markdown) — Dựng mặt bằng hai phòng trong một lần Preview
+
+1. Mở bản vẽ CAD 360 thử nghiệm, kiểm tra đơn vị và kết nối MCP Agent. Gọi công cụ `ai_draw_plan_vietnamese` (không phải `ai_draw_vietnamese` một lệnh).
+2. Nhập chính xác `vẽ hai phòng liền kề rộng 3000 và 4000 dài 4000 tại 0,0`. Đây là câu lệnh có ngữ pháp cố định; chưa phải AI tự hiểu tất cả mô tả kiến trúc.
+3. Preview trả **hai** lệnh CAD native: `rectang` với `p1=[0,0]`, `p2=[7000,4000]`; và `line` với `points=[[3000,0],[3000,4000]]`.
+4. Đối chiếu chiều dài chung 4000, phòng trái rộng 3000, phòng phải rộng 4000; tổng rộng 7000. **Chỉ có một đường phân chia chung**, không sinh hai biên phòng trùng nhau.
+5. Kiểm tra `documentUid`, `documentEpoch`, `revision`, xác nhận bằng `confirm=true`, `preview=false` và đúng ba trường phiên bản `expected...`. Kiểm tra kết quả CAD bằng `inspect_drawing` và `render`.
+6. Mặt bằng được tạo là đường bao ngoài và một LINE ngăn phòng. **Chưa phải tường có chiều dày, không tự có cửa, không có IFC/BIM room semantics.** Không dùng ngay làm hồ sơ triển khai kiến trúc.
+
+![Hai phòng liền kề có một đường phân chia chung](images/ai-stage231-two-adjacent-rooms.svg)
+
+*Hình 71.1 — Minh họa trực quan hình học đề xuất, không phải ảnh chụp Windows EXE.*
+
+### Bài 128 — Kiểm tra Undo group và lỗi bản vẽ thay đổi
+
+1. Mặc định chọn Preview; `editableEntitiesCreated=0` ở bước này.
+2. Kiểm tra kế hoạch gồm `rectang`, `line`; nếu không phải hai lệnh trên, không xác nhận.
+3. Chỉ thực thi sau khi người dùng xác nhận và kiểm tra Undo Control All, Undo group đang đóng, không có lệnh tương tác khác.
+4. Trong khi thực thi, MCP kiểm tra cùng `documentUid`, `documentEpoch`, revision tại từng bước và trước END/Undo. Khi không chứng minh được quyền sở hữu bản vẽ, công cụ **không tự Undo** để bảo vệ các chỉnh sửa khác.
+5. Trên bản vẽ thử, kiểm tra Undo một lần; không coi phần này hoàn thiện nếu chưa có Windows CI và smoke test PASS.
+
+### Bài 129 — Hồi quy cột AI thành BLOCK và kiểm thử phát hành
+
+1. Đọc lỗi từ Windows CI đợt 230: `ai_column_block_engine_convert_has_one_insert_and_one_undo` thất bại với `column draft must return handles`.
+2. Sửa test dựa trên hợp đồng trả về của CAD Engine: `pline` trả `handle` đơn, còn `line` trả `handles[0]` ngay cả khi chỉ có một đoạn. Không dùng sai `lineResponse["handle"]`.
+3. Kiểm thử lại `cargo test --locked -p cadcraft --bin cadcraft ai_column_block_engine_convert_has_one_insert_and_one_undo -- --nocapture`.
+4. Kiểm thử hai phòng `cargo test --locked -p cadcraft-mcp --lib ai_vietnamese_adjacent_rooms_generate_one_envelope_and_shared_boundary -- --nocapture`.
+5. Từ chối kích thước bằng 0, NaN, tọa độ sau cộng vượt phạm vi giới hạn, hoặc câu lệnh tiếng Việt nằm ngoài ngữ pháp hỗ trợ.
+6. Chỉ công nhận build khi GitHub Actions trên đúng SHA cuối báo PASS toàn bộ Compile, Regression, Packaging, Installed Smoke.
+
+**Giáo trình Word FULL:** Bản `CADTBT360_V1.025_GIAO_TRINH_FULL_CO_HINH_DOT231.docx` kế thừa 129 bài và 130 hình của đợt 230, bổ sung ba bài học mới về AI hai phòng, Undo và CI, có 133 hình/sơ đồ. Đây là bản **tổng hợp toàn bộ phần mềm**, không phải phụ lục chỉ riêng đợt 231. Hình minh họa chưa thay thế ảnh chụp EXE thật.
+
+**Trạng thái:** Mã AI và sửa test đã đẩy lên GitHub; CI đợt 230 được xác minh FAILED tại bài test cột trước khi sửa; đợt 231 cần tiếp tục xác nhận kết quả Windows CI mới.
