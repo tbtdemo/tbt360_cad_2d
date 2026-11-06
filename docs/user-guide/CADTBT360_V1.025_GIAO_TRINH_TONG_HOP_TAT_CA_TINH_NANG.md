@@ -2400,3 +2400,33 @@ Kế hoạch: Đợt 240 sửa lỗi CI, hoàn thiện thử DWG hai chiều v�
 6. Giữ chế độ CAD Free vẽ offline không buộc đăng nhập. Hệ thống tài khoản/xác thực chủ yếu dành cho kết nối Agent bên ngoài và các tính năng có cấp quyền.
 
 **Bằng chứng và giới hạn:** Stage248 bổ sung một contract VerifiedTokenProvider và OidcTrustPolicy **không triển khai bộ xác thực JWT/JWKS tại MCP Server**; việc xác thực cryptographic vẫn là trách nhiệm của host tin cậy. Không tuyên bố kết nối ChatGPT/Gemini trực tiếp, không nói hỗ trợ API của gói chat theo tài khoản web khi chưa có xác thực nhà cung cấp. Các hình trong Word là sơ đồ minh họa, không phải ảnh chụp Windows EXE.
+
+
+## 89. Đợt 249 — Mẫu Host OIDC .NET 8 xác minh JWT, chưa mở quyền ghi CAD
+
+### Bài 184 — Triển khai mẫu host OIDC trên .NET 8
+1. Mở thư mục `integrations/oidc-host-dotnet` trong source CAD 360 và đọc file `README.md`.
+2. Cài .NET 8 SDK, dùng một AuthServer OpenIddict thật được cấp HTTPS issuer và JWKS hợp lệ.
+3. Trong PowerShell đặt `$env:CAD360_OIDC_AUTHORITY="https://AUTH-SERVER-ISSUER"` (giá trị thật theo cấu hình), và `$env:CAD360_OIDC_AUDIENCE="cad360-mcp"` khi AuthServer đã đăng ký đúng audience.
+4. Chạy `dotnet restore .\integrations\oidc-host-dotnet\Cad360OidcHost.csproj`; sau đó `dotnet run --project .\integrations\oidc-host-dotnet\Cad360OidcHost.csproj`.
+5. Host mẫu chỉ lắng nghe `127.0.0.1:5049`, không cung cấp lệnh vẽ CAD. Gọi `GET /health` để kiểm tra ứng dụng đã chạy, không dùng endpoint này để xác thực.
+6. Dùng OAuth Access Token hợp lệ do AuthServer phát hành, gọi `GET /api/cad360/identity` cùng Bearer token. Bộ middleware ASP.NET Core JWT Bearer phải kiểm chứng chữ ký bằng JWKS, issuer, audience, thời hạn; endpoint chỉ chấp nhận role viewer/editor/approver và sub/tenant_id.
+7. Nếu hợp lệ, endpoint trả danh tính đã xác minh nhưng có cờ `mcpSessionCreated:false`. **Đây không phải endpoint thực thi CAD**. Host và Rust MCP chưa có kênh xác thực end-to-end nối vào nhau.
+
+### Bài 185 — Kiểm thử token, vai trò và an toàn tích hợp
+1. Thiếu Bearer token → từ chối; token chữ ký sai hoặc issuer/audience không khớp → từ chối.
+2. Token hết hạn, `nbf` tương lai, thiếu `sub`, `tenant_id`, vai trò không thuộc viewer/editor/approver → từ chối.
+3. Test Rust mới `stage249_oidc_host_rejects_inverted_token_lifetime_and_future_not_before` kiểm tra token có nbf sai, exp trước nbf và audience khác.
+4. Không cung cấp API chung để Agent gửi lệnh `execute`, `script` vào CAD khi chưa có kênh tin cậy, kiểm soát từng công cụ, theo UID bản vẽ và quyền host.
+5. Gói ChatGPT/Gemini web không tự động cấp API hoặc quyền điều khiển CAD. Không thu thập cookie đăng nhập trình duyệt.
+6. Mẫu host .NET được viết trong repo nhưng **chưa có biên bản chạy thực với AuthServer OpenIddict, chưa có kết quả build .NET đã được xác minh và chưa kiểm thử trao đổi token end-to-end**.
+
+### Bài 186 — Đồng bộ cây HƯỚNG DẪN và đánh giá đợt 249
+1. Trong CAD 360 → **HƯỚNG DẪN** → **5. KẾT NỐI & AN TOÀN AI** → **5.13 Kiểm tra OIDC bằng host .NET 8**, xem quy trình dùng host OIDC.
+2. Mở mục 6. GIÁO TRÌNH FULL để tra cứu các bài 1–186. Nội dung được nhúng trong EXE thông qua nguồn Markdown cùng nhánh; cần Windows CI PASS và kiểm tra EXE mới để kết luận đã hiện đúng.
+3. Excel `CAD360_BAO_CAO_TIEN_DO_DOT249.xlsx` chia 3 mức: đã viết mã và tài liệu, CI PASS đúng commit, nghiệm thu host/Windows EXE thực tế.
+4. Ưu tiên đợt 250: triển khai một **kênh tin cậy** để đưa danh tính đã xác minh từ host vào `Server::with_verified_oidc`, kiểm thử JWT thật và giới hạn quyền từng bản vẽ.
+5. Ưu tiên đợt 251: nâng cấp AI ảnh→CAD bằng bộ mẫu có sai số định lượng, kết quả là các entity CAD sửa được; đợt 252: kiểm tra DWG hai chiều AutoCAD, QTO và ảnh EXE.
+6. Hình trong Word là sơ đồ kỹ thuật minh họa. Không được mô tả đó là ảnh chụp từ EXE thực tế.
+
+**Giới hạn:** Đợt 249 bổ sung host mẫu ASP.NET JWTBearer và bài kiểm thử hạn token của Rust. Chưa có xác nhận JWT/JWKS bằng AuthServer thật hoặc kết nối MCP end-to-end, nên không công bố OIDC/AI bên ngoài đã được nghiệm thu.
