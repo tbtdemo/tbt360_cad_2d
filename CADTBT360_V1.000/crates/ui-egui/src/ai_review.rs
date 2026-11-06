@@ -1368,6 +1368,63 @@ mod tests {
     }
 
     #[test]
+    fn stage273_managed_wall_rejects_undetected_property_changes_without_erasing() {
+        let mut session=Session::default();
+        let text="vẽ tường có cửa từ 0,0 đến 6000,0 dày 200 cửa 900 tại 3000 mở trái";
+        let (steps,description)=plan_from_text(text).unwrap();
+        let state=session.state().unwrap();
+        let draft=Preview {uid:state.uid,epoch:session.doc_epoch,revision:state.revision,
+            text:text.into(),steps,description,image_evidence:None,selected_opening_guide:None,
+            selected_door_arc:None,replace_handles:None,replace_snapshot:None,review_token:None,
+            image_controls:None,owned_entities:None};
+        let originals=commit_steps(&mut session,&draft).unwrap();
+        let owned_entities=originals.iter().map(|raw|{
+            let handle=cadcraft_doc::Handle::parse_hex(raw).unwrap();
+            session.doc().unwrap().entity(handle).unwrap().as_ref().clone()
+        }).collect();
+        let state=session.state().unwrap();
+        let managed=ManagedDoorWall {uid:state.uid,epoch:session.doc_epoch,
+            revision:state.revision,command_text:text.into(),handles:originals.clone(),owned_entities};
+        let approved=prepare_managed_wall_shift(&session,&managed,"3500").unwrap();
+        let changed_handle=cadcraft_doc::Handle::parse_hex(&originals[0]).unwrap();
+        session.doc_mut().unwrap().modify_entity(changed_handle,|entity|
+            entity.common.ltscale=1.75).unwrap();
+        let count=session.doc().unwrap().entity_count();
+        assert!(prepare_managed_wall_shift(&session,&managed,"3500").is_err(),
+            "new Preview cannot trust managed wall modified without Revision bump");
+        assert!(commit_steps(&mut session,&approved).is_err(),
+            "existing Preview must reject modified managed wall snapshots");
+        assert_eq!(session.doc().unwrap().entity_count(),count);
+        for raw in &originals {
+            let handle=cadcraft_doc::Handle::parse_hex(raw).unwrap();
+            assert!(session.doc().unwrap().entity(handle).is_some());
+        }
+    }
+
+    #[test]
+    fn stage273_failed_native_group_rolls_back_and_preserves_unrelated_geometry() {
+        let mut session=Session::default();
+        let external=session.execute("line",&json!({"points":[[0,9000],[5000,9000]]})).unwrap();
+        let external_handle=cadcraft_doc::Handle::parse_hex(external["handles"][0].as_str().unwrap()).unwrap();
+        let state=session.state().unwrap();
+        let preview=Preview {uid:state.uid,epoch:session.doc_epoch,revision:state.revision,
+            text:"test-rollback".into(),
+            steps:vec![
+                ("line",json!({"points":[[0,0],[100,0]]})),
+                ("line",json!({"points":[[10,10],[10,10]]}))
+            ],
+            description:"Injected invalid second line".into(),
+            image_evidence:None,selected_opening_guide:None,selected_door_arc:None,
+            replace_handles:None,replace_snapshot:None,review_token:None,
+            image_controls:None,owned_entities:None};
+        assert!(commit_steps(&mut session,&preview).is_err());
+        assert_eq!(session.doc().unwrap().entity_count(),1,
+            "failed grouped CAD operation must not leave an inserted line");
+        assert!(session.doc().unwrap().entity(external_handle).is_some());
+        assert!(session.state().unwrap().undo_ctl.group.is_none());
+    }
+
+    #[test]
     fn stage266_replace_only_managed_wall_door_with_one_undo_and_keep_unrelated_geometry() {
         let mut session=Session::default();
         // Existing, unrelated CAD content must survive an AI Review-managed wall relocation.
@@ -1383,8 +1440,12 @@ mod tests {
         assert_eq!(originals.len(),4);
         assert_eq!(session.doc().unwrap().entity_count(),5);
         let state=session.state().unwrap();
+        let owned_entities=originals.iter().map(|raw| {
+            let handle=cadcraft_doc::Handle::parse_hex(raw).unwrap();
+            session.doc().unwrap().entity(handle).unwrap().as_ref().clone()
+        }).collect();
         let managed=ManagedDoorWall {uid:state.uid,epoch:session.doc_epoch,revision:state.revision,
-            command_text:text.into(),handles:originals.clone()};
+            command_text:text.into(),handles:originals.clone(),owned_entities};
         assert!(prepare_managed_wall_shift(&session,&managed,"200").is_err(),
             "door cannot touch outer wall endpoint");
         assert!(prepare_managed_wall_shift(&session,&managed,"-100").is_err());
