@@ -14,7 +14,7 @@ pub fn tool_definitions(has_ui: bool) -> Value {
             "inputSchema": {"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]}}),
         json!({"name": "execute", "description": "Run any command with JSON parameters (no prompts or dialogs). Use list_commands to find ids and parameter docs. Examples: line {points:[[0,0],[10,0]]}, circle {center:[0,0], radius:5}, layer.new {name:\"Walls\", color:\"red\", current:true}, move {handles:[\"10A\"], delta:[5,0]}, zoom {mode:\"extents\"}.",
             "inputSchema": {"type": "object", "properties": {"command": {"type": "string"}, "params": {"type": "object"}}, "required": ["command"]}}),
-        json!({"name":"ai_draw_plan_vietnamese","description":"CAD 360 AI deterministic multi-step Vietnamese drawing plan. Supply 2-8 native commands through newline-delimited drafts (LINE, CIRCLE, RECTANG, PLINE), or one high-level room pair: vẽ hai phòng liền kề rộng 3000 và 4000 dài 4000 tại 0,0 [cửa 900 giữa] (one outer RECTANG and two gap-preserving LINEs; optional explicit hinge/swing adds native door-leaf LINE and swing ARC, not a BLOCK or BIM door). Preview is default; commit requires confirm:true and exact document identity/revision from preview. Executes all steps as one guarded Undo group and attempts safe rollback on failure. Does not interpret arbitrary natural language.","inputSchema":{"type":"object","properties":{"text":{"type":"string"},"preview":{"type":"boolean"},"confirm":{"type":"boolean"},"expectedDocumentUid":{"type":"integer","minimum":0},"expectedDocumentEpoch":{"type":"integer","minimum":0},"expectedRevision":{"type":"integer","minimum":0}},"required":["text"]}}),
+        json!({"name":"ai_draw_plan_vietnamese","description":"CAD 360 AI deterministic multi-step Vietnamese drawing plan. Supply 2-8 native commands through newline-delimited drafts (LINE, CIRCLE, RECTANG, PLINE), or one high-level room pair: vẽ hai phòng liền kề rộng 3000 và 4000 dài 4000 tại 0,0 [cửa 900 giữa] (one outer RECTANG and two gap-preserving LINEs; optional explicit hinge/swing adds native door-leaf LINE and swing ARC, not a BLOCK or BIM door). Preview is default; commit requires confirm:true and exact document identity/revision from preview. Executes all steps as one guarded Undo group and attempts safe rollback on failure. Optional createDoorBlock=true converts the last explicitly described door leaf LINE and swing ARC into a native BLOCK/INSERT in the same Undo group; defaults false. Does not interpret arbitrary natural language.","inputSchema":{"type":"object","properties":{"text":{"type":"string"},"preview":{"type":"boolean"},"confirm":{"type":"boolean"},"createDoorBlock":{"type":"boolean"},"expectedDocumentUid":{"type":"integer","minimum":0},"expectedDocumentEpoch":{"type":"integer","minimum":0},"expectedRevision":{"type":"integer","minimum":0}},"required":["text"]}}),
         json!({"name":"ai_draw_vietnamese","description":"CAD 360 Vietnamese drafting bridge (bounded deterministic grammar, not a general LLM). Supports bounded LINE, CIRCLE, RECTANG, PLINE, plus dimensioned room 'vẽ phòng rộng 6000 dài 4000 tại 0,0' and wall 'vẽ tường từ 0,0 đến 6000,0 dày 200'. Room and wall are editable CAD outlines, NOT semantically verified BIM geometry. Preview by default; to commit, set preview:false, confirm:true and expectedDocumentUid, expectedDocumentEpoch, expectedRevision obtained from a fresh preview. Executes exactly one native CAD engine command, never saves or modifies DWG structure.","inputSchema":{"type":"object","properties":{"text":{"type":"string"},"preview":{"type":"boolean"},"confirm":{"type":"boolean"},"expectedDocumentUid":{"type":"integer","minimum":0},"expectedDocumentEpoch":{"type":"integer","minimum":0},"expectedRevision":{"type":"integer","minimum":0}},"required":["text"]}}),
         json!({"name": "list_commands", "description": "List commands with ids, labels, menu paths, aliases and parameter docs. Optional filter: a substring of the command id, label or an alias.",
             "inputSchema": {"type": "object", "properties": {"filter": {"type": "string"}}}}),
@@ -374,6 +374,11 @@ fn parse_vietnamese_plan(text: &str) -> Result<Vec<(String,Value)>,String> {
 fn ai_draw_plan_vietnamese(b: &mut dyn Backend, args: &Value) -> Result<Value,String> {
     let prompt=args["text"].as_str().ok_or("AI CAD: thiếu kế hoạch vẽ")?;
     let steps=parse_vietnamese_plan(prompt)?;
+    let create_door_block=args["createDoorBlock"].as_bool().unwrap_or(false);
+    let block_eligible=steps.len()>=5 && steps[steps.len()-2].0=="line" && steps[steps.len()-1].0=="arc";
+    if create_door_block && !block_eligible {
+        return Err("AI CAD: createDoorBlock chỉ áp dụng cho kế hoạch hai phòng có bản lề và hướng mở được khai báo đầy đủ".into());
+    }
     let drawing=b.call("drawing.inspect",json!({"entities":false}))?;
     let uid=drawing["documentUid"].as_u64().ok_or("AI CAD: không có documentUid")?;
     let epoch=drawing["documentEpoch"].as_u64().ok_or("AI CAD: không có documentEpoch")?;
@@ -381,7 +386,9 @@ fn ai_draw_plan_vietnamese(b: &mut dyn Backend, args: &Value) -> Result<Value,St
     let summaries:Vec<Value>=steps.iter().map(|(command,params)|json!({"command":command,"params":params})).collect();
     let plan=json!({"steps":summaries,"stepCount":steps.len(),"documentUid":uid,
         "documentEpoch":epoch,"revision":revision,"requiresConfirmation":true,
-        "transaction":"single-undo-group","source":"bounded-vietnamese-parser-v1"});
+        "transaction":"single-undo-group","createDoorBlock":create_door_block,
+        "doorBlockPreview":if create_door_block {json!({"entity":"BLOCK/INSERT","source":"final LINE leaf + ARC swing","requiresHumanReview":true})} else {Value::Null},
+        "source":"bounded-vietnamese-parser-v1"});
     if args["preview"].as_bool().unwrap_or(true) {
         return Ok(json!({"previewOnly":true,"editableEntitiesCreated":0,"plan":plan}));
     }
@@ -416,6 +423,34 @@ fn ai_draw_plan_vietnamese(b: &mut dyn Backend, args: &Value) -> Result<Value,St
         match b.call("engine.execute",json!({"command":command,"params":params})) {
             Ok(value)=>results.push(value),
             Err(error)=>{failure=Some(format!("Lệnh {command} thất bại: {error}"));break;}
+        }
+    }
+    if failure.is_none() && create_door_block {
+        let latest=b.call("drawing.inspect",json!({"entities":false}));
+        let owned=latest.as_ref().is_ok_and(|state|
+            state["documentUid"].as_u64()==Some(uid)
+            && state["documentEpoch"].as_u64()==Some(epoch)
+            && state["revision"].as_u64()==revision.checked_add(results.len() as u64)
+            && state["undoGroupOpen"]==true && state["undoControl"]=="all");
+        if !owned {
+            failure=Some("AI CAD: không thể xác nhận quyền sở hữu bản vẽ trước khi tạo BLOCK".into());
+        } else {
+            let leaf_handle=results.get(results.len()-2).and_then(|r|r["handles"][0].as_str()).map(str::to_string);
+            let arc_handle=results.last().and_then(|r|r["handle"].as_str()).map(str::to_string);
+            let center=steps.last().map(|(_,p)|p["center"].clone()).unwrap_or(Value::Null);
+            match (leaf_handle,arc_handle) {
+                (Some(leaf),Some(arc)) if center.is_array() => {
+                    let name=format!("TBT_AI_DOOR_{}_{}",uid,revision);
+                    match b.call("engine.execute",json!({"command":"block","params":{
+                        "name":name,"base":center,"handles":[leaf,arc],"keep":"convert",
+                        "description":"CAD 360 AI door drafting Block; user-reviewed, not a semantic BIM door"}})) {
+                        Ok(value) if value["insert"].as_str().is_some()=>results.push(value),
+                        Ok(_)=>failure=Some("AI CAD: BLOCK không trả INSERT; sẽ thử Undo an toàn".into()),
+                        Err(error)=>failure=Some(format!("AI CAD: tạo BLOCK thất bại: {error}"))
+                    }
+                }
+                _=>failure=Some("AI CAD: LINE/ARC không có native handles để tạo BLOCK; sẽ thử Undo an toàn".into())
+            }
         }
     }
     let owned=b.call("drawing.inspect",json!({"entities":false})).is_ok_and(|state|
@@ -640,6 +675,17 @@ mod ai_draft_vietnamese_tests {
         assert_eq!(left[4],("arc".to_string(),json!({"center":[3000.0,2450.0],"radius":900.0,"start":180.0,"end":270.0})));
         assert!(super::parse_vietnamese_plan("vẽ hai phòng liền kề rộng 500 và 4000 dài 4000 tại 0,0 cửa 900 giữa bản lề trên mở trái").is_err());
         assert!(super::parse_vietnamese_plan("vẽ hai phòng liền kề rộng 3000 và 4000 dài 4000 tại 0,0 cửa 900 giữa bản lề dưới mở lên").is_err());
+    }
+
+    #[test]
+    fn ai_vietnamese_door_block_uses_final_line_and_arc_in_one_plan() {
+        let steps=super::parse_vietnamese_plan("vẽ hai phòng liền kề rộng 3000 và 4000 dài 4000 tại 0,0 cửa 900 giữa bản lề dưới mở phải").unwrap();
+        assert_eq!(steps.len(),5);
+        assert_eq!(steps[3].0,"line");
+        assert_eq!(steps[4].0,"arc");
+        assert_eq!(steps[4].1["center"],json!([3000.0,1550.0]));
+        let without_swing=super::parse_vietnamese_plan("vẽ hai phòng liền kề rộng 3000 và 4000 dài 4000 tại 0,0 cửa 900 giữa").unwrap();
+        assert_ne!(without_swing.last().map(|x|x.0.as_str()),Some("arc"));
     }
 
     #[test]
