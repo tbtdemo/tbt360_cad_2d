@@ -2673,3 +2673,36 @@ Kế hoạch: Đợt 240 sửa lỗi CI, hoàn thiện thử DWG hai chiều v�
 5. DWG cần kiểm chứng mở/sửa/lưu hai chiều với AutoCAD riêng; các lệnh CAD Engine không mặc nhiên chứng minh DWG chuẩn.
 
 **Trạng thái:** Có mã nguồn parser/UI và workflow, chưa có bằng chứng CI PASS đúng commit cuối hay nghiệm thu EXE thực tế.
+
+
+## 100. Đợt 260 — AI Review vẽ Polyline, Arc và tường hình học
+
+### Bài 217 — Vẽ Polyline sửa được
+1. Mở CAD 360 → **Tools → CAD 360 AI Review...**.
+2. Nhập `vẽ polyline qua 0,0;100,0;100,50`, nhấn **1. Xem trước**.
+3. Xác nhận số đỉnh, số đoạn và đúng đơn vị bản vẽ; sau đó bấm **2. Tôi đồng ý – Vẽ vào CAD**.
+4. CAD Engine nhận `pline` với `vertices` và `closed:false`; một đối tượng LWPOLYLINE, không phải hình ảnh raster.
+5. Tối đa 64 đỉnh trong bản thử nghiệm; từ chối điểm liền kề trùng nhau, tọa độ không hữu hạn hoặc vượt giới hạn.
+
+### Bài 218 — Vẽ cung tròn theo tâm và góc
+1. Nhập `vẽ cung tâm 0,0 bán kính 100 từ 0 đến 90`.
+2. Preview xác nhận tâm, R, góc bắt đầu/kết thúc (độ).
+3. Sau chấp thuận, CAD Engine nhận `arc` với `center`, `radius`, `start`, `end`.
+4. Bán kính phải dương; trong cú pháp giới hạn này, góc `0 ≤ start < end ≤ 360`. Các trường hợp khác cần lệnh CAD chuyên dụng.
+5. Kiểm chứng ARC vẫn chỉnh sửa được, UNDO một lần và REDO một lần trên EXE thật.
+
+### Bài 219 — Vẽ tường hình học theo trục và chiều dày
+1. Nhập `vẽ tường từ 0,0 đến 6000,0 dày 200`.
+2. Parser tính véc-tơ pháp tuyến, tạo bốn góc của hình chữ nhật dọc trục và chuyển thành `pline` với `closed:true`.
+3. Đường trục ví dụ nằm ngang với y=0, nên hai mép tường ở y=+100 và y=-100. Trường hợp tường nghiêng cũng được tính từ pháp tuyến của trục.
+4. Đây là **biên dạng tường CAD 2D**, không phải đối tượng BIM Wall, không tự cắt cửa hoặc tự nối các giao tường; các chức năng ngữ nghĩa cần phát triển riêng.
+5. Preview/Confirm kiểm tra lại đúng UID/Epoch/Revision; không dùng kết quả cũ sau khi bản vẽ thay đổi.
+
+### Bài 220 — Kiểm thử Windows và giới hạn
+1. Workflow `CAD 360 Stage260 AI Review Geometry` tại `.github/workflows/cad360-stage260-ai-review.yml` chạy `cargo check --locked -p cadcraft-ui-egui` và các bài test 258, 259, 260.
+2. Bài `stage260_polyline_arc_and_wall_are_editable_native_entities` kiểm tra dữ liệu native và từ chối hình học sai. Tên test mô tả đầu ra lệnh CAD, nhưng **chưa phải** bài nghiệm thu tích hợp AutoCAD thực tế.
+3. Sau khi CI PASS, chạy EXE Windows thật, vẽ ba mẫu, Undo/Redo, Save/Reopen DXF/DWG, kiểm tra chỉnh sửa qua AutoCAD độc lập.
+4. Giao diện vẫn là bộ hiểu cú pháp tiếng Việt xác định, chưa tự phân tích toàn ảnh thiết kế hoặc AI nhận dạng semantic tường/cửa.
+5. Mỗi lần cập nhật phải ghi ba mức: có code/docs, CI PASS đúng SHA và nghiệm thu EXE/AutoCAD. Không coi số lượng bài học là mức AI hoàn thành.
+
+**Trạng thái:** Đã commit Rust parser, UI và workflow kiểm thử, chưa có bằng chứng PASS cuối, EXE và DWG hai chiều.
