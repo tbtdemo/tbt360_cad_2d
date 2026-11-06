@@ -385,17 +385,32 @@ impl AiReview {
                 ui.separator();
                 ui.label(&p.description);
                 if p.image_evidence.is_some() {
-                    let segments:Vec<([f32;2],[f32;2])>=p.steps.iter().filter_map(|(_,params)| {
-                        let points=params.get("points")?.as_array()?;
-                        let xy=|k:usize| -> Option<[f32;2]> {
-                            let src=points.get(k)?.as_array()?;
-                            Some([src.first()?.as_f64()? as f32,src.get(1)?.as_f64()? as f32])
+                    // Draw both detected LINE strokes and the explicitly selected PLINE guide.
+                    let mut segments:Vec<([f32;2],[f32;2],bool)>=Vec::new();
+                    for (command,params) in &p.steps {
+                        let to_xy=|value:&Value| -> Option<[f32;2]> {
+                            let xy=value.as_array()?;
+                            if xy.len()!=2 {return None;}
+                            Some([xy[0].as_f64()? as f32,xy[1].as_f64()? as f32])
                         };
-                        Some((xy(0)?,xy(1)?))
-                    }).collect();
+                        if *command=="line" {
+                            if let Some(points)=params["points"].as_array()
+                                && points.len()==2
+                                && let (Some(a),Some(b))=(to_xy(&points[0]),to_xy(&points[1])) {
+                                segments.push((a,b,false));
+                            }
+                        } else if *command=="pline" {
+                            let vertices=params["vertices"].as_array().cloned().unwrap_or_default();
+                            let poly:Vec<[f32;2]>=vertices.iter().filter_map(to_xy).collect();
+                            if poly.len()==vertices.len() && poly.len()>=3 {
+                                for edge in poly.windows(2) {segments.push((edge[0],edge[1],true));}
+                                if params["closed"]==true {segments.push((poly[poly.len()-1],poly[0],true));}
+                            }
+                        }
+                    }
                     if !segments.is_empty() {
-                        let xs=segments.iter().flat_map(|(a,b)|[a[0],b[0]]);
-                        let ys=segments.iter().flat_map(|(a,b)|[a[1],b[1]]);
+                        let xs=segments.iter().flat_map(|(a,b,_)|[a[0],b[0]]);
+                        let ys=segments.iter().flat_map(|(a,b,_)|[a[1],b[1]]);
                         let min_x=xs.clone().fold(f32::INFINITY,f32::min);
                         let max_x=xs.fold(f32::NEG_INFINITY,f32::max);
                         let min_y=ys.clone().fold(f32::INFINITY,f32::min);
@@ -407,9 +422,10 @@ impl AiReview {
                         let k=sx.min(sy);
                         let position=|point:[f32;2]|egui::pos2(bounds.left()+(point[0]-min_x)*k,
                             bounds.bottom()-(point[1]-min_y)*k);
-                        for (a,b) in segments {
+                        for (a,b,is_guide) in segments {
+                            let color=if is_guide {egui::Color32::YELLOW} else {egui::Color32::LIGHT_BLUE};
                             painter.line_segment([position(a),position(b)],
-                                egui::Stroke::new(1.5,egui::Color32::LIGHT_BLUE));
+                                egui::Stroke::new(1.5,color));
                         }
                     }
                 }
