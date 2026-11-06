@@ -619,6 +619,10 @@ fn preview_selected_existing_wall(session:&Session,center_text:&str,door_width_t
 
 /// Stage271: freeze the exact operator controls that produced the approved Preview.
 impl AiReview {
+    /// Check LLM-proposed text strictly against the built-in native CAD command grammar.
+    /// Do not permit arbitrary model output to reach the CAD command executor.
+    pub fn validates_native_command(command:&str)->bool { plan_from_text(command).is_ok() }
+
     /// Opens existing native, human-reviewed CAD command flow from the unified AI Studio.
     /// Changing the prompt invalidates all earlier previews and approvals.
     pub fn open_with_prompt(&mut self, prompt: &str) {
