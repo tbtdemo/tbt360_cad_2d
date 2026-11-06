@@ -3162,3 +3162,38 @@ Kế hoạch: Đợt 240 sửa lỗi CI, hoàn thiện thử DWG hai chiều v�
 5. **Tình trạng Đợt 274:** đã commit mã kiểm soát nhóm Undo và bài kiểm thử Windows; chưa có bằng chứng CI PASS, Windows EXE và DWG hai chiều đã nghiệm thu.
 
 **Đường dẫn:** `CADTBT360_V1.000/crates/ui-egui/src/ai_review.rs`, `.github/workflows/cad360-stage274-native-undo.yml`.
+
+
+## 115. Đợt 275 — Kiểm thử tích hợp PNG → Preview → CAD native → Undo/Redo
+
+### Bài 277 — Đọc ảnh PNG thật bằng bộ vector hóa nội bộ
+1. Mở CAD 360 V1.025, tạo bản vẽ hoặc mở bản sao thử nghiệm, vào **Tools → CAD 360 AI Review...**.
+2. Chọn file PNG/JPEG trong máy; hiệu chuẩn đơn vị CAD/pixel (ví dụ 2, sau khi đã đo kích thước thực trên ảnh).
+3. Bấm **Đọc ảnh → Xem trước các nét CAD**. Bộ `cadcraft_mcp::raster_vector::preview` đọc pixel thật, phát hiện nét đủ dài và trả về LINE có tọa độ; chỉ báo ứng viên khoảng mở/cửa nếu đủ dấu hiệu.
+4. Xác minh rằng số entity CAD chưa thay đổi sau Preview. Người dùng chỉ bấm xác nhận nếu hình học, tỷ lệ và đúng bản vẽ đã được kiểm tra.
+5. Đợt này không tuyên bố AI thị giác đã hiểu tường/cửa ngữ nghĩa; đây là vector hóa ảnh được người dùng duyệt.
+
+### Bài 278 — Xác nhận và một lần Undo cho cả ảnh
+1. Khi nhấn **Tôi đồng ý – Vẽ vào CAD**, mã xác minh lại file PNG, kết quả detector, UID/Epoch/Revision và các tùy chọn đã duyệt.
+2. CAD Engine tạo từng LINE native trong một nhóm `UNDO BEGIN/END`. Mỗi lệnh phải trả đúng một handle đang tồn tại.
+3. Bấm Undo một lần: toàn bộ nét LINE nhập từ một ảnh phải biến mất, trong khi hình học có sẵn không liên quan vẫn giữ nguyên.
+4. Bấm Redo: các LINE từ ảnh phải xuất hiện lại; số entity phải bằng số nét đã chấp thuận cộng với số đối tượng có sẵn.
+5. Một ảnh thử nghiệm có hai nét giao nhau chỉ chứng minh luồng vector hóa cơ bản, không chứng minh chất lượng trên mọi bản vẽ, bản quét hoặc ảnh nghiêng.
+
+### Bài 279 — Từ chối khi ảnh gốc thay đổi sau Preview
+1. Preview một ảnh chứa nét rõ ràng; ghi nhớ kết quả chưa tạo entity nào.
+2. Thay đổi một pixel hoặc chỉnh sửa file nguồn rồi lưu lại cùng đường dẫn.
+3. Khi xác nhận, `commit_steps` phải phát hiện nội dung byte khác snapshot đã duyệt, **không tạo bất kỳ entity nào** và **không để Undo Group mở**.
+4. Kiểm tra các trường hợp tương tự: đổi đường dẫn ảnh, đổi CAD/pixel hoặc chọn ứng viên khác mà chưa duyệt lại; phải từ chối hoặc yêu cầu xem trước lại.
+5. Bảo vệ byte ảnh là bảo vệ nguồn Preview, không phải chữ ký số, OIDC hoặc cơ chế chống mọi thao tác phá hoại.
+
+### Bài 280 — Windows CI và nghiệm thu thực tế
+1. Workflow `CAD 360 Stage275 Real PNG to Native CAD End-to-End` chạy trên Windows với Rust 1.95.0.
+2. Bài `stage275_end_to_end_png_preview_commit_undo_redo_keeps_other_entities` tạo PNG tổng hợp, đọc bằng detector thực của phần mềm, Commit tạo LINE, kiểm tra một Undo/Redo và một LINE độc lập.
+3. Bài `stage275_changed_png_source_must_be_rejected_before_any_cad_mutation` chỉnh PNG sau Preview, rồi xác minh thao tác Commit bị từ chối và entity_count vẫn bằng 0.
+4. Windows CI còn chạy hồi quy Stage262, Stage267 và Stage274. **Chỉ xác nhận PASS khi GitHub Actions có kết quả thành công tại SHA tương ứng**.
+5. Trên EXE thật, tiếp tục chụp ảnh màn hình giao diện, thử 3–5 bản vẽ mặt bằng thực tế, đối chiếu số nét/tỷ lệ, thử Undo/Redo và kiểm tra Save/Reopen **DWG chuẩn**.
+6. Cần mở, chỉnh sửa và lưu lại DWG bằng AutoCAD độc lập để chứng minh hai chiều; không đổi cấu trúc hoặc mã hóa file DWG làm mất tương thích.
+7. **Chưa nghiệm thu** nếu chỉ có mã và test mà thiếu CI PASS, Windows EXE hoạt động và kiểm chứng DWG.
+
+**Đợt 275:** Đã bổ sung kiểm thử tích hợp nguồn PNG và bảo toàn Undo, chưa tuyên bố hoàn thành AI nhận dạng kiến trúc hay Windows/DWG đã nghiệm thu.
