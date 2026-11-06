@@ -2518,3 +2518,31 @@ Kế hoạch: Đợt 240 sửa lỗi CI, hoàn thiện thử DWG hai chiều v�
 6. Đợt 253 tiếp tục cải thiện nhận dạng đường xiên/cửa, benchmark chuẩn từ nhiều ảnh khác nhau và giao diện hiển thị sai số; đợt 254 kiểm thử DWG AutoCAD hai chiều, QTO và thay sơ đồ minh họa bằng ảnh chụp EXE thật.
 
 **Giới hạn:** Đây là phép đánh giá định lượng với referenceLinesCAD có người gán nhãn, không phải mô hình AI thị giác mới hoặc chức năng tự học trọng số. Chỉ có thể công nhận các test PASS sau khi CI tại commit cuối trả success.
+
+
+## 94. Đợt 254 — AI Preview → xác nhận xuất đối tượng LINE thành DXF chuẩn
+
+### Bài 199 — Chuẩn bị phương án AI dưới dạng LINE CAD
+1. AI nhận dạng ảnh hoặc Agent vẽ phải tạo ra danh sách LINE theo đơn vị CAD đã được người dùng kiểm tra. Công cụ đợt 254 chỉ chuyển đổi các LINE này thành DXF; **không tự đọc ảnh, tự suy luận tường/cửa hoặc tự điều khiển CAD Engine**.
+2. Tạo JSON `ai-plan.json` chứa đúng bốn trường `documentId`, `revision`, `unit`, `lines`. Ví dụ:
+```json
+{"documentId":"CAD-001","revision":"rev-5","unit":"mm","lines":[[[0,0],[5000,0]],[[5000,0],[5000,3500]]]}
+```
+3. `unit` nhận `mm`, `m` hoặc `unitless`. Mỗi LINE gồm hai điểm hai chiều, không trùng nhau. Kết quả được xuất vào layer `AI_DRAWN`.
+4. Dùng lệnh `python tools/ai_benchmark/stage254_preview_to_dxf.py preview --input ai-plan.json` để hiển thị mã `planSha256`, số đường và giới hạn hình học. Chưa ghi file ở bước này.
+
+### Bài 200 — Xác nhận và xuất DXF chỉnh sửa được
+1. Người vận hành so sánh số lượng, tọa độ, tỷ lệ, đơn vị và đúng mã bản vẽ/Revision với yêu cầu thực tế. Sau khi xem trước và quyết định chấp thuận, sao chép mã hash 64 ký tự từ kết quả `preview`.
+2. Gọi: `python tools/ai_benchmark/stage254_preview_to_dxf.py commit --input ai-plan.json --output ai-output.dxf --confirm-plan-sha256 <SHA256> --document-id CAD-001 --revision rev-5`. Thay `<SHA256>` bằng hash vừa kiểm tra.
+3. Nếu nội dung đầu vào thay đổi sau Preview, sai mã bản vẽ, sai Revision hoặc file đầu ra đã tồn tại, xuất file bị từ chối. Đây là bước ngăn xuất nhầm ở CLI, **không phải cơ chế OIDC phân quyền hay bằng chứng đã có người xác nhận trong GUI**.
+4. Mở `ai-output.dxf` trong CAD 360, kiểm tra số lượng LINE, đơn vị, layer và khả năng di chuyển/Trim/Extend/SAVE. Không khẳng định tương thích DWG nếu chưa xuất và thử DWG trên AutoCAD thật.
+5. Công cụ đợt 254 không tích hợp Undo stack trong CAD. Nếu đã nhập DXF vào CAD, thao tác Undo của CAD phải được nghiệm thu riêng; không quảng bá là tính năng đã hoàn tất.
+
+### Bài 201 — Kiểm thử và nghiệm thu
+1. Chạy `python tools/ai_benchmark/stage254_preview_to_dxf.py self-test` để kiểm tra từ chối hash cũ, sai documentId, sai revision và ghi đè.
+2. GitHub Actions: mở workflow `CAD 360 Stage254 Preview-to-DXF Regression`, kiểm tra kết quả PASS của commit cuối và tải log kiểm thử.
+3. Kiểm chứng riêng trên máy Windows: mở DXF trong CAD 360, tạo sửa đổi, Undo, Save/Reopen, sau đó thử trao đổi AutoCAD DXF/DWG hai chiều.
+4. Chạy bộ ảnh thực tế có ground-truth từ Đợt 253 để đánh giá sai số LINE trước khi xác nhận xuất; không dùng số dòng code hoặc số bài học để suy ra độ chính xác AI.
+5. Cần xây dựng tiếp bridge thực giữa host OIDC, MCP và Undo/revision của CAD Engine; cơ chế approval phải nằm phía host/engine, không chỉ là cờ hoặc hash do Agent gửi.
+
+**Trạng thái:** Đợt 254 mới có CLI xuất DXF từ LINE và Windows CI, chưa tích hợp giao diện EXE, chưa chạy nghiệm thu bằng AutoCAD/DWG thật. Chưa có bằng chứng Windows CI PASS của commit cuối khi biên soạn mục này.
