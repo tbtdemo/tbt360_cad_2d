@@ -9,7 +9,7 @@ const TIMEOUT: Duration=Duration::from_secs(90);
 
 pub fn validate_model(model:&str)->Result<(),String> {
     let model=model.trim();
-    if model.is_empty() || model.len()>96 || !model.bytes().all(|b|b.is_ascii_alphanumeric() || b"._:/-".contains(&b)) {
+    if model.is_empty() || model.len()>96 || model.contains("..") || model.starts_with(['/','-']) || !model.bytes().all(|b|b.is_ascii_alphanumeric() || b"._:/-".contains(&b)) {
         return Err("Tên mô hình Ollama chỉ được gồm chữ, số, '.', '_', ':', '/', '-' và tối đa 96 ký tự.".into());
     }
     Ok(())
