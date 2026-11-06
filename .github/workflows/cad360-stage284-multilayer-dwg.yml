@@ -1,0 +1,42 @@
+name: CAD 360 Stage284 Multilayer DWG Metadata Fidelity
+on:
+  push:
+    branches:
+      - feature/CADTBT360_V1.025_xref-regression
+    paths:
+      - CADTBT360_V1.000/crates/io/src/tests.rs
+      - .github/workflows/cad360-stage284-multilayer-dwg.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  dwg-multilayer-integrity:
+    runs-on: windows-latest
+    timeout-minutes: 105
+    defaults:
+      run:
+        working-directory: CADTBT360_V1.000
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.95.0'
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: CADTBT360_V1.000
+      - name: Print exact tested source version
+        shell: pwsh
+        run: |
+          git rev-parse HEAD
+          cargo --version
+          rustc --version
+      - name: Compile native CAD I/O
+        run: cargo check --locked -p cadcraft-io
+      - name: Stage284 3 layers, colors, entity linetype, native XData, and two file cycles
+        run: cargo test --locked -p cadcraft-io stage284 -- --nocapture
+      - name: Stage283 precise DWG double-round-trip geometry
+        run: cargo test --locked -p cadcraft-io stage283 -- --nocapture
+      - name: Stage282 DWG on-disk save/reopen and DXF
+        run: cargo test --locked -p cadcraft-io stage282 -- --nocapture
+      - name: Existing third-party DWG xdata regression
+        run: cargo test --locked -p cadcraft-io dwg_roundtrip_keeps_extension_data -- --nocapture
