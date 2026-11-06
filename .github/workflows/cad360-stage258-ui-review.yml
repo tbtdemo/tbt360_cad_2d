@@ -1,4 +1,4 @@
-name: CAD 360 Stage258 Native AI Review Window
+name: CAD 360 Stage259 Native AI Review Window
 on:
   push:
     branches:
@@ -26,5 +26,7 @@ jobs:
           workspaces: CADTBT360_V1.000
       - name: Native CAD 360 UI build
         run: cargo check --locked -p cadcraft-ui-egui
-      - name: Vietnamese AI Review parser tests
+      - name: Vietnamese AI Review room parser regression
         run: cargo test --locked -p cadcraft-ui-egui stage258_room_parser -- --nocapture
+      - name: Stage259 multiple shapes and invalid geometry
+        run: cargo test --locked -p cadcraft-ui-egui stage259_multiple_native_shapes -- --nocapture
