@@ -11,6 +11,8 @@ pub struct State {
     assistant_instruction: String,
     pdf_path: String,
     pdf_page: u32,
+    pdf_pending: Option<std::sync::mpsc::Receiver<Result<std::path::PathBuf,String>>>,
+    pdf_owned_image: Option<std::path::PathBuf>,
     path: String,
     preview: Option<Value>,
     preview_document_uid: Option<u64>,
@@ -246,6 +248,47 @@ fn render_pdf_page(pdf: &std::path::Path, page: u32) -> Result<std::path::PathBu
     Ok(png)
 }
 
+/// Rendering can take seconds on large PDFs. Keep Poppler off the egui UI thread.
+fn start_pdf_render(state: &mut State, ctx: &egui::Context) {
+    if state.pdf_pending.is_some() { return; }
+    let path=std::path::PathBuf::from(&state.pdf_path);
+    let page=state.pdf_page;
+    let (sender,receiver)=std::sync::mpsc::channel();
+    let ctx=ctx.clone();
+    state.pdf_pending=Some(receiver);
+    state.preview=None;state.preview_document_uid=None;state.preview_revision=None;state.preview_document_epoch=None;
+    state.error=None;
+    std::thread::spawn(move || {
+        let result=render_pdf_page(&path,page);
+        // A closed dialog drops the receiver; never leak an unclaimed temporary raster file.
+        if let Err(undelivered)=sender.send(result) {
+            if let Ok(png)=undelivered.0 {let _=std::fs::remove_file(png);}
+        }
+        ctx.request_repaint();
+    });
+}
+
+fn poll_pdf_render(state: &mut State, ctx: &egui::Context) {
+    let Some(receiver)=state.pdf_pending.as_ref() else {return};
+    let result=match receiver.try_recv() {
+        Ok(result)=>Some(result),
+        Err(std::sync::mpsc::TryRecvError::Empty)=>{ctx.request_repaint_after(std::time::Duration::from_millis(200));None},
+        Err(std::sync::mpsc::TryRecvError::Disconnected)=>Some(Err("Luồng chuyển PDF đã kết thúc mà không trả về kết quả.".into())),
+    };
+    if let Some(result)=result {
+        state.pdf_pending=None;
+        match result {
+            Ok(png)=>{
+                if let Some(old)=state.pdf_owned_image.replace(png.clone()) {let _=std::fs::remove_file(old);}
+                state.path=png.to_string_lossy().into_owned();
+                state.reset_door_reviews_for_new_source();
+                state.error=None;
+            },
+            Err(e)=>{state.error=Some(e);}
+        }
+    }
+}
+
 /// Applies a safe, deterministic AI workflow preset. A text instruction never writes CAD directly.
 fn apply_ai_instruction(state: &mut State, instruction: &str) -> Result<&'static str, &'static str> {
     let q=instruction.trim().to_lowercase();
@@ -279,6 +322,7 @@ fn apply_ai_instruction(state: &mut State, instruction: &str) -> Result<&'static
 }
 
 pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
+    poll_pdf_render(state,ctx);
     if !state.open { return; }
     let mut open = state.open;
     egui::Window::new("CAD 360 | AI Drawing Studio")
@@ -335,12 +379,13 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
                 });
             }
             ui.horizontal(|ui| {
-                if ui.button("Chọn ảnh PNG/JPG…").clicked()
+                if ui.add_enabled(state.pdf_pending.is_none(),egui::Button::new("Chọn ảnh PNG/JPG…")).clicked()
                     && let Some(path) = rfd::FileDialog::new()
                         .add_filter("Images", &["png","jpg","jpeg"]).pick_file()
                 {
                     state.path = path.to_string_lossy().into_owned();
                     state.pdf_path.clear();
+                    if let Some(old)=state.pdf_owned_image.take() {let _=std::fs::remove_file(old);}
                     // Per-door indices refer only to the OLD image's candidate order.
                     // Never transfer reviewed geometry to a newly selected image.
                     state.reset_door_reviews_for_new_source();
@@ -351,15 +396,11 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
                     state.preview_document_epoch = None;
                     state.error = None;
                 }
-                if ui.button("Chọn PDF…").clicked()
+                if ui.add_enabled(state.pdf_pending.is_none(),egui::Button::new("Chọn PDF…")).clicked()
                     && let Some(pdf)=rfd::FileDialog::new().add_filter("PDF",&["pdf"]).pick_file()
                 {
                     state.pdf_path=pdf.to_string_lossy().into_owned();state.pdf_page=1;
-                    match render_pdf_page(&pdf,1) {
-                        Ok(png)=>{state.path=png.to_string_lossy().into_owned();state.reset_door_reviews_for_new_source();state.preview=None;
-                            state.preview_document_uid=None;state.preview_revision=None;state.preview_document_epoch=None;state.error=None;},
-                        Err(e)=>{state.pdf_path.clear();state.error=Some(e);}
-                    }
+                    start_pdf_render(state,ctx);
                 }
                 ui.label(state.path.rsplit(['/', '\\']).next().unwrap_or("(Chưa chọn ảnh)"));
             });
@@ -368,15 +409,10 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
                     ui.label(format!("PDF: {}",std::path::Path::new(&state.pdf_path).file_name().unwrap_or_default().to_string_lossy()));
                     ui.label("Trang:");
                     ui.add(egui::DragValue::new(&mut state.pdf_page).range(1..=500));
-                    if ui.button("Nạp trang PDF").clicked() {
-                        match render_pdf_page(std::path::Path::new(&state.pdf_path),state.pdf_page) {
-                            Ok(png)=>{state.path=png.to_string_lossy().into_owned();state.reset_door_reviews_for_new_source();state.preview=None;
-                                state.preview_document_uid=None;state.preview_revision=None;state.preview_document_epoch=None;state.error=None;},
-                            Err(e)=>state.error=Some(e),
-                        }
-                    }
+                    if ui.add_enabled(state.pdf_pending.is_none(),egui::Button::new("Nạp trang PDF")).clicked() {start_pdf_render(state,ctx);}
                 });
             }
+            if state.pdf_pending.is_some() {ui.horizontal(|ui| {ui.spinner();ui.label("Đang xử lý trang PDF ngoài luồng giao diện...");});}
             ui.horizontal(|ui| {
                 ui.label("Nét tối thiểu (px)");
                 if ui.add(egui::DragValue::new(&mut state.min_length).range(2..=4096)).changed() { state.preview = None; }
@@ -662,7 +698,7 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
             });
             ui.separator();
             ui.heading("Nhận dạng và kiểm tra kết quả");
-            if ui.button("1. Nhận dạng và xem trước").clicked() {
+            if ui.add_enabled(state.pdf_pending.is_none() && !state.path.is_empty(),egui::Button::new("1. Nhận dạng và xem trước")).clicked() {
                 state.reset_wall_junction_review();
                 match cadcraft_mcp::raster_vector::preview(&state.params()) {
                     Ok(value) => {
