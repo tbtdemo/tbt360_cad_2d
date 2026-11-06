@@ -1,0 +1,43 @@
+name: CAD 360 Stage282 DWG DXF AI Geometry Round Trip
+on:
+  push:
+    branches:
+      - feature/CADTBT360_V1.025_xref-regression
+    paths:
+      - CADTBT360_V1.000/crates/io/src/tests.rs
+      - CADTBT360_V1.000/crates/ui-egui/src/ai_review.rs
+      - .github/workflows/cad360-stage282-dwg-roundtrip.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  save-reopen-ai-geometry:
+    runs-on: windows-latest
+    timeout-minutes: 105
+    defaults:
+      run:
+        working-directory: CADTBT360_V1.000
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.95.0'
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: CADTBT360_V1.000
+      - name: Print exact source SHA and Rust version
+        shell: pwsh
+        run: |
+          git rev-parse HEAD
+          rustc --version
+          cargo --version
+      - name: Check CAD 360 native I/O and Windows GUI
+        run: cargo check --locked -p cadcraft-io -p cadcraft-ui-egui
+      - name: DXF and real on-disk DWG Save Reopen Save
+        run: cargo test --locked -p cadcraft-io stage282 -- --nocapture
+      - name: Regress existing DXF/DWG interoperability tests
+        run: cargo test --locked -p cadcraft-io dwg_roundtrip -- --nocapture
+      - name: Regress 128 LINE AI Review transaction
+        run: cargo test --locked -p cadcraft-ui-egui stage281 -- --nocapture
+      - name: Regress PNG real-image import
+        run: cargo test --locked -p cadcraft-ui-egui stage275 -- --nocapture
