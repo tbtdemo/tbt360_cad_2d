@@ -36,7 +36,7 @@ public static class HostGrantPolicy
             (ValidPreviewText("vẽ hai phòng liền kề rộng 3000 và 4000 dài 4000 tại 0,0"),"bounded preview allowed"),
             (!ValidPreviewText(""),"empty preview denied"),
             (!ValidPreviewText(new string('x',4001)),"oversized preview denied"),
-            (!ValidPreviewText("line\\nscript"),"control characters denied"),
+            (!ValidPreviewText("line\nscript"),"control characters denied"),
             (IsLoopbackAddress("127.0.0.1:7979"),"local loopback allowed"),
             (!IsLoopbackAddress("0.0.0.0:7979"),"public bind forbidden"),
             (!IsLoopbackAddress("localhost:7979"),"ambiguous host forbidden"),
