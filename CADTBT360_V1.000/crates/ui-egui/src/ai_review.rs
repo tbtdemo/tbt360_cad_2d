@@ -1094,6 +1094,41 @@ mod tests {
         assert!(parse_draft("xóa tất cả").is_err());
     }
     #[test]
+    fn stage272_freezes_approved_raster_opening_and_door_arc_controls() {
+        let mut session=Session::default();
+        let state=session.state().unwrap();
+        let (steps,description)=plan_from_text("vẽ đường thẳng từ 0,0 đến 100,0").unwrap();
+        let mut preview=Preview {
+            uid:state.uid,epoch:session.doc_epoch,revision:state.revision,
+            text:"vẽ đường thẳng từ 0,0 đến 100,0".into(),steps,description,
+            image_evidence:None,selected_opening_guide:None,selected_door_arc:None,
+            replace_handles:None,replace_snapshot:None,review_token:None,image_controls:None,
+        };
+        let approved=ImageControlSnapshot {
+            opening_index:"0".into(),door_arc_index:"1".into(),
+            width:"900".into(),offset:"100".into(),
+            flip_hinge:false,flip_swing:true,
+        };
+        assert!(approved_image_options_unchanged(&preview,&approved),
+            "plain text-only CAD Preview does not bind the image controls");
+        preview.image_controls=Some(approved.clone());
+        assert!(approved_image_options_unchanged(&preview,&approved));
+        let mut altered=approved.clone();altered.opening_index="2".into();
+        assert!(!approved_image_options_unchanged(&preview,&altered));
+        altered=approved.clone();altered.door_arc_index="0".into();
+        assert!(!approved_image_options_unchanged(&preview,&altered));
+        altered=approved.clone();altered.width="800".into();
+        assert!(!approved_image_options_unchanged(&preview,&altered));
+        altered=approved.clone();altered.offset="150".into();
+        assert!(!approved_image_options_unchanged(&preview,&altered));
+        altered=approved.clone();altered.flip_hinge=true;
+        assert!(!approved_image_options_unchanged(&preview,&altered));
+        altered=approved.clone();altered.flip_swing=false;
+        assert!(!approved_image_options_unchanged(&preview,&altered));
+        assert_eq!(session.doc().unwrap().entity_count(),0);
+    }
+
+    #[test]
     fn stage271_rejects_stale_single_native_command_without_mutation() {
         let mut session=Session::default();
         let state=session.state().unwrap();
