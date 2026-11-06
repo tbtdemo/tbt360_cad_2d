@@ -921,6 +921,44 @@ mod ai_draft_vietnamese_tests {
         assert_eq!(backend.session.doc().unwrap().entity_count(),before,"one native UNDO must restore original drawing");
     }
 
+    /// Stage238: actual CAD IO checks that the AI native entities survive DWG
+    /// save/reopen; no claim of external AutoCAD compatibility from this test.
+    #[test]
+    fn ai_vietnamese_stage238_native_dwg_save_reopen_preserves_door_layers() {
+        use crate::backend::{Backend,Headless};
+        let mut cad=Headless::default();
+        let inspected=cad.call("drawing.inspect",json!({"entities":false})).unwrap();
+        let mut args=json!({
+            "text":"vẽ hai phòng liền kề rộng 3000 và 4000 dài 4000 tại 0,0 cửa 900 giữa bản lề dưới mở phải",
+            "createDoorBlock":true,"applyLayers":true,"preview":false,"confirm":true,
+            "expectedDocumentUid":inspected["documentUid"],"expectedDocumentEpoch":inspected["documentEpoch"],
+            "expectedRevision":inspected["revision"]});
+        let preview_args=json!({"text":args["text"],"createDoorBlock":true,"applyLayers":true});
+        let preview=super::ai_draw_plan_vietnamese(&mut cad,&preview_args).unwrap();
+        assert_eq!(preview["previewOnly"],true);
+        let result=super::ai_draw_plan_vietnamese(&mut cad,&args).unwrap();
+        assert_eq!(result["executed"],true);
+        assert_eq!(cad.session.doc().unwrap().entity_count(),4);
+        let nonce=std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let path=std::env::temp_dir().join(format!("cad360-stage238-{}-{}.dwg",std::process::id(),nonce));
+        let name=path.to_string_lossy().into_owned();
+        let saved=cad.call("app.save",json!({"path":name,"version":2018})).expect("native DWG save must succeed");
+        assert!(path.exists(),"DWG must be written, not simulated");
+        assert!(std::fs::metadata(&path).unwrap().len()>128,"DWG file must contain drawing data");
+        assert!(saved.is_object(),"save operation must return result");
+        let mut reopened=Headless::default();
+        let opened=reopened.call("app.open",json!({"path":name})).expect("native DWG reopen must succeed");
+        assert!(opened.is_object()||opened.is_null(),"open must return native CAD response");
+        let d=reopened.session.doc().unwrap();
+        assert_eq!(d.entity_count(),4,"room, two walls, one door INSERT must survive DWG");
+        for layer in ["TBT_AI_ROOM","TBT_AI_WALL","TBT_AI_DOOR"] {
+            assert!(d.layer(layer).is_some(),"DWG reopen missing layer {layer}");
+        }
+        assert_eq!(d.model.iter().filter(|entity|entity.common.layer=="TBT_AI_DOOR").count(),1);
+        assert!(d.blocks.keys().any(|n|n.starts_with("TBT_AI_DOOR_")),"door Block definition must survive DWG");
+        std::fs::remove_file(&path).expect("cleanup DWG fixture");
+    }
+
     #[test]
     fn ai_vietnamese_plan_is_atomic_on_parser_validation() {
         assert!(super::parse_vietnamese_plan("vẽ đường thẳng từ 0,0 đến 10,0").is_err());
