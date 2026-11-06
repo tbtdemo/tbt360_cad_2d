@@ -2343,3 +2343,5 @@ Kế hoạch: Đợt 240 sửa lỗi CI, hoàn thiện thử DWG hai chiều v�
 6. Bản Word FULL kế thừa Bài 1–174 và bổ sung Bài 175–177 có sơ đồ; sơ đồ không thay thế ảnh chụp Windows EXE thật.
 
 **Giới hạn và an toàn:** Đây là cơ chế thu hẹp quyền trong tiến trình MCP sau khi host đã xác thực; chưa có adapter OAuth/OIDC hoạt động end-to-end hoặc RLS Tenant. Không thể coi việc thêm kiểm thử là có kết quả PASS nếu chưa xác nhận trên workflow cùng SHA.
+
+**Bổ sung an toàn Đợt 246:** Nếu `CAD360_MCP_ACCESS_MODE` nhập một giá trị không nhận diện, chính sách chuyển sang `readonly` để tránh cấp nhầm toàn quyền `legacy`. Chỉ có chuỗi `legacy` được chỉ định rõ ràng mới giữ tương thích cũ. Giáo trình trong tab HƯỚNG DẪN được cập nhật tương ứng.
