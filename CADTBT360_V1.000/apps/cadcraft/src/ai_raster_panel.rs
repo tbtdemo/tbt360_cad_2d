@@ -222,6 +222,24 @@ impl State {
     }
 }
 
+/// Prefer the renderer packaged next to CADTBT360.exe; fall back to the user's PATH.
+/// A separately configured absolute path is also supported for managed deployments.
+fn pdf_renderer() -> std::path::PathBuf {
+    if let Some(configured)=std::env::var_os("CAD360_PDF_RENDERER") {
+        let custom=std::path::PathBuf::from(configured);
+        if custom.is_file() && custom.is_absolute() {return custom;}
+    }
+    if let Ok(exe)=std::env::current_exe() {
+        if let Some(dir)=exe.parent() {
+            for relative in ["Tools/Poppler/bin/pdftoppm.exe","Tools/Poppler/pdftoppm.exe","pdftoppm.exe"] {
+                let candidate=dir.join(relative);
+                if candidate.is_file() {return candidate;}
+            }
+        }
+    }
+    std::path::PathBuf::from("pdftoppm")
+}
+
 /// Convert one PDF page to PNG with Poppler. Never edits the PDF and does not launch a shell.
 fn render_pdf_page(pdf: &std::path::Path, page: u32) -> Result<std::path::PathBuf,String> {
     if !(1..=500).contains(&page) { return Err("Số trang PDF phải từ 1 đến 500.".into()); }
@@ -235,11 +253,11 @@ fn render_pdf_page(pdf: &std::path::Path, page: u32) -> Result<std::path::PathBu
     let unique=std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_err(|e|e.to_string())?.as_nanos();
     let prefix=std::env::temp_dir().join(format!("cad360_ai_pdf_{}_{}",std::process::id(),unique));
     let png=prefix.with_extension("png");
-    let result=std::process::Command::new("pdftoppm")
+    let result=std::process::Command::new(pdf_renderer())
         .arg("-f").arg(page.to_string()).arg("-l").arg(page.to_string())
         .arg("-singlefile").arg("-scale-to").arg("2400").arg("-png")
         .arg(pdf).arg(&prefix).output()
-        .map_err(|e|format!("Không chạy được Poppler pdftoppm ({e}). Hãy cài Poppler và thêm thư mục bin vào PATH."))?;
+        .map_err(|e|format!("Không tìm thấy Poppler pdftoppm ({e}). Cài trong Tools/Poppler/bin cạnh CADTBT360.exe, thiết lập CAD360_PDF_RENDERER hoặc thêm vào PATH."))?;
     if !result.status.success() {
         return Err(format!("Không chuyển được trang {page} của PDF: {}",String::from_utf8_lossy(&result.stderr).chars().take(300).collect::<String>()));
     }
@@ -329,6 +347,7 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
     egui::Window::new("CAD 360 | AI Drawing Studio")
         .open(&mut open).resizable(true).default_width(780.0).min_width(610.0).default_height(720.0)
         .show(ctx, |ui| {
+            egui::ScrollArea::vertical().id_salt("cad360.ai.studio.scroll").auto_shrink([false,false]).show(ui, |ui| {
             ui.heading("AI DRAWING STUDIO");
             ui.label(egui::RichText::new("Từ ảnh đến bản vẽ CAD chỉnh sửa được").strong().size(16.0));
             ui.label("01  Nguồn ảnh    →    02  AI nhận dạng    →    03  Xem trước    →    04  Xác nhận vào CAD");
@@ -361,7 +380,7 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
             });
             ui.add_space(8.0);
             ui.heading("Nguồn bản vẽ");
-            ui.small("PNG/JPG hoặc trang PDF: chuyển PDF sang PNG để dùng chung lõi AI nhận dạng. PDF cần Poppler pdftoppm trên máy.");
+            ui.small("PNG/JPG hoặc PDF nhiều trang. PDF được đưa về PNG để AI nhận dạng; hỗ trợ Poppler đi kèm bộ cài hoặc công cụ trong PATH.");
             if ui.toggle_value(&mut state.show_help, "📖 Hướng dẫn từng bước").clicked() {
                 state.error = None;
             }
@@ -1322,6 +1341,7 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
                     state.open = false;
                 }
             }
+            });
         });
     state.open = open && state.open;
 }
