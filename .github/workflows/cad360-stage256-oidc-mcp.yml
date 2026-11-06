@@ -1,0 +1,30 @@
+name: CAD 360 Stage256 Verified OIDC Scope to Native AI
+on:
+  push:
+    branches:
+      - feature/CADTBT360_V1.025_xref-regression
+    paths:
+      - CADTBT360_V1.000/crates/mcp/src/tests.rs
+      - CADTBT360_V1.000/crates/mcp/src/oidc_host.rs
+      - CADTBT360_V1.000/crates/mcp/src/access_policy.rs
+      - .github/workflows/cad360-stage256-oidc-mcp.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  oidc-scoped-mcp-ai:
+    runs-on: windows-latest
+    timeout-minutes: 90
+    defaults:
+      run:
+        working-directory: CADTBT360_V1.000
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: CADTBT360_V1.000
+      - name: Verify stage255 native AI transaction tests
+        run: cargo test --locked -p cadcraft-mcp stage255 -- --nocapture
+      - name: Verify stage256 OIDC scoped MCP access and native AI
+        run: cargo test --locked -p cadcraft-mcp stage256 -- --nocapture
