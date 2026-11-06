@@ -2371,3 +2371,32 @@ Kế hoạch: Đợt 240 sửa lỗi CI, hoàn thiện thử DWG hai chiều v�
 5. Đợt 248: triển khai host xác thực OIDC thực tế, token signature/issuer/audience, quyền tenant và thu hồi token; đợt 249 tập trung vào benchmark AI ảnh→CAD; đợt 250 kiểm thử DWG AutoCAD hai chiều và QTO.
 
 **Trạng thái thực tế:** Đã có mã và kiểm thử nguồn, nhưng chưa có bằng chứng OIDC host bên ngoài thực sự hoạt động hoặc Windows EXE PASS ở commit cuối. Không gọi đây là hoàn thành OIDC.
+
+
+## 88. Đợt 248 — Chuẩn tiếp nhận kết nối OIDC host đã xác minh cho AI Agent
+
+### Bài 181 — Luồng kết nối AuthServer → MCP Host → CAD Engine
+1. Phân biệt **AuthServer OpenIddict** (phát hành và xác thực token), **MCP Host** (kết nối tài khoản, xác minh token, gán user/tenant/role), **MCP Server** (kiểm soát quyền công cụ, bản vẽ) và **CAD Engine** (kiểm tra UID, epoch, revision và Undo).
+2. Phía host phải xác minh cryptographic signature của JWT với đúng issuer JWKS, `kid`, `alg`, issuer, audience, exp/nbf và chính sách thu hồi token. Mã Stage248 **không** chứa bộ xác minh chữ ký JWT/JWKS; tuyệt đối không dùng phương thức parse token không kiểm tra chữ ký rồi cấp quyền.
+3. Sau khi host xác minh token, triển khai `VerifiedTokenProvider::verify_access_token` và trả `VerifiedClaims` chứa issuer, audience, subject, tenant, role, exp, nbf đã được kiểm tra. Không chấp nhận claim tự gửi từ lệnh Agent.
+4. Tạo `OidcTrustPolicy::new("https://<issuer>","cad360-mcp")` với giá trị issuer và audience đúng hệ thống triển khai. URI issuer chỉ chấp nhận HTTPS. Chỉ dùng các tên này nếu thực tế cấu hình AuthServer tương ứng.
+5. Dùng `Server::with_verified_oidc(backend,&policy,&verifier,access_token,documentUid,allowedTools)` để dựng phiên; phiên sẽ khớp issuer/audience/thời hạn, vai trò hợp lệ, tenant, UID và danh sách công cụ.
+6. Kiểm tra Viewer chỉ đọc; Editor/Approver được Preview nhưng muốn commit phải có confirm=true, expected UID/epoch/revision và kiểm tra CAD Engine thực.
+
+### Bài 182 — Chống token sai issuer, audience, hết hạn và vượt quyền
+1. Kiểm thử với token không được host xác minh: từ chối, không tạo Session.
+2. Kiểm thử issuer và audience không khớp cấu hình: từ chối; không coi token hợp lệ cho ứng dụng khác là hợp lệ cho CAD 360.
+3. Kiểm thử thời gian `nbf` trong tương lai, `exp` trong quá khứ, role không nhận diện: từ chối.
+4. Hạn phiên MCP chỉ tối đa 15 phút từ thời điểm nhận phiên (hoặc ngắn hơn theo exp token). Session được tạo sẽ vẫn chịu chính sách HostScope và quyền danh sách công cụ riêng.
+5. Không tự gia hạn token bằng prompt, không log token, không đưa mật khẩu/API key vào DWG hoặc file hướng dẫn.
+6. Kiểm thử Stage248 hiện dùng **stub host verifier** để chứng minh ràng buộc claim và quyền sau xác minh, **không chứng minh JWT signature cryptographic được xác minh**.
+
+### Bài 183 — Kiểm thử tích hợp, cập nhật cây HƯỚNG DẪN và kế hoạch
+1. Chạy `cargo test --locked -p cadcraft-mcp --lib stage248_ -- --nocapture`. Ba test kiểm tra lỗi issuer/audience/exp/role, token bị verifier từ chối và phiên MCP có quyền Viewer không thể ghi.
+2. Bắt buộc Windows workflow có test Stage248 và các Stage243–247 trước khi coi mã đủ điều kiện đóng gói. Công nhận PASS chỉ khi workflow chạy đúng commit cuối và thành công.
+3. Trong CAD 360 mở **HƯỚNG DẪN → 5. KẾT NỐI & AN TOÀN AI → 5.12 Kết nối OIDC từ host đã xác minh**, sau đó chọn **6. GIÁO TRÌNH FULL** để đọc các bài tổng hợp nhúng offline.
+4. File Word FULL bổ sung Bài 181–183 và ba sơ đồ. File Excel tách điểm đã có mã/tài liệu với điểm CI PASS, EXE/host thực và tích hợp JWT/OIDC thật.
+5. Đợt 249 cần kết nối host OIDC thực tế với AuthServer/JWKS, chạy test ký token thật/thu hồi và khắc phục lỗi CI nếu có. Đợt 250 tập trung AI nhận dạng ảnh→CAD có benchmark định lượng. Đợt 251 kiểm chứng DWG chuẩn tương thích AutoCAD và QTO.
+6. Giữ chế độ CAD Free vẽ offline không buộc đăng nhập. Hệ thống tài khoản/xác thực chủ yếu dành cho kết nối Agent bên ngoài và các tính năng có cấp quyền.
+
+**Bằng chứng và giới hạn:** Stage248 bổ sung một contract VerifiedTokenProvider và OidcTrustPolicy **không triển khai bộ xác thực JWT/JWKS tại MCP Server**; việc xác thực cryptographic vẫn là trách nhiệm của host tin cậy. Không tuyên bố kết nối ChatGPT/Gemini trực tiếp, không nói hỗ trợ API của gói chat theo tài khoản web khi chưa có xác thực nhà cung cấp. Các hình trong Word là sơ đồ minh họa, không phải ảnh chụp Windows EXE.
