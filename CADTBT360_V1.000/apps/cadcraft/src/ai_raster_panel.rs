@@ -1042,7 +1042,7 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
                         let arc=&draft["arc"];
                         let ar=cad.run("arc",json!({"center":arc["center"],"radius":arc["radius"],"start":arc["start"],"end":arc["end"]}));
                         let arc_handle=match ar {
-                            Ok(value) => {created+=1;value["handles"][0].as_str().map(str::to_string)},
+                            Ok(value) => {created+=1;value["handle"].as_str().map(str::to_string)},
                             Err(e) => {failure=Some(e);break;}
                         };
                         let Some(arc_handle)=arc_handle else {failure=Some("AI Door BLOCK: lệnh ARC không trả Handle hợp lệ".into());break;};
