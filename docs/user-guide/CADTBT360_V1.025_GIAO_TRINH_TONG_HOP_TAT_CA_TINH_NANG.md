@@ -3197,3 +3197,36 @@ Kế hoạch: Đợt 240 sửa lỗi CI, hoàn thiện thử DWG hai chiều v�
 7. **Chưa nghiệm thu** nếu chỉ có mã và test mà thiếu CI PASS, Windows EXE hoạt động và kiểm chứng DWG.
 
 **Đợt 275:** Đã bổ sung kiểm thử tích hợp nguồn PNG và bảo toàn Undo, chưa tuyên bố hoàn thành AI nhận dạng kiến trúc hay Windows/DWG đã nghiệm thu.
+
+
+## 116. Đợt 276 — Sửa đếm Revision của ERASE và kiểm thử tích hợp ảnh → CAD
+
+### Bài 281 — Vì sao ERASE thành công không nhất thiết làm thay đổi bản vẽ
+1. Trong CAD Engine, `ERASE` có thể trả JSON `{"erased":0}` mà **không phát sinh lỗi lệnh**. Ví dụ handle chỉ tới đối tượng không tồn tại hoặc không còn xóa được. Khi tài liệu không thay đổi, Revision không được tăng.
+2. Trước khi sửa Đợt 276, nhánh `commit_steps` của AI Review có thể tăng bộ đếm bước Undo sau `ERASE Ok` ngay cả khi không có đối tượng nào bị xóa. Điều này khiến kiểm tra `expected revision` không trùng trạng thái thật, có nguy cơ bỏ qua việc đóng nhóm Undo.
+3. Đợt 276 bổ sung `erase_revision_step(removed,before,after)`: nếu `removed=0` và Revision không đổi thì trả 0 bước; nếu có xóa và Revision tăng đúng 1 thì trả 1; các tổ hợp khác bị coi là bất thường.
+4. **Không coi xóa 0 là thành công của thao tác thay thế tường**. Nếu yêu cầu xóa một hoặc bốn handle nhưng số xóa khác, hệ thống vẫn báo lỗi và đi vào đường xử lý nhóm Undo/rollback có kiểm soát.
+5. Điều kiện bảo vệ handle, snapshot, UID, Epoch, Revision và layer vẫn bắt buộc; tuyệt đối không ERASE các đối tượng ngoài tập handle được người dùng xác nhận.
+
+### Bài 282 — Thực hành thử Undo khi ERASE không xóa gì
+1. Tạo một LINE độc lập trong bản vẽ thử nghiệm, ghi nhớ handle và Revision.
+2. Chạy nhóm `UNDO BEGIN`; thực hiện `ERASE` với handle không tồn tại; CAD Engine trả `erased=0`.
+3. So sánh Revision trước/sau: nếu không thay đổi, bộ đếm của AI phải giữ nguyên 0. Đóng `UNDO END`; Undo Group phải không còn mở và LINE độc lập còn nguyên.
+4. Test `stage276_native_zero_erase_does_not_mutate_and_group_remains_closable` chạy đúng lệnh Engine, không chỉ so sánh số giả lập.
+5. Test `stage276_erase_revision_counter_uses_actual_native_mutation` kiểm tra các trường hợp xóa 0, xóa 1, xóa 4 trong một lệnh, Revision sai và tràn bộ đếm.
+
+### Bài 283 — Hồi quy PNG → Preview → Confirm → Undo/Redo
+1. Mở Tools → CAD 360 AI Review, nhập đường dẫn ảnh PNG/JPEG và tỷ lệ CAD/pixel.
+2. Bấm **Đọc ảnh → Xem trước các nét CAD**, kiểm tra tọa độ và tỷ lệ, bảo đảm Preview không tạo đối tượng trong tài liệu.
+3. Bấm **Tôi đồng ý – Vẽ vào CAD**; hệ thống kiểm tra nguồn ảnh, đối chiếu bản duyệt và tạo LINE native theo một nhóm Undo.
+4. Một lần Undo phải loại bỏ toàn bộ LINE nhập từ ảnh, giữ các entity không liên quan; Redo phải khôi phục. Nếu nội dung ảnh đã thay đổi sau Preview thì từ chối ghi.
+5. Workflow Stage276 chạy hồi quy Stage275 về PNG, Stage274 về Undo nhóm, Stage273 về snapshot tường/cửa và chính bài Stage276.
+
+### Bài 284 — Kiểm chứng và giới hạn phát hành
+1. Workflow `CAD 360 Stage276 Real ERASE Revision and PNG Regression` chạy `cargo check --locked -p cadcraft-ui-egui`, `cargo test --locked -p cadcraft-ui-egui stage276 -- --nocapture` trên `windows-latest` cùng Rust 1.95.0.
+2. **Chưa đánh dấu PASS nếu chưa có log GitHub Actions cụ thể đúng SHA**. Việc workflow đã tạo và test đã viết không chứng minh Windows EXE thực thi thành công.
+3. Sau khi Windows CI đạt, phải chạy bản EXE thật và chụp ảnh thao tác thực tế. Kiểm tra riêng: ảnh thực tế → nét vector → một Undo/Redo; tạo cửa; di chuyển cửa; thử lỗi giao cắt; thử thay đổi nguồn ảnh sau Preview.
+4. Kiểm tra Save/Reopen DWG chuẩn, mở/chỉnh sửa/lưu lại bằng AutoCAD độc lập. Không mã hóa hoặc thay đổi cấu trúc DWG làm mất tương thích với các phần mềm CAD khác.
+5. Các hạn chế chưa nghiệm thu: ảnh mặt bằng thực tế đa dạng, nhận dạng cửa/tường có ngữ nghĩa, OIDC Host phê duyệt GUI, Windows EXE phát hành và DWG hai chiều.
+
+**Phạm vi Đợt 276:** sửa điều kiện đếm Revision khi ERASE không xóa; bổ sung test sử dụng lệnh Engine thật; workflow Windows và giáo trình đến Bài 284. Đây là bản cập nhật mã, không phải công bố sản phẩm phát hành đã nghiệm thu.
