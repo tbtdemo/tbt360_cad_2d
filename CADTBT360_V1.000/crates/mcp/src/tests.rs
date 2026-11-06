@@ -887,3 +887,39 @@ fn stage247_mcp_resource_discovery_and_reads_match_host_grants() {
     let private=call(&mut server,704,"resources/read",json!({"uri":"file:///etc/passwd"}));
     assert_eq!(private["error"]["code"],-32602);
 }
+
+#[test]
+fn stage248_mcp_oidc_verified_host_session_can_read_but_cannot_escalate() {
+    use crate::backend::Backend;
+    use crate::oidc_host::{OidcTrustPolicy,VerifiedClaims,VerifiedTokenProvider};
+    struct HostVerifier{claims:VerifiedClaims}
+    impl VerifiedTokenProvider for HostVerifier {
+        fn verify_access_token(&self,token:&str)->Result<VerifiedClaims,String> {
+            if token!="trusted-test-token" {return Err("Signature invalid".into());}
+            Ok(self.claims.clone())
+        }
+    }
+    let mut backend=Headless::default();
+    let id=backend.call("drawing.inspect",json!({"entities":false})).unwrap();
+    let uid=id["documentUid"].as_u64().unwrap();
+    let now=std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+    let policy=OidcTrustPolicy::new("https://auth.test.example","cad360-mcp").unwrap();
+    let verifier=HostVerifier{claims:VerifiedClaims{
+        issuer:"https://auth.test.example".into(),audience:"cad360-mcp".into(),
+        subject:"user-test".into(),tenant:"tenant-test".into(),role:"viewer".into(),
+        not_before_unix:now-1,expires_at_unix:now+60
+    }};
+    assert!(Server::with_verified_oidc(Box::new(Headless::default()),&policy,&verifier,
+        "invalid-token",uid,&["inspect_drawing"]).is_err());
+    let mut server=Server::with_verified_oidc(Box::new(backend),&policy,&verifier,
+        "trusted-test-token",uid,&["inspect_drawing"]).unwrap();
+    assert_eq!(server.access_mode(),"scoped");
+    let allowed=call(&mut server,801,"tools/call",json!({"name":"inspect_drawing","arguments":{}}));
+    assert!(allowed["result"].is_object());
+    let denied=call(&mut server,802,"tools/call",json!({"name":"ai_draw_plan_vietnamese","arguments":{
+        "text":"vẽ phòng rộng 6000 dài 4000 tại 0,0","preview":false,"confirm":true,
+        "expectedDocumentUid":uid,"expectedDocumentEpoch":1,"expectedRevision":1}}));
+    assert_eq!(denied["error"]["code"],-32602);
+    let denied_resources=call(&mut server,803,"resources/read",json!({"uri":"cadcraft://commands"}));
+    assert_eq!(denied_resources["error"]["code"],-32602);
+}
