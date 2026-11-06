@@ -419,6 +419,83 @@ fn rectangle_wall_axis(points:&[[f64;2]])->Result<([f64;2],[f64;2],f64),String> 
     Ok((a,b,thickness))
 }
 
+/// Stage270: robust finite-point and segment / convex-quadrilateral interference tests.
+/// Equality at a boundary is treated as interference: do not delete or trim a touching neighbour.
+fn signed_cross(a:cadcraft_geom::Vec2,b:cadcraft_geom::Vec2,c:cadcraft_geom::Vec2)->f64 {
+    (b.x-a.x)*(c.y-a.y)-(b.y-a.y)*(c.x-a.x)
+}
+fn point_inside_convex_quad(p:cadcraft_geom::Vec2,quad:&[cadcraft_geom::Vec2;4],eps:f64)->bool {
+    let signs=(0..4).map(|i|signed_cross(quad[i],quad[(i+1)%4],p));
+    let mut positive=false;let mut negative=false;
+    for s in signs {
+        if s>eps {positive=true;}
+        if s< -eps {negative=true;}
+    }
+    !(positive&&negative)
+}
+fn on_segment(a:cadcraft_geom::Vec2,b:cadcraft_geom::Vec2,p:cadcraft_geom::Vec2,eps:f64)->bool {
+    signed_cross(a,b,p).abs()<=eps
+        && p.x>=a.x.min(b.x)-eps && p.x<=a.x.max(b.x)+eps
+        && p.y>=a.y.min(b.y)-eps && p.y<=a.y.max(b.y)+eps
+}
+fn segments_intersect(a:cadcraft_geom::Vec2,b:cadcraft_geom::Vec2,
+    c:cadcraft_geom::Vec2,d:cadcraft_geom::Vec2,eps:f64)->bool {
+    let o1=signed_cross(a,b,c);let o2=signed_cross(a,b,d);
+    let o3=signed_cross(c,d,a);let o4=signed_cross(c,d,b);
+    if ((o1>eps&&o2< -eps)||(o1< -eps&&o2>eps))
+        && ((o3>eps&&o4< -eps)||(o3< -eps&&o4>eps)) {return true;}
+    (o1.abs()<=eps&&on_segment(a,b,c,eps))
+        ||(o2.abs()<=eps&&on_segment(a,b,d,eps))
+        ||(o3.abs()<=eps&&on_segment(c,d,a,eps))
+        ||(o4.abs()<=eps&&on_segment(c,d,b,eps))
+}
+fn segment_hits_opening(a:cadcraft_geom::Vec2,b:cadcraft_geom::Vec2,
+    quad:&[cadcraft_geom::Vec2;4],eps:f64)->bool {
+    point_inside_convex_quad(a,quad,eps) || point_inside_convex_quad(b,quad,eps)
+        ||(0..4).any(|i|segments_intersect(a,b,quad[i],quad[(i+1)%4],eps))
+}
+fn polyline_hits_opening(points:&[cadcraft_geom::Vec2],closed:bool,
+    quad:&[cadcraft_geom::Vec2;4],eps:f64)->bool {
+    if points.iter().any(|p|point_inside_convex_quad(*p,quad,eps)) {return true;}
+    if points.windows(2).any(|p|segment_hits_opening(p[0],p[1],quad,eps)) {return true;}
+    if closed&&points.len()>2 {
+        if segment_hits_opening(points[points.len()-1],points[0],quad,eps) {return true;}
+        // A surrounding closed polygon with no edge crossing also obstructs the opening.
+        // Ray casting, boundary already handled by segment test.
+        let q=quad[0];let mut inside=false;
+        for i in 0..points.len() {
+            let a=points[i];let b=points[(i+1)%points.len()];
+            if (a.y>q.y)!=(b.y>q.y)
+                && q.x<(b.x-a.x)*(q.y-a.y)/(b.y-a.y)+a.x {inside=!inside;}
+        }
+        if inside {return true;}
+    }
+    false
+}
+fn precise_neighbour_hits_opening(entity:&cadcraft_doc::Entity,
+    quad:&[cadcraft_geom::Vec2;4],eps:f64)->Option<bool> {
+    use cadcraft_doc::EntityKind;
+    match &entity.kind {
+        EntityKind::Line(line)=>{
+            let a=cadcraft_geom::Vec2::new(line.a.x,line.a.y);
+            let b=cadcraft_geom::Vec2::new(line.b.x,line.b.y);
+            if ![a.x,a.y,b.x,b.y].iter().all(|v|v.is_finite()) {return None;}
+            Some(segment_hits_opening(a,b,quad,eps))
+        }
+        EntityKind::LwPolyline(poly) if poly.const_width.abs()<=eps
+            && poly.vertices.iter().all(|v|v.bulge.abs()<=eps
+                && v.start_width.abs()<=eps&&v.end_width.abs()<=eps)=>{
+            let points=poly.vertices.iter().map(|v|cadcraft_geom::Vec2::new(v.p.x,v.p.y))
+                .collect::<Vec<_>>();
+            if points.len()<2 || points.iter().any(|p|!p.x.is_finite()||!p.y.is_finite()) {return None;}
+            Some(polyline_hits_opening(&points,poly.closed,quad,eps))
+        }
+        // For curves, blocks, hatches, dimensions, wide PLINE, etc., AABB intersection
+        // remains a conservative rejection rather than inventing exact geometry.
+        _=>None
+    }
+}
+
 /// Stage269 conservative interference preflight around the rectangular door void.
 /// Any entity whose CAD bounds overlap the proposed opening blocks replacement.
 /// This can reject safe drawings (false positives), but never silently edits a neighbour.
@@ -430,15 +507,21 @@ fn check_door_opening_is_clear(session:&Session,source:cadcraft_doc::Handle,step
     let right=steps[1].1["vertices"].as_array().ok_or("Thiếu PLINE mép phải")?;
     if left.len()!=4 || right.len()!=4 {return Err("Biên dạng ô cửa không đủ 4 đỉnh".into());}
     let mut polygon=Vec::new();
-    for v in [&left[1],&left[2],&right[0],&right[3]] {
+    for v in [&left[1],&right[0],&right[3],&left[2]] {
         let p=v.as_array().filter(|p|p.len()==2).ok_or("Sai tọa độ ô mở")?;
         let x=p[0].as_f64().ok_or("Sai X")?;
         let y=p[1].as_f64().ok_or("Sai Y")?;
         if !x.is_finite()||!y.is_finite() {return Err("Tọa độ ô cửa không hữu hạn".into());}
         polygon.push(cadcraft_geom::Vec2::new(x,y));
     }
-    let zone=cadcraft_geom::Bounds2::from_points(polygon).expand(1e-6);
+    let quad:[cadcraft_geom::Vec2;4]=polygon.try_into()
+        .map_err(|_|"Khoảng mở không có đúng bốn đỉnh")?;
+    let zone=cadcraft_geom::Bounds2::from_points(quad).expand(1e-6);
     if zone.is_empty() {return Err("Khoảng mở không hợp lệ".into());}
+    let eps=(zone.width().max(zone.height())*1e-10).max(1e-8);
+    if (0..4).any(|i|signed_cross(quad[i],quad[(i+1)%4],quad[(i+2)%4])<=eps) {
+        return Err("Khoảng mở không tạo thành tứ giác lồi theo thứ tự hợp lệ".into());
+    }
     let doc=session.doc().map_err(|e|e.to_string())?;
     let space=doc.space_of(source).ok_or("Không biết layout của PLINE nguồn")?;
     let store=doc.space(&space).ok_or("Không truy cập được không gian tường")?;
@@ -447,7 +530,11 @@ fn check_door_opening_is_clear(session:&Session,source:cadcraft_doc::Handle,step
         let other=cadcraft_doc::entity_bounds(doc,entity,0);
         if other.is_empty() {return Err(format!("Entity #{} không có bounds hợp lệ: từ chối cắt an toàn",entity.handle.hex()));}
         if zone.intersects(&other) {
-            return Err(format!("Khoảng mở có thể giao với entity #{}; cần xử lý thủ công trước",entity.handle.hex()));
+            match precise_neighbour_hits_opening(entity,&quad,eps) {
+                Some(false)=>continue, // AABB false positive for validated LINE or thin LWPOLYLINE.
+                Some(true)=>return Err(format!("Khoảng mở giao trực tiếp với entity #{}; cần xử lý thủ công",entity.handle.hex())),
+                None=>return Err(format!("Entity #{} không hỗ trợ kiểm tra chính xác: từ chối bảo thủ",entity.handle.hex()))
+            }
         }
     }
     Ok(())
