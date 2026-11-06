@@ -17,6 +17,7 @@ struct PdfRenderTask {
     source: std::path::PathBuf,
     page: u32,
     source_fingerprint: (u64,u64),
+    cancel: std::sync::Arc<std::sync::atomic::AtomicBool>,
 }
 
 struct PreviewTask {
@@ -301,6 +302,14 @@ fn fingerprint_pdf(pdf:&std::path::Path)->Result<(u64,u64),String> {
 }
 
 fn render_pdf_page(pdf: &std::path::Path, page: u32) -> Result<std::path::PathBuf,String> {
+    render_pdf_page_cancellable(pdf,page,&std::sync::atomic::AtomicBool::new(false))
+}
+
+/// Poppler runs in a worker, but cancellation must actually stop its child process.
+fn render_pdf_page_cancellable(pdf:&std::path::Path,page:u32,cancel:&std::sync::atomic::AtomicBool)->Result<std::path::PathBuf,String> {
+    if cancel.load(std::sync::atomic::Ordering::Relaxed) {
+        return Err("Đã hủy chuyển trang PDF trước khi khởi chạy Poppler.".into());
+    }
     if !(1..=500).contains(&page) { return Err("Số trang PDF phải từ 1 đến 500.".into()); }
     let metadata=std::fs::metadata(pdf).map_err(|e|format!("Không truy cập được PDF: {e}"))?;
     if !metadata.is_file() || metadata.len()>100*1024*1024 { return Err("PDF phải là tệp thường và không vượt quá 100 MB.".into()); }
@@ -320,6 +329,10 @@ fn render_pdf_page(pdf: &std::path::Path, page: u32) -> Result<std::path::PathBu
         .spawn().map_err(|e|format!("Không tìm thấy Poppler pdftoppm ({e}). Cài trong Tools/Poppler/bin cạnh CADTBT360.exe, thiết lập CAD360_PDF_RENDERER hoặc thêm vào PATH."))?;
     let start=std::time::Instant::now();
     let status=loop {
+        if cancel.load(std::sync::atomic::Ordering::Relaxed) {
+            let _=child.kill();let _=child.wait();let _=std::fs::remove_file(&png);
+            return Err("Đã hủy chuyển trang PDF và dừng Poppler.".into());
+        }
         match child.try_wait() {
             Ok(Some(status))=>break status,
             Ok(None) if start.elapsed()<std::time::Duration::from_secs(60)=>std::thread::sleep(std::time::Duration::from_millis(100)),
@@ -329,6 +342,10 @@ fn render_pdf_page(pdf: &std::path::Path, page: u32) -> Result<std::path::PathBu
                 return Err(format!("Không theo dõi được tiến trình chuyển PDF: {e}"));}
         }
     };
+    if cancel.load(std::sync::atomic::Ordering::Relaxed) {
+        let _=std::fs::remove_file(&png);
+        return Err("Đã hủy chuyển trang PDF.".into());
+    }
     if !status.success() {
         let _=std::fs::remove_file(&png);
         return Err(format!("Không thể chuyển trang PDF {page}. Kiểm tra PDF có mật khẩu, bị hỏng hoặc trang không tồn tại (mã thoát: {status})."));
@@ -349,15 +366,16 @@ fn start_pdf_render(state: &mut State, ctx: &egui::Context) {
     };
     let (sender,receiver)=std::sync::mpsc::channel();
     let ctx=ctx.clone();
-    state.pdf_pending=Some(PdfRenderTask{receiver,source:path.clone(),page,source_fingerprint});
+    let cancel=std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    state.pdf_pending=Some(PdfRenderTask{receiver,source:path.clone(),page,source_fingerprint,cancel:cancel.clone()});
     state.path.clear(); // Never reuse an earlier image if a different PDF page fails to render.
     state.pdf_render_fingerprint=None;
     state.preview=None;state.preview_document_uid=None;state.preview_revision=None;state.preview_document_epoch=None;
     state.error=None;
     std::thread::spawn(move || {
-        let result=render_pdf_page(&path,page).and_then(|png| {
+        let result=render_pdf_page_cancellable(&path,page,&cancel).and_then(|png| {
             match fingerprint_pdf(&path) {
-                Ok(fingerprint) if fingerprint==source_fingerprint=>Ok(png),
+                Ok(fingerprint) if fingerprint==source_fingerprint && !cancel.load(std::sync::atomic::Ordering::Relaxed)=>Ok(png),
                 Ok(_)=>{
                     let _=std::fs::remove_file(&png);
                     Err("Nội dung PDF đã bị sửa trong khi kết xuất. Hãy nạp lại trang.".into())
@@ -751,7 +769,18 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
                     if ui.add_enabled(state.pdf_pending.is_none(),egui::Button::new("Nạp trang PDF")).clicked() {start_pdf_render(state,ctx);}
                 });
             }
-            if state.pdf_pending.is_some() {ui.horizontal(|ui| {ui.spinner();ui.label("Đang xử lý trang PDF ngoài luồng giao diện...");});}
+            if state.pdf_pending.is_some() {
+                ui.horizontal(|ui| {
+                    ui.spinner();ui.label("Đang chuyển trang PDF ngoài luồng giao diện...");
+                    if ui.button("Dừng chuyển PDF").clicked() {
+                        if let Some(task)=state.pdf_pending.take() {
+                            task.cancel.store(true,std::sync::atomic::Ordering::Relaxed);
+                        }
+                        state.path.clear();state.preview=None;state.pdf_render_fingerprint=None;
+                        state.error=Some("Đã yêu cầu dừng Poppler. Trang PDF chưa được chấp nhận để tạo CAD.".into());
+                    }
+                });
+            }
             ui.horizontal(|ui| {
                 ui.label("Nét tối thiểu (px)");
                 if ui.add(egui::DragValue::new(&mut state.min_length).range(2..=4096)).changed() { state.preview = None; }
@@ -2190,6 +2219,14 @@ mod tests {
         assert!(ensure_raster_preview_input_unchanged(&state).is_err());
         let _=std::fs::remove_file(pdf);
         let _=std::fs::remove_file(png);
+    }
+
+    #[test]
+    fn ai_pdf_cancel_refuses_before_poppler_spawn_and_keeps_no_raster() {
+        let flag=std::sync::atomic::AtomicBool::new(true);
+        let nonexistent=std::path::Path::new("pdf_missing_should_never_be_opened.pdf");
+        let result=render_pdf_page_cancellable(nonexistent,1,&flag);
+        assert!(result.unwrap_err().contains("Đã hủy"));
     }
 
     #[test]
