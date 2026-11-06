@@ -3095,3 +3095,37 @@ Kế hoạch: Đợt 240 sửa lỗi CI, hoàn thiện thử DWG hai chiều v�
 5. Mục tiêu tiếp theo là **đóng toàn bộ lỗi build/test còn lại**, thu thập ảnh chụp thật và nghiệm thu người dùng; chưa thể tuyên bố hoàn thiện AI vẽ kiến trúc chỉ dựa trên số bài hướng dẫn.
 
 **Trạng thái đợt 272:** Mã khóa lựa chọn ảnh và test đã commit; CI Windows, EXE và DWG vẫn cần bằng chứng nghiệm thu đúng phiên bản.
+
+
+## 113. Đợt 273 — Bảo vệ snapshot bốn đối tượng tường/cửa và kiểm thử Undo rollback khi lỗi giữa giao dịch
+
+### Bài 269 — Vì sao chỉ UID, Revision và handle vẫn chưa đủ
+1. Khi tạo bằng AI Review câu lệnh `vẽ tường có cửa từ 0,0 đến 6000,0 dày 200 cửa 900 tại 3000 mở trái`, CAD Engine trả về bốn handle: hai PLINE tường, một LINE cánh và một ARC cung.
+2. Trước Đợt 273, màn hình nhớ các handle, UID/Epoch/Revision; trong một số thao tác can thiệp trực tiếp qua `doc_mut()`, hình học hoặc thuộc tính của một entity có thể thay đổi **mà Revision chưa tăng**.
+3. Đợt 273 lưu thêm `owned_entities: Vec<Entity>` (bản sao đầy đủ của đúng bốn entity khi vừa tạo). Trước khi di chuyển cửa, chương trình kiểm tra `Entity` hiện tại bằng đúng bản gốc cho mỗi handle.
+4. Nếu một entity bị sửa hình học, layer hoặc thuộc tính mà không qua lệnh đã tăng Revision, **Preview dời cửa mới bị từ chối** và bản Preview đã có cũng bị từ chối khi xác nhận thay thế.
+5. Không tự kết luận handle còn tồn tại đồng nghĩa entity chưa bị sửa, không tự ERASE nếu bất kỳ snapshot nào không khớp.
+
+### Bài 270 — Di chuyển cửa trên bộ tường AI Review đã tạo
+1. Mở bản vẽ CAD 360 rồi vào **Tools → CAD 360 AI Review**.
+2. Nhập câu lệnh tường có cửa như Bài 269, bấm **Xem trước**, kiểm tra hình học và bấm **Tôi đồng ý – Vẽ vào CAD**.
+3. Đảm bảo sau khi Commit có đúng bốn thực thể mới; ứng dụng giữ riêng handle và snapshot thực thể thuộc bộ này, không quản lý tường bất kỳ bên ngoài.
+4. Trong phần **ĐIỀU CHỈNH Ô CỬA ĐÃ TẠO BỞI AI REVIEW**, nhập tâm cửa mới (ví dụ 3500), bấm **Xem trước tường/cửa tại vị trí mới**.
+5. Nếu đúng bản vẽ, đúng UID/Epoch/Revision, bốn handle và bốn snapshot đều khớp, UI mới cho xem phương án thay thế. Sau xác nhận, đúng bốn entity cũ được ERASE và bốn entity mới được tạo trong một nhóm Undo.
+6. Nếu người dùng hoặc tác nhân khác sửa thủ công một entity từ bộ này, cần dừng điều chỉnh tự động và xử lý trên bản vẽ mẫu/sao lưu; không tự xóa hoặc thay thế phần đã bị sửa.
+
+### Bài 271 — Kiểm thử rollback khi một lệnh giữa giao dịch thất bại
+1. Test `stage273_failed_native_group_rolls_back_and_preserves_unrelated_geometry` tạo sẵn một LINE độc lập, khởi tạo Preview gồm hai lệnh LINE.
+2. Lệnh thứ nhất hợp lệ; lệnh thứ hai có hai đầu mút trùng nhau và phải bị CAD Engine từ chối.
+3. Sau thất bại, `commit_steps` phải kết thúc nhóm Undo và rollback nhóm đã được tạo, giữ số entity như trước khi chạy; LINE độc lập phải còn nguyên, trạng thái Undo Group phải đóng.
+4. Đây là kiểm thử lỗi giữa giao dịch (failure injection), không phải chứng nhận mọi tình huống hỏng, ngắt điện hoặc cạnh tranh đa luồng đã được xử lý.
+5. Test `stage273_managed_wall_rejects_undetected_property_changes_without_erasing` thử sửa `ltscale` của PLINE trong bộ cửa bằng `doc_mut()`, giữ nguyên Revision. Cả Preview dời cửa mới và việc Commit bản Preview cũ đều phải bị từ chối, không ERASE bất kỳ thành phần nào.
+
+### Bài 272 — Kiểm chứng Windows, DWG và hướng hoàn thiện AI
+1. Workflow `CAD 360 Stage273 Native Undo and Managed Wall Snapshot` chạy trên `windows-latest`, sử dụng Rust 1.95.0, `cargo check --locked -p cadcraft-ui-egui`, test Stage273 và hồi quy Stage266/272 cùng nhóm Stage2.
+2. Kết quả PASS chỉ hợp lệ nếu workflow đã chạy tại **đúng commit** và có log; một lần push code không phải là bằng chứng build.
+3. Trên Windows EXE thật phải làm bài thử chính: tạo cửa → Preview dời cửa → chỉnh một thuộc tính entity trước xác nhận → thấy bị từ chối; sau đó dựng lại bằng bộ mới và thử Undo/Redo.
+4. Thử Save/Reopen DWG chuẩn, mở/chỉnh sửa/lưu lại bằng AutoCAD độc lập. Không mã hóa cấu trúc DWG hay đổi đuôi; cần giữ khả năng trao đổi hai chiều.
+5. Chưa thể đánh dấu hoàn thành AI ảnh→CAD ngữ nghĩa, OIDC/UI Approval, EXE Windows hoặc DWG AutoCAD cho đến khi có kết quả kiểm thử thực tế; phần này chỉ cải thiện tính toàn vẹn của hình học CAD và rollback.
+
+**Phạm vi Đợt 273:** Có mã, test và workflow Windows cho bảo vệ snapshot; CI PASS, bộ cài EXE và xác minh DWG độc lập vẫn chưa được chứng minh.
