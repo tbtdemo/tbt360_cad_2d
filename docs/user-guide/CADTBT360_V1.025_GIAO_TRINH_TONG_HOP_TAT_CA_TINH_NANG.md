@@ -3330,3 +3330,36 @@ Kế hoạch: Đợt 240 sửa lỗi CI, hoàn thiện thử DWG hai chiều v�
 5. Không công bố AI hiểu ngữ nghĩa kiến trúc hoặc khả năng tự dựng mặt bằng hoàn chỉnh chỉ từ việc kiểm thử Undo.
 
 **Đợt 279:** đã bổ sung mã bảo vệ Undo Snapshot đầu nhóm, stress test và workflow Windows; kết quả CI/EXE/AutoCAD chưa được xác nhận.
+
+
+## 120. Đợt 280 — Kiểm thử CAD Engine native tại giới hạn lịch sử Undo 2.000 bước
+
+### Bài 297 — Tại sao cần kiểm thử lệnh CAD thực ngoài bài kiểm tra Snapshot
+1. Đợt 279 đã thêm điều kiện bảo vệ Snapshot đầu nhóm khi ngăn xếp Undo đủ 2.000 bản ghi, kiểm thử ở mức `DocState::push_undo`.
+2. Đợt 280 bổ sung kiểm thử tích hợp ở `Session::execute`, gọi lệnh `LINE`, `ERASE`, `UNDO BEGIN`, `UNDO END`, `UNDO count=1` và `REDO` giống đường đi thực tế của CAD Engine.
+3. Để bài stress test thực thi hợp lý, lịch sử có trước được lấp đầy bằng các Snapshot nhẹ; sau đó việc **tạo hình học mới** phải đi qua lệnh CAD native, không chỉ mô phỏng tăng chiều dài lịch sử.
+4. Thử nghiệm này kiểm tra khôi phục hình học và handle. Nó **chưa phải** kiểm chứng CAD GUI trên Windows EXE hoặc khả năng tương thích DWG bằng AutoCAD độc lập.
+
+### Bài 298 — Nhập nhiều LINE trong một nhóm Undo khi lịch sử đã đầy
+1. Tạo một LINE độc lập ở vị trí xa vùng vẽ AI, ghi nhớ handle.
+2. Lấp đầy lịch sử đến `MAX_UNDO = 2000`. Bắt đầu `UNDO BEGIN`.
+3. Tạo 96 LINE thực bằng CAD Engine, mỗi LINE có handle duy nhất; sau mỗi lần tạo, kiểm tra lịch sử vẫn dài đúng 2.000, mốc bắt đầu nhóm còn hợp lệ.
+4. Kết thúc nhóm bằng `UNDO END`; một lần Undo phải xóa đúng 96 LINE mới nhưng giữ LINE độc lập. Một lần Redo phải dựng lại 96 LINE và giữ nguyên LINE độc lập.
+5. Test `stage280_native_line_commands_near_undo_limit_preserve_source_and_redo` kiểm tra số lượng entity, handle từng LINE và trạng thái nhóm Undo.
+
+### Bài 299 — ERASE không xóa gì khi Undo đang ở giới hạn
+1. Tạo một LINE hợp lệ, sau đó lấp đầy lịch sử đến 2.000 Snapshot.
+2. Bắt đầu một nhóm Undo mới, gọi `ERASE` với handle chắc chắn không tồn tại, xác minh `erased=0`.
+3. Vì bản vẽ không thay đổi, lịch sử không tăng và nhóm không tạo Snapshot mới. Sau `UNDO END`, LINE có trước vẫn tồn tại; không tự Undo nhầm một bước cũ.
+4. Test `stage280_native_zero_mutation_group_near_history_limit_never_undoes_prior_line` kiểm tra đúng hành vi này.
+5. Các bài này tiếp tục kiểm tra lỗi đã sửa từ Đợt 276–279 nhưng với ngăn xếp lịch sử đã đạt giới hạn.
+
+### Bài 300 — Windows CI và tiêu chí nghiệm thu sản phẩm
+1. Workflow `CAD 360 Stage280 Native Undo Redo at History Limit` chạy `cargo check --locked -p cadcraft-engine`, `cargo test --locked -p cadcraft-engine stage280 -- --nocapture` trên Windows và hồi quy Stage279.
+2. Kiểm thử thêm `cadcraft-ui-egui` và bài Stage278 (bảo vệ lịch sử Undo), Stage275 (PNG → Preview → LINE native → Undo/Redo).
+3. Mỗi workflow cần hiển thị SHA kiểm thử và phiên bản Rust để liên kết đúng mã nguồn với kết quả. **Không công nhận PASS khi thiếu kết quả và log GitHub Actions.**
+4. Trên EXE Windows thật, nhập một ảnh PNG/JPEG tạo nhiều LINE, kiểm tra Undo một lần khôi phục bản vẽ trước nhập ảnh, Redo dựng lại, đối chiếu layer, tọa độ và số entity.
+5. Sau đó Save/Reopen DWG chuẩn, mở và chỉnh sửa trong AutoCAD độc lập rồi lưu lại, bảo đảm file vẫn trao đổi hai chiều. Không đổi định dạng DWG hoặc mã hóa file làm mất tương thích.
+6. Chỉ nghiệm thu AI ảnh→CAD khi có kết quả chạy thực tế trên bản vẽ mẫu, không suy ra chất lượng nhận dạng kiến trúc từ các bài stress test về Undo.
+
+**Đợt 280:** bổ sung kiểm thử tích hợp Engine native ở giới hạn 2.000 bước và workflow Windows. Đây là công việc kiểm chứng; không tuyên bố Windows CI, EXE hoặc AutoCAD đã PASS khi chưa có bằng chứng.
