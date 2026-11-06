@@ -1,0 +1,43 @@
+name: CAD 360 Stage275 Real PNG to Native CAD End-to-End
+on:
+  push:
+    branches:
+      - feature/CADTBT360_V1.025_xref-regression
+    paths:
+      - CADTBT360_V1.000/crates/ui-egui/src/ai_review.rs
+      - CADTBT360_V1.000/crates/mcp/src/raster_vector.rs
+      - .github/workflows/cad360-stage275-png-native-e2e.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  png-to-native-cad:
+    runs-on: windows-latest
+    timeout-minutes: 100
+    defaults:
+      run:
+        working-directory: CADTBT360_V1.000
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.95.0'
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: CADTBT360_V1.000
+      - name: Report the tested commit
+        shell: pwsh
+        run: |
+          git rev-parse HEAD
+          rustc --version
+          cargo --version
+      - name: Compile native CAD AI Review
+        run: cargo check --locked -p cadcraft-ui-egui
+      - name: Actual local PNG decoder to CAD native Undo and Redo
+        run: cargo test --locked -p cadcraft-ui-egui stage275 -- --nocapture
+      - name: Prior single and grouped Undo safety tests
+        run: cargo test --locked -p cadcraft-ui-egui stage274 -- --nocapture
+      - name: Raster source mismatch and PNG review regression
+        run: cargo test --locked -p cadcraft-ui-egui stage262 -- --nocapture
+      - name: Existing CAD wall operation regression
+        run: cargo test --locked -p cadcraft-ui-egui stage267 -- --nocapture
