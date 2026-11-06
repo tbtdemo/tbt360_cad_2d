@@ -1161,7 +1161,7 @@ impl AiReview {
                     } else {
                         match commit_steps(session,&p) {
                             Ok(handles)=>{
-                                let is_managed_wall=p.image_evidence.is_none()
+                                let is_managed_wall=p.image_evidence.is_none() && !p.text.contains('|')
                                     && p.steps.len()==4 && p.steps[0].0=="pline"
                                     && p.steps[1].0=="pline" && p.steps[2].0=="line"
                                     && p.steps[3].0=="arc";
