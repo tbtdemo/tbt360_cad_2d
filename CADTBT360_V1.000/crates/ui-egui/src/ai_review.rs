@@ -598,6 +598,23 @@ fn preview_selected_existing_wall(session:&Session,center_text:&str,door_width_t
         review_token:Some(format!("existing|{center_text}|{door_width_text}|{open_right}"))})
 }
 
+/// Stage271: freeze the exact operator controls that produced the approved Preview.
+fn review_inputs_match(p:&Preview,prompt:&str,image_path:&str,image_scale:&str,
+    existing_center:&str,existing_width:&str,open_right:bool,managed_center:&str)->bool {
+    if let Some(token)=&p.review_token {
+        let active=if p.replace_snapshot.is_some() {
+            format!("existing|{existing_center}|{existing_width}|{open_right}")
+        } else {
+            format!("managed|{managed_center}")
+        };
+        active==*token
+    } else if p.image_evidence.is_some() {
+        format!("{image_path}|{image_scale}")==p.text
+    } else {
+        prompt==p.text
+    }
+}
+
 fn returned_handles(result:&Value)->Result<Vec<String>,String> {
     if let Some(handle)=result["handle"].as_str() {return Ok(vec![handle.to_string()]);}
     if let Some(handles)=result["handles"].as_array() {
@@ -994,16 +1011,9 @@ impl AiReview {
                 if let Some(p)=self.preview.take() {
                     let permitted=drawing_ready(session)&&session.state().is_ok_and(|s|
                         s.uid==p.uid&&s.revision==p.revision&&session.doc_epoch==p.epoch);
-                    let input_unchanged=if let Some(token)=&p.review_token {
-                        let current=if p.replace_snapshot.is_some() {
-                            format!("existing|{}|{}|{}",self.existing_door_center,self.existing_door_width,self.existing_open_right)
-                        } else {
-                            format!("managed|{}",self.revised_center)
-                        };
-                        current==*token
-                    } else if p.image_evidence.is_some() {
-                        format!("{}|{}",self.image_path,self.image_scale)==p.text
-                    } else {self.prompt==p.text};
+                    let input_unchanged=review_inputs_match(&p,&self.prompt,&self.image_path,
+                        &self.image_scale,&self.existing_door_center,&self.existing_door_width,
+                        self.existing_open_right,&self.revised_center);
                     if !permitted||!input_unchanged {
                         self.message="Preview cũ hoặc bản vẽ thay đổi; vui lòng Preview lại.".into();
                     } else {
@@ -1050,6 +1060,47 @@ mod tests {
         assert!(parse_draft("vẽ phòng rộng NaN dài 4000 tại 0,0").is_err());
         assert!(parse_draft("xóa tất cả").is_err());
     }
+    #[test]
+    fn stage271_rejects_stale_single_native_command_without_mutation() {
+        let mut session=Session::default();
+        let state=session.state().unwrap();
+        let (steps,description)=plan_from_text("vẽ đường thẳng từ 0,0 đến 100,0").unwrap();
+        let preview=Preview {uid:state.uid,epoch:session.doc_epoch,revision:state.revision,
+            text:"vẽ đường thẳng từ 0,0 đến 100,0".into(),steps,description,
+            image_evidence:None,selected_opening_guide:None,selected_door_arc:None,
+            replace_handles:None,replace_snapshot:None,review_token:None};
+        assert!(review_inputs_match(&preview,&preview.text,"","","","",false,""));
+        assert!(!review_inputs_match(&preview,"vẽ đường thẳng từ 0,0 đến 200,0","","","","",false,""));
+        session.execute("line",&json!({"points":[[0,1000],[100,1000]]})).unwrap();
+        let original=session.doc().unwrap().entity_count();
+        assert!(commit_steps(&mut session,&preview).is_err(),
+            "an out-of-date single LINE Preview must not mutate the CAD drawing");
+        assert_eq!(session.doc().unwrap().entity_count(),original);
+    }
+
+    #[test]
+    fn stage271_rejects_changed_controls_and_stale_selected_wall_snapshot() {
+        let mut session=Session::default();
+        let source=session.execute("pline",&json!({"vertices":[[0,-100],[6000,-100],
+            [6000,100],[0,100]],"closed":true})).unwrap();
+        let handle=cadcraft_doc::Handle::parse_hex(source["handle"].as_str().unwrap()).unwrap();
+        session.set_selection(vec![handle]);
+        let preview=preview_selected_existing_wall(&session,"3000","900",false).unwrap();
+        assert!(review_inputs_match(&preview,"","","","3000","900",false,""));
+        assert!(!review_inputs_match(&preview,"","","","3500","900",false,""),
+            "changing center after Preview requires a new user review");
+        assert!(!review_inputs_match(&preview,"","","","3000","800",false,""),
+            "changing width after Preview requires a new user review");
+        assert!(!review_inputs_match(&preview,"","","","3000","900",true,""),
+            "changing swing after Preview requires a new user review");
+        session.doc_mut().unwrap().modify_entity(handle,|entity|entity.common.ltscale=1.5).unwrap();
+        let initial=session.doc().unwrap().entity_count();
+        assert!(commit_steps(&mut session,&preview).is_err(),
+            "snapshot mismatch must reject replacement even without Revision bump");
+        assert_eq!(session.doc().unwrap().entity_count(),initial);
+        assert!(session.doc().unwrap().entity(handle).is_some());
+    }
+
     #[test]
     fn stage270_precise_line_intersection_avoids_bounding_box_false_positive() {
         let mut session=Session::default();
