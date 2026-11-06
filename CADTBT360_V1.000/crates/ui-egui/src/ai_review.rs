@@ -935,18 +935,33 @@ impl AiReview {
     pub fn show(&mut self,ctx:&egui::Context,session:&mut Session) {
         if !self.open {return;}
         let mut open=self.open;
-        egui::Window::new("CAD 360 - AI Review (vẽ cơ bản)")
-            .open(&mut open).resizable(true).default_width(520.0).show(ctx,|ui| {
-            ui.label("Chọn 1 câu lệnh tiếng Việt, kiểm tra Preview trước khi vẽ:");
-            ui.label("vẽ phòng rộng 6000 dài 4000 tại 0,0");
-            ui.label("vẽ đường thẳng từ 0,0 đến 100,0");
-            ui.label("vẽ hình chữ nhật từ 0,0 đến 100,50");
-            ui.label("vẽ hình tròn tâm 0,0 bán kính 50");
-            ui.label("vẽ polyline qua 0,0;100,0;100,50");
-            ui.label("vẽ cung tâm 0,0 bán kính 100 từ 0 đến 90");
-            ui.label("vẽ tường từ 0,0 đến 6000,0 dày 200");
-            ui.label("vẽ tường có cửa từ 0,0 đến 6000,0 dày 200 cửa 900 tại 3000 mở trái");
-            ui.text_edit_singleline(&mut self.prompt);
+        egui::Window::new("CAD 360 | AI Review - Lệnh CAD")
+            .open(&mut open).resizable(true).default_width(680.0).min_width(500.0).show(ctx,|ui| {
+            ui.heading("AI REVIEW | KIỂM DUYỆT BẢN VẼ");
+            ui.small("AI chỉ đề xuất lệnh. Xem trước và xác nhận mới được ghi vào CAD.");
+            ui.label("Kế hoạch lệnh CAD (tối đa 12 lệnh, phân cách bằng dấu |):");
+            if ui.add(egui::TextEdit::multiline(&mut self.prompt).desired_rows(3).desired_width(f32::INFINITY)
+                .hint_text("vẽ phòng rộng 6000 dài 4000 tại 0,0 | vẽ hình tròn tâm 3000,2000 bán kính 250")).changed() {
+                self.preview=None;
+                self.message="Lệnh thay đổi. Hãy tạo Preview mới trước khi xác nhận.".into();
+            }
+            ui.collapsing("Các lệnh CAD hỗ trợ và ví dụ",|ui| {
+                for example in [
+                    "vẽ phòng rộng 6000 dài 4000 tại 0,0",
+                    "vẽ đường thẳng từ 0,0 đến 100,0",
+                    "vẽ hình chữ nhật từ 0,0 đến 100,50",
+                    "vẽ hình tròn tâm 0,0 bán kính 50",
+                    "vẽ polyline qua 0,0;100,0;100,50",
+                    "vẽ cung tâm 0,0 bán kính 100 từ 0 đến 90",
+                    "vẽ tường từ 0,0 đến 6000,0 dày 200",
+                    "vẽ tường có cửa từ 0,0 đến 6000,0 dày 200 cửa 900 tại 3000 mở trái",
+                ] {
+                    if ui.button(example).clicked() {
+                        self.prompt=example.into();self.preview=None;
+                        self.message="Đã chọn lệnh mẫu; hãy xem Preview.".into();
+                    }
+                }
+            });
             ui.separator();
             ui.label("AI ảnh → nét CAD (PNG/JPEG, tập trung các nét đường; chưa tự xác nhận cửa):");
             ui.label("Đường dẫn ảnh cục bộ:");
