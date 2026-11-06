@@ -788,7 +788,7 @@ mod ai_draft_vietnamese_tests {
         assert_eq!(backend.calls,vec!["drawing.inspect"]);
         let mut invalid=PreviewBackend{calls:Vec::new()};
         let err=super::ai_draw_plan_vietnamese(&mut invalid,&json!({
-            "text":"vẽ đường thẳng từ 0,0 đến 100,0\\nvẽ hình tròn tâm 0,0 bán kính 5", "createDoorBlock":true
+            "text":"vẽ đường thẳng từ 0,0 đến 100,0\nvẽ hình tròn tâm 0,0 bán kính 5", "createDoorBlock":true
         })).unwrap_err();
         assert!(err.contains("createDoorBlock"));
         assert!(invalid.calls.is_empty(),"unsupported Block plan must be rejected before contacting CAD");
