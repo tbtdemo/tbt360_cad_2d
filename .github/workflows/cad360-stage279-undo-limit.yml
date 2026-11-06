@@ -1,0 +1,43 @@
+name: CAD 360 Stage279 Undo 2000 History Stress
+on:
+  push:
+    branches:
+      - feature/CADTBT360_V1.025_xref-regression
+    paths:
+      - CADTBT360_V1.000/crates/engine/src/undoctl.rs
+      - CADTBT360_V1.000/crates/ui-egui/src/ai_review.rs
+      - .github/workflows/cad360-stage279-undo-limit.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  undo-history-ceiling:
+    runs-on: windows-latest
+    timeout-minutes: 100
+    defaults:
+      run:
+        working-directory: CADTBT360_V1.000
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.95.0'
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: CADTBT360_V1.000
+      - name: Identify tested SHA and compiler
+        shell: pwsh
+        run: |
+          git rev-parse HEAD
+          rustc --version
+          cargo --version
+      - name: Compile CAD Engine
+        run: cargo check --locked -p cadcraft-engine
+      - name: Stress Undo group at MAX_UNDO and over-length groups
+        run: cargo test --locked -p cadcraft-engine stage279 -- --nocapture
+      - name: Compile Windows AI Review
+        run: cargo check --locked -p cadcraft-ui-egui
+      - name: Verify Undo ownership regressions
+        run: cargo test --locked -p cadcraft-ui-egui stage278 -- --nocapture
+      - name: Verify PNG to native geometry Undo
+        run: cargo test --locked -p cadcraft-ui-egui stage275 -- --nocapture
