@@ -3062,3 +3062,36 @@ Kế hoạch: Đợt 240 sửa lỗi CI, hoàn thiện thử DWG hai chiều v�
 5. Không sử dụng hình minh họa tài liệu thay thế ảnh chụp thật của EXE. Cần bổ sung ảnh chụp màn hình thực tế theo từng bước khi ứng dụng chạy thành công.
 
 **Tình trạng:** Đã commit sửa mã, regression test và CI workflow; chưa xác nhận workflow PASS tại SHA cuối, chưa xác nhận Windows EXE/AutoCAD. Đây là đợt ổn định chất lượng, không công bố thêm khả năng AI tự hiểu bản vẽ mới.
+
+
+## 112. Đợt 272 — Đóng băng tùy chọn ảnh và cung cửa đã duyệt trước khi vẽ CAD
+
+### Bài 265 — Từ ảnh đến phương án Preview có kiểm soát
+1. Mở **Tools → CAD 360 AI Review...**, chọn ảnh PNG/JPEG cục bộ, nhập đúng hệ số **đơn vị CAD/pixel**, rồi bấm **Đọc ảnh → Xem trước các nét CAD**.
+2. Xem các đường LINE do bộ vector hóa ảnh nhận dạng và số ứng viên khoảng mở/nét giống cánh cửa; ảnh chưa được vẽ vào CAD.
+3. Chọn ứng viên PLINE ô mở hoặc ARC cung mở bằng chỉ số hiển thị (bắt đầu từ 0), bấm nút bổ sung vào Preview. Người dùng phải kiểm tra lại trước khi xác nhận.
+4. Đợt 272 bổ sung lưu bộ **ImageControlSnapshot** ở thời điểm chọn hoặc hiệu chỉnh phương án. Snapshot gồm: chỉ số PLINE, chỉ số ARC, bề rộng cửa, khoảng dịch bản lề và hai cờ đổi bản lề/đảo hướng mở.
+5. **Không tự động nhận dạng ngữ nghĩa cửa/tường hoặc sửa mô hình BIM**; chỉ là hình học dự kiến từ ảnh và thông số được người dùng lựa chọn.
+
+### Bài 266 — Chặn thay đổi thông số sau Preview
+1. Sau khi chọn ứng viên ô cửa và nhìn hình Preview, thử đổi **chỉ số ứng viên**, nhưng chưa nhấn lại nút thêm chỉ dẫn. Nếu bấm **Tôi đồng ý – Vẽ vào CAD**, hệ thống phải từ chối vì dữ liệu nhập không còn đúng bản đã duyệt.
+2. Tương tự, với ARC đã xem trước, đổi **bề rộng cửa, khoảng dịch bản lề, trạng thái đảo bản lề hoặc đảo hướng mở** mà chưa bấm **Áp dụng hiệu chỉnh vào Preview**; thao tác xác nhận phải bị chặn.
+3. Để tiếp tục, bấm **Áp dụng hiệu chỉnh vào Preview** để cập nhật ARC đúng thông số mới, xem lại nét chỉ dẫn trên hình rồi mới bấm xác nhận.
+4. Với ảnh nguồn, chương trình vẫn so sánh đường dẫn, hệ số CAD/pixel, nội dung byte file và kết quả vector hóa trước khi tạo đối tượng. Với bản vẽ, vẫn kiểm tra UID/Epoch/Revision và Undo.
+5. Đối với Preview ảnh chỉ có LINE gốc mà chưa chọn ứng viên, việc so sánh ảnh và hệ số vẫn giữ nguyên; phần bổ sung này chủ yếu khóa **các lựa chọn ứng viên và thông số hiệu chỉnh**.
+
+### Bài 267 — Kiểm thử và các trường hợp từ chối
+1. Test `stage272_freezes_approved_raster_opening_and_door_arc_controls` tạo snapshot đã được duyệt, rồi thay riêng từng trường: chỉ số ô mở, chỉ số cung cửa, bề rộng, khoảng dịch, cờ đổi bản lề và hướng mở. Mỗi thay đổi phải làm phép so sánh thất bại.
+2. Test xác nhận Snapshot chưa cấu hình không ảnh hưởng lệnh CAD thuần; dữ liệu Preview không tự tạo đối tượng trong bản vẽ.
+3. Windows workflow `CAD 360 Stage272 AI Reviewed Controls Regression` chạy `cargo check --locked -p cadcraft-ui-egui` và `cargo test --locked -p cadcraft-ui-egui stage272 -- --nocapture`.
+4. Workflow chạy thêm toàn bộ nhóm test Stage258–271 qua bộ lọc `stage2`, cùng regression vector hóa ảnh ở `cadcraft-mcp`.
+5. **Chưa công nhận CI PASS** nếu chưa nhìn thấy log và kết quả GitHub Actions trên đúng SHA; không được thay ảnh minh họa bằng ảnh chụp màn hình ứng dụng chưa tồn tại.
+
+### Bài 268 — Điều kiện nghiệm thu và bước tiếp theo
+1. Trên EXE Windows thực, chạy chu trình **PNG/JPEG → Preview → chọn ứng viên/ARC → thay thông số → từ chối nếu chưa áp dụng → áp dụng lại → xác nhận → native CAD → Undo/Redo**.
+2. Kiểm tra một lần Undo xóa nguyên nhóm đối tượng do AI Review tạo; Redo khôi phục nhóm. Cả hai phải không tác động đối tượng bản vẽ không liên quan.
+3. Đối với các thao tác tạo/cắt tường, kiểm tra giữ layer/metadata, không sửa tường ở không gian khác, không xóa đối tượng có XData bên thứ ba. Thử bản vẽ mẫu trên bản sao, không dùng hồ sơ dự án sản xuất khi chưa nghiệm thu.
+4. Sau Windows CI và EXE, cần Save/Reopen **DWG chuẩn**, mở và chỉnh sửa trên AutoCAD độc lập rồi lưu lại kiểm tra khả năng trao đổi hai chiều.
+5. Mục tiêu tiếp theo là **đóng toàn bộ lỗi build/test còn lại**, thu thập ảnh chụp thật và nghiệm thu người dùng; chưa thể tuyên bố hoàn thiện AI vẽ kiến trúc chỉ dựa trên số bài hướng dẫn.
+
+**Trạng thái đợt 272:** Mã khóa lựa chọn ảnh và test đã commit; CI Windows, EXE và DWG vẫn cần bằng chứng nghiệm thu đúng phiên bản.
