@@ -378,8 +378,49 @@ fn prepare_managed_wall_shift(session:&Session,managed:&ManagedDoorWall,new_cent
         replace_handles:Some(managed.handles.clone()),replace_snapshot:None})
 }
 
-/// Stage267 conservative adapter: only one deliberately selected four-corner,
-/// axis-aligned, planar, zero-bulge LWPOLYLINE is eligible. No automatic wall search.
+/// Stage268: derive the centerline of a four-vertex rotated rectangle.
+/// Refuses skewed/trapezoid/self-intersecting PLINEs and never guesses from a bounding box.
+fn rectangle_wall_axis(points:&[[f64;2]])->Result<([f64;2],[f64;2],f64),String> {
+    if points.len()!=4 || points.iter().flatten().any(|v|!v.is_finite()||v.abs()>1e9) {
+        return Err("Tường phải có đúng bốn đỉnh hữu hạn".into());
+    }
+    let edge=|a:[f64;2],b:[f64;2]|[b[0]-a[0],b[1]-a[1]];
+    let dot=|a:[f64;2],b:[f64;2]|a[0]*b[0]+a[1]*b[1];
+    let cross=|a:[f64;2],b:[f64;2]|a[0]*b[1]-a[1]*b[0];
+    let len=|a:[f64;2]|a[0].hypot(a[1]);
+    let e0=edge(points[0],points[1]);
+    let e1=edge(points[1],points[2]);
+    let e2=edge(points[2],points[3]);
+    let e3=edge(points[3],points[0]);
+    let long0=len(e0);let short0=len(e1);
+    if !long0.is_finite()||!short0.is_finite()||long0<=1e-6||short0<=1e-6 {
+        return Err("Tường có cạnh suy biến".into());
+    }
+    let scale=long0.max(short0);
+    let tol=(scale*1e-7).max(1e-7);
+    if len([e0[0]+e2[0],e0[1]+e2[1]])>tol
+        || len([e1[0]+e3[0],e1[1]+e3[1]])>tol
+        || dot(e0,e1).abs()>scale*tol
+        || cross(e0,e1).abs()<long0*short0*0.99 {
+        return Err("PLINE không phải tường hình chữ nhật quay: có thể bị xiên hoặc tự cắt".into());
+    }
+    let (a,b,thickness,wall_length)=if long0>=short0 {
+        ([(points[0][0]+points[3][0])*0.5,(points[0][1]+points[3][1])*0.5],
+         [(points[1][0]+points[2][0])*0.5,(points[1][1]+points[2][1])*0.5],
+         short0,long0)
+    } else {
+        ([(points[0][0]+points[1][0])*0.5,(points[0][1]+points[1][1])*0.5],
+         [(points[2][0]+points[3][0])*0.5,(points[2][1]+points[3][1])*0.5],
+         long0,short0)
+    };
+    if wall_length<=2.0*thickness || len(edge(a,b))<=1e-6 {
+        return Err("Biên dạng quá ngắn hoặc gần hình vuông, chưa thể nhận là tường".into());
+    }
+    Ok((a,b,thickness))
+}
+
+/// Stage268 conservative adapter: one deliberately selected planar four-corner rotated
+/// rectangle only. No automatic wall search, no overlapping/intersecting wall mutation.
 fn preview_selected_existing_wall(session:&Session,center_text:&str,door_width_text:&str,open_right:bool)->Result<Preview,String> {
     if !drawing_ready(session) {return Err("Kết thúc lệnh CAD trước khi chọn tường".into());}
     let selected=session.selection();
@@ -402,29 +443,7 @@ fn preview_selected_existing_wall(session:&Session,center_text:&str,door_width_t
     if points.iter().flatten().any(|v|!v.is_finite() || v.abs()>1e9) {
         return Err("Tường có tọa độ ngoài giới hạn".into());
     }
-    let min_x=points.iter().map(|p|p[0]).fold(f64::INFINITY,f64::min);
-    let max_x=points.iter().map(|p|p[0]).fold(f64::NEG_INFINITY,f64::max);
-    let min_y=points.iter().map(|p|p[1]).fold(f64::INFINITY,f64::min);
-    let max_y=points.iter().map(|p|p[1]).fold(f64::NEG_INFINITY,f64::max);
-    let dx=max_x-min_x;let dy=max_y-min_y;
-    if dx<=1e-6 || dy<=1e-6 || (dx-dy).abs()<=1e-6 {return Err("Không nhận dạng được trục và bề dày tường hình chữ nhật".into());}
-    let expected=[[min_x,min_y],[min_x,max_y],[max_x,min_y],[max_x,max_y]];
-    for target in expected {
-        if !points.iter().any(|p|(p[0]-target[0]).abs()<=1e-7 && (p[1]-target[1]).abs()<=1e-7) {
-            return Err("PLINE không phải hình chữ nhật thẳng trục: không được tự cắt".into());
-        }
-    }
-    for i in 0..4 {
-        let a=points[i];let b=points[(i+1)%4];
-        if (a[0]-b[0]).abs()>1e-7 && (a[1]-b[1]).abs()>1e-7 {
-            return Err("Các cạnh không song song trục CAD, chưa có kiểm thử cắt tường nghiêng".into());
-        }
-    }
-    let (start,end,thick)=if dx>dy {
-        ([min_x,(min_y+max_y)/2.0],[max_x,(min_y+max_y)/2.0],dy)
-    } else {
-        ([(min_x+max_x)/2.0,min_y],[(min_x+max_x)/2.0,max_y],dx)
-    };
+    let (start,end,thick)=rectangle_wall_axis(&points)?;
     let center=number(center_text.trim())?;let door=number(door_width_text.trim())?;
     let side=if open_right {"phải"} else {"trái"};
     let command=format!("vẽ tường có cửa từ {},{} đến {},{} dày {} cửa {} tại {} mở {}",
@@ -864,6 +883,46 @@ mod tests {
         assert!(parse_draft("vẽ phòng rộng NaN dài 4000 tại 0,0").is_err());
         assert!(parse_draft("xóa tất cả").is_err());
     }
+    #[test]
+    fn stage268_rotated_wall_cuts_only_explicitly_selected_rectangle_and_supports_undo_redo() {
+        let mut s=Session::default();
+        let keep=s.execute("line",&json!({"points":[[0.0,8000.0],[5000.0,8000.0]]})).unwrap();
+        let other=cadcraft_doc::Handle::parse_hex(keep["handles"][0].as_str().unwrap()).unwrap();
+        // 3-4-5 rotation, wall length 5000 with thickness 200.
+        let result=s.execute("pline",&json!({"vertices":[[80.0,-60.0],[3080.0,3940.0],
+            [2920.0,4060.0],[-80.0,60.0]],"closed":true})).unwrap();
+        let wall=cadcraft_doc::Handle::parse_hex(result["handle"].as_str().unwrap()).unwrap();
+        assert!(preview_selected_existing_wall(&s,"2500","900",false).is_err(),"selection is mandatory");
+        s.set_selection(vec![wall]);
+        let preview=preview_selected_existing_wall(&s,"2500","900",false).unwrap();
+        assert_eq!(preview.replace_handles.as_ref().unwrap(),&vec![wall.hex()]);
+        assert_eq!(preview.steps.len(),4);
+        assert_eq!(preview.steps[0].0,"pline");
+        assert_eq!(s.doc().unwrap().entity_count(),2,"Preview is read-only");
+        let newest=commit_steps(&mut s,&preview).unwrap();
+        assert_eq!(newest.len(),4);
+        assert_eq!(s.doc().unwrap().entity_count(),5);
+        assert!(s.doc().unwrap().entity(other).is_some());
+        s.execute("undo",&json!({"count":1})).unwrap();
+        assert_eq!(s.doc().unwrap().entity_count(),2);
+        assert!(s.doc().unwrap().entity(wall).is_some());
+        assert!(s.doc().unwrap().entity(other).is_some());
+        s.execute("redo",&json!({})).unwrap();
+        assert_eq!(s.doc().unwrap().entity_count(),5);
+        assert!(s.doc().unwrap().entity(other).is_some());
+    }
+
+    #[test]
+    fn stage268_rotated_wall_rejects_skewed_self_intersecting_and_short_candidates() {
+        assert!(rectangle_wall_axis(&[[0.0,0.0],[6000.0,0.0],[6200.0,200.0],[0.0,200.0]]).is_err());
+        assert!(rectangle_wall_axis(&[[0.0,0.0],[6000.0,0.0],[0.0,200.0],[6000.0,200.0]]).is_err());
+        assert!(rectangle_wall_axis(&[[0.0,0.0],[200.0,0.0],[200.0,200.0],[0.0,200.0]]).is_err());
+        let (a,b,t)=rectangle_wall_axis(&[[80.0,-60.0],[3080.0,3940.0],[2920.0,4060.0],[-80.0,60.0]]).unwrap();
+        assert!((a[0]).abs()<1e-8 && (a[1]).abs()<1e-8);
+        assert!((b[0]-3000.0).abs()<1e-8 && (b[1]-4000.0).abs()<1e-8);
+        assert!((t-200.0).abs()<1e-8);
+    }
+
     #[test]
     fn stage267_explicitly_selected_existing_wall_is_replaced_without_touching_other_entities() {
         let mut s=Session::default();
