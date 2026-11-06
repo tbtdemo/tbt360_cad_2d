@@ -1178,6 +1178,19 @@ impl AiReview {
 mod tests {
     use super::*;
     #[test]
+    fn ai_studio_native_command_handoff_invalidates_prior_preview() {
+        let mut review=AiReview::default();
+        review.open_with_prompt("  vẽ phòng rộng 6000 dài 4000 tại 0,0  ");
+        assert!(review.open);
+        assert_eq!(review.prompt,"vẽ phòng rộng 6000 dài 4000 tại 0,0");
+        assert!(review.preview.is_none());
+        assert_eq!(parse_draft(&review.prompt).unwrap().0,"rectang");
+        review.open_with_prompt("vẽ đường thẳng từ 0,0 đến 100,0");
+        assert!(review.preview.is_none());
+        assert_eq!(parse_draft(&review.prompt).unwrap().0,"line");
+    }
+
+    #[test]
     fn stage258_room_parser_accepts_vietnamese_and_rejects_invalid_geometry() {
         assert_eq!(parse_draft("vẽ phòng rộng 6000 dài 4000 tại 0,0").unwrap().0,"rectang");
         assert!(parse_draft("vẽ phòng rộng -1 dài 4000 tại 0,0").is_err());
