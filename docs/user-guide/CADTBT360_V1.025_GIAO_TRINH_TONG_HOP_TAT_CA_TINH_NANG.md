@@ -2047,3 +2047,34 @@ Tài liệu XLSX `CAD360_BAO_CAO_TIEN_DO_DOT235.xlsx` có 18 tiêu chí riêng c
 6. Kế hoạch đợt 237: kiểm thử native CAD Engine với Layer + Undo + BLOCK, kiểm tra xuất/lưu DWG chuẩn và tương thích AutoCAD; đợt 238: tăng cường AI chỉnh sửa bản vẽ và QTO.
 
 **Trạng thái đợt 236:** mã opt-in `applyLayers` đã commit, kèm Mock regression; không công bố Windows EXE PASS khi CI của SHA cuối chưa hoàn tất. Nguồn đầy đủ lấy qua GitHub Code → Download ZIP; nếu không thể kết nối GitHub từ máy biên soạn thì không giả mạo ZIP chứa toàn bộ repo.
+
+
+## 77. Đợt 237 — Kiểm thử thật CAD Engine: BLOCK cửa → Layer → Undo
+
+### Bài 148 — Kiểm thử tích hợp native Engine không sử dụng Backend mô phỏng
+
+1. Mở một tài liệu CAD mới trong `cadcraft-mcp::backend::Headless`, đọc số entity ban đầu từ Session thực.
+2. Gửi yêu cầu `vẽ hai phòng liền kề rộng 3000 và 4000 dài 4000 tại 0,0 cửa 900 giữa bản lề dưới mở phải` đến `ai_draw_plan_vietnamese` cùng `createDoorBlock:true`, `applyLayers:true`.
+3. Trước hết gọi chế độ Preview mặc định và đối chiếu **không tăng entity**.
+4. Sau khi xác nhận thủ công trên giao diện người dùng (trong bài kiểm thử tự động, chương trình truyền tham số xác nhận), gọi cùng nội dung với `preview:false`, `confirm:true`, `expectedDocumentUid`, `expectedDocumentEpoch`, `expectedRevision` từ bản vẽ đang mở.
+5. CAD Engine cần tạo 1 RECTANG, 2 LINE vách, 1 BLOCK/INSERT cửa thay cho 1 LINE cánh + 1 ARC cung quay.
+6. Bài test `ai_vietnamese_stage237_headless_native_door_layer_and_undo` kiểm tra native object, Layer và Undo một nhóm. Kiểm thử này chạy **CAD Engine Headless thật** thay vì chỉ có Mock.
+7. **Lưu ý:** Đã viết bài test không đồng nghĩa bài test PASS. Kết quả chính thức chỉ căn cứ GitHub Actions của SHA cuối.
+
+### Bài 149 — Kiểm tra TBT_AI_ROOM, TBT_AI_WALL, TBT_AI_DOOR
+
+1. Khi `applyLayers:true`, MCP dùng `laymch` theo handle cho đường bao phòng, vách chung, BLOCK/INSERT cửa.
+2. Đối chiếu Layer qua `drawing.inspect` và entity trong document, không chỉ qua màu.
+3. Đảm bảo `applyLayers:false` và Preview mặc định không tự sửa bản vẽ.
+4. Kiểm tra Undo xóa các đối tượng do kế hoạch vẽ tạo ra; kiểm tra riêng việc có còn Layer trống sau Undo, không suy luận rằng mọi Layer cũng bị xóa.
+5. Kiểm tra bằng file DWG chuẩn và các phần mềm CAD tương thích vẫn là đầu việc riêng, bài test Layer không thay thế roundtrip DWG.
+
+### Bài 150 — Báo cáo tiến độ có trọng số và kế hoạch tiếp theo
+
+Bảng `CAD360_BAO_CAO_TIEN_DO_DOT237.xlsx` có **15 tiêu chí** với tổng trọng số **104 điểm**, điểm đã có mã/tài liệu **88 điểm**, tương ứng **84,6%** thuộc **phạm vi 15 tiêu chí đợt 237**. Không coi đây là tỷ lệ hoàn thiện toàn sản phẩm hoặc toàn bộ AI. Tiêu chí CI/EXE **chưa được ghi nhận đã nghiệm thu trên commit cuối** khi chưa có bằng chứng PASS.
+
+- Đợt 238: xử lý bất kỳ lỗi native integration/Windows CI nào, kiểm tra thao tác Undo thực, tiếp tục kiểm thử DWG roundtrip.
+- Đợt 239: kiểm tra AutoCAD mở, chỉnh sửa, lưu và mở lại DWG; triển khai bài test ảnh→CAD với hình học và sai số có định lượng.
+- Giáo trình Word FULL `CADTBT360_V1.025_GIAO_TRINH_FULL_CO_HINH_DOT237.docx` kế thừa 147 bài trước, bổ sung 3 bài mới và 3 hình nguyên lý; tổng 150 bài, 151 hình nhúng. Ảnh mới là **sơ đồ minh họa** chứ không phải screenshot EXE.
+
+**Mã nguồn** tải toàn bộ từ GitHub archive trên SHA cuối; **Windows EXE** chỉ công nhận khi đúng workflow báo thành công và artifact bộ cài đã xác minh.
