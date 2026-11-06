@@ -7,6 +7,7 @@ use serde_json::{Value, json};
 /// Preview is computed in a worker. Snapshot prevents applying stale AI geometry to a changed drawing.
 struct LocalModelTask {
     receiver: std::sync::mpsc::Receiver<Result<String,String>>,
+    cancel: std::sync::Arc<std::sync::atomic::AtomicBool>,
     request: String,
     model: String,
 }
@@ -498,11 +499,12 @@ fn start_local_model(state:&mut State,ctx:&egui::Context) {
     if request.is_empty() {state.local_message="Hãy nhập yêu cầu trước khi gửi cho AI cục bộ.".into();return;}
     let (sender,receiver)=std::sync::mpsc::channel();
     let context=ctx.clone();
-    state.local_pending=Some(LocalModelTask{receiver,request:request.clone(),model:model.clone()});
+    let cancel=std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    state.local_pending=Some(LocalModelTask{receiver,cancel:cancel.clone(),request:request.clone(),model:model.clone()});
     state.local_command=None;
     state.local_message="Đang hỏi mô hình Ollama cục bộ, không gửi dữ liệu CAD lên dịch vụ đám mây.".into();
     std::thread::spawn(move || {
-        let answer=crate::ai_local_provider::generate(&model,&request);
+        let answer=crate::ai_local_provider::generate(&model,&request,&cancel);
         let _=sender.send(answer);
         context.request_repaint();
     });
@@ -577,7 +579,19 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
                             start_local_model(state,ctx);
                         }
                     });
-                    if state.local_pending.is_some() {ui.horizontal(|ui|{ui.spinner();ui.label("Đang tạo đề xuất lệnh CAD...");});}
+                    if state.local_pending.is_some() {
+                        ui.horizontal(|ui|{
+                            ui.spinner();
+                            ui.label("Đang tạo đề xuất lệnh CAD...");
+                            if ui.button("Dừng AI").clicked() {
+                                if let Some(task)=state.local_pending.take() {
+                                    task.cancel.store(true,std::sync::atomic::Ordering::Relaxed);
+                                }
+                                state.local_command=None;
+                                state.local_message="Đã yêu cầu dừng Ollama; lệnh đang chạy sẽ bị kết thúc và không áp dụng vào CAD.".into();
+                            }
+                        });
+                    }
                     if !state.local_message.is_empty() {ui.small(&state.local_message);}
                     if let Some(command)=state.local_command.clone() {
                         ui.label("Lệnh đề xuất — phải kiểm tra trước khi chấp nhận:");
@@ -2084,6 +2098,18 @@ mod tests {
         assert!(cadcraft_ui_egui::ai_review::AiReview::validates_native_command(&state.native_command_input));
         assert!(!cadcraft_ui_egui::ai_review::AiReview::validates_native_command(&state.assistant_instruction));
         assert_ne!(state.native_command_input,state.assistant_instruction);
+    }
+
+    #[test]
+    fn ai_local_cancel_flag_never_changes_document_or_approval_state() {
+        let mut state=State::default();state.open();
+        let (sender,receiver)=std::sync::mpsc::channel::<Result<String,String>>();
+        let cancel=std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        state.local_pending=Some(LocalModelTask {receiver,cancel:cancel.clone(),request:"vẽ phòng".into(),model:"qwen2.5:7b".into()});
+        if let Some(task)=state.local_pending.take() {task.cancel.store(true,std::sync::atomic::Ordering::Relaxed);}
+        drop(sender);
+        assert!(cancel.load(std::sync::atomic::Ordering::Relaxed));
+        assert!(state.local_pending.is_none() && state.local_command.is_none() && state.preview.is_none());
     }
 
     #[test]
