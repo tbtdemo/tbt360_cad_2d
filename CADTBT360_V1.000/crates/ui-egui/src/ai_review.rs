@@ -639,6 +639,21 @@ impl AiReview {
                     }
                 }
             }
+            if self.managed_wall.is_some() {
+                ui.separator();
+                ui.label("ĐIỀU CHỈNH Ô CỬA ĐÃ TẠO BỞI AI REVIEW (chỉ 4 entity đang quản lý)");
+                ui.label("Khoảng cách tâm cửa mới tính từ đầu tường (CAD):");
+                ui.text_edit_singleline(&mut self.revised_center);
+                if ui.button("Xem trước tường/cửa tại vị trí mới").clicked() {
+                    self.preview=None;
+                    if let Some(managed)=&self.managed_wall {
+                        match prepare_managed_wall_shift(session,managed,&self.revised_center) {
+                            Ok(p)=>{self.preview=Some(p);self.message="Đã dựng phương án thay thế, chưa xóa hoặc vẽ gì".into();},
+                            Err(e)=>self.message=format!("Không thể điều chỉnh bộ tường/cửa: {e}")
+                        }
+                    }
+                }
+            }
             if let Some(p)=self.preview.as_ref() {
                 ui.separator();
                 ui.label(&p.description);
@@ -716,8 +731,25 @@ impl AiReview {
                         self.message="Preview cũ hoặc bản vẽ thay đổi; vui lòng Preview lại.".into();
                     } else {
                         match commit_steps(session,&p) {
-                            Ok(())=>self.message=format!("Đã thực hiện {} bước CAD. Kiểm tra Undo/Redo.",p.steps.len()),
-                            Err(e)=>self.message=format!("CAD từ chối giao dịch: {e}")
+                            Ok(handles)=>{
+                                let is_managed_wall=p.image_evidence.is_none()
+                                    && p.steps.len()==4 && p.steps[0].0=="pline"
+                                    && p.steps[1].0=="pline" && p.steps[2].0=="line"
+                                    && p.steps[3].0=="arc";
+                                if is_managed_wall && handles.len()==4 {
+                                    if let Ok(state)=session.state() {
+                                        self.managed_wall=Some(ManagedDoorWall {
+                                            uid:state.uid,epoch:session.doc_epoch,
+                                            revision:state.revision,command_text:p.text.clone(),
+                                            handles
+                                        });
+                                    } else {self.managed_wall=None;}
+                                } else {
+                                    self.managed_wall=None;
+                                }
+                                self.message=format!("Đã thực hiện {} bước CAD. Kiểm tra Undo/Redo.",p.steps.len());
+                            }
+                            Err(e)=>{self.managed_wall=None;self.message=format!("CAD từ chối giao dịch: {e}")}
                         }
                     }
                 }
@@ -741,6 +773,46 @@ mod tests {
         assert!(parse_draft("vẽ phòng rộng NaN dài 4000 tại 0,0").is_err());
         assert!(parse_draft("xóa tất cả").is_err());
     }
+    #[test]
+    fn stage266_replace_only_managed_wall_door_with_one_undo_and_keep_unrelated_geometry() {
+        let mut session=Session::default();
+        // Existing, unrelated CAD content must survive an AI Review-managed wall relocation.
+        session.execute("line",&json!({"points":[[0.0,9000.0],[6000.0,9000.0]]})).unwrap();
+        let text="vẽ tường có cửa từ 0,0 đến 6000,0 dày 200 cửa 900 tại 3000 mở trái";
+        let (steps,description)=plan_from_text(text).unwrap();
+        let state=session.state().unwrap();
+        let preview=Preview {uid:state.uid,epoch:session.doc_epoch,revision:state.revision,
+            text:text.into(),steps,description,image_evidence:None,selected_opening_guide:None,
+            selected_door_arc:None,replace_handles:None};
+        let originals=commit_steps(&mut session,&preview).unwrap();
+        assert_eq!(originals.len(),4);
+        assert_eq!(session.doc().unwrap().entity_count(),5);
+        let state=session.state().unwrap();
+        let managed=ManagedDoorWall {uid:state.uid,epoch:session.doc_epoch,revision:state.revision,
+            command_text:text.into(),handles:originals.clone()};
+        assert!(prepare_managed_wall_shift(&session,&managed,"200").is_err(),
+            "door cannot touch outer wall endpoint");
+        assert!(prepare_managed_wall_shift(&session,&managed,"-100").is_err());
+        let revised=prepare_managed_wall_shift(&session,&managed,"3500").unwrap();
+        assert_eq!(revised.replace_handles.as_ref().unwrap(),&originals);
+        assert_eq!(revised.steps.len(),4);
+        assert_eq!(session.doc().unwrap().entity_count(),5,"Preview must be read-only");
+        let newest=commit_steps(&mut session,&revised).unwrap();
+        assert_eq!(newest.len(),4);
+        assert_eq!(session.doc().unwrap().entity_count(),5,"only four reviewed entities get replaced");
+        assert_ne!(originals,newest);
+        session.execute("undo",&json!({"count":1})).unwrap();
+        assert_eq!(session.doc().unwrap().entity_count(),5);
+        for raw in &originals {
+            assert!(session.doc().unwrap().entity(cadcraft_doc::Handle::parse_hex(raw).unwrap()).is_some());
+        }
+        session.execute("redo",&json!({})).unwrap();
+        assert_eq!(session.doc().unwrap().entity_count(),5);
+        for raw in &newest {
+            assert!(session.doc().unwrap().entity(cadcraft_doc::Handle::parse_hex(raw).unwrap()).is_some());
+        }
+    }
+
     #[cfg(not(target_arch = "wasm32"))]
     #[test]
     fn stage265_shift_door_hinge_inside_detected_opening_without_modifying_source_lines() {
