@@ -2901,3 +2901,35 @@ Kế hoạch: Đợt 240 sửa lỗi CI, hoàn thiện thử DWG hai chiều v�
 5. Dùng AutoCAD độc lập mở, chỉnh sửa, lưu DWG hai chiều. Không mã hóa hoặc thay đổi cấu trúc file DWG; chế độ CAD Free sử dụng ngay không bắt buộc đăng nhập và chỉ kiểm soát đăng nhập tại Export theo chính sách sản phẩm.
 
 **Giới hạn:** Đợt 266 mới kiểm soát **bộ tường/cửa AI Review tạo và nhận diện được bằng handle trong một phiên**. Chưa có thuật toán tìm/trim đối tượng tường đã có từ trước, chưa nhận dạng ngữ nghĩa từ mọi ảnh mặt bằng, chưa có chứng cứ nghiệm thu EXE hoặc DWG.
+
+
+## 107. Đợt 267 — Chọn tường có sẵn trong CAD rồi xem trước ô cửa trước khi cắt
+
+### Bài 245 — Chọn chính xác một tường trong bản vẽ
+1. Mở bản vẽ CAD 360 và hoàn thành mọi lệnh đang thực hiện. Chọn **chính xác một LWPOLYLINE kín hình chữ nhật** thể hiện biên dạng tường; phải là đối tượng không khóa layer.
+2. Đối tượng hợp lệ có bốn đỉnh hình chữ nhật thẳng theo trục X/Y, không có cung bulge, độ rộng nét hoặc cao độ. Không hỗ trợ tường nghiêng, LWPOLYLINE phức tạp, LINE rời, block, spline, hatch hoặc nhiều lựa chọn cùng lúc.
+3. Mở **Tools → CAD 360 AI Review...**. Trong vùng **CẮT Ô CỬA TRÊN TƯỜNG CÓ SẴN**, nhập vị trí tâm cửa tính từ đầu trục tường và bề rộng cửa (đơn vị CAD).
+4. Tích chọn **Bản lề phải** nếu cần. Bấm **Preview ô cửa trên PLINE đã chọn**. Chương trình đọc chính xác handle được chọn và hình học đang tồn tại, không chạy thuật toán tìm/xóa những tường khác.
+
+### Bài 246 — Kiểm tra hình học trước khi xác nhận
+1. Bộ phân tích xác nhận đủ bốn góc hình chữ nhật, các cạnh song song trục, xác định chiều dài lớn và chiều dày nhỏ.
+2. Từ đó suy ra đường trục tường ở giữa hai biên, dùng vị trí tâm và bề rộng cửa để tạo Preview gồm **hai PLINE kín chừa ô mở**, **một LINE cánh cửa**, **một ARC cung mở**.
+3. Trong Preview hiển thị mã handle của đúng PLINE dự kiến thay thế; người dùng phải xem lại vị trí và bề rộng cửa, bảo đảm không chạm hai đầu tường.
+4. **Preview không thay đổi bản vẽ**. Không có đối tượng nào bị xóa khi mới chọn tường hoặc thay đổi các ô nhập.
+5. Đây là trường hợp hình học hạn chế trên tường chữ nhật, không phải bộ máy nhận dạng tự động mọi loại tường kiến trúc hoặc BIM Wall.
+
+### Bài 247 — ERASE theo đúng handle và Undo/Redo
+1. Khi người dùng bấm **Tôi đồng ý – Vẽ vào CAD**, hệ thống kiểm tra lại UID, Epoch, Revision và **bản sao đầy đủ của đối tượng được chọn**. Nếu PLINE đã sửa, bị xóa hoặc layer bị khóa sau Preview thì phải từ chối.
+2. CAD Engine bắt đầu một nhóm Undo, `ERASE` **chính xác một handle của tường được chọn**, sau đó tạo hai PLINE tường, LINE cánh và ARC cung; không xóa các handle khác.
+3. Nếu lệnh ERASE báo không xóa đủ, hoặc một lệnh mới bị lỗi, cơ chế giao dịch chỉ rollback khi có thể xác định vẫn sở hữu UID/Revision của bản vẽ.
+4. Một lần Undo được kỳ vọng khôi phục đúng PLINE nguyên bản, giữ nguyên các đối tượng khác; Redo tái tạo ô cửa và các đối tượng CAD mới.
+5. Các đối tượng mới đang dùng cơ chế layer của lệnh CAD hiện tại, chưa chứng minh đã chuyển toàn bộ thuộc tính, metadata, liên kết block/hatch hay BIM XData từ PLINE cũ. **Không dùng trên bản vẽ quan trọng nếu chưa có sao lưu và kiểm thử EXE.**
+
+### Bài 248 — Kiểm thử và giới hạn
+1. Test `stage267_explicitly_selected_existing_wall_is_replaced_without_touching_other_entities` dựng một PLINE chữ nhật và một LINE độc lập, Preview, Commit, Undo/Redo, xác nhận đối tượng không liên quan còn nguyên.
+2. Test `stage267_refuses_non_rectangular_or_stale_existing_wall_selection` từ chối PLINE không phải hình chữ nhật, tâm cửa sai hoặc Revision thay đổi sau Preview.
+3. GitHub Actions workflow `CAD 360 Stage267 Selected Existing Wall Door Cut` chạy `cargo check --locked -p cadcraft-ui-egui` và regression Stage263, 266, 267 trên Windows.
+4. Chưa công nhận **CI PASS, Windows EXE hoặc DWG AutoCAD hai chiều** chỉ từ việc commit test. Phải chạy kiểm thử thực tế trên bản vẽ mẫu, kiểm tra các layer/metadata và đối chiếu AutoCAD.
+5. Công cụ mới **không tự tìm/tự cắt mọi tường trong bản vẽ**, không cắt đa lớp/hatch, tường cong/nghiêng, không xử lý nối nhiều tường, không phải thao tác BIM Door hay AI hiểu ảnh theo ngữ nghĩa.
+
+**Chính sách sản phẩm giữ nguyên:** CAD Free sử dụng không bắt đăng nhập; xuất theo chính sách license; DWG phải là định dạng chuẩn chỉnh sửa hai chiều với AutoCAD, không mã hóa hoặc thay đổi cấu trúc.
