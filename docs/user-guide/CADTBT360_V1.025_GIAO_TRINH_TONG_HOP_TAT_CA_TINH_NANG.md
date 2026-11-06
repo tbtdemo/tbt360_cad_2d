@@ -2546,3 +2546,28 @@ Kế hoạch: Đợt 240 sửa lỗi CI, hoàn thiện thử DWG hai chiều v�
 5. Cần xây dựng tiếp bridge thực giữa host OIDC, MCP và Undo/revision của CAD Engine; cơ chế approval phải nằm phía host/engine, không chỉ là cờ hoặc hash do Agent gửi.
 
 **Trạng thái:** Đợt 254 mới có CLI xuất DXF từ LINE và Windows CI, chưa tích hợp giao diện EXE, chưa chạy nghiệm thu bằng AutoCAD/DWG thật. Chưa có bằng chứng Windows CI PASS của commit cuối khi biên soạn mục này.
+
+
+## 95. Đợt 255 — Kiểm chứng AI vẽ trực tiếp bằng Rust MCP/CAD Engine
+
+### Bài 202 — AI Preview trên bản vẽ đang mở
+1. Mở CAD 360 và kiểm tra đúng bản vẽ, bản vẽ không có lệnh CAD đang chờ hoặc nhóm Undo khác.
+2. Qua MCP công cụ `ai_draw_plan_vietnamese`, nhập nội dung thử: `vẽ hai phòng liền kề rộng 3000 và 4000 dài 4000 tại 0,0`, sử dụng `preview:true`.
+3. Kết quả `previewOnly:true` chứa `plan.documentUid`, `plan.documentEpoch`, `plan.revision` và danh sách `plan.steps`. Kiểm tra số hình học trước khi thực hiện; chưa được tạo entity.
+4. Preview chỉ phân tích ngữ pháp tiếng Việt giới hạn; không phải mô hình ngôn ngữ đa năng hay nhận dạng hiểu bản vẽ từ ảnh.
+
+### Bài 203 — Xác nhận và Undo một giao dịch
+1. Người dùng chủ động phê duyệt đúng kế hoạch; client được ủy quyền gửi `preview:false,confirm:true` cùng `expectedDocumentUid`, `expectedDocumentEpoch`, `expectedRevision` lấy từ Preview.
+2. MCP chỉ cho phép qua chính sách quyền phù hợp, sau đó kiểm tra UID/Epoch/Revision hiện tại, Undo Control All và trạng thái lệnh đang chạy trước khi lập nhóm Undo.
+3. Khi thành công, CAD Engine tạo hình học chỉnh sửa được trong bản vẽ đang mở. Kiểm tra lại số lượng entity bằng `query_entities` và sự thay đổi Revision.
+4. Lệnh Undo nội bộ phải loại bỏ toàn bộ các đối tượng AI của giao dịch vừa duyệt bằng **một bước**; Redo và Save/Reopen cần được kiểm tra riêng khi nghiệm thu EXE.
+5. Không dùng quyền truy cập `execute` tùy ý cho Agent trong chế độ MCP Reviewed: bài kiểm thử có thể gọi engine trực tiếp bằng đặc quyền nội bộ, không có nghĩa Agent được cấp quyền đó.
+
+### Bài 204 — Chống xác nhận cũ và nghiệm thu
+1. Thử gửi `expectedDocumentUid` sai, `expectedDocumentEpoch` sai hoặc `expectedRevision` sai; kết quả phải bị từ chối và không được tạo thêm entity.
+2. Thực hiện một chỉnh sửa CAD hợp lệ sau Preview, rồi thử Confirm lại dữ liệu Preview cũ. Yêu cầu phải bị từ chối; bản vẽ được sửa hợp lệ trước đó không bị Undo tự động.
+3. Chạy Windows workflow `CAD 360 Stage255 Native AI MCP Undo`; xác nhận hai bài Rust `stage255_reviewed_ai_plan_preview_commit_and_single_native_undo` và `stage255_reviewed_ai_plan_rejects_stale_revision_and_wrong_drawing_without_mutation` PASS đúng commit.
+4. Cần kiểm tra riêng đường kết nối AuthServer OIDC thật, Desktop EXE, sự đồng ý thực của người dùng, bản vẽ lớn, trường hợp lỗi giữa chừng, DXF/DWG với AutoCAD thực tế.
+5. Kiểm chứng qua `cargo test --locked -p cadcraft-mcp stage255 -- --nocapture` trong `CADTBT360_V1.000`.
+
+**Giới hạn nghiệm thu:** Mới bổ sung regression tests vào Rust MCP và cấu hình Windows workflow; kết quả CI, GUI EXE, OIDC ngoài đời thực và lưu DWG chưa được công nhận chỉ từ việc commit.
