@@ -20,7 +20,19 @@ struct Preview {
     replace_snapshot: Option<cadcraft_doc::Entity>,
     /// Stage271: exact UI inputs which the operator reviewed and must not change silently.
     review_token: Option<String>,
+    image_controls: Option<ImageControlSnapshot>,
 }
+
+#[derive(Clone,Debug,Default,PartialEq,Eq)]
+struct ImageControlSnapshot {
+    opening_index: String,
+    door_arc_index: String,
+    width: String,
+    offset: String,
+    flip_hinge: bool,
+    flip_swing: bool,
+}
+
 
 #[derive(Clone, Debug)]
 struct ManagedDoorWall {
@@ -378,7 +390,7 @@ fn prepare_managed_wall_shift(session:&Session,managed:&ManagedDoorWall,new_cent
         text:revised,steps,description:format!("Sẽ thay thế chỉ 4 entity AI Review đã tạo; {description}"),
         image_evidence:None,selected_opening_guide:None,selected_door_arc:None,
         replace_handles:Some(managed.handles.clone()),replace_snapshot:None,
-        review_token:Some(format!("managed|{new_center}"))})
+        review_token:Some(format!("managed|{new_center}")),image_controls:None})
 }
 
 /// Stage268: derive the centerline of a four-vertex rotated rectangle.
@@ -595,10 +607,27 @@ fn preview_selected_existing_wall(session:&Session,center_text:&str,door_width_t
         text:command,steps,description:format!("PLINE đã chọn #{}: {}. Sẽ thay thế đúng đối tượng này sau khi xác nhận. Không tự sửa tường khác.",handle.hex(),summary),
         image_evidence:None,selected_opening_guide:None,selected_door_arc:None,
         replace_handles:Some(vec![handle.hex()]),replace_snapshot:Some(entity.clone()),
-        review_token:Some(format!("existing|{center_text}|{door_width_text}|{open_right}"))})
+        review_token:Some(format!("existing|{center_text}|{door_width_text}|{open_right}")),image_controls:None})
 }
 
 /// Stage271: freeze the exact operator controls that produced the approved Preview.
+impl AiReview {
+    fn image_controls_snapshot(&self)->ImageControlSnapshot {
+        ImageControlSnapshot {
+            opening_index:self.opening_index.clone(),
+            door_arc_index:self.door_arc_index.clone(),
+            width:self.door_width_override.clone(),
+            offset:self.door_offset_override.clone(),
+            flip_hinge:self.flip_door_hinge,
+            flip_swing:self.flip_door_swing,
+        }
+    }
+}
+
+fn approved_image_options_unchanged(preview:&Preview,current:&ImageControlSnapshot)->bool {
+    preview.image_controls.as_ref().is_none_or(|approved|approved==current)
+}
+
 fn review_inputs_match(p:&Preview,prompt:&str,image_path:&str,image_scale:&str,
     existing_center:&str,existing_width:&str,open_right:bool,managed_center:&str)->bool {
     if let Some(token)=&p.review_token {
@@ -785,7 +814,7 @@ fn preview_raster(session:&Session,path:&str,scale_text:&str)->Result<Preview,St
     let summary=format!("Ảnh: {} LINE chỉnh sửa được; {} khoảng mở nghi vấn; {} nét giống cánh cửa. Không tự suy đoán/cắt cửa.",steps.len(),gap_count,door_count);
     Ok(Preview {uid:s.uid,epoch:session.doc_epoch,revision:s.revision,
         text:format!("{}|{}",path,scale_text),steps,description:summary,
-        image_evidence:Some((args,proposal,source_bytes)),selected_opening_guide:None,selected_door_arc:None,replace_handles:None,replace_snapshot:None,review_token:None})
+        image_evidence:Some((args,proposal,source_bytes)),selected_opening_guide:None,selected_door_arc:None,replace_handles:None,replace_snapshot:None,review_token:None,image_controls:None})
 }
 
 fn drawing_ready(session:&Session)->bool {
@@ -841,7 +870,7 @@ impl AiReview {
                     if !drawing_ready(session) {return Err("CAD đang có lệnh/Undo Group hoặc Block Editor: chưa thể Preview".into());}
                     let st=session.state().map_err(|e|e.to_string())?;
                     Ok(Preview {uid:st.uid,epoch:session.doc_epoch,revision:st.revision,
-                        text:self.prompt.clone(),steps,description,image_evidence:None,selected_opening_guide:None,selected_door_arc:None,replace_handles:None,replace_snapshot:None,review_token:None})
+                        text:self.prompt.clone(),steps,description,image_evidence:None,selected_opening_guide:None,selected_door_arc:None,replace_handles:None,replace_snapshot:None,review_token:None,image_controls:None})
                 })();
                 match next {Ok(p)=>{self.preview=Some(p);self.message="Đã xem trước; chưa ghi đối tượng.".into();},Err(e)=>self.message=e}
             }
@@ -854,13 +883,14 @@ impl AiReview {
                     ui.label(format!("Phát hiện {} ứng viên ô cửa (chưa xác minh). Chọn chỉ số từ 0:",options));
                     ui.text_edit_singleline(&mut self.opening_index);
                     if ui.button("Thêm PLINE chỉ dẫn cho ô cửa đã chọn vào Preview").clicked() {
+                        let approved_controls=self.image_controls_snapshot();
                         let selected=self.opening_index.trim().parse::<usize>()
                             .map_err(|_|"Chỉ số ứng viên phải là số nguyên không âm".to_string());
                         match selected {
                             Ok(index)=>{
                                 if let Some(p)=&mut self.preview {
                                     match select_opening_guide(p,index) {
-                                        Ok(())=>self.message="Đã thêm một PLINE chỉ dẫn; xem trước rồi xác nhận. Nét ảnh gốc vẫn giữ nguyên.".into(),
+                                        Ok(())=>{p.image_controls=Some(approved_controls);self.message="Đã thêm một PLINE chỉ dẫn; xem trước rồi xác nhận. Nét ảnh gốc vẫn giữ nguyên.".into()},
                                         Err(e)=>self.message=e
                                     }
                                 }
@@ -878,11 +908,12 @@ impl AiReview {
                     ui.text_edit_singleline(&mut self.door_arc_index);
                     #[cfg(not(target_arch = "wasm32"))]
                     if ui.button("Thêm ARC cung mở của ứng viên đã chọn vào Preview").clicked() {
+                        let approved_controls=self.image_controls_snapshot();
                         match self.door_arc_index.trim().parse::<usize>() {
                             Ok(index)=>{
                                 if let Some(p)=&mut self.preview {
                                     match select_door_swing_arc(p,index) {
-                                        Ok(())=>self.message="Đã thêm ARC chỉ dẫn; xem trước và bấm xác nhận riêng. Không tự chỉnh tường gốc.".into(),
+                                        Ok(())=>{p.image_controls=Some(approved_controls);self.message="Đã thêm ARC chỉ dẫn; xem trước và bấm xác nhận riêng. Không tự chỉnh tường gốc.".into()},
                                         Err(e)=>self.message=e
                                     }
                                 }
@@ -903,9 +934,10 @@ impl AiReview {
                 ui.checkbox(&mut self.flip_door_swing,"Đảo hướng mở");
                 #[cfg(not(target_arch = "wasm32"))]
                 if ui.button("Áp dụng hiệu chỉnh vào Preview").clicked() {
+                    let approved_controls=self.image_controls_snapshot();
                     if let Some(p)=&mut self.preview {
                         match adjust_reviewed_door_arc(p,&self.door_width_override,&self.door_offset_override,self.flip_door_hinge,self.flip_door_swing) {
-                            Ok(())=>self.message="Đã cập nhật ARC ở Preview, chưa sửa bản vẽ. Kiểm tra trước khi xác nhận.".into(),
+                            Ok(())=>{p.image_controls=Some(approved_controls);self.message="Đã cập nhật ARC ở Preview, chưa sửa bản vẽ. Kiểm tra trước khi xác nhận.".into()},
                             Err(e)=>self.message=e
                         }
                     }
@@ -1014,7 +1046,8 @@ impl AiReview {
                     let input_unchanged=review_inputs_match(&p,&self.prompt,&self.image_path,
                         &self.image_scale,&self.existing_door_center,&self.existing_door_width,
                         self.existing_open_right,&self.revised_center);
-                    if !permitted||!input_unchanged {
+                    let options_unchanged=approved_image_options_unchanged(&p,&self.image_controls_snapshot());
+                    if !permitted||!input_unchanged||!options_unchanged {
                         self.message="Preview cũ hoặc bản vẽ thay đổi; vui lòng Preview lại.".into();
                     } else {
                         match commit_steps(session,&p) {
@@ -1068,7 +1101,7 @@ mod tests {
         let preview=Preview {uid:state.uid,epoch:session.doc_epoch,revision:state.revision,
             text:"vẽ đường thẳng từ 0,0 đến 100,0".into(),steps,description,
             image_evidence:None,selected_opening_guide:None,selected_door_arc:None,
-            replace_handles:None,replace_snapshot:None,review_token:None};
+            replace_handles:None,replace_snapshot:None,review_token:None,image_controls:None};
         assert!(review_inputs_match(&preview,&preview.text,"","","","",false,""));
         assert!(!review_inputs_match(&preview,"vẽ đường thẳng từ 0,0 đến 200,0","","","","",false,""));
         session.execute("line",&json!({"points":[[0,1000],[100,1000]]})).unwrap();
@@ -1294,7 +1327,7 @@ mod tests {
         let state=session.state().unwrap();
         let preview=Preview {uid:state.uid,epoch:session.doc_epoch,revision:state.revision,
             text:text.into(),steps,description,image_evidence:None,selected_opening_guide:None,
-            selected_door_arc:None,replace_handles:None,replace_snapshot:None,review_token:None};
+            selected_door_arc:None,replace_handles:None,replace_snapshot:None,review_token:None,image_controls:None};
         let originals=commit_steps(&mut session,&preview).unwrap();
         assert_eq!(originals.len(),4);
         assert_eq!(session.doc().unwrap().entity_count(),5);
