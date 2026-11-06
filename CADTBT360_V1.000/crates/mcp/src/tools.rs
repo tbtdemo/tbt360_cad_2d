@@ -14,7 +14,7 @@ pub fn tool_definitions(has_ui: bool) -> Value {
             "inputSchema": {"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]}}),
         json!({"name": "execute", "description": "Run any command with JSON parameters (no prompts or dialogs). Use list_commands to find ids and parameter docs. Examples: line {points:[[0,0],[10,0]]}, circle {center:[0,0], radius:5}, layer.new {name:\"Walls\", color:\"red\", current:true}, move {handles:[\"10A\"], delta:[5,0]}, zoom {mode:\"extents\"}.",
             "inputSchema": {"type": "object", "properties": {"command": {"type": "string"}, "params": {"type": "object"}}, "required": ["command"]}}),
-        json!({"name":"ai_draw_plan_vietnamese","description":"CAD 360 AI deterministic multi-step Vietnamese drawing plan. Supply 2-8 native commands through newline-delimited drafts (LINE, CIRCLE, RECTANG, PLINE), or one high-level room pair: vẽ hai phòng liền kề rộng 3000 và 4000 dài 4000 tại 0,0 [cửa 900 giữa] (one outer RECTANG, with one whole common LINE or two separate LINE segments preserving a centered opening; no door leaf or inferred BIM objects). Preview is default; commit requires confirm:true and exact document identity/revision from preview. Executes all steps as one guarded Undo group and attempts safe rollback on failure. Does not interpret arbitrary natural language.","inputSchema":{"type":"object","properties":{"text":{"type":"string"},"preview":{"type":"boolean"},"confirm":{"type":"boolean"},"expectedDocumentUid":{"type":"integer","minimum":0},"expectedDocumentEpoch":{"type":"integer","minimum":0},"expectedRevision":{"type":"integer","minimum":0}},"required":["text"]}}),
+        json!({"name":"ai_draw_plan_vietnamese","description":"CAD 360 AI deterministic multi-step Vietnamese drawing plan. Supply 2-8 native commands through newline-delimited drafts (LINE, CIRCLE, RECTANG, PLINE), or one high-level room pair: vẽ hai phòng liền kề rộng 3000 và 4000 dài 4000 tại 0,0 [cửa 900 giữa] (one outer RECTANG and two gap-preserving LINEs; optional explicit hinge/swing adds native door-leaf LINE and swing ARC, not a BLOCK or BIM door). Preview is default; commit requires confirm:true and exact document identity/revision from preview. Executes all steps as one guarded Undo group and attempts safe rollback on failure. Does not interpret arbitrary natural language.","inputSchema":{"type":"object","properties":{"text":{"type":"string"},"preview":{"type":"boolean"},"confirm":{"type":"boolean"},"expectedDocumentUid":{"type":"integer","minimum":0},"expectedDocumentEpoch":{"type":"integer","minimum":0},"expectedRevision":{"type":"integer","minimum":0}},"required":["text"]}}),
         json!({"name":"ai_draw_vietnamese","description":"CAD 360 Vietnamese drafting bridge (bounded deterministic grammar, not a general LLM). Supports bounded LINE, CIRCLE, RECTANG, PLINE, plus dimensioned room 'vẽ phòng rộng 6000 dài 4000 tại 0,0' and wall 'vẽ tường từ 0,0 đến 6000,0 dày 200'. Room and wall are editable CAD outlines, NOT semantically verified BIM geometry. Preview by default; to commit, set preview:false, confirm:true and expectedDocumentUid, expectedDocumentEpoch, expectedRevision obtained from a fresh preview. Executes exactly one native CAD engine command, never saves or modifies DWG structure.","inputSchema":{"type":"object","properties":{"text":{"type":"string"},"preview":{"type":"boolean"},"confirm":{"type":"boolean"},"expectedDocumentUid":{"type":"integer","minimum":0},"expectedDocumentEpoch":{"type":"integer","minimum":0},"expectedRevision":{"type":"integer","minimum":0}},"required":["text"]}}),
         json!({"name": "list_commands", "description": "List commands with ids, labels, menu paths, aliases and parameter docs. Optional filter: a substring of the command id, label or an alias.",
             "inputSchema": {"type": "object", "properties": {"filter": {"type": "string"}}}}),
@@ -294,10 +294,12 @@ fn parse_two_adjacent_rooms(text: &str) -> Result<Option<Vec<(String,Value)>>,St
     let lower=text.trim().to_lowercase();
     if !lower.starts_with("vẽ hai phòng liền kề ") {return Ok(None);}
     let words:Vec<&str>=lower.split_whitespace().collect();
-    let has_door=words.len()==16;
+    let has_swing=words.len()==21;
+    let has_door=words.len()==16 || has_swing;
     if !(words.len()==13 || has_door) || words[5]!="rộng" || words[7]!="và" || words[9]!="dài" || words[11]!="tại" ||
-        (has_door && (words[13]!="cửa" || words[15]!="giữa")) {
-        return Err("AI CAD: cú pháp 'vẽ hai phòng liền kề rộng W1 và W2 dài L tại X,Y [cửa C giữa]'".into());
+        (has_door && (words[13]!="cửa" || words[15]!="giữa")) ||
+        (has_swing && (words[16]!="bản" || words[17]!="lề" || words[19]!="mở" || !["dưới","trên"].contains(&words[18]) || !["trái","phải"].contains(&words[20]))) {
+        return Err("AI CAD: cú pháp 'vẽ hai phòng liền kề rộng W1 và W2 dài L tại X,Y [cửa C giữa [bản lề dưới|trên mở trái|phải]]'".into());
     }
     let width1=words[6].parse::<f64>().map_err(|_|"AI CAD: W1 không hợp lệ")?;
     let width2=words[8].parse::<f64>().map_err(|_|"AI CAD: W2 không hợp lệ")?;
@@ -325,6 +327,25 @@ fn parse_two_adjacent_rooms(text: &str) -> Result<Option<Vec<(String,Value)>>,St
         // Never bridge the gap, invent a door leaf, or classify it as BIM.
         steps.push(("line".into(),json!({"points":[[mid,y],[mid,low]]})));
         steps.push(("line".into(),json!({"points":[[mid,high],[mid,top]]})));
+        if has_swing {
+            let hinge_low=words[18]=="dưới";
+            let open_right=words[20]=="phải";
+            let room_width=if open_right {width2} else {width1};
+            if door>room_width {return Err("AI CAD: bán kính cánh cửa vượt chiều rộng phòng phía mở".into());}
+            let hinge_y=if hinge_low {low} else {high};
+            let leaf_x=if open_right {mid+door} else {mid-door};
+            if !leaf_x.is_finite()||leaf_x.abs()>1.0e9 {return Err("AI CAD: tọa độ cánh cửa ngoài phạm vi".into());}
+            // Native LINE is the leaf in the fully open position. The ARC is
+            // its quarter-swing guide; no block/inferred BIM door is claimed.
+            let (start,end)=match (hinge_low,open_right) {
+                (true,true)=>(0.0,90.0),
+                (true,false)=>(90.0,180.0),
+                (false,true)=>(270.0,360.0),
+                (false,false)=>(180.0,270.0)
+            };
+            steps.push(("line".into(),json!({"points":[[mid,hinge_y],[leaf_x,hinge_y]]})));
+            steps.push(("arc".into(),json!({"center":[mid,hinge_y],"radius":door,"start":start,"end":end})));
+        }
     } else {
         steps.push(("line".into(),json!({"points":[[mid,y],[mid,top]]})));
     }
@@ -606,6 +627,19 @@ mod ai_draft_vietnamese_tests {
             "vẽ hai phòng liền kề rộng 3000 và 4000 dài 4000 tại 0,0 cửa NaN giữa",
             "vẽ hai phòng liền kề rộng 3000 và 4000 dài 4000 tại 0,0 cửa 900 lệch"
         ] {assert!(super::parse_vietnamese_plan(input).is_err(),"{input} must be refused");}
+    }
+
+    #[test]
+    fn ai_vietnamese_door_hinge_right_and_left_create_native_leaf_arc() {
+        let right=super::parse_vietnamese_plan("vẽ hai phòng liền kề rộng 3000 và 4000 dài 4000 tại 0,0 cửa 900 giữa bản lề dưới mở phải").unwrap();
+        assert_eq!(right.len(),5);
+        assert_eq!(right[3],("line".to_string(),json!({"points":[[3000.0,1550.0],[3900.0,1550.0]]})));
+        assert_eq!(right[4],("arc".to_string(),json!({"center":[3000.0,1550.0],"radius":900.0,"start":0.0,"end":90.0})));
+        let left=super::parse_vietnamese_plan("vẽ hai phòng liền kề rộng 3000 và 4000 dài 4000 tại 0,0 cửa 900 giữa bản lề trên mở trái").unwrap();
+        assert_eq!(left[3],("line".to_string(),json!({"points":[[3000.0,2450.0],[2100.0,2450.0]]})));
+        assert_eq!(left[4],("arc".to_string(),json!({"center":[3000.0,2450.0],"radius":900.0,"start":180.0,"end":270.0})));
+        assert!(super::parse_vietnamese_plan("vẽ hai phòng liền kề rộng 500 và 4000 dài 4000 tại 0,0 cửa 900 giữa bản lề trên mở trái").is_err());
+        assert!(super::parse_vietnamese_plan("vẽ hai phòng liền kề rộng 3000 và 4000 dài 4000 tại 0,0 cửa 900 giữa bản lề dưới mở lên").is_err());
     }
 
     #[test]
