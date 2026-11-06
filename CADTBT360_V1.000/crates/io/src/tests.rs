@@ -251,6 +251,63 @@ fn stage284_multilayer_dwg_two_roundtrips_keep_colors_scale_geometry_and_handles
     stage284_compare_multilayer(&original,&two,&handles);
 }
 
+/// Stage285: edit an already reopened drawing and verify both source and
+/// edited entities survive the next standard DXF/DWG write-read cycle.
+fn stage285_edit_reopened_entities(d:&mut Drawing,handles:&[Handle]) {
+    let line=handles[1];
+    d.modify_entity(line,|e|{
+        e.common.layer="AI-WALLS".into();
+        e.common.color=Color::Index(4);
+        e.common.ltscale=2.25;
+        if let EntityKind::Line(ref mut l)=e.kind {
+            l.b.x+=125.0;
+            l.b.y+=75.0;
+        }
+    }).unwrap();
+    let arc=*handles.last().unwrap();
+    d.modify_entity(arc,|e|{
+        e.common.color=Color::ByLayer;
+        if let EntityKind::Arc(ref mut a)=e.kind {
+            a.radius+=35.0;
+            a.end+=0.25;
+        }
+    }).unwrap();
+}
+
+fn stage285_roundtrip_editable(name:&str) {
+    let (original,handles)=stage284_multilayer_ai_sample();
+    let initial=write(&original,name).unwrap();
+    let mut reopened=read(&initial,name).unwrap();
+    stage284_compare_multilayer(&original,&reopened,&handles);
+    stage285_edit_reopened_entities(&mut reopened,&handles);
+    assert_eq!(reopened.entity_count(),original.entity_count());
+    let edited_line=reopened.entity(handles[1]).unwrap().as_ref().clone();
+    let edited_arc=reopened.entity(*handles.last().unwrap()).unwrap().as_ref().clone();
+    let after_edit=read(&write(&reopened,name).unwrap(),name).unwrap();
+    assert_eq!(after_edit.entity_count(),handles.len());
+    stage284_compare_multilayer(&reopened,&after_edit,&handles);
+    assert_eq!(after_edit.entity(handles[1]).unwrap().as_ref(),&edited_line);
+    assert_eq!(after_edit.entity(*handles.last().unwrap()).unwrap().as_ref(),&edited_arc);
+    // Original BIM management metadata on a separate LINE stays unchanged.
+    assert_eq!(after_edit.entity(handles[0]).unwrap().common.xdata,
+        original.entity(handles[0]).unwrap().common.xdata);
+    let second=read(&write(&after_edit,name).unwrap(),name).unwrap();
+    stage284_compare_multilayer(&reopened,&second,&handles);
+    assert_eq!(second.entity(handles[1]).unwrap().as_ref(),&edited_line);
+    assert_eq!(second.entity(*handles.last().unwrap()).unwrap().as_ref(),&edited_arc);
+}
+
+#[test]
+fn stage285_dxf_reopened_ai_drawing_remains_editable_and_resaves() {
+    stage285_roundtrip_editable("ai-editable.dxf");
+}
+
+#[cfg(not(target_arch="wasm32"))]
+#[test]
+fn stage285_dwg_reopened_ai_drawing_remains_editable_and_resaves() {
+    stage285_roundtrip_editable("ai-editable.dwg");
+}
+
 /// Stage282: end-to-end native drafting entities representative of AI Review
 /// must survive serialized DXF/DWG and re-opening with our real file-format reader.
 /// Third-party AutoCAD acceptance is still a separate manual release gate.
