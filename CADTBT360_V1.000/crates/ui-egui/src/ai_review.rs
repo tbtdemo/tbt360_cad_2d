@@ -216,7 +216,7 @@ fn preview_raster(session:&Session,path:&str,scale_text:&str)->Result<Preview,St
     let scale=number(scale_text.trim())?;
     if !(scale>0.0&&scale<=1000000.0) {return Err("Đơn vị CAD / pixel phải nằm trong (0, 1000000]".into());}
     let args=json!({"path":path.trim(),"preview":true,"unitsPerPixel":scale,
-        "openingGapHints":true,"doorLeafHints":true,"maxGapPixels":0,
+        "openingGapHints":true,"pairedWallOpeningHints":true,"doorLeafHints":true,"maxGapPixels":0,
         "minLengthPixels":12,"maxLines":128,"includeDiagonals":true});
     let proposal=cadcraft_mcp::raster_vector::preview(&args)?;
     let lines=proposal["lines"].as_array().ok_or("Ảnh không trả về mảng LINE hợp lệ")?;
