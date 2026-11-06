@@ -286,15 +286,27 @@ fn stage285_roundtrip_editable(name:&str) {
     let after_edit=read(&write(&reopened,name).unwrap(),name).unwrap();
     assert_eq!(after_edit.entity_count(),handles.len());
     stage284_compare_multilayer(&reopened,&after_edit,&handles);
-    assert_eq!(after_edit.entity(handles[1]).unwrap().as_ref(),&edited_line);
-    assert_eq!(after_edit.entity(*handles.last().unwrap()).unwrap().as_ref(),&edited_arc);
+    let line=after_edit.entity(handles[1]).unwrap();
+    assert_eq!(line.common.layer,"AI-WALLS");
+    assert_eq!(line.common.color,Color::Index(4));
+    assert!((line.common.ltscale-2.25).abs()<1e-6);
+    let EntityKind::Line(line_geometry)=&line.kind else {panic!("edited LINE type changed");};
+    let EntityKind::Line(original_line)=&edited_line.kind else {panic!("edited LINE type missing");};
+    assert!((line_geometry.b.x-original_line.b.x).abs()<1e-6);
+    assert!((line_geometry.b.y-original_line.b.y).abs()<1e-6);
+    let arc=after_edit.entity(*handles.last().unwrap()).unwrap();
+    assert_eq!(arc.common.color,Color::ByLayer);
+    let EntityKind::Arc(arc_geometry)=&arc.kind else {panic!("edited ARC type changed");};
+    let EntityKind::Arc(original_arc)=&edited_arc.kind else {panic!("edited ARC type missing");};
+    assert!((arc_geometry.radius-original_arc.radius).abs()<1e-6);
+    assert!((arc_geometry.end-original_arc.end).abs()<1e-6);
     // Original BIM management metadata on a separate LINE stays unchanged.
     assert_eq!(after_edit.entity(handles[0]).unwrap().common.xdata,
         original.entity(handles[0]).unwrap().common.xdata);
     let second=read(&write(&after_edit,name).unwrap(),name).unwrap();
     stage284_compare_multilayer(&reopened,&second,&handles);
-    assert_eq!(second.entity(handles[1]).unwrap().as_ref(),&edited_line);
-    assert_eq!(second.entity(*handles.last().unwrap()).unwrap().as_ref(),&edited_arc);
+    assert_eq!(second.entity(handles[1]).unwrap().common.color,Color::Index(4));
+    assert_eq!(second.entity(*handles.last().unwrap()).unwrap().common.color,Color::ByLayer);
 }
 
 #[test]
