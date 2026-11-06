@@ -249,33 +249,33 @@ fn render_pdf_page(pdf: &std::path::Path, page: u32) -> Result<std::path::PathBu
 /// Applies a safe, deterministic AI workflow preset. A text instruction never writes CAD directly.
 fn apply_ai_instruction(state: &mut State, instruction: &str) -> Result<&'static str, &'static str> {
     let q=instruction.trim().to_lowercase();
-    if q.is_empty() { return Err("Hãy nhập yêu cầu, ví dụ: nhận dạng tường, cửa, cột hoặc nét."); }
-    if !["tường","wall","cửa","door","window","cột","column","nét","line","vector","vẽ"].iter().any(|word| q.contains(word)) {
-        return Err("Yêu cầu chưa được hỗ trợ nội bộ. Hãy chọn gợi ý tường, cửa, cột hoặc nét.");
+    if q.is_empty() { return Err("Hãy nhập yêu cầu, ví dụ: nhận dạng toàn bộ mặt bằng, tường, cửa, cột hoặc nét."); }
+    let all=["toàn bộ","mặt bằng","floor plan","all"].iter().any(|word|q.contains(word));
+    let wall=all || ["tường","wall"].iter().any(|word|q.contains(word));
+    let door=all || ["cửa","door","window"].iter().any(|word|q.contains(word));
+    let column=all || ["cột","column"].iter().any(|word|q.contains(word));
+    let lines=all || ["nét","line","vector","vẽ lại"].iter().any(|word|q.contains(word));
+    if !(wall||door||column||lines) {
+        return Err("Yêu cầu chưa được hỗ trợ nội bộ. Hãy chọn toàn bộ mặt bằng, tường, cửa, cột hoặc nét.");
     }
-    // Switch off mutually exclusive draft generation on a new request. Native changes still need Preview + confirmation.
+    // Preview-only preset: never enables a destructive commit or bypasses CAD review.
+    state.wall_pair_hints=wall||door;
+    state.wall_panel_hints=wall||door;
+    state.opening_gap_hints=wall||door;
+    state.paired_wall_opening_hints=wall||door;
+    state.door_leaf_hints=door;
+    state.window_sash_hints=door;
+    state.column_hatch_hints=column;
+    if lines { state.include_diagonals=true; state.arbitrary_angles=true; }
     state.create_column_guides=false; state.confirm_column_guides=false; state.create_column_blocks=false; state.confirm_column_blocks=false;
     state.create_wall_panel_guides=false; state.confirm_wall_panel_guides=false; state.create_wall_blocks=false; state.confirm_wall_blocks=false;
     state.create_door_blocks=false; state.confirm_door_blocks=false; state.create_door_swing_arcs=false; state.confirm_door_swing_arcs=false;
     state.create_window_guides=false; state.confirm_window_guides=false; state.create_window_blocks=false; state.confirm_window_blocks=false;
     state.create_opening_guides=false; state.confirm_opening_guides=false;
     state.closed_rectangles=false;
-    let description=if q.contains("tường") || q.contains("wall") {
-        state.wall_pair_hints=true; state.wall_panel_hints=true; state.opening_gap_hints=true; state.paired_wall_opening_hints=true;
-        "Đã chọn phân tích mép tường, dải tường và khoảng mở ở chế độ xem trước."
-    } else if q.contains("cửa") || q.contains("door") || q.contains("window") {
-        state.wall_pair_hints=true; state.wall_panel_hints=true; state.opening_gap_hints=true; state.paired_wall_opening_hints=true;
-        state.door_leaf_hints=true; state.window_sash_hints=true;
-        "Đã chọn phân tích ứng viên cửa đi và cửa sổ ở chế độ xem trước."
-    } else if q.contains("cột") || q.contains("column") {
-        state.column_hatch_hints=true;
-        "Đã chọn phát hiện ứng viên cột từ ảnh ở chế độ xem trước."
-    } else if q.contains("nét") || q.contains("line") || q.contains("vector") || q.contains("vẽ") {
-        state.include_diagonals=true; state.arbitrary_angles=true;
-        "Đã chọn vector hóa nét ngang, dọc và góc bất kỳ."
-    } else { return Err("Yêu cầu chưa được hỗ trợ nội bộ. Hãy chọn gợi ý tường, cửa, cột hoặc nét."); };
     state.preview=None; state.preview_document_uid=None; state.preview_revision=None; state.preview_document_epoch=None; state.error=None;
-    Ok(description)
+    if all { Ok("Đã chọn phân tích tổng hợp mặt bằng: nét, tường, cửa và cột. Kiểm tra Preview trước khi tạo CAD.") }
+    else { Ok("Đã áp dụng những nhóm nhận dạng được nêu trong yêu cầu. Chỉ Preview, không tự sửa bản vẽ.") }
 }
 
 pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
@@ -294,7 +294,7 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
                 ui.add(egui::TextEdit::multiline(&mut state.assistant_instruction).desired_rows(2)
                     .hint_text("Ví dụ: Nhận dạng tường và khoảng mở, hoặc vẽ lại các nét từ ảnh..."));
                 ui.horizontal_wrapped(|ui| {
-                    for (label,query) in [("Vẽ lại nét","vẽ lại nét"),("Tìm tường","nhận dạng tường"),("Tìm cửa","nhận dạng cửa"),("Tìm cột","nhận dạng cột")] {
+                    for (label,query) in [("Toàn bộ mặt bằng","nhận dạng toàn bộ mặt bằng"),("Vẽ lại nét","vẽ lại nét"),("Tìm tường","nhận dạng tường"),("Tìm cửa","nhận dạng cửa"),("Tìm cột","nhận dạng cột")] {
                         if ui.button(label).clicked() { state.assistant_instruction=query.into(); }
                     }
                     if ui.button("Áp dụng yêu cầu").clicked() {
@@ -1692,6 +1692,17 @@ mod tests {
         state.confirm_door_swing_arcs=true;
         assert_eq!(state.params()["confirmDoorSwingArcs"],true);
         assert_eq!(state.params()["preview"],true);
+    }
+
+    #[test]
+    fn ai_combined_floor_plan_prompt_enables_all_detectors_but_no_commits() {
+        let mut state=State::default();state.open();
+        assert!(apply_ai_instruction(&mut state,"Vẽ lại toàn bộ mặt bằng có tường, cửa và cột").is_ok());
+        assert!(state.wall_pair_hints && state.wall_panel_hints && state.door_leaf_hints && state.window_sash_hints && state.column_hatch_hints);
+        assert!(state.arbitrary_angles);
+        assert!(!state.confirm_door_blocks && !state.confirm_column_blocks && !state.confirm_wall_blocks);
+        assert_eq!(state.params()["preview"],true);
+        assert!(apply_ai_instruction(&mut state,"không rõ lệnh").is_err());
     }
 
     #[test]
