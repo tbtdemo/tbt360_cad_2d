@@ -43,6 +43,7 @@ impl Server {
     pub fn with_access_mode(backend:Box<dyn Backend>,mode:&str)->Self {
         Self {backend,initialized:false,access_mode:AccessMode::from_setting(mode)}
     }
+    pub fn access_mode(&self)->&'static str { self.access_mode.as_str() }
     pub fn backend(&mut self) -> &mut dyn Backend {
         self.backend.as_mut()
     }
