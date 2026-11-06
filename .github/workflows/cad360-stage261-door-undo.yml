@@ -1,0 +1,32 @@
+name: CAD 360 Stage261 Door Opening and Native Undo
+on:
+  push:
+    branches:
+      - feature/CADTBT360_V1.025_xref-regression
+    paths:
+      - CADTBT360_V1.000/crates/ui-egui/src/ai_review.rs
+      - .github/workflows/cad360-stage261-door-undo.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  native-door:
+    runs-on: windows-latest
+    timeout-minutes: 95
+    defaults:
+      run:
+        working-directory: CADTBT360_V1.000
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: CADTBT360_V1.000
+      - name: Check Windows GUI
+        run: cargo check --locked -p cadcraft-ui-egui
+      - name: Door wall opening geometry tests
+        run: cargo test --locked -p cadcraft-ui-egui stage261_door_wall -- --nocapture
+      - name: Previous geometry regression
+        run: cargo test --locked -p cadcraft-ui-egui stage260_polyline_arc_and_wall -- --nocapture
+      - name: MCP grouped native Undo regression
+        run: cargo test --locked -p cadcraft-mcp stage255_reviewed_ai_plan_preview_commit_and_single_native_undo -- --nocapture
