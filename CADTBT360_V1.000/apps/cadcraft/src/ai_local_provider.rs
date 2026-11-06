@@ -36,6 +36,27 @@ YÊU CẦU NGƯỜI DÙNG: {request}"
     ))
 }
 
+/// One proposed command only; native CAD grammar is checked by AiReview.
+fn parse_model_response(response:&str)->Result<String,String> {
+    let trimmed=response.trim().trim_start_matches('\u{feff}').trim();
+    if trimmed.is_empty() || trimmed=="KHONG_HO_TRO" {return Err("AI không tạo được lệnh CAD hỗ trợ.".into());}
+    let command=if trimmed.starts_with("```") {
+        let mut lines=trimmed.lines();
+        let fence=lines.next().unwrap_or_default().trim();
+        if fence!="```" && fence!="```text" && fence!="```cad" {return Err("Định dạng phản hồi AI không hỗ trợ.".into());}
+        let line=lines.next().ok_or("Thiếu lệnh CAD.")?.trim();
+        if lines.next()!=Some("```") || lines.next().is_some() {return Err("AI chỉ được trả một lệnh CAD.".into());}
+        line
+    } else {
+        if trimmed.lines().count()!=1 {return Err("AI chỉ được trả một dòng lệnh CAD.".into());}
+        trimmed
+    };
+    if command.is_empty() || command.len()>600 || command.chars().any(char::is_control) || command=="KHONG_HO_TRO" {
+        return Err("Lệnh CAD từ mô hình không hợp lệ hoặc quá dài.".into());
+    }
+    Ok(command.to_owned())
+}
+
 /// Call a separately installed local Ollama executable, using arguments (never a shell).
 /// The child is terminated at timeout; stdout is stored in a bounded temporary file.
 pub fn generate(model:&str,request:&str)->Result<String,String> {
@@ -63,10 +84,7 @@ pub fn generate(model:&str,request:&str)->Result<String,String> {
         let mut bytes=Vec::new();
         std::fs::File::open(&output).map_err(|e|e.to_string())?.take(MAX_OUTPUT).read_to_end(&mut bytes).map_err(|e|e.to_string())?;
         let response=String::from_utf8(bytes).map_err(|_|"Mô hình không trả về UTF-8 hợp lệ.".to_owned())?;
-        let command=response.trim();
-        if command.is_empty() || command=="KHONG_HO_TRO" {return Err("Mô hình không chuyển được yêu cầu thành lệnh CAD được hỗ trợ.".into());}
-        if command.lines().count()!=1 || command.len()>600 {return Err("Mô hình không trả về đúng một dòng lệnh CAD an toàn.".into());}
-        Ok(command.to_owned())
+        parse_model_response(&response)
     })();
     let _=std::fs::remove_file(&output);
     result
@@ -75,6 +93,17 @@ pub fn generate(model:&str,request:&str)->Result<String,String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn response_accepts_one_native_candidate_and_only_safe_simple_fences() {
+        let line="vẽ phòng rộng 6000 dài 4000 tại 0,0";
+        assert_eq!(parse_model_response(line).unwrap(),line);
+        assert_eq!(parse_model_response(&format!("```cad\n{line}\n```")).unwrap(),line);
+        assert!(parse_model_response(&format!("{line}\nDELETE ALL")).is_err());
+        assert!(parse_model_response(&format!("```python\n{line}\n```")).is_err());
+        assert!(parse_model_response("KHONG_HO_TRO").is_err());
+        assert!(parse_model_response(&"A".repeat(601)).is_err());
+    }
+
     #[test]
     fn model_id_refuses_shell_injection_and_path_tricks() {
         for model in ["", "foo;rm", "abc&&dir", "../q", "model name", "a\nb"] {
