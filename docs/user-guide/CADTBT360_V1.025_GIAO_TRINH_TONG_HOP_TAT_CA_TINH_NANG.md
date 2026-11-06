@@ -2259,3 +2259,31 @@ Kế hoạch: Đợt 240 sửa lỗi CI, hoàn thiện thử DWG hai chiều v�
 6. Kế hoạch đợt 244: thiết lập danh sách MCP tool cho phép theo role/user/tenant, audit không lộ dữ liệu; kiểm thử trên host bên ngoài thật. Đợt 245: tăng cường ảnh→CAD có sai số định lượng; cập nhật hướng dẫn dạng cây liên tục và làm bộ ảnh EXE thật sau khi Windows CI thành công.
 
 **Phạm vi:** Stage243 bổ sung sửa regression fixture, MCP preflight chỉ đọc, nội dung cây hướng dẫn, tài liệu và CI gate; chưa coi preflight là lớp xác thực hay bằng chứng kết nối với ChatGPT/Gemini thật. Không công bố AI tự huấn luyện hoặc cập nhật trọng số mô hình bên ngoài.
+
+
+## 84. Đợt 244 — Chính sách quyền cho MCP Agent và nhật ký kiểm toán tối thiểu
+
+### Bài 169 — Bật chế độ readonly cho Agent bên ngoài
+1. Khởi động CAD 360 và MCP Server bằng cấu hình host đáng tin cậy. Đặt biến môi trường `CAD360_MCP_ACCESS_MODE=readonly` trước khi mở tiến trình MCP.
+2. Với chế độ này, Agent chỉ được dùng các công cụ đã liệt kê là chỉ đọc: `inspect_drawing`, `query_entities`, `list_commands`, `ai_cad_capabilities`, `ai_cad_preflight`, `render`, `ui_inspect`.
+3. Thử gọi `execute`, `script`, `ai_draw_plan_vietnamese` và xác nhận server trả lỗi khi còn ở chế độ readonly, trước khi gọi CAD Engine.
+4. Kiểm tra bản vẽ gốc không tăng số đối tượng. Không dùng kết quả `ai_cad_preflight` làm quyền thực; lớp `Server` phải trực tiếp cưỡng chế chính sách.
+5. Không ghi token, prompt, dữ liệu bản vẽ vào log. Để host lọc quyền tài khoản/tenant, cần xây dựng xác thực tích hợp riêng.
+
+### Bài 170 — Bật chế độ reviewed khi cần AI vẽ, kiểm soát Preview và xác nhận
+1. Chỉ với kết nối tin cậy, đặt `CAD360_MCP_ACCESS_MODE=reviewed`. Chế độ này cho phép đọc và chạy **Preview** của `ai_draw_vietnamese`, `ai_draw_plan_vietnamese`.
+2. Lệnh `execute`, `script` hoặc `command_line` bị từ chối ở chế độ reviewed vì có thể thay đổi bản vẽ không qua quy trình xác nhận AI có cấu trúc.
+3. Khi thật sự cần commit, Agent phải có `confirm=true` và `expectedDocumentUid`, `expectedDocumentEpoch`, `expectedRevision`. MCP policy mới chỉ kiểm tra đủ trường; CAD Engine phải xác thực giá trị và kiểm soát Undo thực tế.
+4. Nếu thiếu một trong ba giá trị hoặc bản vẽ đã thay đổi sau Preview, yêu cầu phải bị từ chối. Không tự suy đoán giá trị phiên tài liệu.
+5. Chế độ `legacy` vẫn giữ khả năng tương thích trước đây, **không phải cấu hình an toàn dành cho Agent bên ngoài không đáng tin**. Mặc định hiện chưa thay đổi để tránh phá vỡ các quy trình MCP/CLI hiện hữu.
+6. Cấu hình hệ thống không thay thế xác thực OAuth, quyền RBAC, tenant isolation, hay giới hạn địa chỉ kết nối. Các phần này vẫn phải được triển khai và nghiệm thu.
+
+### Bài 171 — Nhật ký MCP, kiểm thử và đánh giá tiến độ
+1. MCP Server xuất nhật ký metadata dạng `CAD360_MCP_AUDIT mode=... tool=... decision=allow/deny` ra **stderr**. Log không chứa JSON arguments, token hay nội dung bản vẽ. Đây là log tiến trình, chưa phải kho audit tập trung có tính chống sửa.
+2. Chạy `cargo test --locked -p cadcraft-mcp --lib stage244_ -- --nocapture` để kiểm tra phân quyền readonly/reviewed và server chặn thao tác trước khi gọi backend.
+3. Kiểm tra thêm test native Block, Layer, Undo, DWG/DXF, giao diện cây HƯỚNG DẪN và preflight trong workflow V1.025.
+4. Trong tab **HƯỚNG DẪN → 5. KẾT NỐI & AN TOÀN AI**, xem mục **5.5 Chính sách MCP readonly / reviewed** và **5.6 Nhật ký quyền**. Các bài học nhúng offline phải đồng bộ với bộ nguồn Markdown chung.
+5. Báo cáo tiến độ đợt 244 tách riêng: tiêu chí có code, kiểm thử CI PASS ở đúng SHA, chạy EXE/MCP host thực tế. **Không tự suy ra % hoàn tất toàn bộ CAD 360** từ tiến độ của một đợt.
+6. Đợt 245 tập trung cấu hình danh sách tool per-role/tenant ở host được xác thực, audit có lưu vết đáng tin cậy và lấy ảnh chụp EXE thật; đợt 246 tập trung AI ảnh→CAD và benchmark định lượng; đợt 247 kiểm thử DWG hai chiều với AutoCAD.
+
+**Nguồn mã liên quan:** `crates/mcp/src/access_policy.rs`, `crates/mcp/src/server.rs`, `crates/mcp/src/tests.rs`, `apps/cadcraft/src/help_center.rs` và workflow Windows. Các hình minh họa là sơ đồ hướng dẫn, không phải screenshot EXE.
