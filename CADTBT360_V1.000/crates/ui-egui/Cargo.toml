@@ -29,6 +29,8 @@ image = { workspace = true }
 web-time = { workspace = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+# Reuse the existing conservative raster vectorizer on native desktop without an MCP network call.
+cadcraft-mcp = { workspace = true }
 craft-update = { workspace = true }
 
 [dev-dependencies]
