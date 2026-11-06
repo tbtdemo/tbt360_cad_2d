@@ -1,0 +1,45 @@
+name: CAD 360 Stage280 Native Undo Redo at History Limit
+on:
+  push:
+    branches:
+      - feature/CADTBT360_V1.025_xref-regression
+    paths:
+      - CADTBT360_V1.000/crates/engine/src/undoctl.rs
+      - CADTBT360_V1.000/crates/ui-egui/src/ai_review.rs
+      - .github/workflows/cad360-stage280-native-history.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  native-undo-limit:
+    runs-on: windows-latest
+    timeout-minutes: 100
+    defaults:
+      run:
+        working-directory: CADTBT360_V1.000
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.95.0'
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: CADTBT360_V1.000
+      - name: Verify exact SHA and compiler
+        shell: pwsh
+        run: |
+          git rev-parse HEAD
+          rustc --version
+          cargo --version
+      - name: Compile CAD Engine
+        run: cargo check --locked -p cadcraft-engine
+      - name: Stage280 actual native LINE and ERASE at 2000 step Undo depth
+        run: cargo test --locked -p cadcraft-engine stage280 -- --nocapture
+      - name: Stage279 long group stress and baseline snapshots
+        run: cargo test --locked -p cadcraft-engine stage279 -- --nocapture
+      - name: Check Windows AI Review
+        run: cargo check --locked -p cadcraft-ui-egui
+      - name: AI Review Undo ownership regression
+        run: cargo test --locked -p cadcraft-ui-egui stage278 -- --nocapture
+      - name: PNG to native LINE with Undo and Redo
+        run: cargo test --locked -p cadcraft-ui-egui stage275 -- --nocapture
