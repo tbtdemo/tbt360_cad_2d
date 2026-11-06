@@ -1,0 +1,21 @@
+name: CAD 360 Stage253 Image-to-CAD Benchmark
+on:
+  push:
+    branches:
+      - feature/CADTBT360_V1.025_xref-regression
+    paths:
+      - tools/ai_benchmark/stage253_line_benchmark.py
+      - .github/workflows/cad360-stage253-benchmark.yml
+  workflow_dispatch:
+jobs:
+  benchmark-self-test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Compile benchmark
+        run: python -m py_compile tools/ai_benchmark/stage253_line_benchmark.py
+      - name: Benchmark regression tests
+        run: python tools/ai_benchmark/stage253_line_benchmark.py --self-test
