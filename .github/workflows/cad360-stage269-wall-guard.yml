@@ -1,0 +1,32 @@
+name: CAD 360 Stage269 Wall Intersection and Metadata Guard
+on:
+  push:
+    branches:
+      - feature/CADTBT360_V1.025_xref-regression
+    paths:
+      - CADTBT360_V1.000/crates/ui-egui/src/ai_review.rs
+      - .github/workflows/cad360-stage269-wall-guard.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  metadata-intersection-guard:
+    runs-on: windows-latest
+    timeout-minutes: 95
+    defaults:
+      run:
+        working-directory: CADTBT360_V1.000
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: CADTBT360_V1.000
+      - name: Compile CAD GUI Rust integration
+        run: cargo check --locked -p cadcraft-ui-egui
+      - name: Reject conflicting geometry and protect XData
+        run: cargo test --locked -p cadcraft-ui-egui stage269 -- --nocapture
+      - name: Regress rotated and existing wall operations
+        run: cargo test --locked -p cadcraft-ui-egui stage268 -- --nocapture
+      - name: Regress exact-handle Undo and Redo
+        run: cargo test --locked -p cadcraft-ui-egui stage267 -- --nocapture
