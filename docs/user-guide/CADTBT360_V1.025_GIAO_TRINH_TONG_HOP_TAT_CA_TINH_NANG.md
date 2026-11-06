@@ -2706,3 +2706,36 @@ Kế hoạch: Đợt 240 sửa lỗi CI, hoàn thiện thử DWG hai chiều v�
 5. Mỗi lần cập nhật phải ghi ba mức: có code/docs, CI PASS đúng SHA và nghiệm thu EXE/AutoCAD. Không coi số lượng bài học là mức AI hoàn thành.
 
 **Trạng thái:** Đã commit Rust parser, UI và workflow kiểm thử, chưa có bằng chứng PASS cuối, EXE và DWG hai chiều.
+
+
+## 101. Đợt 261 — Tường 2D có ô cửa, cánh cửa và cung mở theo một nhóm Undo
+
+### Bài 221 — Vẽ tường có ô cửa đúng khoảng mở
+1. Mở bản vẽ tại **Tools → CAD 360 AI Review...**.
+2. Nhập cú pháp chính xác: `vẽ tường có cửa từ 0,0 đến 6000,0 dày 200 cửa 900 tại 3000 mở trái`.
+3. Ý nghĩa: tường dài 6000 theo trục từ (0,0) đến (6000,0), dày 200; cửa rộng 900, tâm cửa cách điểm đầu tường 3000; bản lề trái.
+4. Nhấn **1. Xem trước**, xem mô tả gồm **hai đoạn tường tách nhau tại ô cửa**, một LINE cánh cửa và một ARC cung quét. Ở ví dụ này mép lỗ cửa trên trục là x=2550 và x=3450.
+5. Xác minh đúng bản vẽ, đơn vị, chiều dày, vị trí và chiều mở trước khi xác nhận. Chưa có đối tượng nào được ghi vào CAD tại bước Preview.
+
+### Bài 222 — Cửa bản lề trái/phải và tường nghiêng
+1. Đổi `mở trái` thành `mở phải` để chọn bản lề ở mép còn lại. Parser tính hướng trục tường, vectơ pháp tuyến, cánh cửa và cung quét tương ứng.
+2. Tường nghiêng cũng dùng được, ví dụ `vẽ tường có cửa từ 0,0 đến 3000,4000 dày 200 cửa 900 tại 2500 mở trái`.
+3. Bán kính quét bằng bề rộng cửa, góc theo hình học trục. Cửa được thể hiện bằng một LINE và một ARC native; không phải BIM Door, Dynamic Block hay thiết kế cấu tạo kiến trúc đã kiểm chứng.
+4. Bộ thử nghiệm từ chối cửa rộng hơn tường, cửa chạm hai đầu tường, chiều dày không hợp lệ, điểm trục trùng nhau và hướng mở không hỗ trợ.
+5. Không tự cắt hoặc sửa các đối tượng tường **đã tồn tại** trong bản vẽ: đây là thao tác **vẽ mới tường có chừa ô cửa**.
+
+### Bài 223 — Xác nhận và Undo cả bốn lệnh
+1. Sau khi xem Preview, nhấn **2. Tôi đồng ý – Vẽ vào CAD**.
+2. Giao diện kiểm tra UID, Epoch, Revision, Undo Control All và trạng thái không có lệnh/nhóm Undo khác.
+3. CAD Engine thực hiện `UNDO BEGIN`, sau đó **PLINE tường trái → PLINE tường phải → LINE cánh cửa → ARC cung quét → UNDO END**.
+4. Nếu lệnh bị lỗi, trình xử lý chỉ cố gắng rollback bằng Undo khi còn xác nhận được quyền sở hữu đúng tài liệu và Revision. Nếu tài liệu đã bị thay đổi ngoài luồng, không tự Undo để tránh xóa dữ liệu khác; người dùng phải kiểm tra bản vẽ.
+5. Khi chạy thành công, thao tác Undo một lần được kỳ vọng loại bỏ cả bốn đối tượng, Redo khôi phục cả bốn. Chỉ đánh dấu đạt sau khi thử trên Windows EXE thật.
+
+### Bài 224 — Kiểm thử Windows và hạn chế
+1. GitHub Actions: `CAD 360 Stage261 Door Opening and Native Undo` chạy `cargo check --locked -p cadcraft-ui-egui`, bài hình học `stage261_door_wall...` cùng hồi quy Đợt 260 và MCP Undo Đợt 255.
+2. Test kiểm tra hình học ví dụ: tường trái x=0–2550; tường phải x=3450–6000; cánh cửa từ (2550,0) đến (2550,900) khi mở trái; cung ARC tâm (2550,0), R=900, góc 0°–90°.
+3. Mở EXE thực, thử tường ngang/nghiêng, cửa trái/phải, Undo/Redo, Save/Reopen DXF và DWG; mở chỉnh sửa bản vẽ bằng AutoCAD để kiểm chứng tính tương thích hai chiều.
+4. Chưa có AI thị giác tự nhận ra tường/cửa từ ảnh, chưa có lựa chọn OIDC Host vào giao diện, chưa tự động chèn cửa vào tường sẵn có; không tuyên bố các chức năng này đã hoàn thành.
+5. Phần code/docs đã commit ≠ CI PASS ≠ nghiệm thu EXE/AutoCAD; theo dõi riêng ba mức khi lập báo cáo.
+
+**Đợt 261 có mã hình học cửa và quy trình 4 lệnh nhóm Undo, chưa có chứng cứ nghiệm thu Windows và DWG thực tế chỉ từ commit.**
