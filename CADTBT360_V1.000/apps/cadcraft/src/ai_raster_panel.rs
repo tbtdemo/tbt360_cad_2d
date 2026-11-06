@@ -5,6 +5,12 @@ use cadcraft_ui_egui::CadApp;
 use serde_json::{Value, json};
 
 /// Preview is computed in a worker. Snapshot prevents applying stale AI geometry to a changed drawing.
+struct PdfRenderTask {
+    receiver: std::sync::mpsc::Receiver<Result<std::path::PathBuf,String>>,
+    source: std::path::PathBuf,
+    page: u32,
+}
+
 struct PreviewTask {
     receiver: std::sync::mpsc::Receiver<Result<Value,String>>,
     params: Value,
@@ -20,7 +26,7 @@ pub struct State {
     assistant_instruction: String,
     pdf_path: String,
     pdf_page: u32,
-    pdf_pending: Option<std::sync::mpsc::Receiver<Result<std::path::PathBuf,String>>>,
+    pdf_pending: Option<PdfRenderTask>,
     pdf_owned_image: Option<std::path::PathBuf>,
     path: String,
     preview: Option<Value>,
@@ -296,7 +302,7 @@ fn start_pdf_render(state: &mut State, ctx: &egui::Context) {
     let page=state.pdf_page;
     let (sender,receiver)=std::sync::mpsc::channel();
     let ctx=ctx.clone();
-    state.pdf_pending=Some(receiver);
+    state.pdf_pending=Some(PdfRenderTask{receiver,source:path.clone(),page});
     state.path.clear(); // Never reuse an earlier image if a different PDF page fails to render.
     state.preview=None;state.preview_document_uid=None;state.preview_revision=None;state.preview_document_epoch=None;
     state.error=None;
@@ -311,14 +317,19 @@ fn start_pdf_render(state: &mut State, ctx: &egui::Context) {
 }
 
 fn poll_pdf_render(state: &mut State, ctx: &egui::Context) {
-    let Some(receiver)=state.pdf_pending.as_ref() else {return};
-    let result=match receiver.try_recv() {
+    let Some(task)=state.pdf_pending.as_ref() else {return};
+    let result=match task.receiver.try_recv() {
         Ok(result)=>Some(result),
         Err(std::sync::mpsc::TryRecvError::Empty)=>{ctx.request_repaint_after(std::time::Duration::from_millis(200));None},
         Err(std::sync::mpsc::TryRecvError::Disconnected)=>Some(Err("Luồng chuyển PDF đã kết thúc mà không trả về kết quả.".into())),
     };
     if let Some(result)=result {
-        state.pdf_pending=None;
+        let Some(task)=state.pdf_pending.take() else {return};
+        if task.source!=std::path::PathBuf::from(&state.pdf_path) || task.page!=state.pdf_page {
+            if let Ok(png)=result {let _=std::fs::remove_file(png);}
+            state.error=Some("Trang PDF hoặc tệp nguồn đã thay đổi; cần nạp lại trang đã chọn.".into());
+            return;
+        }
         match result {
             Ok(png)=>{
                 if let Some(old)=state.pdf_owned_image.replace(png.clone()) {let _=std::fs::remove_file(old);}
@@ -511,7 +522,7 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
                 ui.horizontal(|ui| {
                     ui.label(format!("PDF: {}",std::path::Path::new(&state.pdf_path).file_name().unwrap_or_default().to_string_lossy()));
                     ui.label("Trang:");
-                    ui.add(egui::DragValue::new(&mut state.pdf_page).range(1..=500));
+                    ui.add_enabled(state.pdf_pending.is_none(),egui::DragValue::new(&mut state.pdf_page).range(1..=500));
                     if ui.add_enabled(state.pdf_pending.is_none(),egui::Button::new("Nạp trang PDF")).clicked() {start_pdf_render(state,ctx);}
                 });
             }
