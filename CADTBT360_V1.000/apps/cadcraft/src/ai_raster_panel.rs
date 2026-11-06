@@ -54,6 +54,8 @@ pub struct State {
     preview_document_epoch: Option<u64>,
     error: Option<String>,
     min_length: u32,
+    max_lines: u32,
+    studio_tab: usize,
     scale: f64,
     calibration_pixels: f64,
     calibration_length: f64,
@@ -160,6 +162,7 @@ impl State {
         self.open = true;
         if self.min_length == 0 {
             self.min_length = 16;
+            self.max_lines = 500;
             self.local_model = "qwen2.5:7b".into();
             self.native_command_input="vẽ phòng rộng 6000 dài 4000 tại 0,0".into();
             self.scale = 1.0;
@@ -238,7 +241,7 @@ impl State {
         let group5=json!({"createOpeningGuidePolylines":self.create_opening_guides,
             "confirmOpeningGuides":self.confirm_opening_guides,
             "minOpeningGapPixels":self.min_opening_gap,
-            "maxOpeningGapPixels":self.max_opening_gap,"maxLines":250});
+            "maxOpeningGapPixels":self.max_opening_gap,"maxLines":self.max_lines});
         for group in [group1,group2,group3,group4,group5] {
             let Value::Object(fields)=group else {unreachable!("AI settings JSON groups are objects")};
             params.as_object_mut().expect("AI settings JSON object").extend(fields);
@@ -782,6 +785,8 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
                 });
             }
             ui.horizontal(|ui| {
+                ui.label("Giới hạn nét tối đa");
+                if ui.add(egui::DragValue::new(&mut state.max_lines).speed(10).range(50..=1000)).changed() { state.preview=None; }
                 ui.label("Nét tối thiểu (px)");
                 if ui.add(egui::DragValue::new(&mut state.min_length).range(2..=4096)).changed() { state.preview = None; }
                 ui.label("Đơn vị CAD/pixel");
@@ -1074,8 +1079,16 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
             if state.preview_task.is_some() {
                 ui.horizontal(|ui| {ui.spinner();ui.label("AI đang phân tích ảnh và dựng bản nháp CAD. Bạn vẫn có thể thao tác trên giao diện.");});
             }
-            if let Some(error) = &state.error {
-                ui.colored_label(egui::Color32::RED, error);
+            if let Some(error)=&state.error {
+                ui.colored_label(egui::Color32::RED,error);
+                if error.contains("exceeding maxLines") {
+                    ui.label("Ảnh đang có nhiều nét hơn ngưỡng đã chọn. Có thể tăng giới hạn (tối đa 1000), tăng 'Nét tối thiểu' để bỏ nét nhiễu, hoặc cắt bớt vùng ảnh.");
+                    if ui.button("Tăng ngưỡng lên 500 nét và xem trước lại").clicked() {
+                        state.max_lines=state.max_lines.max(500);
+                        state.reset_wall_junction_review();
+                        start_image_preview(state,cad,ctx);
+                    }
+                }
             }
             let Some(proposal) = &state.preview else { return; };
             let count = proposal["strokes"].as_u64().unwrap_or(0);
@@ -1751,6 +1764,15 @@ mod tests {
         assert!(!state.matches_document(other_uid, revision, epoch), "switching documents invalidates the AI preview binding");
         assert!(!state.matches_document(original_uid, revision + 1, epoch), "editing the same drawing after preview also invalidates it");
         assert!(!state.matches_document(original_uid, revision, epoch + 1), "switch-away-and-back invalidates preview even without edits");
+    }
+
+    #[test]
+    fn ai_studio_default_handles_274_strokes_without_silent_truncation() {
+        let mut state=State::default();state.open();
+        assert_eq!(state.max_lines,500);
+        assert_eq!(state.params()["maxLines"],500);
+        state.max_lines=850;
+        assert_eq!(state.params()["maxLines"],850);
     }
 
     #[test]
