@@ -177,6 +177,12 @@ fn stage284_multilayer_ai_sample() -> (Drawing,Vec<Handle>) {
         center:Vec3::new(1350.0,200.0,0.0),radius:150.0,start:0.0,
         end:std::f64::consts::FRAC_PI_2
     })).unwrap());
+    // Preserve management metadata without altering standard LINE geometry or DWG layout.
+    let tracked=handles[0];
+    d.modify_entity(tracked,|e|e.common.xdata=vec![
+        RawTag{code:1001,value:"TBT360_BIM".into()},
+        RawTag{code:1000,value:"stage=284;source=ai-trace;approved=yes".into()}
+    ]).unwrap();
     (d,handles)
 }
 
@@ -195,6 +201,10 @@ fn stage284_compare_multilayer(original:&Drawing,back:&Drawing,handles:&[Handle]
         let after=back.entity(*h).expect("lost entity handle");
         assert_eq!(after.common.layer,before.common.layer,"entity layer changed");
         assert_eq!(after.common.color,before.common.color,"entity color changed");
+        if !before.common.xdata.is_empty() {
+            assert_eq!(after.common.xdata,before.common.xdata,
+                "TBT360 management XData must not vanish during standard DWG/DXF roundtrip");
+        }
         assert!((after.common.ltscale-before.common.ltscale).abs()<1e-6,
             "entity linetype scale changed");
         match (&before.kind,&after.kind) {
