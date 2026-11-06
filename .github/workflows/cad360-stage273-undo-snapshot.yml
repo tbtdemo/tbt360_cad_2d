@@ -1,0 +1,42 @@
+name: CAD 360 Stage273 Native Undo and Managed Wall Snapshot
+on:
+  push:
+    branches:
+      - feature/CADTBT360_V1.025_xref-regression
+    paths:
+      - CADTBT360_V1.000/crates/ui-egui/src/ai_review.rs
+      - .github/workflows/cad360-stage273-undo-snapshot.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  managed-wall-snapshot:
+    runs-on: windows-latest
+    timeout-minutes: 100
+    defaults:
+      run:
+        working-directory: CADTBT360_V1.000
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.95.0"
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: CADTBT360_V1.000
+      - name: Compiler and checkout identity
+        shell: pwsh
+        run: |
+          rustc --version
+          cargo --version
+          git rev-parse HEAD
+      - name: Compile native Windows UI
+        run: cargo check --locked -p cadcraft-ui-egui
+      - name: Confirm exact entity snapshots and failed-transaction rollback
+        run: cargo test --locked -p cadcraft-ui-egui stage273 -- --nocapture
+      - name: Regress previous managed wall and user approval tests
+        run: cargo test --locked -p cadcraft-ui-egui stage266 -- --nocapture
+      - name: Regress approved image controls
+        run: cargo test --locked -p cadcraft-ui-egui stage272 -- --nocapture
+      - name: Full AI Review tests and source raster regressions
+        run: cargo test --locked -p cadcraft-ui-egui stage2 -- --nocapture
