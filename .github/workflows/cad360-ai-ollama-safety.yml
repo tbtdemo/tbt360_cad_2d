@@ -32,6 +32,8 @@ jobs:
         run: cargo check --locked -p cadcraft
       - name: Verify actual raster CAD commit rejects source and calibration changes after preview
         run: cargo test --locked -p cadcraft --bin cadcraft ai_raster_commit_guard_rejects_changed_image_and_calibration_after_preview -- --nocapture
+      - name: Confirm PDF cancellation stops before launching Poppler
+        run: cargo test --locked -p cadcraft --bin cadcraft ai_pdf_cancel_refuses_before_poppler_spawn_and_keeps_no_raster -- --nocapture
       - name: Refuse CAD commit if source PDF changed after raster preview
         run: cargo test --locked -p cadcraft --bin cadcraft ai_pdf_commit_guard_refuses_modified_original_after_successful_page_preview -- --nocapture
       - name: Reject silently changed PDF source between raster render and AI Studio accept
