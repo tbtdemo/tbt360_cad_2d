@@ -1923,3 +1923,37 @@ Bản Word **CADTBT360_V1.025_GIAO_TRINH_FULL_CO_HINH_DOT229.docx** biên soạn
 ### Cam kết giáo trình FULL
 
 Bản Word đợt 232 được nối tiếp **bản đầy đủ 132 bài có hình** của đợt 231, bổ sung các Bài 133–135 và sơ đồ mới, giữ các bài từ CAD 2D, Layer, Xref, QTO, BIM, ảnh→CAD, MCP và AI Agent. Mọi ảnh sơ đồ phải ghi rõ **minh họa**; ảnh giao diện chỉ được đánh dấu **ảnh chụp EXE** nếu thật sự lấy từ phần mềm.
+
+
+## 73. Đợt 233 — AI dựng cánh cửa LINE và cung quay ARC trên vách chung (có xác nhận)
+
+### Bài 136 — Chọn bản lề và hướng mở bằng tiếng Việt
+
+1. Trong CAD 360, dùng bản vẽ thử với đơn vị mm, kết nối MCP và chọn `ai_draw_plan_vietnamese`.
+2. Nhập `vẽ hai phòng liền kề rộng 3000 và 4000 dài 4000 tại 0,0 cửa 900 giữa bản lề dưới mở phải`. Mặc định là Preview, chưa tạo đối tượng mới.
+3. Kiểm tra **5 bước native**: 1 RECTANG bao hai phòng, 2 LINE phân chia chừa khoảng mở, 1 LINE cánh cửa ở vị trí mở 90°, 1 ARC 1/4 vòng quay.
+4. Tọa độ: vách chung `x=3000`; phần dưới `y=0..1550`; phần trên `y=2450..4000`; gốc bản lề `(3000,1550)`; đầu cánh mở phải `(3900,1550)`; ARC có `center=[3000,1550]`, `radius=900`, `start=0`, `end=90` độ.
+5. Kiểm tra cánh cửa dài đúng 900, mở về phòng bên phải và khoảng hở vẫn là 900. Đây là **hình học mô tả cửa CAD**, chưa tạo BLOCK cửa.
+6. Sau khi người dùng chấp nhận, gửi lại đúng nội dung với `preview=false`, `confirm=true`, và ba dấu nhận diện bản vẽ `expectedDocumentUid`, `expectedDocumentEpoch`, `expectedRevision`. Kiểm tra 5 đối tượng tạo ra và Undo một nhóm.
+
+### Bài 137 — Đảo phía bản lề và hướng mở, chống vượt kích thước phòng
+
+1. Thử `vẽ hai phòng liền kề rộng 3000 và 4000 dài 4000 tại 0,0 cửa 900 giữa bản lề trên mở trái`.
+2. Kết quả kỳ vọng: bản lề `(3000,2450)`, đầu cánh `(2100,2450)`, ARC tâm `(3000,2450)` bán kính 900, góc từ 180° đến 270°.
+3. Chọn bản lề dưới/trên và mở trái/phải; chỉ hỗ trợ bốn trường hợp góc 90° theo hai mép của vách chung thẳng đứng.
+4. Công cụ từ chối cửa lớn hơn chiều rộng phòng ở phía mở (ví dụ phòng rộng 500 nhưng cửa 900 mở vào phòng đó), từ khóa sai, tọa độ vô hạn, hoặc phần vách còn dưới 100 đơn vị ở mỗi đầu.
+5. Không suy diễn tự động hướng mở hợp quy chuẩn PCCC, không tự đặt Layer theo bộ môn, không nhận diện vật cản hoặc cột, và chưa tự xây dựng BLOCK có thuộc tính.
+
+### Bài 138 — Kiểm thử trước khi phát hành
+
+1. Chạy `cargo test --locked -p cadcraft-mcp --lib ai_vietnamese_door_hinge_right_and_left_create_native_leaf_arc -- --nocapture`.
+2. Chạy `cargo test --locked -p cadcraft-mcp --lib ai_vietnamese_adjacent_rooms_centered_door_keeps_real_opening -- --nocapture`.
+3. Kiểm tra Preview không thay đổi `revision` và không tạo LINE/ARC. Khi xác nhận, kiểm tra cùng bản vẽ, đúng revision và nhóm Undo.
+4. Kiểm tra hiện trạng Windows CI trên **commit cuối**; chỉ khi toàn bộ compile, test, packaging và smoke test đều PASS mới có thể công bố EXE sẵn sàng.
+5. Đối chiếu sơ đồ dưới đây với tọa độ trong `plan.steps` và với các đối tượng CAD qua `query_entities`. Sơ đồ chỉ minh họa, không thay ảnh chụp EXE.
+
+![AI Agent tạo cửa mở trái/phải: sơ đồ hình học CAD](images/ai-two-room-centered-door-stage232.svg)
+
+*Hình 73.1 — Minh họa vị trí cửa trên vách chung hai phòng, không phải ảnh chụp màn hình EXE. Hình mới chi tiết về bản lề và cung quay nằm trong giáo trình Word FULL đợt 233.*
+
+**Trạng thái:** Đã lập trình parser có bản lề/hướng mở tường chung, native LINE/ARC, bổ sung regression test vào CI; **chưa hoàn thiện BLOCK cửa riêng, Layer theo bộ môn hay thiết kế kiến trúc tự động từ mô tả tự do**. Word FULL cần giữ toàn bộ bài 1–135 và cập nhật bài 136–138 có hình.
