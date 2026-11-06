@@ -30,6 +30,8 @@ jobs:
           workspaces: CADTBT360_V1.000
       - name: Validate desktop native compilation including Ollama adapter
         run: cargo check --locked -p cadcraft
+      - name: Detect modified source image before accepting AI raster preview
+        run: cargo test --locked -p cadcraft --bin cadcraft ai_image_fingerprint_detects_same_size_source_mutation_without_timestamp_check -- --nocapture
       - name: Validate local Ollama model ID protection
         run: cargo test --locked -p cadcraft --bin cadcraft model_id_refuses_shell_injection_and_path_tricks -- --nocapture
       - name: Reject fabricated and multi-command Ollama responses
