@@ -5,6 +5,12 @@ use cadcraft_ui_egui::CadApp;
 use serde_json::{Value, json};
 
 /// Preview is computed in a worker. Snapshot prevents applying stale AI geometry to a changed drawing.
+struct LocalModelTask {
+    receiver: std::sync::mpsc::Receiver<Result<String,String>>,
+    request: String,
+    model: String,
+}
+
 struct PdfRenderTask {
     receiver: std::sync::mpsc::Receiver<Result<std::path::PathBuf,String>>,
     source: std::path::PathBuf,
@@ -24,6 +30,10 @@ pub struct State {
     pub open: bool,
     pub show_help: bool,
     assistant_instruction: String,
+    local_model: String,
+    local_pending: Option<LocalModelTask>,
+    local_command: Option<String>,
+    local_message: String,
     pdf_path: String,
     pdf_page: u32,
     pdf_pending: Option<PdfRenderTask>,
@@ -142,6 +152,7 @@ impl State {
         self.open = true;
         if self.min_length == 0 {
             self.min_length = 16;
+            self.local_model = "qwen2.5:7b".into();
             self.scale = 1.0;
             self.include_diagonals = true;
             self.min_wall_spacing = 2.0;
@@ -424,9 +435,53 @@ fn poll_image_preview(state:&mut State,cad:&CadApp,ctx:&egui::Context) {
     }
 }
 
+/// Optional local model: returns only a proposed command, which is checked by native grammar.
+fn start_local_model(state:&mut State,ctx:&egui::Context) {
+    if state.local_pending.is_some() {return;}
+    let request=state.assistant_instruction.trim().to_owned();
+    let model=state.local_model.trim().to_owned();
+    if let Err(error)=crate::ai_local_provider::validate_model(&model) {state.local_message=error;return;}
+    if request.is_empty() {state.local_message="Hãy nhập yêu cầu trước khi gửi cho AI cục bộ.".into();return;}
+    let (sender,receiver)=std::sync::mpsc::channel();
+    let context=ctx.clone();
+    state.local_pending=Some(LocalModelTask{receiver,request:request.clone(),model:model.clone()});
+    state.local_command=None;
+    state.local_message="Đang hỏi mô hình Ollama cục bộ, không gửi dữ liệu CAD lên dịch vụ đám mây.".into();
+    std::thread::spawn(move || {
+        let answer=crate::ai_local_provider::generate(&model,&request);
+        let _=sender.send(answer);
+        context.request_repaint();
+    });
+}
+
+fn poll_local_model(state:&mut State,ctx:&egui::Context) {
+    let Some(task)=state.local_pending.as_ref() else {return;};
+    let response=match task.receiver.try_recv() {
+        Ok(response)=>Some(response),
+        Err(std::sync::mpsc::TryRecvError::Empty)=>{ctx.request_repaint_after(std::time::Duration::from_millis(200));None},
+        Err(std::sync::mpsc::TryRecvError::Disconnected)=>Some(Err("Trình kết nối Ollama không trả kết quả.".into())),
+    };
+    let Some(response)=response else {return;};
+    let Some(task)=state.local_pending.take() else {return;};
+    if state.assistant_instruction.trim()!=task.request || state.local_model.trim()!=task.model {
+        state.local_command=None;
+        state.local_message="Yêu cầu hoặc mô hình đã thay đổi; kết quả AI cũ bị từ chối.".into();
+        return;
+    }
+    match response {
+        Ok(command) if cadcraft_ui_egui::ai_review::AiReview::validates_native_command(&command)=>{
+            state.local_message="AI đề xuất lệnh CAD hợp lệ. Kiểm tra lệnh rồi mở AI Review; chưa thay đổi bản vẽ.".into();
+            state.local_command=Some(command);
+        },
+        Ok(_)=>{state.local_command=None;state.local_message="AI trả lệnh không thuộc danh sách CAD được phép; đã chặn để bảo vệ bản vẽ.".into();},
+        Err(error)=>{state.local_command=None;state.local_message=error;},
+    }
+}
+
 pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
     poll_pdf_render(state,ctx);
     poll_image_preview(state,cad,ctx);
+    poll_local_model(state,ctx);
     if !state.open { return; }
     let mut open = state.open;
     egui::Window::new("CAD 360 | AI Drawing Studio")
@@ -440,8 +495,10 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
             egui::Frame::group(ui.style()).show(ui, |ui| {
                 ui.strong("Trợ lý thao tác AI");
                 ui.small("Ra lệnh theo các chức năng đang được hỗ trợ; không tự ý ghi hoặc sửa bản vẽ.");
-                ui.add(egui::TextEdit::multiline(&mut state.assistant_instruction).desired_rows(2)
-                    .hint_text("Ví dụ: Nhận dạng tường và khoảng mở, hoặc vẽ lại các nét từ ảnh..."));
+                if ui.add(egui::TextEdit::multiline(&mut state.assistant_instruction).desired_rows(2)
+                    .hint_text("Ví dụ: Nhận dạng tường từ ảnh hoặc nhờ AI vẽ phòng 6x4m...")).changed() {
+                    state.local_command=None;
+                }
                 ui.horizontal_wrapped(|ui| {
                     for (label,query) in [("Toàn bộ mặt bằng","nhận dạng toàn bộ mặt bằng"),("Vẽ lại nét","vẽ lại nét"),("Tìm tường","nhận dạng tường"),("Tìm cửa","nhận dạng cửa"),("Tìm cột","nhận dạng cột")] {
                         if ui.button(label).clicked() { state.assistant_instruction=query.into(); }
@@ -455,6 +512,28 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
                     }
                 });
                 ui.small("Yêu cầu chọn chế độ phân tích. Nhấn Nhận dạng và xem trước để thực thi; kiểm tra kết quả trước khi tạo CAD.");
+                ui.separator();
+                ui.collapsing("AI hội thoại cục bộ — Ollama (không cần API key)",|ui| {
+                    ui.small("Cần cài Ollama và tải mô hình trên máy. AI chỉ dịch yêu cầu thành lệnh; tuyệt đối không thực thi tự động.");
+                    ui.horizontal(|ui| {
+                        ui.label("Mô hình:");
+                        if ui.text_edit_singleline(&mut state.local_model).changed() {state.local_command=None;}
+                        if ui.add_enabled(state.local_pending.is_none(),egui::Button::new("Hỏi AI cục bộ")).clicked() {
+                            start_local_model(state,ctx);
+                        }
+                    });
+                    if state.local_pending.is_some() {ui.horizontal(|ui|{ui.spinner();ui.label("Đang tạo đề xuất lệnh CAD...");});}
+                    if !state.local_message.is_empty() {ui.small(&state.local_message);}
+                    if let Some(command)=state.local_command.clone() {
+                        ui.label("Lệnh đề xuất — phải kiểm tra trước khi chấp nhận:");
+                        ui.code(&command);
+                        if ui.button("Chuyển lệnh sang AI Review để xem trước").clicked() {
+                            cad.ai_review.open_with_prompt(&command);
+                            cad.set_status("Đã chuyển lệnh mô hình AI sang bộ kiểm duyệt và Preview CAD; chưa thực thi.".into());
+                            state.local_command=None;
+                        }
+                    }
+                });
                 ui.separator();
                 ui.label("AI vẽ CAD bằng lệnh tiếng Việt (không cần ảnh):");
                 ui.small("Ví dụ: vẽ phòng rộng 6000 dài 4000 tại 0,0; vẽ tường từ 0,0 đến 6000,0 dày 200.");
@@ -1877,6 +1956,15 @@ mod tests {
         assert!(state.preview_task.is_none());
         assert!(state.preview.is_none());
         assert!(state.params()["preview"].as_bool().unwrap());
+    }
+
+    #[test]
+    fn ai_local_llm_is_optional_and_does_not_commit_native_cad_on_open() {
+        let mut state=State::default();state.open();
+        assert!(state.local_pending.is_none() && state.local_command.is_none());
+        assert_eq!(state.local_model,"qwen2.5:7b");
+        assert!(cadcraft_ui_egui::ai_review::AiReview::validates_native_command("vẽ phòng rộng 6000 dài 4000 tại 0,0"));
+        assert!(!cadcraft_ui_egui::ai_review::AiReview::validates_native_command("xóa toàn bộ bản vẽ"));
     }
 
     #[test]
