@@ -2287,3 +2287,31 @@ Kế hoạch: Đợt 240 sửa lỗi CI, hoàn thiện thử DWG hai chiều v�
 6. Đợt 245 tập trung cấu hình danh sách tool per-role/tenant ở host được xác thực, audit có lưu vết đáng tin cậy và lấy ảnh chụp EXE thật; đợt 246 tập trung AI ảnh→CAD và benchmark định lượng; đợt 247 kiểm thử DWG hai chiều với AutoCAD.
 
 **Nguồn mã liên quan:** `crates/mcp/src/access_policy.rs`, `crates/mcp/src/server.rs`, `crates/mcp/src/tests.rs`, `apps/cadcraft/src/help_center.rs` và workflow Windows. Các hình minh họa là sơ đồ hướng dẫn, không phải screenshot EXE.
+
+
+## 85. Đợt 245 — Ràng buộc ngữ cảnh người dùng/tenant trong MCP Host và khóa đúng bản vẽ
+
+### Bài 172 — HostScope: cấu hình phiên Agent từ host tin cậy
+1. Host phải xác thực danh tính bằng phương thức riêng trước khi tạo phiên; **không nhận role, tenantId hoặc userId từ lệnh do AI Agent tự sinh**.
+2. Tạo `HostScope::new(tenantId, userId, role, documentUid)` với các vai trò `viewer`, `editor`, `approver`. Vai trò không hợp lệ hoặc định danh rỗng, chứa ký tự đường dẫn nguy hiểm bị từ chối.
+3. Sau khi host xác thực, tạo MCP Session với `Server::with_host_scope(backend, scope)`, không sử dụng `Server::new()` ở chế độ legacy cho kết nối ngoài không tin cậy.
+4. `viewer` chỉ được xem thông tin và bản vẽ đã được host ràng buộc; không được gọi AI chỉnh sửa hoặc Preview. `editor`/`approver` được gọi Preview và gửi yêu cầu xác nhận, nhưng vẫn phải qua kiểm tra documentUid, epoch, revision trong CAD Engine.
+5. `HostScope` là **cơ chế gắn ngữ cảnh do host cung cấp**, không phải hệ thống OAuth, RBAC hoàn chỉnh hoặc Row-Level Security theo Tenant trong các database nghiệp vụ. Host vẫn phải kiểm tra Tenant của mỗi tài nguyên.
+6. Chế độ CAD Free và offline không bắt buộc đăng nhập khi vẽ: lớp HostScope chỉ áp dụng cho MCP Server kết nối Agent đã chọn cấu hình scoped; phần CAD native không bị buộc đăng nhập.
+
+### Bài 173 — Ngăn AI thao tác nhầm tài liệu và lộ tài nguyên
+1. Mở bản vẽ A, đọc `documentUid` từ `drawing.inspect`, ràng buộc phiên MCP bằng HostScope tới UID của A.
+2. Trong khi phiên Agent còn mở, chuyển sang bản vẽ B, rồi thử gọi `inspect_drawing`, `query_entities` hoặc `resources/read` với `cadcraft://drawing`.
+3. Server phải đối chiếu UID thực đang mở với UID trong HostScope và từ chối truy cập nếu không khớp.
+4. Trong chế độ scoped, các lệnh ghi chung `execute`, `script`, `command_line` tiếp tục bị từ chối; yêu cầu AI ghi chỉ được đánh giá nếu host cấp vai trò phù hợp và bản vẽ được xác nhận.
+5. Chạy thử `cargo test --locked -p cadcraft-mcp --lib stage245_ -- --nocapture`; kiểm thử gồm từ chối vai trò lạ, người xem ghi CAD, sửa trên sai UID, và đọc tài nguyên sai bản vẽ.
+6. Kiểm tra audit stderr không lưu token, prompt hay toàn bộ bản vẽ; bảo vệ đầu ra stderr bằng quyền truy cập của host. Chưa có audit tập trung chống sửa hoặc cơ chế quản lý phiên kết nối hoàn chỉnh.
+
+### Bài 174 — Báo cáo tiến độ và cập nhật HƯỚNG DẪN
+1. Trong tab **HƯỚNG DẪN → 5. Kết nối và an toàn AI** chọn `5.7 Ràng buộc User/Role/Tenant trên MCP Host` hoặc `5.8 Kiểm tra sai bản vẽ và dữ liệu MCP`.
+2. Xem nội dung trực tiếp trong EXE qua Markdown nhúng; muốn in tài liệu vẫn dùng nút **HƯỚNG DẪN CAD 360** mở Word FULL. Hình kỹ thuật trong giáo trình là sơ đồ minh họa, **chưa phải ảnh chụp EXE thật**.
+3. Báo cáo Excel `CAD360_BAO_CAO_TIEN_DO_DOT245.xlsx` tách riêng tỷ lệ tiêu chí có mã, CI PASS ở đúng SHA, nghiệm thu thực tế host/Windows EXE.
+4. Đợt 246: phân quyền thật trên host OAuth/OIDC, tenant workspace, quyền từng công cụ và xác nhận trước khi ghi; kết nối thử host MCP thực tế.
+5. Đợt 247: AI ảnh→CAD mạnh hơn, benchmark sai số, phân lớp cấu kiện, Undo và vòng phản hồi có duyệt; đợt 248: thử trao đổi DWG hai chiều với AutoCAD cùng QTO có số đo đối chứng.
+
+**Trạng thái:** Mã HostScope và các bài kiểm thử đã commit. Chưa có chứng cứ host ngoài thật xác thực OIDC; chưa chứng minh cô lập tenant hoặc nghiệm thu Windows EXE/AutoCAD. Các tỷ lệ hoàn thành chỉ giới hạn trong danh mục tiêu chí đợt 245.
