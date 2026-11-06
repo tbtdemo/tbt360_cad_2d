@@ -5,6 +5,7 @@ use std::process::{Command,Stdio};
 use std::time::{Duration,Instant,SystemTime,UNIX_EPOCH};
 
 const MAX_OUTPUT: u64=16*1024;
+const MAX_COMMAND_BYTES: usize=6000;
 const TIMEOUT: Duration=Duration::from_secs(90);
 
 pub fn validate_model(model:&str)->Result<(),String> {
@@ -51,7 +52,7 @@ fn parse_model_response(response:&str)->Result<String,String> {
         if trimmed.lines().count()!=1 {return Err("AI chỉ được trả một dòng lệnh CAD.".into());}
         trimmed
     };
-    if command.is_empty() || command.len()>600 || command.chars().any(char::is_control) || command=="KHONG_HO_TRO" {
+    if command.is_empty() || command.len()>MAX_COMMAND_BYTES || command.chars().any(char::is_control) || command=="KHONG_HO_TRO" {
         return Err("Lệnh CAD từ mô hình không hợp lệ hoặc quá dài.".into());
     }
     Ok(command.to_owned())
@@ -73,6 +74,10 @@ pub fn generate(model:&str,request:&str)->Result<String,String> {
         let status=loop {
             match child.try_wait() {
                 Ok(Some(status))=>break status,
+                Ok(None) if std::fs::metadata(&output).is_ok_and(|info|info.len()>MAX_OUTPUT)=>{
+                    let _=child.kill();let _=child.wait();
+                    return Err("Ollama trả kết quả quá 16KB; đã dừng tiến trình để bảo vệ dung lượng lưu trữ.".into());
+                },
                 Ok(None) if start.elapsed()<TIMEOUT=>std::thread::sleep(Duration::from_millis(150)),
                 Ok(None)=>{let _=child.kill();let _=child.wait();return Err("AI cục bộ xử lý quá 90 giây, đã dừng tiến trình.".into());},
                 Err(e)=>{let _=child.kill();let _=child.wait();return Err(format!("Không theo dõi được Ollama: {e}"));}
@@ -101,7 +106,10 @@ mod tests {
         assert!(parse_model_response(&format!("{line}\nDELETE ALL")).is_err());
         assert!(parse_model_response(&format!("```python\n{line}\n```")).is_err());
         assert!(parse_model_response("KHONG_HO_TRO").is_err());
-        assert!(parse_model_response(&"A".repeat(601)).is_err());
+        assert!(parse_model_response(&"A".repeat(MAX_COMMAND_BYTES+1)).is_err());
+        let commands=vec!["vẽ đường thẳng từ 0,0 đến 100,0";12].join(" | ");
+        assert!(commands.len()>600);
+        assert_eq!(parse_model_response(&commands).unwrap(),commands);
     }
 
     #[test]
