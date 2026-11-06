@@ -143,6 +143,8 @@ jobs:
             @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_vietnamese_stage237_headless_native_door_layer_and_undo' },
             @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_vietnamese_stage238_native_dwg_save_reopen_preserves_door_layers' },
             @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_vietnamese_stage239_native_dxf_save_reopen_preserves_editable_door_layers' },
+            @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_vietnamese_stage241_native_stale_preview_rejected_before_mutation' },
+            @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_vietnamese_stage241_native_intervening_edit_invalidates_preview' },
             @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_vietnamese_apply_layers_native_commands_and_undo_group' },
             @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_vietnamese_apply_layers_preview_does_not_touch_canvas' },
             @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_vietnamese_block_failure_rolls_back_owned_document_once' },
@@ -290,6 +292,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Stage237 native Block Layer Undo regression failed' }
           cargo test --locked -p cadcraft-mcp --lib ai_vietnamese_stage238_native_dwg_save_reopen_preserves_door_layers -- --nocapture
           if ($LASTEXITCODE -ne 0) { throw 'Stage238 native DWG 2018 save-reopen test failed' }
+          cargo test --locked -p cadcraft-mcp --lib ai_vietnamese_stage241_native_ -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'Stage241 native stale-preview security and concurrency regression failed' }
           cargo test --locked -p cadcraft-mcp --lib ai_vietnamese_stage239_native_dxf_save_reopen_preserves_editable_door_layers -- --nocapture
           if ($LASTEXITCODE -ne 0) { throw 'Stage239 native DXF editable door BLOCK and Layer roundtrip failed' }
           cargo test --locked -p cadcraft-mcp --lib ai_vietnamese_apply_layers_ -- --nocapture
