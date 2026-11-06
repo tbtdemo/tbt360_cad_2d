@@ -62,6 +62,41 @@ fn full_lessons()->Vec<(String,String)> {
     if !head.is_empty() {entries.push((head,body));}
     entries
 }
+fn lesson_diagram(ui:&mut egui::Ui,lesson:&str) {
+    let width=ui.available_width().min(540.0).max(220.0);
+    let (rect,_)=ui.allocate_exact_size(egui::vec2(width,180.0),egui::Sense::hover());
+    let painter=ui.painter_at(rect);
+    painter.rect_filled(rect,5.0,egui::Color32::from_rgb(17,36,56));
+    let mid=rect.center();
+    let white=egui::Stroke::new(2.5,egui::Color32::from_rgb(98,205,239));
+    let yellow=egui::Stroke::new(2.5,egui::Color32::from_rgb(246,192,98));
+    let green=egui::Stroke::new(2.0,egui::Color32::from_rgb(91,229,165));
+    if lesson.contains("Đường thẳng")||lesson.contains("LINE") {
+        painter.line_segment([egui::pos2(rect.left()+38.0,mid.y+47.0),egui::pos2(rect.right()-36.0,mid.y-46.0)],white);
+    }else if lesson.contains("vuông")||lesson.contains("chữ nhật")||lesson.contains("RECTANG") {
+        painter.rect_stroke(egui::Rect::from_center_size(mid,egui::vec2(154.0,124.0)),0.0,white,egui::StrokeKind::Outside);
+    }else if lesson.contains("tròn")||lesson.contains("CIRCLE") {
+        painter.circle_stroke(mid,58.0,white);
+        painter.circle_filled(mid,4.0,egui::Color32::WHITE);
+    }else if lesson.contains("ARC") {
+        for i in 0..24 {
+            let a=i as f32*std::f32::consts::FRAC_PI_2/24.0;
+            let b=(i+1) as f32*std::f32::consts::FRAC_PI_2/24.0;
+            painter.line_segment([mid+egui::vec2(a.cos()*65.0,-a.sin()*65.0),
+                mid+egui::vec2(b.cos()*65.0,-b.sin()*65.0)],yellow);
+        }
+    }else {
+        let outline=egui::Rect::from_center_size(mid,egui::vec2(248.0,125.0));
+        painter.rect_stroke(outline,0.0,white,egui::StrokeKind::Inside);
+        let x=mid.x-10.0;
+        painter.line_segment([egui::pos2(x,outline.top()),egui::pos2(x,mid.y-20.0)],yellow);
+        painter.line_segment([egui::pos2(x,mid.y+18.0),egui::pos2(x,outline.bottom())],yellow);
+        painter.line_segment([egui::pos2(x,mid.y-20.0),egui::pos2(x+40.0,mid.y-20.0)],green);
+    }
+    painter.text(egui::pos2(rect.left()+12.0,rect.bottom()-17.0),egui::Align2::LEFT_CENTER,
+        "SƠ ĐỒ MINH HỌA — KHÔNG PHẢI ẢNH CHỤP EXE",
+        egui::FontId::proportional(10.0),egui::Color32::from_rgb(182,201,216));
+}
 pub fn panel(ui:&mut egui::Ui,state:&mut State) {
     ui.heading("HƯỚNG DẪN CAD 360 — CÂY BÀI HỌC OFFLINE");
     ui.label("Nội dung nhúng trong EXE. Chọn một bài bên trái, xem thao tác chi tiết bên phải. Giáo trình tổng hợp luôn có sẵn để tra cứu.");
@@ -100,6 +135,7 @@ pub fn panel(ui:&mut egui::Ui,state:&mut State) {
         egui::ScrollArea::vertical().id_salt("cad360_help_reader").show(&mut columns[1],|ui|{
             if state.selected.is_empty() {ui.heading("Chọn bài học từ cây bên trái");return;}
             ui.heading(&state.selected);
+            lesson_diagram(ui,&state.selected);
             let basic=GROUPS.iter().flat_map(|(_,items)|items.iter()).find(|(name,_)|*name==state.selected);
             if let Some((_,description))=basic {
                 for line in description.lines(){ui.label(line);}
