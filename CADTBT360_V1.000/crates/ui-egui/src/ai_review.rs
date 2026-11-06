@@ -1734,6 +1734,30 @@ mod tests {
         let _=std::fs::remove_file(path);
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn ai_review_native_three_object_plan_roundtrips_as_standard_r2018_dwg() {
+        use cadcraft_io::{read,write_with,SaveOptions,Version};
+        let mut session=Session::default();
+        let plan="vẽ phòng rộng 6000 dài 4000 tại 0,0 | vẽ đường thẳng từ 0,0 đến 6000,0 | vẽ hình tròn tâm 3000,2000 bán kính 250";
+        let (steps,description)=plan_from_text(plan).unwrap();
+        assert_eq!(session.doc().unwrap().entity_count(),0,"AI preview must not create geometry");
+        let state=session.state().unwrap();
+        let preview=Preview {uid:state.uid,epoch:session.doc_epoch,revision:state.revision,
+            text:plan.into(),steps,description,image_evidence:None,selected_opening_guide:None,
+            selected_door_arc:None,replace_handles:None,replace_snapshot:None,
+            review_token:None,image_controls:None,owned_entities:None};
+        let ids=commit_steps(&mut session,&preview).expect("commit three reviewed CAD entities");
+        assert_eq!(ids.len(),3);
+        let bytes=write_with(session.doc().unwrap(),"ai-multi-plan.dwg",
+            &SaveOptions{version:Some(Version::R2018),binary:false}).expect("serialize real DWG R2018");
+        assert_eq!(&bytes[..6],b"AC1032","DWG must retain standard Autodesk-compatible R2018 marker");
+        let loaded=read(&bytes,"ai-multi-plan.dwg").expect("reopen saved DWG");
+        assert_eq!(loaded.model.len(),3,"DWG must preserve all AI-created native CAD objects");
+        assert_eq!(loaded.model.iter().filter(|e|matches!(e.kind,cadcraft_doc::EntityKind::Line(_))).count(),1);
+        assert_eq!(loaded.model.iter().filter(|e|matches!(e.kind,cadcraft_doc::EntityKind::Circle(_))).count(),1);
+    }
+
     #[test]
     fn ai_multi_object_plan_commits_three_editable_entities_and_one_undo_group() {
         let mut session=Session::default();
