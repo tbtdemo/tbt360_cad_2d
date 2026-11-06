@@ -15,7 +15,18 @@ struct Preview {
     image_evidence: Option<(Value, Value, Vec<u8>)>,
     selected_opening_guide: Option<usize>,
     selected_door_arc: Option<usize>,
+    replace_handles: Option<Vec<String>>,
 }
+
+#[derive(Clone, Debug)]
+struct ManagedDoorWall {
+    uid: u64,
+    epoch: u64,
+    revision: u64,
+    command_text: String,
+    handles: Vec<String>,
+}
+
 
 #[derive(Default)]
 pub struct AiReview {
@@ -29,6 +40,8 @@ pub struct AiReview {
     door_offset_override: String,
     flip_door_hinge: bool,
     flip_door_swing: bool,
+    revised_center: String,
+    managed_wall: Option<ManagedDoorWall>,
     preview: Option<Preview>,
     message: String,
 }
@@ -324,6 +337,42 @@ fn adjust_reviewed_door_arc(preview:&mut Preview, width_text:&str, offset_text:&
     Ok(())
 }
 
+/// A managed wall has exactly four native entities produced by this review panel.
+/// Arbitrary existing walls are intentionally not eligible for destructive replacement.
+fn prepare_managed_wall_shift(session:&Session,managed:&ManagedDoorWall,new_center:&str)->Result<Preview,String> {
+    if !drawing_ready(session) {return Err("CAD đang thực hiện lệnh hoặc nhóm Undo".into());}
+    let state=session.state().map_err(|e|e.to_string())?;
+    if state.uid!=managed.uid || session.doc_epoch!=managed.epoch || state.revision!=managed.revision {
+        return Err("Bản vẽ đã đổi từ lần tạo tường/cửa; không được tự thay thế đối tượng".into());
+    }
+    if managed.handles.len()!=4 {return Err("Không có đúng 4 handle đã quản lý".into());}
+    let mut unique=std::collections::HashSet::new();
+    for raw in &managed.handles {
+        if !unique.insert(raw.as_str()) {return Err("Handle trùng lặp".into());}
+        let handle=cadcraft_doc::Handle::parse_hex(raw).ok_or("Handle tường/cửa không hợp lệ")?;
+        let entity=session.doc().map_err(|e|e.to_string())?
+            .entity(handle).ok_or("Đối tượng tường/cửa đã bị xóa hoặc thay đổi")?;
+        let layer=session.doc().map_err(|e|e.to_string())?.layer(&entity.common.layer);
+        if layer.is_some_and(|l|l.locked) {return Err("Layer của tường/cửa đang khóa".into());}
+    }
+    let center=number(new_center.trim())?;
+    let words:Vec<&str>=managed.command_text.split_whitespace().collect();
+    if words.len()!=16 || words.get(0)!=Some(&"vẽ") || words.get(13)!=Some(&"tại") {
+        return Err("Chỉ quản lý lệnh tường có cửa theo cú pháp đã xác nhận".into());
+    }
+    let mut copy=words.iter().map(|s|(*s).to_string()).collect::<Vec<_>>();
+    copy[14]=center.to_string();
+    let revised=copy.join(" ");
+    let Some((steps,description))=parse_door_wall(&revised)? else {
+        return Err("Không thể tái tạo hình học tường/cửa".into());
+    };
+    if steps.len()!=4 {return Err("Chỉ cho phép thay đúng 4 đối tượng tường/cửa".into());}
+    Ok(Preview {uid:managed.uid,epoch:managed.epoch,revision:managed.revision,
+        text:revised,steps,description:format!("Sẽ thay thế chỉ 4 entity AI Review đã tạo; {description}"),
+        image_evidence:None,selected_opening_guide:None,selected_door_arc:None,
+        replace_handles:Some(managed.handles.clone())})
+}
+
 fn commit_steps(session:&mut Session,preview:&Preview)->Result<(),String> {
     #[cfg(not(target_arch = "wasm32"))]
     if let Some((args,approved_proposal,source_bytes))=&preview.image_evidence {
@@ -414,7 +463,7 @@ fn preview_raster(session:&Session,path:&str,scale_text:&str)->Result<Preview,St
     let summary=format!("Ảnh: {} LINE chỉnh sửa được; {} khoảng mở nghi vấn; {} nét giống cánh cửa. Không tự suy đoán/cắt cửa.",steps.len(),gap_count,door_count);
     Ok(Preview {uid:s.uid,epoch:session.doc_epoch,revision:s.revision,
         text:format!("{}|{}",path,scale_text),steps,description:summary,
-        image_evidence:Some((args,proposal,source_bytes)),selected_opening_guide:None,selected_door_arc:None})
+        image_evidence:Some((args,proposal,source_bytes)),selected_opening_guide:None,selected_door_arc:None,replace_handles:None})
 }
 
 fn drawing_ready(session:&Session)->bool {
@@ -470,7 +519,7 @@ impl AiReview {
                     if !drawing_ready(session) {return Err("CAD đang có lệnh/Undo Group hoặc Block Editor: chưa thể Preview".into());}
                     let st=session.state().map_err(|e|e.to_string())?;
                     Ok(Preview {uid:st.uid,epoch:session.doc_epoch,revision:st.revision,
-                        text:self.prompt.clone(),steps,description,image_evidence:None,selected_opening_guide:None,selected_door_arc:None})
+                        text:self.prompt.clone(),steps,description,image_evidence:None,selected_opening_guide:None,selected_door_arc:None,replace_handles:None})
                 })();
                 match next {Ok(p)=>{self.preview=Some(p);self.message="Đã xem trước; chưa ghi đối tượng.".into();},Err(e)=>self.message=e}
             }
