@@ -138,4 +138,31 @@ app.MapGet("/api/cad360/mcp/read-drawing", async (ClaimsPrincipal user, Cancella
     }
 }).RequireAuthorization("CAD360Scoped");
 
+// Stage251 - authenticated non-mutating AI CAD plan preview.
+// Every request is re-authorized at the ASP.NET host boundary; the request can
+// never supply a command name, confirm=true, UID, or an executable path.
+app.MapPost("/api/cad360/mcp/ai-preview", async (ClaimsPrincipal user, AiPreviewRequest request, CancellationToken cancellation) =>
+{
+    var tenant=user.FindFirstValue("tenant_id");
+    var subject=user.FindFirstValue("sub");
+    var role=user.FindFirstValue("role")?.ToLowerInvariant();
+    var boundTenant=Environment.GetEnvironmentVariable("CAD360_LOCAL_TENANT_ID");
+    if (!HostGrantPolicy.MayPreview(subject,tenant,role,boundTenant)) return Results.Forbid();
+    if (!HostGrantPolicy.ValidPreviewText(request.Text)) return Results.BadRequest(new {error="AI text must be nonempty, at most 4000 characters, with no control characters."});
+    try
+    {
+        var preview=await McpPreviewClient.PreviewAsync(request.Text,cancellation);
+        return Results.Json(new {tenantId=tenant,previewOnly=true,commitAllowed=false,
+            tool="ai_draw_plan_vietnamese",result=preview});
+    }
+    catch (OperationCanceledException) {return Results.Problem("CAD AI preview timed out.",statusCode:504);}
+    catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or IOException or System.Text.Json.JsonException
+        or InvalidOperationException or ArgumentException)
+    {
+        // No local machine paths, bearer tokens or drawing contents in error responses.
+        return Results.Problem("CAD AI preview is unavailable or rejected.",statusCode:502);
+    }
+}).RequireAuthorization("CAD360Scoped");
+
 app.Run();
+public sealed record AiPreviewRequest(string Text);
