@@ -125,7 +125,19 @@ impl Server {
                 }))
             }
             "ping" => Ok(json!({})),
-            "tools/list" => Ok(tool_definitions(self.backend.has_ui())),
+            "tools/list" => {
+                let mut definitions=tool_definitions(self.backend.has_ui());
+                if let Some(tools)=definitions.get_mut("tools").and_then(Value::as_array_mut) {
+                    tools.retain(|item|item["name"].as_str().is_some_and(|name|{
+                        let args=json!({});
+                        match self.host_scope.as_ref() {
+                            Some(scope)=>scope.allowed(name,&args).is_ok(),
+                            None=>self.access_mode.allowed(name,&args).is_ok(),
+                        }
+                    }));
+                }
+                Ok(definitions)
+            },
             "tools/call" => {
                 let name = params.get("name").and_then(Value::as_str).ok_or((INVALID_PARAMS, "missing tool `name`".to_string()))?;
                 let args = params.get("arguments").unwrap_or(&Value::Null);
