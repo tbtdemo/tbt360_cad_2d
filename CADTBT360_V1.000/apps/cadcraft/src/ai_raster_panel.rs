@@ -370,6 +370,15 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
                     }
                 });
                 ui.small("Yêu cầu chọn chế độ phân tích. Nhấn Nhận dạng và xem trước để thực thi; kiểm tra kết quả trước khi tạo CAD.");
+                ui.separator();
+                ui.label("AI vẽ CAD bằng lệnh tiếng Việt (không cần ảnh):");
+                ui.small("Ví dụ: vẽ phòng rộng 6000 dài 4000 tại 0,0; vẽ tường từ 0,0 đến 6000,0 dày 200.");
+                if ui.button("Mở AI Review - vẽ trực tiếp bằng lệnh").clicked() {
+                    let prompt=state.assistant_instruction.clone();
+                    cad.ai_review.open_with_prompt(&prompt);
+                    cad.set_status("Đã mở AI Review. Kiểm tra và xác nhận Preview trước khi tạo CAD.".into());
+                }
+
             });
             ui.collapsing("Kết nối trợ lý AI ngoài qua MCP", |ui| {
                 ui.label("CAD 360 có MCP server kết nối với ứng dụng AI hỗ trợ Model Context Protocol.");
