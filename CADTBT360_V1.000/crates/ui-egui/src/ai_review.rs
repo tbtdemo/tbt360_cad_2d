@@ -50,6 +50,7 @@ struct ManagedDoorWall {
 #[derive(Default)]
 pub struct AiReview {
     pub open: bool,
+    review_tab: usize,
     prompt: String,
     image_path: String,
     image_scale: String,
@@ -946,11 +947,20 @@ impl AiReview {
         egui::Window::new("CAD 360 | AI Review - Lệnh CAD")
             .open(&mut open).resizable(true).default_width(680.0).min_width(500.0).show(ctx,|ui| {
             ui.heading("AI REVIEW | KIỂM DUYỆT BẢN VẼ");
+            ui.horizontal_wrapped(|ui|{
+                for (index,label) in ["01  Lệnh vẽ","02  Từ ảnh","03  Tường / cửa","04  Xem trước & xác nhận"].iter().enumerate() {
+                    if ui.selectable_label(self.review_tab==index,*label).clicked(){self.review_tab=index;}
+                }
+            });
+            ui.separator();
             ui.small("AI chỉ đề xuất lệnh. Xem trước và xác nhận mới được ghi vào CAD.");
+            if self.review_tab==3 && self.preview.is_none() {ui.label("Chưa có phương án xem trước. Quay lại tab Lệnh vẽ hoặc Từ ảnh và nhấn Xem trước.");}
+            if self.review_tab==0 {
             ui.label("Kế hoạch lệnh CAD (tối đa 12 lệnh, phân cách bằng dấu |):");
             if ui.add(egui::TextEdit::multiline(&mut self.prompt).desired_rows(3).desired_width(f32::INFINITY)
                 .hint_text("vẽ phòng rộng 6000 dài 4000 tại 0,0 | vẽ hình tròn tâm 3000,2000 bán kính 250")).changed() {
                 self.preview=None;
+                self.review_tab=0;
                 self.message="Lệnh thay đổi. Hãy tạo Preview mới trước khi xác nhận.".into();
             }
             ui.collapsing("Các lệnh CAD hỗ trợ và ví dụ",|ui| {
@@ -970,6 +980,19 @@ impl AiReview {
                     }
                 }
             });
+            if ui.button("1. Xem trước").clicked() {
+                self.preview=None;
+                let next=(|| {
+                    let (steps,description)=plan_from_text(&self.prompt)?;
+                    if !drawing_ready(session) {return Err("CAD đang có lệnh/Undo Group hoặc Block Editor: chưa thể Preview".into());}
+                    let st=session.state().map_err(|e|e.to_string())?;
+                    Ok(Preview {uid:st.uid,epoch:session.doc_epoch,revision:st.revision,
+                        text:self.prompt.clone(),steps,description,image_evidence:None,selected_opening_guide:None,selected_door_arc:None,replace_handles:None,replace_snapshot:None,review_token:None,image_controls:None,owned_entities:None})
+                })();
+                match next {Ok(p)=>{self.preview=Some(p);self.review_tab=3;self.message="Đã xem trước; chưa ghi đối tượng.".into();},Err(e)=>self.message=e}
+            }
+            }
+            if self.review_tab==1 {
             ui.separator();
             ui.label("AI ảnh → nét CAD (PNG/JPEG, tập trung các nét đường; chưa tự xác nhận cửa):");
             ui.label("Đường dẫn ảnh cục bộ:");
@@ -995,17 +1018,6 @@ impl AiReview {
             }
             #[cfg(target_arch = "wasm32")]
             ui.label("Đọc ảnh cục bộ hiện hỗ trợ ứng dụng Windows/macOS/Linux, chưa hỗ trợ trình duyệt.");
-            if ui.button("1. Xem trước").clicked() {
-                self.preview=None;
-                let next=(|| {
-                    let (steps,description)=plan_from_text(&self.prompt)?;
-                    if !drawing_ready(session) {return Err("CAD đang có lệnh/Undo Group hoặc Block Editor: chưa thể Preview".into());}
-                    let st=session.state().map_err(|e|e.to_string())?;
-                    Ok(Preview {uid:st.uid,epoch:session.doc_epoch,revision:st.revision,
-                        text:self.prompt.clone(),steps,description,image_evidence:None,selected_opening_guide:None,selected_door_arc:None,replace_handles:None,replace_snapshot:None,review_token:None,image_controls:None,owned_entities:None})
-                })();
-                match next {Ok(p)=>{self.preview=Some(p);self.message="Đã xem trước; chưa ghi đối tượng.".into();},Err(e)=>self.message=e}
-            }
             if self.preview.as_ref().is_some_and(|p|p.image_evidence.is_some()) {
                 let options=self.preview.as_ref()
                     .and_then(|p|p.image_evidence.as_ref())
@@ -1075,6 +1087,8 @@ impl AiReview {
                     }
                 }
             }
+            }
+            if self.review_tab==2 {
             ui.separator();
             ui.label("CẮT Ô CỬA TRÊN TƯỜNG CÓ SẴN: chọn một LWPOLYLINE chữ nhật (cả tường nghiêng)");
             ui.label("Chọn một tường PLINE chữ nhật kín, kể cả nghiêng, rồi nhập khoảng cách tâm cửa dọc trục:");
@@ -1105,6 +1119,8 @@ impl AiReview {
                     }
                 }
             }
+            }
+            if self.review_tab==3 {
             if let Some(p)=self.preview.as_ref() {
                 ui.separator();
                 ui.strong(format!("Bản xem trước: {} thao tác CAD | chưa thay đổi bản vẽ",p.steps.len()));
@@ -1231,6 +1247,7 @@ impl AiReview {
             }
             if ui.button("Hủy").clicked() {self.preview=None;self.message="Đã hủy".into();}
             if !self.message.is_empty() {ui.separator();ui.label(&self.message);}
+            }
             ui.small("Ảnh được vector hóa theo pixel, có thể sai nét; chỉ vẽ sau xác nhận. Chưa phải AI hiểu tường/cửa ngữ nghĩa hoặc phê duyệt OIDC.");
         });
         self.open=open;
@@ -1241,6 +1258,12 @@ impl AiReview {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn ai_review_starts_with_horizontal_native_command_tab() {
+        let review=AiReview::default();
+        assert_eq!(review.review_tab,0);
+    }
+
     #[test]
     fn ai_studio_native_command_handoff_invalidates_prior_preview() {
         let mut review=AiReview::default();
