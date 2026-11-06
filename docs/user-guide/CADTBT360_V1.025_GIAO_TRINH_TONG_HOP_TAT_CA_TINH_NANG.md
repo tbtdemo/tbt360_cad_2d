@@ -2489,3 +2489,32 @@ Kế hoạch: Đợt 240 sửa lỗi CI, hoàn thiện thử DWG hai chiều v�
 6. Không huấn luyện lại trọng số AI trên dữ liệu khách hàng khi chưa có sự đồng ý, quy trình kiểm thử và cơ chế phát hành có kiểm soát.
 
 **Phạm vi đã commit:** `HostGrantPolicy.MayPreview`, `McpPreviewClient.PreviewAsync`, endpoint `POST /api/cad360/mcp/ai-preview`, mục 5.15 và CI guard. Chưa có kết quả CI/EXE thật chứng minh hoạt động đầu cuối; chưa có API AI commit từ host.
+
+
+## 92. Đợt 252 — Đánh giá AI ảnh→CAD bằng sai số hình học định lượng
+
+### Bài 193 — Chuẩn bị ảnh và đường tham chiếu đo sai số
+1. Chọn ảnh PNG hoặc JPEG thể hiện mặt bằng, bản vẽ quét hoặc phác thảo hình học. Đảm bảo chiều dài/diện tích có tỷ lệ CAD đã được người dùng kiểm chứng; ảnh mờ hoặc nghiêng cần hiệu chỉnh trước khi vector hóa.
+2. Tạo trước một bộ **đường tham chiếu CAD do con người đo** theo cấu trúc `referenceLinesCAD`: mỗi LINE gồm hai đầu mút `[[x0,y0],[x1,y1]]`, ví dụ `[[[0,0],[100,0]],[[0,100],[100,100]]]`.
+3. Thiết lập `referenceToleranceCAD` (mặc định 10 đơn vị CAD) để quy định mức lệch đầu mút chấp nhận được. Giá trị phải dương và không vượt 1e9.
+4. Trên raster-to-CAD Preview, truyền `path`, `preview:true`, `referenceLinesCAD`, `referenceToleranceCAD`; không xác nhận ghi CAD trước khi so sánh kết quả.
+5. Không sử dụng các đường tham chiếu không có đơn vị hoặc tự sinh bằng chính AI đang được kiểm thử làm "sự thật chuẩn".
+
+### Bài 194 — Đọc kết quả sai số và kiểm tra đường CAD chỉnh sửa được
+1. Kết quả Preview có trường `benchmark.method=nearest-line-endpoint-rmse-not-semantic-accuracy` để mô tả rõ thuật toán so sánh.
+2. `referenceSegments` là số đường tham chiếu; `detectedSegments` là số LINE được phát hiện từ ảnh; `matchedWithinTolerance` là số đường tham chiếu có một đoạn được phát hiện với sai số đầu mút nằm trong dung sai.
+3. `recallWithinTolerance` tính bằng số đường tham chiếu khớp chia tổng số đường tham chiếu. `endpointRmseCAD` là căn trung bình bình phương sai số đầu mút sau khi chọn chiều đoạn thuận/ngược cho phù hợp.
+4. Với kết quả không phát hiện đường nào, báo số đường phát hiện =0 và RMSE = null; không tự thay bằng 0 mm hoặc khẳng định nhận dạng hoàn hảo.
+5. Với danh sách tham chiếu lỗi, quá 512 đường, số không hợp lệ, tọa độ ngoài giới hạn hoặc tolerance bằng 0, hệ thống từ chối yêu cầu benchmark.
+6. Chỉ số này là **sai số tọa độ LINE**, không thể hiện độ chính xác phân loại tường, cửa, vật liệu, BIM hay độ tương thích AutoCAD DWG.
+7. Muốn nghiệm thu phải lấy mẫu ảnh thực tế từ dự án có sự cho phép, thử nhiều tỷ lệ/hướng/độ phân giải, kiểm tra kết quả vector hóa thành đối tượng CAD thật có thể EDIT/UNDO/SAVE/REOPEN.
+
+### Bài 195 — Sửa lỗi CI và lập báo cáo kiểm thử
+1. GitHub Windows CI của đợt 251 đã FAIL ở test `stage245_scoped_mcp_server_rejects_wrong_document_and_viewer_write`. Test dùng `uid + 1` để giả định sai bản vẽ và đôi khi trùng UID mới.
+2. Mã đợt 252 đã sửa phép thử bằng một UID tham chiếu khác `uid` có kiểm tra `assert_ne!`, không thay đổi chính sách kiểm tra quyền thật tại MCP Server.
+3. Workflow Windows đã bổ sung test `stage252_reference_benchmark_matches_reversed_line_and_reports_error` và `stage252_reference_benchmark_rejects_malformed_and_reports_missing_lines`.
+4. Trong tab **HƯỚNG DẪN → 2. SỬ DỤNG AI → 2.9 Đánh giá sai số AI ảnh sang CAD**, đọc giải thích cách lập bộ đường chuẩn và kết quả RMSE/Recall.
+5. File Word FULL đợt 252 giữ toàn bộ Bài 1–192, bổ sung Bài 193–195 với ba sơ đồ. Excel tách riêng % đã có mã, CI PASS ở đúng commit cuối và nghiệm thu EXE/AutoCAD ngoài thực tế.
+6. Đợt 253 tiếp tục cải thiện nhận dạng đường xiên/cửa, benchmark chuẩn từ nhiều ảnh khác nhau và giao diện hiển thị sai số; đợt 254 kiểm thử DWG AutoCAD hai chiều, QTO và thay sơ đồ minh họa bằng ảnh chụp EXE thật.
+
+**Giới hạn:** Đây là phép đánh giá định lượng với referenceLinesCAD có người gán nhãn, không phải mô hình AI thị giác mới hoặc chức năng tự học trọng số. Chỉ có thể công nhận các test PASS sau khi CI tại commit cuối trả success.
