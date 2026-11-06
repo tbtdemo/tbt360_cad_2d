@@ -2997,3 +2997,36 @@ Kế hoạch: Đợt 240 sửa lỗi CI, hoàn thiện thử DWG hai chiều v�
 4. Chính sách CAD Free mở ngay không yêu cầu đăng nhập, export tuân thủ license; DWG vẫn phải đúng định dạng chuẩn hai chiều với AutoCAD.
 
 **Mã thay đổi:** `CADTBT360_V1.000/crates/ui-egui/src/ai_review.rs`, workflow `.github/workflows/cad360-stage269-wall-guard.yml`; giáo trình tổng hợp tiếp tục đến Bài 256.
+
+
+## 110. Đợt 270 — Giao cắt chính xác đoạn thẳng và tường PLINE tại vùng ô mở
+
+### Bài 257 — Vì sao bounding box có thể từ chối nhầm
+1. Đợt 269 dùng khung bao (AABB) của vùng ô cửa và thực thể lân cận. Khung bao giao nhau chưa chứng minh bản thân đường LINE thực sự chạm ô mở, đặc biệt gần góc cửa hay tường nghiêng.
+2. Đợt 270 dựng **tứ giác ô mở theo đúng thứ tự đỉnh** từ hai đoạn PLINE đã đề xuất; không dùng riêng vùng bao hình chữ nhật để quyết định va chạm chính xác đối với LINE và PLINE mảnh.
+3. Đối với LINE, kiểm tra hai đầu mút nằm trong tứ giác, các cặp đoạn giao/cắt/chạm mép, cả trường hợp các đoạn thẳng đồng tuyến.
+4. Đối với LWPOLYLINE không có bulge hoặc độ rộng nét, kiểm tra từng đoạn, cạnh đóng nếu có, các đỉnh nằm trong ô cửa; với PLINE kín bao trọn ô mở thì thực hiện kiểm tra point-in-polygon.
+5. Kết quả an toàn vẫn là **từ chối khi giao thật**, chỉ tránh các trường hợp AABB báo giao nhưng hình học LINE/PLINE thật không chạm.
+
+### Bài 258 — Chọn đúng tường cần sửa và kiểm tra giao cắt
+1. Mở CAD 360, chọn chính xác một LWPOLYLINE chữ nhật thẳng hoặc nghiêng trong mặt phẳng XY, không mang XData, không khóa layer.
+2. Vào **Tools → CAD 360 AI Review...**, nhập vị trí tâm cửa, bề rộng, hướng mở và bấm **Preview ô cửa trên PLINE đã chọn**.
+3. Nếu một LINE/PLINE mảnh khác cắt hoặc chạm ô cửa, hệ thống từ chối và trả về mã handle thực thể liên quan.
+4. Nếu chỉ khung bao của LINE/PLINE mảnh giao nhưng các đoạn thực không chạm ô mở, Preview được phép tiếp tục **nếu mọi điều kiện bảo vệ khác đều đạt**.
+5. Với ARC, CIRCLE, SPLINE, BLOCK, HATCH, WIDTH-PLINE, DIMENSION và loại chưa hỗ trợ phân tích chính xác, chương trình vẫn từ chối bảo thủ khi AABB giao. Không coi trường hợp chưa hỗ trợ là an toàn.
+
+### Bài 259 — Xác nhận, ERASE, tạo cửa và Undo
+1. Sau Preview, người dùng phải đọc thông số, UID/Epoch/Revision, đúng handle và vị trí ô cửa trước khi bấm **Tôi đồng ý – Vẽ vào CAD**.
+2. Trước khi thay thế PLINE, hệ thống **tái kiểm tra hình học giao cắt**, snapshot, Revision và layer. Khi hợp lệ, xóa chính xác một handle tường được duyệt rồi tạo 2 PLINE tường, 1 LINE cánh và 1 ARC trong nhóm Undo.
+3. Đối tượng mới tiếp nhận Common properties thông thường của tường gốc khi an toàn; đối tượng có XData hoặc extrusion bất thường tiếp tục bị từ chối.
+4. UNDO một lần phải khôi phục tường gốc; REDO dựng lại các đối tượng mới. Các LINE/PLINE lân cận không thuộc giao dịch phải giữ nguyên.
+5. Thao tác cắt là phép thay thế hình học được người dùng chấp thuận, **chưa** xử lý các ràng buộc BIM, hatch phức tạp, tường nhiều lớp hoặc mối quan hệ parametric.
+
+### Bài 260 — Kiểm thử hồi quy và mức độ hoàn thành
+1. Test `stage270_precise_line_intersection_avoids_bounding_box_false_positive` kiểm tra một LINE có AABB đè vùng ô mở nhưng bản thân LINE không chạm; đối tượng không liên quan vẫn được giữ khi Commit và Undo/Redo.
+2. Test `stage270_segment_polygon_cases_cross_touch_and_surround` kiểm tra giao thật, chạm biên, đoạn nằm ngoài và PLINE kín bao trọn vùng mở.
+3. Workflow `CAD 360 Stage270 Precise Wall Gap Intersection` chạy trên Windows: `cargo check --locked -p cadcraft-ui-egui`; `cargo test --locked -p cadcraft-ui-egui stage270 -- --nocapture`; hồi quy 268–269.
+4. Chỉ ghi **Windows CI PASS** khi có kết quả workflow tại đúng commit; cần tiếp tục kiểm thử thao tác EXE Windows, ảnh chụp GUI thật và DWG AutoCAD chỉnh sửa hai chiều.
+5. Bài này chỉ mở rộng xác định hình học LINE/PLINE, chưa phải AI tự hiểu mọi ảnh bản vẽ, chưa có tự phát hiện/trim tất cả tường, chưa có nghiệm thu sản phẩm phát hành.
+
+**Các giới hạn không thay đổi:** CAD Free dùng không cần đăng nhập khi mở; quyền Export theo license; DWG chuẩn hai chiều và không mã hóa làm mất tương thích.
