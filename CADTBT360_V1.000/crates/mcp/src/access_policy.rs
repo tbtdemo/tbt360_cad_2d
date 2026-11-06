@@ -95,10 +95,23 @@ impl HostScope {
     pub fn tenant_id(&self)->&str {&self.tenant_id}
     pub fn user_id(&self)->&str {&self.user_id}
     pub fn role(&self)->&HostRole {&self.role}
-    pub fn allowed(&self,tool:&str,args:&Value)->Result<&'static str,&'static str> {
+    /// Protects MCP resource reads and discovery, not just tools/call.
+    pub fn ensure_live(&self)->Result<(),&'static str> {
         let now=std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)
-            .map_err(|_|"Cannot validate MCP host session clock")?.as_secs();
-        if now>=self.expires_at_unix {return Err("MCP scoped session expired; host must re-authenticate");}
+            .map_err(|_|"Cannot validate MCP scoped session clock")?.as_secs();
+        if now>=self.expires_at_unix {Err("MCP scoped session expired; host must re-authenticate")}
+        else {Ok(())}
+    }
+    pub fn resource_allowed(&self,uri:&str)->Result<(),&'static str> {
+        self.ensure_live()?;
+        match uri {
+            "cadcraft://drawing" if self.allowed_tools.as_ref().is_none_or(|items|items.iter().any(|s|s=="inspect_drawing")) => Ok(()),
+            "cadcraft://commands" if self.allowed_tools.as_ref().is_none_or(|items|items.iter().any(|s|s=="list_commands")) => Ok(()),
+            _ => Err("Resource outside host-scoped MCP grants"),
+        }
+    }
+    pub fn allowed(&self,tool:&str,args:&Value)->Result<&'static str,&'static str> {
+        self.ensure_live()?;
         if self.allowed_tools.as_ref().is_some_and(|tools|!tools.iter().any(|t|t==tool)) {
             return Err("Tool is outside host-granted scope");
         }
@@ -123,6 +136,19 @@ mod tests {
     use super::*;
     use serde_json::json;
 
+
+    #[test]
+    fn stage247_scoped_resource_permissions_match_tool_grants() {
+        let limited=HostScope::new("tenant-a","user-a","viewer",5).unwrap()
+            .restrict_tools(&["inspect_drawing"]).unwrap();
+        assert!(limited.resource_allowed("cadcraft://drawing").is_ok());
+        assert!(limited.resource_allowed("cadcraft://commands").is_err());
+        assert!(limited.resource_allowed("file:///etc/passwd").is_err());
+        let empty=HostScope::new("tenant-a","user-a","viewer",5).unwrap()
+            .restrict_tools(&[]).unwrap();
+        assert!(empty.resource_allowed("cadcraft://drawing").is_err());
+        assert!(empty.allowed("inspect_drawing",&json!({})).is_err());
+    }
 
     #[test]
     fn stage246_host_scope_expires_and_restricts_tools_without_role_escalation() {
