@@ -202,9 +202,27 @@ fn parse_door_wall(text:&str)->Result<Option<(Vec<(&'static str,Value)>,String)>
 }
 
 fn plan_from_text(text:&str)->Result<(Vec<(&'static str,Value)>,String),String> {
-    if let Some(door)=parse_door_wall(text)? {return Ok(door);}
-    let (command,params,description)=parse_draft(text)?;
-    Ok((vec![(command,params)],description))
+    let text=text.trim();
+    if text.is_empty() || text.len()>6000 {return Err("Kế hoạch AI phải từ 1 đến 6000 ký tự.".into());}
+    // A reviewed plan may contain up to 12 native commands, separated ONLY by a vertical bar.
+    // Parse every command first: no CAD mutation occurs if even one command is invalid.
+    let commands:Vec<&str>=text.split('|').map(str::trim).collect();
+    if commands.len()>12 {return Err("Tối đa 12 lệnh CAD trong một kế hoạch AI.".into());}
+    let mut steps=Vec::new();
+    let mut descriptions=Vec::new();
+    for (index,part) in commands.iter().enumerate() {
+        if part.is_empty() {return Err(format!("Lệnh CAD thứ {} bị bỏ trống.",index+1));}
+        if let Some((draft,description))=parse_door_wall(part)? {
+            steps.extend(draft);
+            descriptions.push(description);
+        } else {
+            let (name,params,description)=parse_draft(part)?;
+            steps.push((name,params));
+            descriptions.push(description);
+        }
+    }
+    if steps.len()>48 {return Err("Kế hoạch AI có quá 48 thao tác hình học CAD.".into());}
+    Ok((steps,descriptions.join(" | ")))
 }
 
 /// Stage263: add only a selected, human-reviewed opening outline as a separate native PLINE.
@@ -1192,6 +1210,21 @@ mod tests {
         review.open_with_prompt("vẽ đường thẳng từ 0,0 đến 100,0");
         assert!(review.preview.is_none());
         assert_eq!(parse_draft(&review.prompt).unwrap().0,"line");
+    }
+
+    #[test]
+    fn ai_review_multi_object_plan_is_atomic_at_parser_and_bounded() {
+        let plan="vẽ phòng rộng 6000 dài 4000 tại 0,0 | vẽ đường thẳng từ 0,0 đến 6000,0 | vẽ hình tròn tâm 3000,2000 bán kính 250";
+        let (steps,description)=plan_from_text(plan).unwrap();
+        assert_eq!(steps.len(),3);
+        assert_eq!(steps[0].0,"rectang");
+        assert_eq!(steps[1].0,"line");
+        assert_eq!(steps[2].0,"circle");
+        assert!(description.contains("CIRCLE"));
+        assert!(plan_from_text("vẽ phòng rộng 6000 dài 4000 tại 0,0 | xóa bản vẽ").is_err());
+        assert!(plan_from_text("vẽ phòng rộng 6000 dài 4000 tại 0,0 | ").is_err());
+        let repeated=vec!["vẽ đường thẳng từ 0,0 đến 100,0";13].join(" | ");
+        assert!(plan_from_text(&repeated).is_err());
     }
 
     #[test]
