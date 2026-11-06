@@ -3395,3 +3395,36 @@ Kế hoạch: Đợt 240 sửa lỗi CI, hoàn thiện thử DWG hai chiều v�
 6. Giáo trình này chưa thay thế ảnh chụp EXE thực tế và chưa phải chứng nhận AI tự hiểu ngữ nghĩa toàn bộ mặt bằng kiến trúc.
 
 **Đợt 281:** Đã commit mã kiểm tra handle và test AI Review tại giới hạn Undo; Windows CI, EXE và DWG hai chiều còn chờ nghiệm thu. Giáo trình tổng hợp đến Bài 304.
+
+
+## 122. Đợt 282 — Lưu/mở lại DXF và DWG với hình học native đại diện AI Review
+
+### Bài 305 — Kiểm thử tính nguyên vẹn dữ liệu sau khi lưu bản vẽ
+1. Các đợt 275–281 kiểm chứng Preview, xác nhận, Undo/Redo và nhiều LINE native ngay trong bộ nhớ. Đợt 282 chuyển sang ranh giới **ghi tập tin → đọc lại** bằng bộ `cadcraft-io` thực của dự án.
+2. Tạo bản vẽ metric với layer `AI-TRACE`, 24 LINE ở các cao độ khác nhau, một LWPOLYLINE kín đại diện viền ô cửa và một ARC đại diện cung mở cửa.
+3. Ghi nhận tổng **26 thực thể**, các handle, layer, thuộc tính line-type scale và tọa độ gốc. Các hình học này đại diện đối tượng của AI Review, **không phải sản phẩm của mô hình AI ngữ nghĩa hoặc ảnh đã nhận dạng**.
+4. Khi lưu và đọc lại, phải kiểm tra đủ số lượng, handle từng entity, loại thực thể và hình học; không được coi bản vẽ trông giống nhau trên màn hình là bằng chứng dữ liệu chính xác.
+
+### Bài 306 — DXF: ghi, mở và ghi/mở lần thứ hai
+1. Chạy test `stage282_dxf_ai_trace_lines_pline_arc_survive_two_save_reopen_cycles`.
+2. Dùng `cadcraft_io::write(&drawing, "ai_trace.dxf")` để sinh bytes DXF; dùng `cadcraft_io::read` mở lại.
+3. Ghi DXF lần hai từ bản vẽ vừa đọc và mở lại lần nữa. Ở cả hai vòng, kỳ vọng giữ 26 entity, handle, layer `AI-TRACE`, line-type scale 1,5, LINE/PLINE/ARC và tọa độ.
+4. Đây là test parser/writer DXF của phần mềm, không phải thử toàn bộ biến thể DXF của phần mềm CAD bên ngoài.
+
+### Bài 307 — DWG: ghi file nhị phân thật và kiểm tra hai vòng đọc
+1. Chạy test `stage282_dwg_ai_trace_lines_pline_arc_reopen_with_native_geometry`.
+2. Dùng writer DWG có sẵn trong `cadcraft-io` để sinh bytes DWG chuẩn theo phiên bản writer hỗ trợ. Kiểm tra chữ ký DWG bằng `cadcraft_dwg::is_dwg`.
+3. Ghi bytes xuống **một file .dwg thực trong thư mục tạm**, đọc lại bytes từ đĩa và dùng `cadcraft_io::read` mở. Đối chiếu 26 entity, handle, layer, tọa độ LINE, đỉnh/closed PLINE, tâm/bán kính/góc ARC.
+4. Từ đối tượng đã mở lại, ghi DWG lần thứ hai và đọc lần nữa. Kiểm tra số lượng và handle vẫn được duy trì.
+5. Nếu test báo sai khác về handle/geometry, đó là lỗi cần sửa tại DWG bridge hoặc khâu ánh xạ entity; không được bỏ qua kiểm chứng chỉ vì file có chữ ký DWG hợp lệ.
+6. Test dùng **reader/writer nội bộ CAD 360**. Việc DWG tương thích đầy đủ khi **AutoCAD độc lập mở, sửa và lưu** cần nghiệm thu khác, chưa được chứng minh chỉ bằng round-trip nội bộ.
+
+### Bài 308 — Workflow Windows và nghiệm thu tính năng AI ảnh → CAD
+1. Workflow `CAD 360 Stage282 DWG DXF AI Geometry Round Trip` biên dịch `cadcraft-io` và `cadcraft-ui-egui`, chạy `cargo test --locked -p cadcraft-io stage282 -- --nocapture` trên Windows.
+2. Chạy thêm các bài DWG roundtrip hiện hữu, hồi quy Stage281 (128 LINE qua AI Review) và Stage275 (đọc PNG và Undo/Redo).
+3. Chỉ công nhận **Windows CI PASS** khi có log GitHub Actions tại **đúng commit**. Đã có mã và workflow không đồng nghĩa test đã qua.
+4. Khi có EXE thật, thao tác với bản vẽ thực tế: ảnh PNG/JPEG → Preview → người dùng duyệt → CAD native → Undo/Redo → Save DWG → đóng bản vẽ → mở lại → kiểm tra geometry/layer/handle.
+5. Mở DWG đó bằng **AutoCAD độc lập** rồi sửa một hoặc nhiều LINE, lưu lại và mở trong CAD 360 để nghiệm thu hai chiều. Không mã hóa hoặc sửa cấu trúc DWG gây mất tương thích.
+6. Chụp màn hình trực tiếp từ EXE cho giáo trình đầy đủ; hình sơ đồ trong tài liệu Word chỉ mang tính minh họa quy trình.
+
+**Tình trạng Đợt 282:** Đã commit bài test DXF/DWG native Save/Reopen, workflow Windows và giáo trình đến Bài 308. Chưa có bằng chứng CI PASS, EXE hoạt động trên Windows hoặc AutoCAD độc lập mở/sửa/lưu thành công.
