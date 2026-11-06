@@ -659,6 +659,17 @@ fn returned_handles(result:&Value)->Result<Vec<String>,String> {
     Err("CAD Engine không trả về handle để quản lý đối tượng".into())
 }
 
+/// Stage276: an ERASE result with 0 removed handles is still Ok at command level,
+/// but it does not represent a CAD revision step.
+fn erase_revision_step(removed:u64,before:u64,after:u64)->Result<u64,String> {
+    if removed==0 {
+        if after==before {return Ok(0);}
+        return Err("ERASE xóa 0 entity nhưng Revision thay đổi bất thường".into());
+    }
+    if before.checked_add(1)==Some(after) {return Ok(1);}
+    Err("ERASE có xóa đối tượng nhưng Revision không tăng đúng một bước".into())
+}
+
 /// One native Undo transaction; replacing old wall entities is allowed only for explicit,
 /// still-existing handles owned by this panel and tied to a fixed UID/Epoch/Revision.
 fn commit_steps(session:&mut Session,preview:&Preview)->Result<Vec<String>,String> {
@@ -730,15 +741,14 @@ fn commit_steps(session:&mut Session,preview:&Preview)->Result<Vec<String>,Strin
                     // ERASE can return Ok with erased=0 (and NO revision bump).
                     // Count only actual native drawing mutations so we can always close our group.
                     let removed=value["erased"].as_u64().unwrap_or(0);
-                    let expected_next=preview.revision.checked_add(succeeded).and_then(|rev|rev.checked_add(1));
-                    if removed>0 && expected_next.is_some_and(|rev|
-                        session.state().is_ok_and(|state|state.revision==rev)) {
-                        succeeded+=1;
+                    let before=preview.revision.checked_add(succeeded).ok_or("Revision vượt giới hạn")?;
+                    let after=session.state().map_err(|e|e.to_string())?.revision;
+                    match erase_revision_step(removed,before,after) {
+                        Ok(steps)=>succeeded+=steps,
+                        Err(error)=>failure=Some(error),
                     }
-                    if removed!=old.len() as u64 {
+                    if removed!=old.len() as u64 && failure.is_none() {
                         failure=Some(format!("ERASE chỉ xóa {removed}/{} entity được duyệt; sẽ rollback nếu còn kiểm soát giao dịch",old.len()));
-                    } else if succeeded!=1 {
-                        failure=Some("ERASE báo đủ số lượng nhưng Revision không đúng, không tiếp tục tạo hình học".into());
                     }
                 }
                 Err(error)=>failure=Some(format!("Không xóa được tường/cửa quản lý: {error}"))
@@ -1379,6 +1389,35 @@ mod tests {
         assert!(commit_steps(&mut s,&stale).is_err(),"revision mismatch must reject destructive replacement");
         assert_eq!(s.doc().unwrap().entity_count(),count);
         assert!(s.doc().unwrap().entity(wall).is_some());
+    }
+
+    #[test]
+    fn stage276_erase_revision_counter_uses_actual_native_mutation() {
+        assert_eq!(erase_revision_step(0,10,10).unwrap(),0,
+            "an empty successful ERASE must not increment the expected revision");
+        assert_eq!(erase_revision_step(1,10,11).unwrap(),1);
+        assert_eq!(erase_revision_step(4,10,11).unwrap(),1,
+            "deleting 4 entities in one command is one document revision");
+        assert!(erase_revision_step(0,10,11).is_err());
+        assert!(erase_revision_step(1,10,10).is_err());
+        assert!(erase_revision_step(1,u64::MAX,u64::MAX).is_err());
+    }
+
+    #[test]
+    fn stage276_native_zero_erase_does_not_mutate_and_group_remains_closable() {
+        let mut session=Session::default();
+        let existing=session.execute("line",&json!({"points":[[0,3000],[100,3000]]})).unwrap();
+        let external=cadcraft_doc::Handle::parse_hex(existing["handles"][0].as_str().unwrap()).unwrap();
+        let rev=session.state().unwrap().revision;
+        session.execute("undo",&json!({"mode":"begin"})).unwrap();
+        let result=session.execute("erase",&json!({"handles":["FFFFFFFFFFFFFFFE"]})).unwrap();
+        let after=session.state().unwrap().revision;
+        assert_eq!(result["erased"],0);
+        assert_eq!(erase_revision_step(0,rev,after).unwrap(),0);
+        session.execute("undo",&json!({"mode":"end"})).unwrap();
+        assert!(session.state().unwrap().undo_ctl.group.is_none());
+        assert!(session.doc().unwrap().entity(external).is_some(),
+            "zero-erase must not touch the unrelated line");
     }
 
     #[cfg(not(target_arch = "wasm32"))]
