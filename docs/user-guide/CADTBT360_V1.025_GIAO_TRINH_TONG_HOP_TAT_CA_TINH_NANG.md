@@ -2345,3 +2345,29 @@ Kế hoạch: Đợt 240 sửa lỗi CI, hoàn thiện thử DWG hai chiều v�
 **Giới hạn và an toàn:** Đây là cơ chế thu hẹp quyền trong tiến trình MCP sau khi host đã xác thực; chưa có adapter OAuth/OIDC hoạt động end-to-end hoặc RLS Tenant. Không thể coi việc thêm kiểm thử là có kết quả PASS nếu chưa xác nhận trên workflow cùng SHA.
 
 **Bổ sung an toàn Đợt 246:** Nếu `CAD360_MCP_ACCESS_MODE` nhập một giá trị không nhận diện, chính sách chuyển sang `readonly` để tránh cấp nhầm toàn quyền `legacy`. Chỉ có chuỗi `legacy` được chỉ định rõ ràng mới giữ tương thích cũ. Giáo trình trong tab HƯỚNG DẪN được cập nhật tương ứng.
+
+
+## 87. Đợt 247 — Bịt đường truy cập tài nguyên MCP vượt quyền
+
+### Bài 178 — Phân biệt công cụ MCP và tài nguyên MCP
+1. Khi Agent kết nối MCP Server từ host tin cậy, phân biệt công cụ `tools/list` / `tools/call` với tài nguyên `resources/list` / `resources/read`.
+2. Trước đợt 247, `tools/call` được kiểm tra theo HostScope, còn `resources/read` chủ yếu chỉ kiểm tra UID bản vẽ. Điều này có thể cho phép đọc danh mục lệnh dù host không cấp công cụ `list_commands`.
+3. Mã đợt 247 đã bổ sung `HostScope::resource_allowed(uri)` để ràng buộc `cadcraft://drawing` với công cụ `inspect_drawing`, `cadcraft://commands` với công cụ `list_commands`.
+4. Thực hiện thử nghiệm với `restrict_tools(&["inspect_drawing"])`; gọi `resources/list` phải chỉ hiển thị `cadcraft://drawing`.
+5. Nếu gọi trực tiếp `resources/read` tới `cadcraft://commands`, MCP Server phải từ chối. Không dùng đường dẫn `file://` hay URI không được định nghĩa để đọc dữ liệu máy tính.
+
+### Bài 179 — Hết hạn phiên và chuyển bản vẽ phải khóa tài nguyên
+1. Host tạo `HostScope` bằng danh tính đã được xác thực, có thời hạn và UID bản vẽ. Thực tế xác minh chữ ký/issuer/audience của JWT/OIDC vẫn do host đảm nhiệm.
+2. Khi phiên quá hạn, `ensure_live()` phải từ chối truy cập tài nguyên, không chỉ từ chối `tools/call`.
+3. Khi chuyển từ bản vẽ A sang B, `resources/read` phải đối chiếu documentUid trong HostScope với bản vẽ hiện hành và từ chối tài nguyên sai bản vẽ.
+4. Cấu hình sai tên mode MCP phải chuyển `readonly`, không cấp nhầm quyền `legacy`.
+5. Hạn chế: đây là lớp kiểm soát trong MCP, chưa phải hệ thống OIDC/RBAC hay Row Level Security theo tenant cho backend sản phẩm.
+
+### Bài 180 — Kiểm thử và bàn giao đầy đủ
+1. Chạy `cargo test --locked -p cadcraft-mcp --lib stage247_ -- --nocapture` để xác nhận lọc danh mục tài nguyên, từ chối lệnh đọc tài nguyên không được cấp.
+2. Windows release workflow đã bổ sung hai bài kiểm thử `stage247_scoped_resource_permissions_match_tool_grants` và `stage247_mcp_resource_discovery_and_reads_match_host_grants`.
+3. Trên EXE mới, mở tab **HƯỚNG DẪN → 5. KẾT NỐI & AN TOÀN AI → 5.11 Giới hạn tài nguyên MCP theo quyền**. Nội dung Markdown nhúng trong EXE cần được kiểm tra sau khi có Windows CI PASS.
+4. File Word FULL đợt 247 chứa đủ 180 bài và ba hình minh họa bổ sung; file Excel thể hiện riêng % có mã, % CI PASS trên SHA cuối, % EXE/host thật nghiệm thu.
+5. Đợt 248: triển khai host xác thực OIDC thực tế, token signature/issuer/audience, quyền tenant và thu hồi token; đợt 249 tập trung vào benchmark AI ảnh→CAD; đợt 250 kiểm thử DWG AutoCAD hai chiều và QTO.
+
+**Trạng thái thực tế:** Đã có mã và kiểm thử nguồn, nhưng chưa có bằng chứng OIDC host bên ngoài thực sự hoạt động hoặc Windows EXE PASS ở commit cuối. Không gọi đây là hoàn thành OIDC.
