@@ -947,6 +947,58 @@ mod tests {
         assert!(parse_draft("xóa tất cả").is_err());
     }
     #[test]
+    fn stage269_rejects_neighbour_intersecting_the_door_gap_without_mutation() {
+        let mut s=Session::default();
+        let wall=s.execute("pline",&json!({"vertices":[[0.0,-100.0],[6000.0,-100.0],
+            [6000.0,100.0],[0.0,100.0]],"closed":true})).unwrap();
+        let selected=cadcraft_doc::Handle::parse_hex(wall["handle"].as_str().unwrap()).unwrap();
+        let other=s.execute("line",&json!({"points":[[3000.0,-600.0],[3000.0,600.0]]})).unwrap();
+        let obstruct=cadcraft_doc::Handle::parse_hex(other["handles"][0].as_str().unwrap()).unwrap();
+        s.set_selection(vec![selected]);
+        let count=s.doc().unwrap().entity_count();
+        assert!(preview_selected_existing_wall(&s,"3000","900",false).is_err(),
+            "crossing another wall / line must prevent destructive door cut");
+        assert_eq!(s.doc().unwrap().entity_count(),count);
+        assert!(s.doc().unwrap().entity(selected).is_some());
+        assert!(s.doc().unwrap().entity(obstruct).is_some());
+    }
+
+    #[test]
+    fn stage269_preserves_layer_color_and_refuses_third_party_xdata() {
+        let mut s=Session::default();
+        let wall=s.execute("pline",&json!({"vertices":[[0.0,-100.0],[6000.0,-100.0],
+            [6000.0,100.0],[0.0,100.0]],"closed":true})).unwrap();
+        let selected=cadcraft_doc::Handle::parse_hex(wall["handle"].as_str().unwrap()).unwrap();
+        s.doc_mut().unwrap().ensure_layer("A-WALL");
+        s.doc_mut().unwrap().modify_entity(selected,|entity|{
+            entity.common.layer="A-WALL".into();
+            entity.common.ltscale=2.5;
+        }).unwrap();
+        s.set_selection(vec![selected]);
+        let plan=preview_selected_existing_wall(&s,"3000","900",false).unwrap();
+        let created=commit_steps(&mut s,&plan).unwrap();
+        assert_eq!(created.len(),4);
+        for raw in &created {
+            let id=cadcraft_doc::Handle::parse_hex(raw).unwrap();
+            let entity=s.doc().unwrap().entity(id).unwrap();
+            assert_eq!(entity.common.layer,"A-WALL");
+            assert_eq!(entity.common.ltscale,2.5);
+        }
+        s.execute("undo",&json!({"count":1})).unwrap();
+        assert!(s.doc().unwrap().entity(selected).is_some(),"native Undo restores original wall");
+        let second=s.execute("pline",&json!({"vertices":[[0.0,300.0],[6000.0,300.0],
+            [6000.0,500.0],[0.0,500.0]],"closed":true})).unwrap();
+        let wall2=cadcraft_doc::Handle::parse_hex(second["handle"].as_str().unwrap()).unwrap();
+        s.doc_mut().unwrap().modify_entity(wall2,|entity|
+            entity.common.xdata.push(cadcraft_doc::RawTag {code:1001,value:"THIRD_PARTY".into()})).unwrap();
+        s.set_selection(vec![wall2]);
+        let count=s.doc().unwrap().entity_count();
+        assert!(preview_selected_existing_wall(&s,"3000","900",false).is_err(),
+            "third-party application metadata cannot be duplicated or lost silently");
+        assert_eq!(s.doc().unwrap().entity_count(),count);
+    }
+
+    #[test]
     fn stage268_rotated_wall_cuts_only_explicitly_selected_rectangle_and_supports_undo_redo() {
         let mut s=Session::default();
         let keep=s.execute("line",&json!({"points":[[0.0,8000.0],[5000.0,8000.0]]})).unwrap();
