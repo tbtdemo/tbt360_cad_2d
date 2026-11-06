@@ -2078,3 +2078,34 @@ Bảng `CAD360_BAO_CAO_TIEN_DO_DOT237.xlsx` có **15 tiêu chí** với tổng t
 - Giáo trình Word FULL `CADTBT360_V1.025_GIAO_TRINH_FULL_CO_HINH_DOT237.docx` kế thừa 147 bài trước, bổ sung 3 bài mới và 3 hình nguyên lý; tổng 150 bài, 151 hình nhúng. Ảnh mới là **sơ đồ minh họa** chứ không phải screenshot EXE.
 
 **Mã nguồn** tải toàn bộ từ GitHub archive trên SHA cuối; **Windows EXE** chỉ công nhận khi đúng workflow báo thành công và artifact bộ cài đã xác minh.
+
+
+## 78. Đợt 238 — AI BLOCK cửa và Layer: lưu/mở lại DWG 2018 bằng CAD Engine thật
+
+### Bài 151 — Kiểm thử CAD native sau khi tạo hình học AI
+
+1. Dùng một CADCraft Headless Session thực thay vì Backend mô phỏng; lấy `documentUid`, `documentEpoch` và `revision` từ `drawing.inspect`.
+2. Gửi câu lệnh: `vẽ hai phòng liền kề rộng 3000 và 4000 dài 4000 tại 0,0 cửa 900 giữa bản lề dưới mở phải`; bật `createDoorBlock:true` và `applyLayers:true`. Trước tiên đọc Preview, không cho phép ghi đối tượng.
+3. Lặp lại cùng câu lệnh với `preview:false`, `confirm:true` và 3 thông số định danh bản vẽ vừa kiểm tra.
+4. Kiểm tra native document chứa **4 entity top-level**: 1 bao phòng, 2 đoạn vách chung và 1 door INSERT; hai entity LINE/ARC của cánh/cung đã được đưa vào định nghĩa BLOCK.
+5. Kiểm tra Layer gắn với từng entity: `TBT_AI_ROOM`, `TBT_AI_WALL`, `TBT_AI_DOOR`. Đây là **đầu ra thử nghiệm từ native engine**, không được coi là đã đạt nghiệm thu Windows EXE nếu CI còn chưa PASS.
+
+### Bài 152 — Lưu DWG 2018 và mở lại để so sánh đối tượng
+
+1. Trên Headless Engine dùng `app.save` với `{"path":"...dwg","version":2018}`. Chỉ dùng đường dẫn file thử.
+2. Kiểm tra file DWG thực có tồn tại và chứa dữ liệu, **không được thay đổi cấu trúc DWG để che metadata/mã hóa riêng**.
+3. Tạo Headless Session mới, dùng `app.open` đọc lại chính file vừa lưu.
+4. So sánh số entity model (4), danh sách các Layer, đúng 1 INSERT trên Layer cửa và định nghĩa BLOCK có tiền tố `TBT_AI_DOOR_`.
+5. Kiểm tra kết quả lỗi: nếu `saveas`, đọc DWG hoặc khôi phục BLOCK không đạt thì Windows CI phải báo FAIL, không tự bỏ qua bước lỗi.
+6. Bài test mới `ai_vietnamese_stage238_native_dwg_save_reopen_preserves_door_layers` đã được đưa vào workflow Windows phát hành. **Test nội bộ CADCraft không thay thế thử đọc–sửa–lưu DWG hai chiều bằng AutoCAD thật.**
+
+### Bài 153 — Kiểm thử, tiến độ có trọng số và kế hoạch
+
+1. Lệnh kiểm thử: `cargo test --locked -p cadcraft-mcp --lib ai_vietnamese_stage238_native_dwg_save_reopen_preserves_door_layers -- --nocapture`.
+2. Kiểm thử đi kèm: `cargo test --locked -p cadcraft-mcp --lib ai_vietnamese_stage237_headless_native_door_layer_and_undo -- --nocapture`.
+3. Tách 3 mức trạng thái: **đã lập trình**, **có kết quả CI PASS ở đúng SHA**, **đã kiểm tra trên Windows EXE/AutoCAD thật**. Không tự công bố hoàn thành theo số dòng code.
+4. File Excel `CAD360_BAO_CAO_TIEN_DO_DOT238.xlsx` sử dụng tổng trọng số và công thức để xác định tỷ lệ trong phạm vi đợt 238. **Không tính là % hoàn thành toàn bộ CAD 360/AI CAD**.
+5. Dự kiến: đợt 239 sửa mọi lỗi native DWG đang tồn tại và tổ chức bài thử trao đổi AutoCAD; đợt 240 đo sai lệch ảnh→CAD, QTO và Undo qua bản vẽ chuẩn.
+6. Tài liệu Word FULL `CADTBT360_V1.025_GIAO_TRINH_FULL_CO_HINH_DOT238.docx` kế thừa 150 bài và 151 hình của đợt 237, thêm 3 bài với hình mô phỏng, để người mới theo dõi được từng bước. Các hình là sơ đồ minh họa, **không phải ảnh chụp EXE thật**.
+
+**Bằng chứng và giới hạn:** GitHub commit mã kiểm thử đợt 238 và workflow có điều kiện chặn phát hành; chỉ khi CI của commit cuối PASS mới coi native test đạt. Chưa có đối chiếu AutoCAD thực tế hoặc bộ ảnh giao diện EXE đầy đủ.
