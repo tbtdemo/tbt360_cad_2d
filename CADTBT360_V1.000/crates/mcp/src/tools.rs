@@ -954,9 +954,31 @@ mod ai_draft_vietnamese_tests {
         for layer in ["TBT_AI_ROOM","TBT_AI_WALL","TBT_AI_DOOR"] {
             assert!(d.layer(layer).is_some(),"DWG reopen missing layer {layer}");
         }
-        assert_eq!(d.model.iter().filter(|entity|entity.common.layer=="TBT_AI_DOOR").count(),1);
+        for (layer,expected_count) in [("TBT_AI_ROOM",1),("TBT_AI_WALL",2),("TBT_AI_DOOR",1)] {
+            let found=d.model.iter().filter(|entity|entity.common.layer==layer).count();
+            assert_eq!(found,expected_count,"DWG reopened entities on {layer} must retain exact count");
+        }
         assert!(d.blocks.keys().any(|n|n.starts_with("TBT_AI_DOOR_")),"door Block definition must survive DWG");
-        std::fs::remove_file(&path).expect("cleanup DWG fixture");
+        // Stage240: modify the reopened drawing in a separate session and save
+        // it again, then verify that the core geometry survives the second DWG.
+        // This is CADCraft-internal roundtrip, NOT proof of external AutoCAD editability.
+        let second=std::env::temp_dir().join(format!("cad360-stage240-second-{}-{}.dwg",std::process::id(),nonce));
+        let second_name=second.to_string_lossy().into_owned();
+        reopened.call("engine.execute",json!({"command":"line","params":{
+            "points":[[50.0,100.0],[250.0,100.0]]}})).expect("reopened drawing should stay editable");
+        reopened.call("app.save",json!({"path":second_name,"version":2018})).expect("second native DWG save");
+        assert!(second.exists(),"second DWG fixture must exist");
+        let mut third=Headless::default();
+        third.call("app.open",json!({"path":second_name})).expect("second native DWG reopen");
+        let after=third.session.doc().unwrap();
+        assert_eq!(after.entity_count(),5,"second DWG save must preserve original AI drawing plus one edit");
+        for (layer,expected_count) in [("TBT_AI_ROOM",1),("TBT_AI_WALL",2),("TBT_AI_DOOR",1)] {
+            assert_eq!(after.model.iter().filter(|entity|entity.common.layer==layer).count(),expected_count,
+                "second save must retain the AI entities on {layer}");
+        }
+        assert!(after.blocks.keys().any(|n|n.starts_with("TBT_AI_DOOR_")),"re-saved DWG must retain editable door Block");
+        std::fs::remove_file(&second).expect("cleanup second DWG fixture");
+        std::fs::remove_file(&path).expect("cleanup original DWG fixture");
     }
 
     /// Stage239 cross-checks DXF as an independent standard CAD interchange format.
