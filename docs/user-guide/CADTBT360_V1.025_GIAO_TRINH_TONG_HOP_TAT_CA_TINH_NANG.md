@@ -3428,3 +3428,35 @@ Kế hoạch: Đợt 240 sửa lỗi CI, hoàn thiện thử DWG hai chiều v�
 6. Chụp màn hình trực tiếp từ EXE cho giáo trình đầy đủ; hình sơ đồ trong tài liệu Word chỉ mang tính minh họa quy trình.
 
 **Tình trạng Đợt 282:** Đã commit bài test DXF/DWG native Save/Reopen, workflow Windows và giáo trình đến Bài 308. Chưa có bằng chứng CI PASS, EXE hoạt động trên Windows hoặc AutoCAD độc lập mở/sửa/lưu thành công.
+
+
+## 123. Đợt 283 — So sánh đầy đủ DWG sau hai lần lưu/mở lại
+
+### Bài 309 — Phân biệt kiểm tra handle tồn tại với toàn vẹn hình học
+1. Đợt 282 đã thêm bài kiểm thử DWG ghi file thực, mở lại rồi ghi/mở thêm lần thứ hai. Tuy nhiên, ở vòng thứ hai, bài kiểm thử mới chỉ xác nhận tổng số đối tượng và handle tồn tại.
+2. Một handle tồn tại không đủ bảo đảm tọa độ LINE, đỉnh PLINE, góc ARC, layer hoặc tỷ lệ nét không bị thay đổi. Đợt 283 bổ sung phép so sánh toàn bộ thuộc tính hình học **ở cả vòng thứ nhất và thứ hai**.
+3. Sử dụng dữ liệu thử `stage282_trace_sample`: 24 LINE, một LWPOLYLINE kín, một ARC trên layer `AI-TRACE`, màu Index 3 và tỷ lệ nét 1,5.
+4. Các hình học mẫu chỉ đại diện dữ liệu có thể được tạo bởi AI Review; chưa phải bằng chứng chất lượng nhận dạng từ ảnh thực.
+
+### Bài 310 — Hướng dẫn kiểm tra DWG qua hai chu kỳ
+1. Gọi `cadcraft_io::write` để lưu DWG, sau đó `cadcraft_io::read` mở lại thành `Drawing` lần 1.
+2. Lưu DWG tiếp từ bản đã mở lần 1 và mở lại lần 2.
+3. Ở **mỗi lần**, gọi `stage283_assert_dwg_geometry_integrity`: xác nhận 26 entity, 26 handle duy nhất, đúng layer `AI-TRACE` và màu layer.
+4. So sánh `Common.ltscale` từng entity với bản gốc. Đối với LINE, so sáu thành phần tọa độ đầu/cuối XYZ; PLINE so số đỉnh, tọa độ XY và trạng thái đóng; ARC so tâm XY, bán kính và góc đầu/cuối.
+5. Phép so sánh hình học dùng sai số tuyệt đối 1e-6 đơn vị CAD. Mọi sai khác lớn hơn ngưỡng làm bài kiểm thử thất bại, không được tự sửa lại dữ liệu mẫu để ép test thành PASS.
+6. Một bài kiểm thử nội bộ đạt không có nghĩa AutoCAD độc lập đã xác nhận DWG tương thích đầy đủ.
+
+### Bài 311 — Phát hiện mất đối tượng hoặc trùng handle
+1. Trước lưu, ghi danh sách handle của 24 LINE + PLINE + ARC.
+2. Sau mỗi lần mở, kiểm tra `Drawing::entity_count()`, duyệt `model` để lấy tập handle và so `HashSet` với số thực thể.
+3. Nếu một handle biến mất, bị đổi hoặc bị lặp, bài kiểm thử từ chối, vì việc chỉnh sửa tiếp trên AutoCAD hay CAD 360 có nguy cơ tham chiếu sai thực thể.
+4. Nếu loại đối tượng đổi từ ARC thành LINE, PLINE thành hình khác hoặc tọa độ không khớp, coi đây là lỗi round-trip cần điều tra tại bộ bridge DWG/DXF, không kết luận file đã hợp lệ chỉ nhờ chữ ký `.dwg`.
+
+### Bài 312 — Windows CI và nghiệm thu AutoCAD hai chiều
+1. Workflow `CAD 360 Stage283 DWG Two-Cycle Entity Integrity` chạy `cargo check --locked -p cadcraft-io`, `cargo test --locked -p cadcraft-io stage283 -- --nocapture`, hồi quy Stage282 và các bài DWG roundtrip đã có.
+2. Chỉ công nhận CI PASS nếu có log chạy thành công trên đúng SHA. Mã nguồn và bài kiểm thử đã commit chưa chứng minh các phép so sánh đều đạt.
+3. Trên EXE Windows thật, nhập ảnh PNG/JPEG, người dùng duyệt hình học native, lưu DWG và mở lại; đối chiếu tọa độ, layer, handle với bản trước khi lưu.
+4. Mở cùng file bằng AutoCAD độc lập, chỉnh sửa và lưu, rồi mở lại trong CAD 360 để nghiệm thu hai chiều. DWG phải giữ định dạng chuẩn, không thay cấu trúc gây mất tương thích.
+5. Chụp hình từ EXE khi thực tế chạy, đưa vào giáo trình tổng hợp; không sử dụng sơ đồ giả lập làm hình ảnh nghiệm thu.
+
+**Đợt 283:** Đã commit kiểm thử hai chu kỳ DWG, so đầy đủ loại hình học và thuộc tính cơ bản, workflow Windows; Windows CI, EXE và AutoCAD độc lập chưa được xác nhận PASS. Giáo trình tổng hợp cập nhật đến Bài 312.
