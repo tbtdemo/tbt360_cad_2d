@@ -3264,3 +3264,37 @@ Kế hoạch: Đợt 240 sửa lỗi CI, hoàn thiện thử DWG hai chiều v�
 6. Giữ chính sách CAD Free không buộc đăng nhập khi mở phần mềm và file DWG chuẩn không mã hóa; đăng nhập/quyền Export xử lý riêng theo chính sách license.
 
 **Tình trạng Đợt 277:** Mã và regression đã được commit, chưa tuyên bố Windows CI PASS, EXE đã chạy hay DWG đã nghiệm thu. Giáo trình tổng hợp cập nhật đến Bài 288.
+
+
+## 118. Đợt 278 — Xác minh Undo Snapshot thật trước khi tự rollback lỗi AI
+
+### Bài 289 — Khác nhau giữa Revision và bản ghi Undo
+1. CAD Engine quản lý cả `DocState.revision` và ngăn xếp `DocState.undo`. Việc Revision thay đổi không phải lúc nào cũng có thể dùng làm bằng chứng một bước Undo mới thuộc giao dịch AI đang chạy.
+2. Sau `UNDO BEGIN`, CAD Engine giữ `undo_ctl.group` bằng độ sâu ngăn xếp tại thời điểm bắt đầu nhóm. Khi một lệnh vẽ hợp lệ tạo bản ghi Undo mới, `undo.len() > undo_ctl.group`.
+3. Đợt 278 thêm hàm `current_undo_group_has_snapshots` để xác nhận điều kiện trên **trước khi gọi `UNDO END`**.
+4. Đối với nhóm rỗng (AI lỗi ngay lệnh đầu, chưa thay đổi hình học), không có Snapshot mới: **không tự gọi Undo một lần**, vì thao tác đó có thể xóa bản ghi cũ do người dùng tạo.
+5. Đối với nhóm đã có Snapshot và UID/Epoch/Revision còn khớp, hệ thống có thể đóng nhóm và Undo riêng nhóm AI nhằm khôi phục trạng thái trước khi AI bắt đầu.
+
+### Bài 290 — Thử nghiệm nhóm Undo rỗng và có thay đổi
+1. Tạo một LINE độc lập trong bản vẽ mẫu; ghi nhận `entity_count`.
+2. Gọi `UNDO BEGIN`; kiểm tra `current_undo_group_has_snapshots` trả `false`; gọi `UNDO END`.
+3. Bắt đầu nhóm mới, tạo một LINE hợp lệ bằng CAD Engine. Kiểm tra `current_undo_group_has_snapshots` trả `true`.
+4. Kết thúc nhóm và Undo một lần: chỉ LINE vừa tạo trong nhóm biến mất, LINE gốc phải giữ nguyên. Undo lần nữa mới xóa LINE gốc.
+5. Test tự động `stage278_undo_snapshot_marker_detects_empty_and_nonempty_groups` kiểm tra đúng chuỗi hành vi trên với Session thật.
+
+### Bài 291 — Bảo vệ công việc có trước khi AI lỗi
+1. Tạo một LINE từ `(0,600)` đến `(100,600)`; kiểm tra đang có một bản ghi Undo cho LINE này.
+2. Tạo Preview AI cố ý lỗi: LINE có hai đầu trùng nhau. Bấm xác nhận trong kịch bản kiểm thử.
+3. Vì lỗi không làm thay đổi bản vẽ, nhóm AI không chứa Snapshot; quá trình xử lý lỗi chỉ đóng nhóm, không được xóa LINE có trước.
+4. Kiểm tra sau lỗi: `entity_count=1`, ngăn xếp Undo còn nguyên độ sâu ban đầu, nhóm Undo đã đóng.
+5. Test `stage278_empty_invalid_ai_transaction_keeps_prior_undo_snapshot` thực hiện xác minh này. Cần tiếp tục chạy hồi quy Stage277 về lỗi giữa nhóm và Revision khi lệnh Engine trả Err.
+
+### Bài 292 — Kiểm thử Windows và điều kiện nghiệm thu
+1. Workflow `CAD 360 Stage278 Native Undo Snapshot Ownership` chạy `cargo check --locked -p cadcraft-ui-egui` và `cargo test --locked -p cadcraft-ui-egui stage278 -- --nocapture` trên Windows, Rust 1.95.0.
+2. Chạy hồi quy Stage275–277: PNG → LINE native → Undo/Redo, ERASE xóa 0, lỗi AI ở lệnh đầu và lệnh tiếp theo.
+3. Không xác nhận CI PASS nếu GitHub Actions chưa trả kết quả tại đúng commit. Đã commit mã và test **khác** với đã chạy và qua kiểm thử.
+4. Sau khi CI đạt, thử Windows EXE thật với nhiều bản vẽ mẫu; chụp ảnh giao diện Preview, Confirm, Undo/Redo; kiểm tra ảnh nguồn bị đổi sau Preview phải bị từ chối.
+5. Kiểm tra lưu/mở lại DWG và chỉnh sửa/lưu hai chiều trong AutoCAD độc lập. File DWG không đổi cấu trúc hoặc mã hóa làm mất khả năng tương thích.
+6. Chưa nghiệm thu EXE, DWG hoặc AI tự nhận dạng kiến trúc có ngữ nghĩa khi chưa có bằng chứng thực tế.
+
+**Phạm vi Đợt 278:** Thêm kiểm soát Undo Snapshot thật và các test bảo vệ lịch sử người dùng. Không công bố tính năng mới ngoài phạm vi an toàn giao dịch; giáo trình tổng hợp bổ sung đến Bài 292.
