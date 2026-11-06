@@ -888,6 +888,39 @@ mod ai_draft_vietnamese_tests {
         assert_eq!(b.calls,vec!["drawing.inspect"]);
     }
 
+    /// Stage237 runs the real native engine, not the Stage235 simulated backend.
+    /// This checks actual BLOCK/INSERT handles, LAYMCH and one Undo group.
+    #[test]
+    fn ai_vietnamese_stage237_headless_native_door_layer_and_undo() {
+        use crate::backend::{Backend,Headless};
+        let mut backend=Headless::default();
+        let before=backend.session.doc().unwrap().entity_count();
+        let inspected=backend.call("drawing.inspect",json!({"entities":false})).unwrap();
+        let uid=inspected["documentUid"].as_u64().expect("real CAD documentUid");
+        let epoch=inspected["documentEpoch"].as_u64().expect("real CAD epoch");
+        let revision=inspected["revision"].as_u64().expect("real CAD revision");
+        let mut args=json!({"text":"vẽ hai phòng liền kề rộng 3000 và 4000 dài 4000 tại 0,0 cửa 900 giữa bản lề dưới mở phải",
+            "createDoorBlock":true,"applyLayers":true});
+        let preview=super::ai_draw_plan_vietnamese(&mut backend,&args).unwrap();
+        assert_eq!(preview["previewOnly"],true);
+        assert_eq!(backend.session.doc().unwrap().entity_count(),before,"Preview must not mutate the document");
+        args["preview"]=json!(false);args["confirm"]=json!(true);
+        args["expectedDocumentUid"]=json!(uid);args["expectedDocumentEpoch"]=json!(epoch);
+        args["expectedRevision"]=json!(revision);
+        let result=super::ai_draw_plan_vietnamese(&mut backend,&args).unwrap();
+        assert_eq!(result["executed"],true);
+        assert_eq!(result["layerAssignmentsApplied"],true);
+        let d=backend.session.doc().unwrap();
+        assert_eq!(d.entity_count(),before+4,"Room, two walls and door INSERT must be visible");
+        for layer in ["TBT_AI_ROOM","TBT_AI_WALL","TBT_AI_DOOR"] {
+            assert!(d.layer(layer).is_some(),"missing real layer {layer}");
+        }
+        let blocks=d.model.iter().filter(|e|e.common.layer=="TBT_AI_DOOR").count();
+        assert_eq!(blocks,1,"one door INSERT must be on TBT_AI_DOOR");
+        backend.call("engine.execute",json!({"command":"undo","params":{"count":1}})).unwrap();
+        assert_eq!(backend.session.doc().unwrap().entity_count(),before,"one native UNDO must restore original drawing");
+    }
+
     #[test]
     fn ai_vietnamese_plan_is_atomic_on_parser_validation() {
         assert!(super::parse_vietnamese_plan("vẽ đường thẳng từ 0,0 đến 10,0").is_err());
