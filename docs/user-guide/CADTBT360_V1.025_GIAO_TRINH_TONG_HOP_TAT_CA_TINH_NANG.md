@@ -2933,3 +2933,35 @@ Kế hoạch: Đợt 240 sửa lỗi CI, hoàn thiện thử DWG hai chiều v�
 5. Công cụ mới **không tự tìm/tự cắt mọi tường trong bản vẽ**, không cắt đa lớp/hatch, tường cong/nghiêng, không xử lý nối nhiều tường, không phải thao tác BIM Door hay AI hiểu ảnh theo ngữ nghĩa.
 
 **Chính sách sản phẩm giữ nguyên:** CAD Free sử dụng không bắt đăng nhập; xuất theo chính sách license; DWG phải là định dạng chuẩn chỉnh sửa hai chiều với AutoCAD, không mã hóa hoặc thay đổi cấu trúc.
+
+
+## 108. Đợt 268 — Cắt ô cửa trên tường PLINE chữ nhật nghiêng được chọn rõ ràng
+
+### Bài 249 — Chọn một tường hình chữ nhật nghiêng
+1. Mở bản vẽ CAD 360, chọn **chính xác một LWPOLYLINE kín bốn đỉnh** có hình dạng tường chữ nhật, có thể xoay nghiêng theo bất kỳ góc nào trong mặt phẳng XY.
+2. Không chọn đồng thời nhiều tường. Không hỗ trợ LINE rời, block, spline, tường bo cong, tường đa giác không phải chữ nhật, polyline có bulge, thuộc tính độ rộng nét hay cao độ.
+3. Mở **Tools → CAD 360 AI Review...**, tìm vùng **CẮT Ô CỬA TRÊN TƯỜNG CÓ SẴN**, nhập tâm cửa tính từ đầu đường trục và bề rộng cửa, chọn bản lề trái/phải.
+4. Bấm **Preview ô cửa trên PLINE đã chọn**. Đây là bước chỉ đọc; bản vẽ chưa bị thay đổi.
+
+### Bài 250 — Tính trục tường từ bốn đỉnh thật
+1. Bộ hình học lấy bốn điểm PLINE và tính bốn vectơ cạnh liền kề, hai chiều dài cạnh, góc vuông và hai cặp cạnh đối.
+2. Đối tượng chỉ được chấp nhận nếu hai cạnh đối cùng phương, ngược hướng, cạnh liền nhau vuông góc trong dung sai phụ thuộc tỷ lệ, bốn cạnh không suy biến và chiều dài tường lớn hơn hai lần chiều dày.
+3. Đường trục tường đi qua trung điểm hai cạnh ngắn, **không suy ra từ khung bao X/Y** vì tường nghiêng có thể bị đánh giá sai.
+4. Ví dụ biên dạng có các đỉnh `(80,-60);(3080,3940);(2920,4060);(-80,60)` được xác định trục **(0,0) → (3000,4000)**, dài 5000 và dày 200 (đơn vị CAD).
+5. Mọi hình bị xiên, tự cắt, gần hình vuông hoặc có cạnh quá ngắn phải bị từ chối, không tự sửa.
+
+### Bài 251 — Preview, xác nhận và Undo theo đúng handle
+1. Với tường nghiêng hợp lệ, nhập tâm cửa `2500`, bề rộng `900`, chọn bản lề rồi Preview hai PLINE kín chừa ô mở, LINE cánh và ARC cung mở dọc theo trục nghiêng.
+2. Kiểm tra lại UID, Epoch, Revision, bản sao đối tượng đã chọn, layer không khóa và handle nguồn không bị thay đổi trước khi xác nhận.
+3. Khi bấm **Tôi đồng ý – Vẽ vào CAD**, bộ xử lý chỉ ERASE đúng **một handle PLINE** đã duyệt, sau đó tạo bốn đối tượng CAD gốc, trong một nhóm Undo.
+4. Một lần Undo được kỳ vọng khôi phục tường gốc và giữ nguyên các đối tượng không liên quan; Redo tái tạo ô cửa mới.
+5. Chức năng này không tự tìm hoặc cắt tất cả giao tường trong bản vẽ, không xử lý cửa trên tường có hatch, thuộc tính BIM đặc biệt, tường nhiều lớp hoặc block.
+
+### Bài 252 — Kiểm thử Windows và điều kiện nghiệm thu
+1. Workflow `CAD 360 Stage268 Rotated Existing Wall Door Cut` chạy kiểm tra biên dịch UI Windows và `stage268`, hồi quy `stage267` và `stage266`.
+2. Test `stage268_rotated_wall_cuts_only_explicitly_selected_rectangle_and_supports_undo_redo` tạo tường nghiêng dài 5000/dày 200, giữ một LINE độc lập, kiểm tra trước/sau Preview, Commit, Undo/Redo.
+3. Test `stage268_rotated_wall_rejects_skewed_self_intersecting_and_short_candidates` từ chối hình xiên, tự cắt, hình vuông và kiểm tra trục tường nghiêng.
+4. Chỉ được đánh dấu PASS khi GitHub Actions xác nhận trên commit đúng; cần chạy ứng dụng Windows thật và chụp ảnh màn hình UI thật trước khi phát hành.
+5. Cần kiểm tra lưu, mở, sửa và lưu lại DWG bằng AutoCAD độc lập; không thay đổi cấu trúc hoặc mã hóa DWG. CAD Free không yêu cầu đăng nhập khi mở phần mềm, quyền xuất vẫn thực hiện theo chính sách license.
+
+**Giới hạn Đợt 268:** Đã bổ sung mã và test xử lý một PLINE chữ nhật nghiêng được chọn; chưa chứng minh thực nghiệm trên EXE hoặc AutoCAD và chưa có AI ngữ nghĩa nhận biết mọi loại tường/cửa.
