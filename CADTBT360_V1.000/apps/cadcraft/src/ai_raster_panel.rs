@@ -263,13 +263,26 @@ fn render_pdf_page(pdf: &std::path::Path, page: u32) -> Result<std::path::PathBu
     let unique=std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_err(|e|e.to_string())?.as_nanos();
     let prefix=std::env::temp_dir().join(format!("cad360_ai_pdf_{}_{}",std::process::id(),unique));
     let png=prefix.with_extension("png");
-    let result=std::process::Command::new(pdf_renderer())
+    let mut child=std::process::Command::new(pdf_renderer())
         .arg("-f").arg(page.to_string()).arg("-l").arg(page.to_string())
         .arg("-singlefile").arg("-scale-to").arg("2400").arg("-png")
-        .arg(pdf).arg(&prefix).output()
-        .map_err(|e|format!("Không tìm thấy Poppler pdftoppm ({e}). Cài trong Tools/Poppler/bin cạnh CADTBT360.exe, thiết lập CAD360_PDF_RENDERER hoặc thêm vào PATH."))?;
-    if !result.status.success() {
-        return Err(format!("Không chuyển được trang {page} của PDF: {}",String::from_utf8_lossy(&result.stderr).chars().take(300).collect::<String>()));
+        .arg(pdf).arg(&prefix)
+        .stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null())
+        .spawn().map_err(|e|format!("Không tìm thấy Poppler pdftoppm ({e}). Cài trong Tools/Poppler/bin cạnh CADTBT360.exe, thiết lập CAD360_PDF_RENDERER hoặc thêm vào PATH."))?;
+    let start=std::time::Instant::now();
+    let status=loop {
+        match child.try_wait() {
+            Ok(Some(status))=>break status,
+            Ok(None) if start.elapsed()<std::time::Duration::from_secs(60)=>std::thread::sleep(std::time::Duration::from_millis(100)),
+            Ok(None)=>{let _=child.kill();let _=child.wait();let _=std::fs::remove_file(&png);
+                return Err("Chuyển PDF quá 60 giây; đã dừng tiến trình để tránh treo AI Studio.".into());},
+            Err(e)=>{let _=child.kill();let _=child.wait();let _=std::fs::remove_file(&png);
+                return Err(format!("Không theo dõi được tiến trình chuyển PDF: {e}"));}
+        }
+    };
+    if !status.success() {
+        let _=std::fs::remove_file(&png);
+        return Err(format!("Không thể chuyển trang PDF {page}. Kiểm tra PDF có mật khẩu, bị hỏng hoặc trang không tồn tại (mã thoát: {status})."));
     }
     let size=std::fs::metadata(&png).map_err(|e|format!("Không tìm thấy ảnh trang PDF: {e}"))?.len();
     if size==0 || size>80*1024*1024 { let _=std::fs::remove_file(&png); return Err("Ảnh PDF tạo ra rỗng hoặc quá 80 MB.".into()); }
@@ -1830,6 +1843,12 @@ mod tests {
         assert!(apply_ai_instruction(&mut state,"không rõ lệnh").is_err());
         assert!(apply_ai_instruction(&mut state,"wall").is_ok());
         assert!(state.wall_pair_hints && !state.door_leaf_hints && !state.column_hatch_hints);
+    }
+
+    #[test]
+    fn ai_pdf_renderer_resolution_has_safe_executable_fallback() {
+        let renderer=pdf_renderer();
+        assert!(!renderer.as_os_str().is_empty());
     }
 
     #[test]
