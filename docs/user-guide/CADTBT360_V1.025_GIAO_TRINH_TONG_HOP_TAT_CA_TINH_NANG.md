@@ -3230,3 +3230,37 @@ Kế hoạch: Đợt 240 sửa lỗi CI, hoàn thiện thử DWG hai chiều v�
 5. Các hạn chế chưa nghiệm thu: ảnh mặt bằng thực tế đa dạng, nhận dạng cửa/tường có ngữ nghĩa, OIDC Host phê duyệt GUI, Windows EXE phát hành và DWG hai chiều.
 
 **Phạm vi Đợt 276:** sửa điều kiện đếm Revision khi ERASE không xóa; bổ sung test sử dụng lệnh Engine thật; workflow Windows và giáo trình đến Bài 284. Đây là bản cập nhật mã, không phải công bố sản phẩm phát hành đã nghiệm thu.
+
+
+## 117. Đợt 277 — Chống Undo nhầm lệnh cũ khi AI thất bại trước thay đổi đầu tiên
+
+### Bài 285 — Phân biệt nhóm Undo rỗng và nhóm đã thay đổi bản vẽ
+1. Mở CAD 360, tạo một LINE hợp lệ bằng công cụ CAD thông thường. Đây là công việc **đã có trước thao tác AI**, phải được bảo toàn nếu lệnh AI sau đó thất bại.
+2. Khi AI Review bắt đầu lệnh được xác nhận, hệ thống thực hiện `UNDO BEGIN`. Nếu ngay **lệnh đầu tiên** lỗi mà không sửa bản vẽ, `UNDO END` **không ghi thêm bước Undo mới**.
+3. Mã cũ gọi `UNDO count=1` bất kể nhóm AI có phát sinh thay đổi hay không. Vì nhóm rỗng không có lịch sử mới, lời gọi này có thể **Undo nhầm LINE cũ của người dùng**.
+4. Đợt 277 bổ sung rào chắn: chỉ rollback sau `UNDO END` khi số bước thay đổi được kiểm chứng trong nhóm AI **lớn hơn 0** và UID/Epoch/Revision còn khớp.
+5. Nếu nhóm AI chưa tạo thay đổi, chỉ trả về lỗi, đóng nhóm và giữ nguyên cả bản vẽ lẫn quyền Undo tác vụ trước đó. Người dùng có thể Undo LINE cũ bằng thao tác riêng của chính mình.
+
+### Bài 286 — Trường hợp lỗi ở lệnh thứ hai sau khi AI đã vẽ
+1. Tạo trước một LINE độc lập. Tạo một phương án AI có hai lệnh: lệnh đầu vẽ LINE hợp lệ; lệnh thứ hai LINE có hai đầu trùng nhau để cố tình trả lỗi.
+2. Giao dịch AI có **một thay đổi thực**. Sau `UNDO END`, một lần Undo nội bộ phải hoàn tác đúng nhóm AI, không xóa LINE độc lập có trước.
+3. Sau khi AI báo lỗi, kiểm tra LINE độc lập vẫn còn. Người dùng thực hiện Undo riêng sau đó mới có thể xóa LINE độc lập của mình.
+4. Test `stage277_partial_failure_rolls_back_only_its_group_but_preserves_previous_undo` kiểm tra thao tác trên CAD Engine thật, Undo Group đóng và lịch sử Undo trước đó được giữ.
+5. Test `stage277_empty_failed_ai_group_must_never_undo_previous_user_command` kiểm tra tình huống **lỗi ở lệnh đầu**, không tăng Revision và không xóa nhầm công việc trước.
+
+### Bài 287 — Xử lý lệnh CAD trả Err nhưng đã tăng Revision
+1. Kiểm tra logic `Session::execute`: tùy loại lỗi, command có thể trả `Err` trong khi thay đổi tài liệu đã xảy ra. Không được giả định mọi lỗi luôn đi kèm **0 bước Revision**.
+2. Đợt 277 bổ sung `failed_command_revision_step(before,after)`: Revision không tăng → 0 bước; tăng đúng 1 → 1 bước; giảm hoặc tăng bất thường → từ chối tự Undo.
+3. Khi một lệnh báo lỗi, AI Review đọc Revision thực tế trước khi quyết định có hoàn tác nhóm hay không. Nếu mất quyền sở hữu giao dịch, phải báo lỗi và **không tự Undo các thao tác khác**.
+4. Bài test `stage277_reconcile_failed_engine_command_revision_without_touching_prior_history` kiểm tra các giá trị Revision không đổi, tăng một, tăng nhiều, giảm và tràn.
+5. Đây là bước tăng tính an toàn giao dịch. Không phải bằng chứng mọi lỗi bất thường hoặc thao tác cạnh tranh đa luồng đã được xử lý hoàn toàn.
+
+### Bài 288 — Kiểm thử Windows và điều kiện phát hành
+1. Workflow `CAD 360 Stage277 Protect Earlier Undo History` chạy trên `windows-latest` với Rust 1.95.0: `cargo check --locked -p cadcraft-ui-egui`, `cargo test --locked -p cadcraft-ui-egui stage277 -- --nocapture`.
+2. Workflow chạy thêm hồi quy Stage274–276: lệnh đơn, PNG ảnh thật → CAD native, ERASE xóa 0 và Undo một nhóm.
+3. Chỉ công nhận PASS khi kết quả GitHub Actions xác nhận đúng SHA. Mã đã được commit không đồng nghĩa CI, EXE hoặc AutoCAD đã nghiệm thu.
+4. Trên EXE Windows thật, thử: tạo LINE thủ công → lệnh AI lỗi ngay → LINE cũ vẫn còn → Undo riêng của người dùng vẫn hoạt động; tiếp theo thử lỗi lệnh thứ hai và Undo nhóm AI.
+5. Với ảnh PNG/JPEG, thử Preview → Confirm → Undo/Redo, thay đổi file nguồn sau Preview, Save/Reopen DWG chuẩn và trao đổi hai chiều với AutoCAD độc lập.
+6. Giữ chính sách CAD Free không buộc đăng nhập khi mở phần mềm và file DWG chuẩn không mã hóa; đăng nhập/quyền Export xử lý riêng theo chính sách license.
+
+**Tình trạng Đợt 277:** Mã và regression đã được commit, chưa tuyên bố Windows CI PASS, EXE đã chạy hay DWG đã nghiệm thu. Giáo trình tổng hợp cập nhật đến Bài 288.
