@@ -10,7 +10,9 @@ impl AccessMode {
         match value.trim().to_ascii_lowercase().as_str() {
             "readonly"|"read-only" => Self::ReadOnly,
             "reviewed"|"reviewed-write" => Self::Reviewed,
-            _ => Self::Legacy,
+            "legacy" => Self::Legacy,
+            // Invalid spelling must never silently widen an external agent's rights.
+            _ => Self::ReadOnly,
         }
     }
     pub fn as_str(self)->&'static str {
@@ -176,5 +178,6 @@ mod tests {
         assert_eq!(AccessMode::from_setting("readonly"),AccessMode::ReadOnly);
         assert_eq!(AccessMode::from_setting("reviewed"),AccessMode::Reviewed);
         assert_eq!(AccessMode::from_setting("legacy"),AccessMode::Legacy);
+        assert_eq!(AccessMode::from_setting("unrecognized-mode"),AccessMode::ReadOnly);
     }
 }
