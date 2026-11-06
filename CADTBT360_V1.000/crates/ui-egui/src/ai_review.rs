@@ -619,6 +619,17 @@ fn preview_selected_existing_wall(session:&Session,center_text:&str,door_width_t
 
 /// Stage271: freeze the exact operator controls that produced the approved Preview.
 impl AiReview {
+    /// Opens existing native, human-reviewed CAD command flow from the unified AI Studio.
+    /// Changing the prompt invalidates all earlier previews and approvals.
+    pub fn open_with_prompt(&mut self, prompt: &str) {
+        self.open=true;
+        self.prompt=prompt.trim().to_owned();
+        self.preview=None;
+        self.message="Lệnh đã được chuyển từ AI Studio. Nhấn 1. Xem trước để kiểm tra trước khi ghi CAD.".into();
+    }
+}
+
+impl AiReview {
     fn image_controls_snapshot(&self)->ImageControlSnapshot {
         ImageControlSnapshot {
             opening_index:self.opening_index.clone(),
