@@ -14,6 +14,7 @@ struct Preview {
     /// For raster plans: exact preview snapshot for source revalidation before any CAD mutation.
     image_evidence: Option<(Value, Value, Vec<u8>)>,
     selected_opening_guide: Option<usize>,
+    selected_door_arc: Option<usize>,
 }
 
 #[derive(Default)]
@@ -23,6 +24,7 @@ pub struct AiReview {
     image_path: String,
     image_scale: String,
     opening_index: String,
+    door_arc_index: String,
     preview: Option<Preview>,
     message: String,
 }
@@ -169,6 +171,7 @@ fn plan_from_text(text:&str)->Result<(Vec<(&'static str,Value)>,String),String> 
 /// Stage263: add only a selected, human-reviewed opening outline as a separate native PLINE.
  /// Existing image strokes are not removed, joined or changed by this proposal.
 fn select_opening_guide(preview:&mut Preview,index:usize)->Result<(),String> {
+    if preview.selected_door_arc.is_some() {return Err("Chỉ thêm một loại chỉ dẫn: PLINE ô cửa hoặc ARC mở cửa; cần Preview ảnh lại để đổi".into());}
     let Some((_,proposal,_))=preview.image_evidence.as_ref() else {
         return Err("Chỉ chọn gợi ý ô cửa khi đang Preview ảnh".into());
     };
@@ -202,6 +205,53 @@ fn select_opening_guide(preview:&mut Preview,index:usize)->Result<(),String> {
     preview.steps.push(("pline",json!({"vertices":coords,"closed":true})));
     preview.selected_opening_guide=Some(index);
     preview.description=format!("Ảnh: {} LINE nguồn + 1 PLINE hướng dẫn ứng viên ô cửa #{} (không tự cắt tường, không kết luận là cửa).",
+        preview.steps.len()-1,index);
+    Ok(())
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn select_door_swing_arc(preview:&mut Preview,index:usize)->Result<(),String> {
+    if preview.selected_opening_guide.is_some() {
+        return Err("Đang chọn PLINE ô cửa; cần Preview ảnh lại để chuyển sang cung mở cửa".into());
+    }
+    let Some((args,previous,bytes))=preview.image_evidence.as_ref() else {
+        return Err("Chỉ được thêm cung khi có Preview ảnh".into());
+    };
+    if std::fs::read(args["path"].as_str().ok_or("Không có đường dẫn ảnh")?)
+        .map_err(|e|format!("Không đọc được ảnh khi chọn cung: {e}"))?!=*bytes {
+        return Err("Ảnh nguồn đã thay đổi; Preview lại trước khi chọn cửa".into());
+    }
+    let mut reviewed_args=args.clone();
+    reviewed_args["createDoorSwingArcs"]=json!(true);
+    reviewed_args["confirmDoorSwingArcs"]=json!(true);
+    let reviewed=cadcraft_mcp::raster_vector::preview(&reviewed_args)?;
+    if reviewed["lines"]!=previous["lines"]
+        || reviewed["pairedWallOpeningCandidates"]!=previous["pairedWallOpeningCandidates"] {
+        return Err("Ứng viên cửa hoặc nét nguồn đã đổi; phải Preview lại".into());
+    }
+    let door=reviewed["doorSwingArcs"].as_array().and_then(|arcs|arcs.get(index))
+        .ok_or("Không có cung mở tại chỉ số đã chọn; ứng viên này chưa đủ bằng chứng")?;
+    if door["classification"]!="confirmed-drafting-arc-not-door-block" {
+        return Err("Đề xuất cung chưa được xác minh để tạo CAD".into());
+    }
+    let center=door["center"].as_array().filter(|v|v.len()==2).ok_or("Cung không có tâm hợp lệ")?;
+    let (Some(cx),Some(cy),Some(radius),Some(start),Some(end))=
+        (center[0].as_f64(),center[1].as_f64(),door["radius"].as_f64(),
+            door["start"].as_f64(),door["end"].as_f64()) else {
+        return Err("Cung có thông tin số không hợp lệ".into());
+    };
+    if ![cx,cy,radius,start,end].iter().all(|v|v.is_finite())
+        || cx.abs()>1e9 || cy.abs()>1e9 || radius<=0.0 || radius>1e8 {
+        return Err("Cung nằm ngoài giới hạn hình học CAD".into());
+    }
+    if let Some(previous_index)=preview.selected_door_arc {
+        if previous_index==index {return Ok(());}
+        preview.steps.pop();
+    }
+    preview.steps.push(("arc",json!({"center":[cx,cy],"radius":radius,"start":start,"end":end})));
+    preview.selected_door_arc=Some(index);
+    preview.image_evidence=Some((reviewed_args,reviewed,bytes.clone()));
+    preview.description=format!("Ảnh: {} nét LINE nguồn + ARC cung mở #{} được người dùng chọn; chỉ dẫn CAD 2D, chưa phải Door/BIM.",
         preview.steps.len()-1,index);
     Ok(())
 }
@@ -296,7 +346,7 @@ fn preview_raster(session:&Session,path:&str,scale_text:&str)->Result<Preview,St
     let summary=format!("Ảnh: {} LINE chỉnh sửa được; {} khoảng mở nghi vấn; {} nét giống cánh cửa. Không tự suy đoán/cắt cửa.",steps.len(),gap_count,door_count);
     Ok(Preview {uid:s.uid,epoch:session.doc_epoch,revision:s.revision,
         text:format!("{}|{}",path,scale_text),steps,description:summary,
-        image_evidence:Some((args,proposal,source_bytes)),selected_opening_guide:None})
+        image_evidence:Some((args,proposal,source_bytes)),selected_opening_guide:None,selected_door_arc:None})
 }
 
 fn drawing_ready(session:&Session)->bool {
@@ -352,7 +402,7 @@ impl AiReview {
                     if !drawing_ready(session) {return Err("CAD đang có lệnh/Undo Group hoặc Block Editor: chưa thể Preview".into());}
                     let st=session.state().map_err(|e|e.to_string())?;
                     Ok(Preview {uid:st.uid,epoch:session.doc_epoch,revision:st.revision,
-                        text:self.prompt.clone(),steps,description,image_evidence:None,selected_opening_guide:None})
+                        text:self.prompt.clone(),steps,description,image_evidence:None,selected_opening_guide:None,selected_door_arc:None})
                 })();
                 match next {Ok(p)=>{self.preview=Some(p);self.message="Đã xem trước; chưa ghi đối tượng.".into();},Err(e)=>self.message=e}
             }
@@ -380,6 +430,28 @@ impl AiReview {
                         }
                     }
                 }
+                let door_options=self.preview.as_ref()
+                    .and_then(|p|p.image_evidence.as_ref())
+                    .and_then(|(_,proposal,_)|proposal["pairedWallOpeningCandidates"].as_array())
+                    .map_or(0,|items|items.iter().filter(|v|v["doorLeafCandidate"]==true).count());
+                if door_options>0 {
+                    ui.label(format!("Có {} ứng viên cung mở dựa trên nét cánh cửa; chọn chỉ số cung từ 0:",door_options));
+                    ui.text_edit_singleline(&mut self.door_arc_index);
+                    #[cfg(not(target_arch = "wasm32"))]
+                    if ui.button("Thêm ARC cung mở của ứng viên đã chọn vào Preview").clicked() {
+                        match self.door_arc_index.trim().parse::<usize>() {
+                            Ok(index)=>{
+                                if let Some(p)=&mut self.preview {
+                                    match select_door_swing_arc(p,index) {
+                                        Ok(())=>self.message="Đã thêm ARC chỉ dẫn; xem trước và bấm xác nhận riêng. Không tự chỉnh tường gốc.".into(),
+                                        Err(e)=>self.message=e
+                                    }
+                                }
+                            }
+                            Err(_)=>self.message="Chỉ số ARC phải là số nguyên không âm".into()
+                        }
+                    }
+                }
             }
             if let Some(p)=self.preview.as_ref() {
                 ui.separator();
@@ -398,6 +470,21 @@ impl AiReview {
                                 && points.len()==2
                                 && let (Some(a),Some(b))=(to_xy(&points[0]),to_xy(&points[1])) {
                                 segments.push((a,b,false));
+                            }
+                        } else if *command=="arc" {
+                            let center=params["center"].as_array().cloned().unwrap_or_default();
+                            if center.len()==2 {
+                                if let (Some(cx),Some(cy),Some(radius),Some(start),Some(end))=
+                                    (center[0].as_f64(),center[1].as_f64(),
+                                        params["radius"].as_f64(),params["start"].as_f64(),params["end"].as_f64()) {
+                                    let mut last=None;
+                                    for i in 0..=24 {
+                                        let angle=(start+(end-start)*f64::from(i)/24.0).to_radians();
+                                        let p=[(cx+radius*angle.cos()) as f32,(cy+radius*angle.sin()) as f32];
+                                        if let Some(before)=last {segments.push((before,p,true));}
+                                        last=Some(p);
+                                    }
+                                }
                             }
                         } else if *command=="pline" {
                             let vertices=params["vertices"].as_array().cloned().unwrap_or_default();
@@ -468,6 +555,38 @@ mod tests {
         assert!(parse_draft("vẽ phòng rộng NaN dài 4000 tại 0,0").is_err());
         assert!(parse_draft("xóa tất cả").is_err());
     }
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn stage263_door_arc_requires_explicit_operator_selection_and_preserves_image_lines() {
+        use image::{GrayImage,Luma};
+        let mut img=GrayImage::from_pixel(110,48,Luma([255]));
+        for y in [15,22] {
+            for x in 5..=39 {img.put_pixel(x,y,Luma([0]));}
+            for x in 51..=95 {img.put_pixel(x,y,Luma([0]));}
+        }
+        for y in 3..=15 {img.put_pixel(39,y,Luma([0]));}
+        let path=std::env::temp_dir().join(format!("cad360-stage263-door-{}-{}.png",
+            std::process::id(),std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        img.save(&path).unwrap();
+        let mut session=Session::default();
+        let mut p=preview_raster(&session,&path.to_string_lossy(),"2").unwrap();
+        let original=p.steps.len();
+        assert_eq!(session.doc().unwrap().entity_count(),0);
+        assert!(select_door_swing_arc(&mut p,999).is_err());
+        assert_eq!(p.steps.len(),original);
+        select_door_swing_arc(&mut p,0).unwrap();
+        assert_eq!(p.steps.len(),original+1);
+        assert_eq!(p.steps.last().unwrap().0,"arc");
+        assert!(select_opening_guide(&mut p,0).is_err(),
+            "a separate proposal is needed to switch annotation types");
+        commit_steps(&mut session,&p).unwrap();
+        assert_eq!(session.doc().unwrap().entity_count(),original+1);
+        session.execute("undo",&json!({"count":1})).unwrap();
+        assert_eq!(session.doc().unwrap().entity_count(),0);
+        let _=std::fs::remove_file(path);
+    }
+
     #[cfg(not(target_arch = "wasm32"))]
     #[test]
     fn stage263_paired_wall_opening_is_explicit_reviewed_native_guide() {
