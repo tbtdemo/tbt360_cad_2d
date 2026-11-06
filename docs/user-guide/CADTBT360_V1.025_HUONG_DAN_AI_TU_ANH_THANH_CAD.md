@@ -295,3 +295,23 @@ Bài kiểm thử `ai_raster_preview_refuses_switch_away_and_back_with_unchanged
 Mỗi lượt phát hành Windows thành công được cấu hình để kèm `CADTBT360_V1.025_Full_Source.zip`, Setup, Portable, bản Word hướng dẫn và bảng SHA256. Khi chưa có GitHub Actions Success, có thể tải **ZIP mã nguồn tại commit cố định** và bản Word hướng dẫn được cung cấp riêng; đây là mã nguồn và tài liệu, **không phải** xác nhận EXE đã đạt.
 
 **Chưa nghiệm thu:** Windows CI PASS, ảnh chụp thật từ GUI phát hành, tính đúng đắn với mặt bằng thực tế và khả năng tương thích DWG hai chiều với AutoCAD độc lập.
+
+## Bổ sung ngày 06/11/2026 — AI Studio, PDF nhiều trang và AI Ollama cục bộ
+
+### 1. Chọn đúng luồng xử lý
+- **Nhận dạng ảnh/PDF:** Chọn nguồn PNG/JPEG hoặc **Chọn PDF**, chọn trang trong khoảng 1–500; PDF được Poppler kết xuất thành ảnh PNG rồi mới đưa vào hệ thống phân tích nét. Chọn chế độ tìm nét, tường, cửa hoặc cột; nhấn **1. Nhận dạng và xem trước**.
+- **Vẽ CAD trực tiếp bằng lệnh:** Mở phần **Vẽ CAD trực tiếp bằng lệnh**, nhập một đến 12 lệnh tiếng Việt có kích thước/tọa độ; ví dụ `vẽ phòng rộng 6000 dài 4000 tại 0,0 | vẽ hình tròn tâm 3000,2000 bán kính 250`; nhấn **Xem trước lệnh CAD trong AI Review**.
+- **AI hội thoại Ollama:** Máy Windows cần cài riêng Ollama và mô hình (mặc định `qwen2.5:7b`, tải bằng `ollama pull qwen2.5:7b`). Trong AI Studio, nhập yêu cầu tiếng Việt, chọn mô hình, nhấn **Hỏi AI cục bộ**. Chỉ khi kết quả được kiểm tra và chuyển sang **AI Review** mới có thể Preview, sau đó người dùng **Tôi đồng ý - Vẽ vào CAD**. Gói thuê bao ChatGPT/Gemini trên website không phải API key cho chức năng này.
+
+### 2. Cách sử dụng khi AI đang chạy
+- Nhấn **Dừng AI** để yêu cầu ngừng tác vụ Ollama. Phần mềm gửi tín hiệu hủy và kết thúc tiến trình cục bộ, không ghi đối tượng CAD khi hủy.
+- Khi dùng AI chuyển PDF thành ảnh, nếu trang PDF hoặc nội dung tệp nguồn thay đổi giữa lúc kết xuất, hệ thống phải từ chối ảnh kết quả.
+- Nếu nội dung PNG/JPEG hoặc PDF gốc, thông số nhận dạng, tỷ lệ CAD/pixel hoặc tài liệu CAD thay đổi sau Preview, phải **nhận dạng/Preview lại** trước khi xác nhận tạo CAD.
+
+### 3. Nghiệm thu bản vẽ
+1. Kiểm tra số nét, hình chữ nhật, hình tròn, đường tường/cửa được hiển thị trong Preview; kiểm tra tỷ lệ và tọa độ.
+2. Chỉ chấp nhận đề xuất hợp lệ; tối đa 12 lệnh với tối đa 48 bước hình học. Không tự động thực thi lệnh do mô hình đề xuất.
+3. Sau khi xác nhận, dùng một thao tác Undo để kiểm tra hoàn tác cả nhóm AI. Nếu một bước tạo CAD lỗi, phải kiểm tra rollback và trạng thái bản vẽ.
+4. Lưu DWG chuẩn, mở lại trong CAD 360 và kiểm tra số lượng/loại hình học; kiểm tra thêm bằng AutoCAD hoặc phần mềm CAD độc lập trước khi nghiệm thu khả năng trao đổi hai chiều.
+
+**Tình trạng xác minh:** Kiểm thử Windows PDF → PNG độc lập đã từng PASS. Các kiểm thử mới về Ollama, hủy AI, nguồn PDF bất biến, kế hoạch nhiều đối tượng, Undo/Redo và DWG cần CI mới nhất PASS và thao tác kiểm thử GUI trên máy Windows trước khi xác nhận sản phẩm hoạt động 100%.
