@@ -1,0 +1,23 @@
+name: CAD 360 Stage254 Preview-to-DXF Regression
+on:
+  push:
+    branches:
+      - feature/CADTBT360_V1.025_xref-regression
+    paths:
+      - tools/ai_benchmark/stage254_preview_to_dxf.py
+      - .github/workflows/cad360-stage254-preview-dxf.yml
+  workflow_dispatch:
+jobs:
+  preview-to-dxf:
+    runs-on: windows-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Compile stage254 CLI
+        run: python -m py_compile tools/ai_benchmark/stage254_preview_to_dxf.py
+      - name: Preview confirmation DXF security regression
+        run: python tools/ai_benchmark/stage254_preview_to_dxf.py self-test
