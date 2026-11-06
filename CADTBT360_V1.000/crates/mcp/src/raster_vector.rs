@@ -861,6 +861,52 @@ fn door_swing_arcs(openings: &[Value], lines: &[Line], ox: f64, oy: f64, height:
 }
 
 /// Shared non-mutating vectorization used by MCP and the desktop GUI.
+/// Optional supervised benchmark against human-labelled CAD LINE segments.
+/// Error uses endpoint-to-endpoint distance (both possible orientations) and
+/// matches each labelled line to the nearest detected vector. This is NOT a
+/// semantic AI accuracy score; missing segments are reported separately.
+fn reference_line_benchmark(detected:&[Value],reference:&Value,tolerance:f64)->Result<Value,String> {
+    let refs=reference.as_array().ok_or("referenceLinesCAD must be an array")?;
+    if refs.is_empty()||refs.len()>512 {return Err("referenceLinesCAD must contain 1..512 segments".into());}
+    if !tolerance.is_finite()||tolerance<=0.0||tolerance>1.0e9 {
+        return Err("referenceToleranceCAD must be positive and <= 1e9".into());
+    }
+    let parse=|v:&Value|->Result<[[f64;2];2],String>{
+        let a=v.as_array().filter(|a|a.len()==2).ok_or("CAD segment needs two endpoints")?;
+        let point=|v:&Value|->Result<[f64;2],String>{
+            let a=v.as_array().filter(|a|a.len()==2).ok_or("CAD endpoint must have x,y")?;
+            let x=a[0].as_f64().ok_or("CAD x must be numeric")?;
+            let y=a[1].as_f64().ok_or("CAD y must be numeric")?;
+            if !x.is_finite()||!y.is_finite()||x.abs()>1e12||y.abs()>1e12 {
+                return Err("CAD coordinates are outside safe bounds".into());
+            }
+            Ok([x,y])
+        };
+        Ok([point(&a[0])?,point(&a[1])?])
+    };
+    let targets=refs.iter().map(parse).collect::<Result<Vec<_>,_>>()?;
+    let found=detected.iter().map(parse).collect::<Result<Vec<_>,_>>()?;
+    let distance=|p:[f64;2],q:[f64;2]|(p[0]-q[0]).hypot(p[1]-q[1]);
+    let mut errors=Vec::new();
+    for target in &targets {
+        let closest=found.iter().map(|line|{
+            let forward=(distance(target[0],line[0]).powi(2)+distance(target[1],line[1]).powi(2))/2.0;
+            let reverse=(distance(target[0],line[1]).powi(2)+distance(target[1],line[0]).powi(2))/2.0;
+            forward.min(reverse).sqrt()
+        }).fold(f64::INFINITY,f64::min);
+        if closest.is_finite() {errors.push(closest);}
+    }
+    let matched=errors.iter().filter(|e|**e<=tolerance).count();
+    let rmse=if errors.is_empty(){Value::Null}else{
+        json!((errors.iter().map(|e|e*e).sum::<f64>()/errors.len() as f64).sqrt())
+    };
+    Ok(json!({"method":"nearest-line-endpoint-rmse-not-semantic-accuracy",
+        "referenceSegments":targets.len(),"detectedSegments":found.len(),
+        "matchedWithinTolerance":matched,"recallWithinTolerance":matched as f64/targets.len() as f64,
+        "toleranceCAD":tolerance,"endpointRmseCAD":rmse,
+        "warning":"Requires human-labelled reference CAD lines. No guarantee of element classification or two-way AutoCAD acceptance."}))
+}
+
 pub fn preview(args: &Value) -> Result<Value, String> {
     let path = args["path"].as_str().filter(|s| !s.trim().is_empty()).ok_or("path is required")?;
     let file = Path::new(path);
@@ -1408,6 +1454,12 @@ pub fn preview(args: &Value) -> Result<Value, String> {
         let Value::Object(fields)=extra else {unreachable!("preview JSON section is an object")};
         dst.extend(fields);
     }
+    if !args["referenceLinesCAD"].is_null() {
+        let tolerance=args["referenceToleranceCAD"].as_f64().unwrap_or(10.0);
+        result["benchmark"]=reference_line_benchmark(
+            result["lines"].as_array().ok_or("Preview CAD lines missing")?,
+            &args["referenceLinesCAD"],tolerance)?;
+    }
     Ok(result)
 }
 
@@ -1525,6 +1577,33 @@ pub fn run(b: &mut dyn Backend, args: &Value) -> Result<Value, String> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn stage252_reference_benchmark_matches_reversed_line_and_reports_error() {
+        let detected=vec![json!([[0.0,0.0],[100.0,0.0]]),json!([[200.0,0.0],[250.0,0.0]])];
+        let good=json!([[[100.0,0.0],[0.0,0.0]]]);
+        let report=reference_line_benchmark(&detected,&good,0.01).unwrap();
+        assert_eq!(report["matchedWithinTolerance"],1);
+        assert_eq!(report["referenceSegments"],1);
+        assert_eq!(report["recallWithinTolerance"],1.0);
+        assert_eq!(report["endpointRmseCAD"],0.0);
+        let bad=json!([[[105.0,0.0],[5.0,0.0]]]);
+        let report=reference_line_benchmark(&detected,&bad,1.0).unwrap();
+        assert_eq!(report["matchedWithinTolerance"],0);
+        assert_eq!(report["endpointRmseCAD"],5.0);
+        assert!(reference_line_benchmark(&detected,&json!([]),1.0).is_err());
+        assert!(reference_line_benchmark(&detected,&good,0.0).is_err());
+    }
+    #[test]
+    fn stage252_reference_benchmark_rejects_malformed_and_reports_missing_lines() {
+        let refs=json!([[[0,0],[10,0]]]);
+        let missing=reference_line_benchmark(&[],&refs,2.0).unwrap();
+        assert_eq!(missing["detectedSegments"],0);
+        assert_eq!(missing["matchedWithinTolerance"],0);
+        assert!(missing["endpointRmseCAD"].is_null());
+        assert!(reference_line_benchmark(&[],&json!([[[0],[1,2]]]),2.0).is_err());
+        assert!(reference_line_benchmark(&[],&json!([[[1e15,0],[2,3]]]),2.0).is_err());
+    }
+
     use super::*;
     #[test]
     fn raster_vector_rejects_invalid_explicit_cad_scale_before_geometry() {
