@@ -294,6 +294,16 @@ jobs:
           cargo test --locked -p cadcraft-cli --bin cadcraft-cli image_trace_entity_json_matches_windows_installer_smoke_contract -- --nocapture
           if ($LASTEXITCODE -ne 0) { throw 'V1.025 CLI entity JSON contract regression failed; abort Windows packaging' }
 
+      - name: Verify OIDC JWT bearer host sample compiles
+        id: oidc_host_build
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          dotnet restore integrations/oidc-host-dotnet/Cad360OidcHost.csproj
+          if ($LASTEXITCODE -ne 0) { throw 'Stage249 OIDC .NET host restore failed' }
+          dotnet build integrations/oidc-host-dotnet/Cad360OidcHost.csproj --configuration Release --no-restore
+          if ($LASTEXITCODE -ne 0) { throw 'Stage249 OIDC .NET host compilation failed' }
+
       - name: Require image-to-CAD and native raster regression before release packaging
         id: ai_tests
         shell: pwsh
