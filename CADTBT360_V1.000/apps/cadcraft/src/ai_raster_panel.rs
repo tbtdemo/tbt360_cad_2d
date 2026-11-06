@@ -31,6 +31,7 @@ pub struct State {
     pub open: bool,
     pub show_help: bool,
     assistant_instruction: String,
+    native_command_input: String,
     local_model: String,
     local_pending: Option<LocalModelTask>,
     local_command: Option<String>,
@@ -156,6 +157,7 @@ impl State {
         if self.min_length == 0 {
             self.min_length = 16;
             self.local_model = "qwen2.5:7b".into();
+            self.native_command_input="vẽ phòng rộng 6000 dài 4000 tại 0,0".into();
             self.scale = 1.0;
             self.include_diagonals = true;
             self.min_wall_spacing = 2.0;
@@ -595,13 +597,32 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
                     }
                 });
                 ui.separator();
-                ui.label("AI vẽ CAD bằng lệnh tiếng Việt (không cần ảnh):");
-                ui.small("Ví dụ: vẽ phòng rộng 6000 dài 4000 tại 0,0; vẽ tường từ 0,0 đến 6000,0 dày 200.");
-                if ui.button("Mở AI Review - vẽ trực tiếp bằng lệnh").clicked() {
-                    let prompt=state.assistant_instruction.clone();
-                    cad.ai_review.open_with_prompt(&prompt);
-                    cad.set_status("Đã mở AI Review. Kiểm tra và xác nhận Preview trước khi tạo CAD.");
-                }
+                ui.collapsing("Vẽ CAD trực tiếp bằng lệnh (không cần ảnh hoặc mô hình AI)",|ui| {
+                    ui.small("Nhập các lệnh hình học có tọa độ và kích thước rõ ràng. Khác với yêu cầu nhận dạng ảnh ở phía trên.");
+                    ui.add(egui::TextEdit::multiline(&mut state.native_command_input).desired_rows(2)
+                        .desired_width(f32::INFINITY).hint_text("vẽ phòng rộng 6000 dài 4000 tại 0,0 | vẽ hình tròn tâm 3000,2000 bán kính 250"));
+                    ui.horizontal_wrapped(|ui| {
+                        for (name,example) in [
+                            ("Phòng 6 × 4 m","vẽ phòng rộng 6000 dài 4000 tại 0,0"),
+                            ("Tường 200","vẽ tường từ 0,0 đến 6000,0 dày 200"),
+                            ("Tường và cửa","vẽ tường có cửa từ 0,0 đến 6000,0 dày 200 cửa 900 tại 3000 mở trái"),
+                            ("Phòng + cột tròn","vẽ phòng rộng 6000 dài 4000 tại 0,0 | vẽ hình tròn tâm 3000,2000 bán kính 250"),
+                        ] {
+                            if ui.button(name).clicked() {state.native_command_input=example.into();}
+                        }
+                    });
+                    match cadcraft_ui_egui::ai_review::AiReview::describe_native_plan(&state.native_command_input) {
+                        Ok((commands,entities,_))=>{
+                            ui.small(format!("Hợp lệ: {commands} lệnh → {entities} đối tượng CAD. Chưa ghi bản vẽ."));
+                        },
+                        Err(reason)=>{ui.small(format!("Cần sửa lệnh trước khi Preview: {reason}"));}
+                    }
+                    if ui.add_enabled(cadcraft_ui_egui::ai_review::AiReview::validates_native_command(&state.native_command_input),
+                        egui::Button::new("Xem trước lệnh CAD trong AI Review")).clicked() {
+                        cad.ai_review.open_with_prompt(&state.native_command_input);
+                        cad.set_status("Đã mở AI Review. Kiểm tra và xác nhận Preview trước khi tạo CAD.");
+                    }
+                });
 
             });
             ui.collapsing("Kết nối trợ lý AI ngoài qua MCP", |ui| {
@@ -2053,6 +2074,16 @@ mod tests {
         assert!(state.preview_task.is_none());
         assert!(state.preview.is_none());
         assert!(state.params()["preview"].as_bool().unwrap());
+    }
+
+    #[test]
+    fn ai_studio_separates_image_detection_instruction_from_native_cad_commands() {
+        let mut state=State::default();
+        state.open();
+        state.assistant_instruction="nhận dạng toàn bộ mặt bằng".into();
+        assert!(cadcraft_ui_egui::ai_review::AiReview::validates_native_command(&state.native_command_input));
+        assert!(!cadcraft_ui_egui::ai_review::AiReview::validates_native_command(&state.assistant_instruction));
+        assert_ne!(state.native_command_input,state.assistant_instruction);
     }
 
     #[test]
