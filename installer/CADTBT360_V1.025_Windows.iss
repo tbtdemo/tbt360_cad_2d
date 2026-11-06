@@ -27,6 +27,7 @@ RestartApplications=no
 Source: "..\CADTBT360_V1.000\target\release\cadcraft.exe"; DestDir: "{app}"; DestName: "CADTBT360.exe"; Flags: ignoreversion
 Source: "..\CADTBT360_V1.000\target\release\cadcraft-cli.exe"; DestDir: "{app}"; DestName: "CADTBT360_CLI.exe"; Flags: ignoreversion
 Source: "..\dist\v1025\BUILD_INFO.txt"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\dist\v1025\pdf-tools\bin\*"; DestDir: "{app}\Tools\Poppler\bin"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "..\docs\user-guide\CADTBT360_V1.025_HUONG_DAN_AI_TU_ANH_THANH_CAD.md"; DestDir: "{app}\HuongDan"; DestName: "HUONG_DAN_AI_TU_ANH_THANH_CAD.md"; Flags: ignoreversion
 Source: "..\dist\v1025\CADTBT360_V1.025_HUONG_DAN_AI_TU_ANH_THANH_CAD.docx"; DestDir: "{app}\HuongDan"; DestName: "HUONG_DAN_AI_TU_ANH_THANH_CAD.docx"; Flags: ignoreversion
 Source: "..\dist\v1025\CADTBT360_V1.025_GIAO_TRINH_TONG_HOP.docx"; DestDir: "{app}\HuongDan"; DestName: "GIAO_TRINH_TONG_HOP_CAD360.docx"; Flags: ignoreversion
