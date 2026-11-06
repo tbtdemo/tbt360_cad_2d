@@ -1,0 +1,34 @@
+name: CAD 360 Stage262 Image AI Review to Native Geometry
+on:
+  push:
+    branches:
+      - feature/CADTBT360_V1.025_xref-regression
+    paths:
+      - CADTBT360_V1.000/crates/ui-egui/Cargo.toml
+      - CADTBT360_V1.000/crates/ui-egui/src/ai_review.rs
+      - CADTBT360_V1.000/crates/mcp/src/raster_vector.rs
+      - .github/workflows/cad360-stage262-image-ai.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  image-preview-native:
+    runs-on: windows-latest
+    timeout-minutes: 95
+    defaults:
+      run:
+        working-directory: CADTBT360_V1.000
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: CADTBT360_V1.000
+      - name: Verify Windows UI compiles with reused raster detector
+        run: cargo check --locked -p cadcraft-ui-egui
+      - name: PNG to in-app native CAD preview regression
+        run: cargo test --locked -p cadcraft-ui-egui stage262 -- --nocapture
+      - name: Existing door geometry regression
+        run: cargo test --locked -p cadcraft-ui-egui stage261 -- --nocapture
+      - name: Existing image vectorizer tests
+        run: cargo test --locked -p cadcraft-mcp raster -- --nocapture
