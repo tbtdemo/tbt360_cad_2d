@@ -553,9 +553,10 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
                 }
                 ui.horizontal_wrapped(|ui| {
                     for (label,query) in [("Toàn bộ mặt bằng","nhận dạng toàn bộ mặt bằng"),("Vẽ lại nét","vẽ lại nét"),("Tìm tường","nhận dạng tường"),("Tìm cửa","nhận dạng cửa"),("Tìm cột","nhận dạng cột")] {
-                        if ui.button(label).clicked() { state.assistant_instruction=query.into(); }
+                        if ui.button(label).clicked() { state.assistant_instruction=query.into(); state.local_command=None; state.local_message.clear(); }
                     }
                     if ui.button("Áp dụng yêu cầu").clicked() {
+                        state.local_command=None;
                         let instruction=state.assistant_instruction.clone();
                         match apply_ai_instruction(state,&instruction) {
                             Ok(message)=>cad.set_status(message.to_owned()),
