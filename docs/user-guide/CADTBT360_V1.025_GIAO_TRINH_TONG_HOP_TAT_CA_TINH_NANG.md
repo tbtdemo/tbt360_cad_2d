@@ -2835,3 +2835,36 @@ Kế hoạch: Đợt 240 sửa lỗi CI, hoàn thiện thử DWG hai chiều v�
 4. Báo cáo tiến độ phải phân biệt phần đã commit, phần CI thực sự PASS và phần nghiệm thu EXE/AutoCAD. Không dùng số bài học để suy diễn tỷ lệ AI hoàn thành.
 
 **Tệp mã chính:** `CADTBT360_V1.000/crates/ui-egui/src/ai_review.rs`; workflow `.github/workflows/cad360-stage264-door-adjust.yml`.
+
+
+## 105. Đợt 265 — Dịch vị trí bản lề cửa dọc ô mở ảnh (không sửa hình học nguồn)
+
+### Bài 237 — Hiệu chỉnh vị trí sau khi nhận dạng cửa
+1. Mở **Tools → CAD 360 AI Review...**, chọn PNG/JPEG, xác nhận tỷ lệ `CAD units/pixel` và tạo Preview.
+2. Khi nhận dạng đủ bằng chứng nét cánh cửa, chọn một chỉ số ARC rồi bấm **Thêm ARC cung mở của ứng viên đã chọn vào Preview**.
+3. Trong phần **Hiệu chỉnh ARC**, nhập **Bề rộng cửa CAD** và **Dịch bản lề vào trong ô mở (CAD)**. Giá trị 0 giữ vị trí gốc; số dương dịch theo trục từ bản lề được chọn về phía mép đối diện.
+4. Chọn **Đổi vị trí bản lề sang mép kia** nếu muốn tính khoảng dịch từ đầu đối diện. Chọn **Đảo hướng mở** nếu cần xét phương án ARC khác.
+5. Bấm **Áp dụng hiệu chỉnh vào Preview**, kiểm tra lại góc cung, tâm cửa và hình CAD đề xuất trước khi xác nhận.
+
+### Bài 238 — Giới hạn hình học và quan hệ với tường
+1. Chỉ chấp nhận khoảng dịch bản lề từ 0 đến **40% bề rộng ô mở** đã phát hiện; số âm hoặc NaN bị từ chối.
+2. Khi dịch lớn hơn 0, **bề rộng cánh cửa + độ dịch** không được vượt bề rộng khoảng mở. Vì vậy phải thu nhỏ cánh khi dịch vào phía trong.
+3. Tâm bản lề được nội suy giữa hai mép cửa từ tọa độ `center` và `oppositeHingeCAD` đã phát hiện; hướng di chuyển dựa trên đường nối hai đầu, không suy đoán vị trí ngoài ô mở.
+4. Không tự kéo giãn, cắt, trim hoặc xóa các LINE được nhận dạng từ ảnh; thay đổi chỉ áp dụng vào **ARC chỉ dẫn mới** trong Preview.
+5. Các giới hạn chỉ là quy tắc an toàn hình học; không tự công nhận kích thước cửa kiến trúc hay BIM Door.
+
+### Bài 239 — Kiểm tra Undo và nguồn ảnh
+1. Sau khi bấm **Tôi đồng ý – Vẽ vào CAD**, giao diện kiểm tra byte của file ảnh, trạng thái kết quả nhận dạng và UID/Epoch/Revision của bản vẽ trước khi thực thi.
+2. Nhóm LINE ảnh và ARC đã duyệt vào một nhóm Undo. Nếu người dùng đổi ảnh hoặc bản vẽ sau Preview, từ chối và yêu cầu xem trước lại.
+3. Test `stage265_shift_door_hinge_inside_detected_opening_without_modifying_source_lines` kiểm tra: bề rộng cộng độ dịch quá giới hạn bị từ chối, dịch âm bị từ chối, dịch hợp lệ cập nhật tâm ARC, LINE nguồn không đổi, và Undo/Redo theo nhóm.
+4. Chạy Windows workflow `CAD 360 Stage265 Shift Door Hinge in Opening` với `cargo check --locked -p cadcraft-ui-egui` và các regression 263–265.
+5. Chỉ nghiệm thu khi CI PASS đúng SHA, có ảnh chụp EXE thật và kết quả mở/chỉnh sửa/lưu DWG hai chiều trong AutoCAD.
+
+### Bài 240 — Đầu việc tiếp theo và giới hạn
+1. Chức năng hiện hiệu chỉnh **bản lề ARC trong ô mở ảnh**, chưa dịch chuyển và cắt lại các PLINE tường hiện có theo một vị trí cửa mới.
+2. Chưa có mô hình thị giác học sâu tự hiểu tường/cửa hoàn chỉnh; bước nhận dạng vẫn theo dấu hiệu pixel/hình học, phải có phê duyệt của người dùng.
+3. Chưa có nghiệm thu kết nối OIDC Host với nút chấp thuận GUI, xuất DWG chuẩn và kiểm thử nhiều mặt bằng trên máy Windows thực.
+4. Giữ chính sách mở CAD Free không buộc đăng nhập; file DWG không mã hóa hoặc thay đổi định dạng làm mất tương thích AutoCAD.
+5. Mọi tỷ lệ hoàn thành phải tách **mã/kiểm thử đã viết**, **CI PASS** và **EXE/AutoCAD nghiệm thu**.
+
+**Phạm vi bàn giao:** `CADTBT360_V1.000/crates/ui-egui/src/ai_review.rs`, `.github/workflows/cad360-stage265-door-offset.yml` và giáo trình tổng hợp đến Bài 240. 
