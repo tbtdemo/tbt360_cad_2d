@@ -749,7 +749,7 @@ fn commit_steps(session:&mut Session,preview:&Preview)->Result<Vec<String>,Strin
                         Ok(mut new)=>{
                             if new.len()!=1 || new.iter().any(|raw| {
                                 cadcraft_doc::Handle::parse_hex(raw).is_none_or(|h|
-                                    session.doc().is_err_or(|doc|doc.entity(h).is_none()))
+                                    session.doc().map_or(true,|doc|doc.entity(h).is_none()))
                             }) {
                                 failure=Some(format!("Lệnh {command} không trả đúng một handle CAD tồn tại; yêu cầu rollback"));
                                 break;
