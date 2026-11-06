@@ -147,6 +147,100 @@ fn sample() -> Drawing {
     d
 }
 
+/// Stage284: mixed architectural layer fixtures, individual colors and metadata.
+/// These remain native editable drawing entities; no custom DWG envelope is used.
+fn stage284_multilayer_ai_sample() -> (Drawing,Vec<Handle>) {
+    let mut d=Drawing::new_metric();
+    for (name,color) in [("AI-WALLS",Color::Index(1)),("AI-DOORS",Color::Index(3)),
+        ("AI-CONTROL",Color::Index(5))] {
+        d.layers.push(Layer{name:name.into(),color,..Layer::default()});
+    }
+    let mut handles=Vec::new();
+    for i in 0..36 {
+        let name=match i%3 {0=>"AI-WALLS",1=>"AI-DOORS",_=>"AI-CONTROL"};
+        let color=match i%3 {0=>Color::ByLayer,1=>Color::Index(2),_=>Color::Index(6)};
+        let common=Common{layer:name.into(),color,ltscale:1.0+f64::from(i%4)*0.25,
+            ..Common::default()};
+        let y=100.0+f64::from(i)*25.0;
+        handles.push(d.add(&Space::Model,common,EntityKind::Line(Line{
+            a:Vec3::new(100.0,y,0.0),b:Vec3::new(900.0,y,0.0)
+        })).unwrap());
+    }
+    let common=Common{layer:"AI-WALLS".into(),color:Color::ByLayer,..Common::default()};
+    handles.push(d.add(&Space::Model,common,EntityKind::LwPolyline(LwPolyline{
+        vertices:vec![PolyVertex::new(Vec2::new(1100.0,200.0)),PolyVertex::new(Vec2::new(1450.0,200.0)),
+            PolyVertex::new(Vec2::new(1450.0,460.0)),PolyVertex::new(Vec2::new(1100.0,460.0))],
+        closed:true,const_width:0.0,elevation:0.0,plinegen:false
+    })).unwrap());
+    let common=Common{layer:"AI-DOORS".into(),color:Color::Index(2),ltscale:1.25,..Common::default()};
+    handles.push(d.add(&Space::Model,common,EntityKind::Arc(Arc{
+        center:Vec3::new(1350.0,200.0,0.0),radius:150.0,start:0.0,
+        end:std::f64::consts::FRAC_PI_2
+    })).unwrap());
+    (d,handles)
+}
+
+fn stage284_compare_multilayer(original:&Drawing,back:&Drawing,handles:&[Handle]) {
+    use std::collections::HashSet;
+    assert_eq!(back.entity_count(),handles.len(),"entity count changed through serialization");
+    let unique=back.model.iter().map(|e|e.handle).collect::<HashSet<_>>();
+    assert_eq!(unique.len(),handles.len(),"duplicate handle found");
+    for (name,color) in [("AI-WALLS",Color::Index(1)),("AI-DOORS",Color::Index(3)),
+        ("AI-CONTROL",Color::Index(5))] {
+        assert_eq!(back.layer(name).expect("lost source layer").color,color,
+            "layer color changed");
+    }
+    for h in handles {
+        let before=original.entity(*h).expect("original entity");
+        let after=back.entity(*h).expect("lost entity handle");
+        assert_eq!(after.common.layer,before.common.layer,"entity layer changed");
+        assert_eq!(after.common.color,before.common.color,"entity color changed");
+        assert!((after.common.ltscale-before.common.ltscale).abs()<1e-6,
+            "entity linetype scale changed");
+        match (&before.kind,&after.kind) {
+            (EntityKind::Line(a),EntityKind::Line(b))=>{
+                for (x,y) in [(a.a.x,b.a.x),(a.a.y,b.a.y),(a.b.x,b.b.x),(a.b.y,b.b.y)]{
+                    assert!((x-y).abs()<1e-6,"LINE geometry changed");
+                }
+            },
+            (EntityKind::LwPolyline(a),EntityKind::LwPolyline(b))=>{
+                assert_eq!(a.closed,b.closed);
+                assert_eq!(a.vertices.len(),b.vertices.len());
+                for (x,y) in a.vertices.iter().zip(b.vertices.iter()){
+                    assert!((x.p.x-y.p.x).abs()<1e-6 && (x.p.y-y.p.y).abs()<1e-6,
+                        "PLINE geometry changed");
+                }
+            },
+            (EntityKind::Arc(a),EntityKind::Arc(b))=>{
+                for (x,y) in [(a.center.x,b.center.x),(a.center.y,b.center.y),
+                    (a.radius,b.radius),(a.start,b.start),(a.end,b.end)]{
+                    assert!((x-y).abs()<1e-6,"ARC geometry changed");
+                }
+            },
+            _=>panic!("editable AI native entity type was not retained"),
+        }
+    }
+}
+
+#[test]
+fn stage284_multilayer_dxf_two_roundtrips_keep_colors_scale_geometry_and_handles() {
+    let (original,handles)=stage284_multilayer_ai_sample();
+    let one=read(&write(&original,"layered_ai.dxf").unwrap(),"layered_ai.dxf").unwrap();
+    let two=read(&write(&one,"layered_ai.dxf").unwrap(),"layered_ai.dxf").unwrap();
+    stage284_compare_multilayer(&original,&one,&handles);
+    stage284_compare_multilayer(&original,&two,&handles);
+}
+
+#[cfg(not(target_arch="wasm32"))]
+#[test]
+fn stage284_multilayer_dwg_two_roundtrips_keep_colors_scale_geometry_and_handles() {
+    let (original,handles)=stage284_multilayer_ai_sample();
+    let one=read(&write(&original,"layered_ai.dwg").unwrap(),"layered_ai.dwg").unwrap();
+    let two=read(&write(&one,"layered_ai.dwg").unwrap(),"layered_ai.dwg").unwrap();
+    stage284_compare_multilayer(&original,&one,&handles);
+    stage284_compare_multilayer(&original,&two,&handles);
+}
+
 /// Stage282: end-to-end native drafting entities representative of AI Review
 /// must survive serialized DXF/DWG and re-opening with our real file-format reader.
 /// Third-party AutoCAD acceptance is still a separate manual release gate.
