@@ -419,6 +419,40 @@ fn rectangle_wall_axis(points:&[[f64;2]])->Result<([f64;2],[f64;2],f64),String> 
     Ok((a,b,thickness))
 }
 
+/// Stage269 conservative interference preflight around the rectangular door void.
+/// Any entity whose CAD bounds overlap the proposed opening blocks replacement.
+/// This can reject safe drawings (false positives), but never silently edits a neighbour.
+fn check_door_opening_is_clear(session:&Session,source:cadcraft_doc::Handle,steps:&[(&str,Value)])->Result<(),String> {
+    if steps.len()!=4 || steps[0].0!="pline" || steps[1].0!="pline" {
+        return Err("Phương án tường/cửa không đúng cấu trúc 4 đối tượng".into());
+    }
+    let left=steps[0].1["vertices"].as_array().ok_or("Thiếu PLINE mép trái")?;
+    let right=steps[1].1["vertices"].as_array().ok_or("Thiếu PLINE mép phải")?;
+    if left.len()!=4 || right.len()!=4 {return Err("Biên dạng ô cửa không đủ 4 đỉnh".into());}
+    let mut polygon=Vec::new();
+    for v in [&left[1],&left[2],&right[0],&right[3]] {
+        let p=v.as_array().filter(|p|p.len()==2).ok_or("Sai tọa độ ô mở")?;
+        let x=p[0].as_f64().ok_or("Sai X")?;
+        let y=p[1].as_f64().ok_or("Sai Y")?;
+        if !x.is_finite()||!y.is_finite() {return Err("Tọa độ ô cửa không hữu hạn".into());}
+        polygon.push(cadcraft_geom::Vec2::new(x,y));
+    }
+    let zone=cadcraft_geom::Bounds2::from_points(polygon).expand(1e-6);
+    if zone.is_empty() {return Err("Khoảng mở không hợp lệ".into());}
+    let doc=session.doc().map_err(|e|e.to_string())?;
+    let space=doc.space_of(source).ok_or("Không biết layout của PLINE nguồn")?;
+    let store=doc.space(&space).ok_or("Không truy cập được không gian tường")?;
+    for entity in store.iter() {
+        if entity.handle==source {continue;}
+        let other=cadcraft_doc::entity_bounds(doc,entity,0);
+        if other.is_empty() {return Err(format!("Entity #{} không có bounds hợp lệ: từ chối cắt an toàn",entity.handle.hex()));}
+        if zone.intersects(&other) {
+            return Err(format!("Khoảng mở có thể giao với entity #{}; cần xử lý thủ công trước",entity.handle.hex()));
+        }
+    }
+    Ok(())
+}
+
 /// Stage268 conservative adapter: one deliberately selected planar four-corner rotated
 /// rectangle only. No automatic wall search, no overlapping/intersecting wall mutation.
 fn preview_selected_existing_wall(session:&Session,center_text:&str,door_width_text:&str,open_right:bool)->Result<Preview,String> {
@@ -451,6 +485,10 @@ fn preview_selected_existing_wall(session:&Session,center_text:&str,door_width_t
     let (steps,summary)=parse_door_wall(&command)?
         .ok_or("Không dựng được tường mới từ PLINE được chọn")?;
     if steps.len()!=4 {return Err("Chỉ thay thế PLINE thành đúng bốn entity CAD đã Preview".into());}
+    if !entity.common.xdata.is_empty() {
+        return Err("PLINE có XData/BIM metadata riêng: chưa hỗ trợ sao chép định danh an toàn, không được cắt".into());
+    }
+    check_door_opening_is_clear(session,handle,&steps)?;
     let state=session.state().map_err(|e|e.to_string())?;
     Ok(Preview {uid:state.uid,epoch:session.doc_epoch,revision:state.revision,
         text:command,steps,description:format!("PLINE đã chọn #{}: {}. Sẽ thay thế đúng đối tượng này sau khi xác nhận. Không tự sửa tường khác.",handle.hex(),summary),
@@ -483,6 +521,9 @@ fn commit_steps(session:&mut Session,preview:&Preview)->Result<Vec<String>,Strin
         }
     }
     if !drawing_ready(session) {return Err("CAD đang bận hoặc Undo không khả dụng".into());}
+    if let Some(snapshot)=&preview.replace_snapshot {
+        check_door_opening_is_clear(session,snapshot.handle,&preview.steps)?;
+    }
     if let Some(old)=&preview.replace_handles {
         if !matches!(old.len(),1|4) || preview.steps.len()!=4
             || (old.len()==1)!=preview.replace_snapshot.is_some() {
