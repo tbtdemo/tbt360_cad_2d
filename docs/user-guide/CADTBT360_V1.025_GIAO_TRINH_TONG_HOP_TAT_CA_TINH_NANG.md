@@ -2965,3 +2965,35 @@ Kế hoạch: Đợt 240 sửa lỗi CI, hoàn thiện thử DWG hai chiều v�
 5. Cần kiểm tra lưu, mở, sửa và lưu lại DWG bằng AutoCAD độc lập; không thay đổi cấu trúc hoặc mã hóa DWG. CAD Free không yêu cầu đăng nhập khi mở phần mềm, quyền xuất vẫn thực hiện theo chính sách license.
 
 **Giới hạn Đợt 268:** Đã bổ sung mã và test xử lý một PLINE chữ nhật nghiêng được chọn; chưa chứng minh thực nghiệm trên EXE hoặc AutoCAD và chưa có AI ngữ nghĩa nhận biết mọi loại tường/cửa.
+
+
+## 109. Đợt 269 — Kiểm tra giao cắt ô cửa và bảo vệ metadata khi thay tường CAD
+
+### Bài 253 — Xác định vùng ô mở và kiểm tra tường khác
+1. Trên CAD 360, chọn **chính xác một LWPOLYLINE kín hình chữ nhật**, có thể nghiêng, rồi vào **Tools → CAD 360 AI Review...**.
+2. Nhập vị trí tâm cửa, bề rộng, lựa chọn bản lề và nhấn **Preview ô cửa trên PLINE đã chọn**.
+3. Trước khi chấp nhận, chương trình tính vùng bao (bounding box) của **khoảng mở dự kiến** từ hai PLINE tường mới; rà soát các thực thể khác trong cùng Model Space/Layout, loại trừ handle tường được chọn.
+4. Nếu có đối tượng bất kỳ có bounding box giao với vùng ô mở, **từ chối Preview** và chỉ ra handle nghi vấn; không xóa hay dịch chuyển tường kề. Đây là kiểm tra **bảo thủ**: có thể từ chối dù hình học thực không cắt nhau, nhưng giảm rủi ro sửa nhầm tại giao tường.
+5. Khi bấm xác nhận, kiểm tra giao cắt được chạy **lần nữa** trước khi thay thế, ngoài các điều kiện UID/Epoch/Revision và snapshot đối tượng.
+
+### Bài 254 — Giữ thuộc tính CAD khi thay thế một tường hiện hữu
+1. Lệnh chỉ nhận đúng PLINE chữ nhật phẳng, bốn đỉnh, không bulge, không độ rộng nét/hình học đặc biệt, layer không khóa.
+2. Trước khi xóa PLINE được chọn, chương trình giữ **snapshot đầy đủ** của đối tượng; sau khi tạo bốn đối tượng mới, sao chép thuộc tính Common của tường gốc (layer, màu, loại nét, tỷ lệ nét, độ đậm, v.v.) vào từng đối tượng, trong cùng giao dịch Undo.
+3. Nếu PLINE chứa **XData của BIM hoặc ứng dụng khác**, chương trình **từ chối tự động thay thế** thay vì chép định danh có thể trùng hoặc đánh mất metadata. Đây là bảo vệ dữ liệu, không phải tuyên bố hệ thống đã hỗ trợ đầy đủ mapping BIM metadata.
+4. Nếu PLINE có extrusion ngoài +Z hoặc thickness vượt mặt phẳng XY, chương trình cũng từ chối. Tường phải nằm ở không gian bản vẽ mà CAD Engine đang chỉnh sửa, không thay đối tượng ở layout khác.
+5. Những thuộc tính khác, quan hệ associativity, hatch, block hoặc external references chưa được kiểm thử bảo toàn, nên cần rà soát thủ công sau Commit.
+
+### Bài 255 — Kiểm thử xung đột và bảo toàn dữ liệu
+1. Test `stage269_rejects_neighbour_intersecting_the_door_gap_without_mutation` tạo một PLINE tường và một LINE độc lập băng qua vị trí ô cửa; bắt buộc từ chối tạo Preview, không thay đổi hai đối tượng.
+2. Test `stage269_preserves_layer_color_and_refuses_third_party_xdata` tạo tường trên layer `A-WALL` với `ltscale=2.5`, kiểm tra bốn đối tượng CAD mới giữ thuộc tính; tường chứa XData `THIRD_PARTY` phải bị từ chối.
+3. Chạy `cargo test --locked -p cadcraft-ui-egui stage269 -- --nocapture` trong `CADTBT360_V1.000`. Workflow `CAD 360 Stage269 Wall Intersection and Metadata Guard` kiểm tra Windows compile và hồi quy 267–269.
+4. Kiểm tra trên EXE thật: tường chữ nhật thẳng/nghiêng, thêm đường băng qua ô cửa (phải chặn), tường layer khóa, tường có XData, Undo/Redo, lưu/mở lại, so lớp và nét sau thực thi.
+5. Chỉ nghiệm thu DWG khi file mở, chỉnh sửa và lưu lại hai chiều trong AutoCAD thực tế. Không mã hóa hoặc sửa cấu trúc DWG để làm mất khả năng tương thích.
+
+### Bài 256 — Giới hạn và hướng phát triển tiếp
+1. Đợt 269 bổ sung kiểm tra **bounding box vùng ô mở**, chưa phải bộ giao cắt chính xác trên từng segment với mọi đối tượng, nên có thể xuất hiện *false positive*. Mục tiêu là chặn thao tác không chắc chắn, không tự TRIM mọi tường.
+2. Chưa tự động tính giao ba/đa tường, chưa bảo toàn mọi quan hệ BIM, hatch hay parametric block, chưa có AI thị giác ngữ nghĩa tự nhận dạng mọi cửa trong ảnh.
+3. Không được coi việc đã có code/test và GitHub commit là Windows CI PASS; cần xem kết quả Actions đúng SHA và nghiệm thu thao tác thực tế trên Windows EXE.
+4. Chính sách CAD Free mở ngay không yêu cầu đăng nhập, export tuân thủ license; DWG vẫn phải đúng định dạng chuẩn hai chiều với AutoCAD.
+
+**Mã thay đổi:** `CADTBT360_V1.000/crates/ui-egui/src/ai_review.rs`, workflow `.github/workflows/cad360-stage269-wall-guard.yml`; giáo trình tổng hợp tiếp tục đến Bài 256.
