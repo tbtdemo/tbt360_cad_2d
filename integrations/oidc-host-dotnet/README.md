@@ -73,3 +73,18 @@ dotnet run --project .\\integrations\\oidc-host-dotnet\\Cad360OidcHost.csproj --
 ```
 
 Expected: checks for same-tenant viewer/editor, different tenant denial, missing identity, bad role and non-loopback addresses. This does **not** test JWKS signatures or desktop connectivity. Those require the actual AuthServer, desktop EXE and CI acceptance.
+
+## Stage251 — Authenticated AI drawing PREVIEW (no write)
+
+Host endpoint `POST /api/cad360/mcp/ai-preview` takes only `{"text":"vẽ hai phòng liền kề rộng 3000 và 4000 dài 4000 tại 0,0"}` from an authenticated Bearer JWT. The host requires same `tenant_id` as `CAD360_LOCAL_TENANT_ID`, role `editor` or `approver`, and a text length of 1–4000 without control characters.
+
+The endpoint starts `cadcraft-cli mcp --connect 127.0.0.1:7979` using `CAD360_MCP_ACCESS_MODE=reviewed`. It invokes **only** `ai_draw_plan_vietnamese` with `preview:true`, `confirm:false`, `createDoorBlock:false`, `applyLayers:false`. Arbitrary MCP tool names, DWG paths, shell commands and `confirm:true` are **not** accepted in HTTP parameters. Viewer, invalid tenant and oversized prompts are rejected. The process is terminated after the call; timeout is 10 seconds.
+
+Example request (with valid AuthServer access token):
+
+```powershell
+$body = @{ text = "vẽ hai phòng liền kề rộng 3000 và 4000 dài 4000 tại 0,0" } | ConvertTo-Json
+Invoke-RestMethod -Method Post -Uri http://127.0.0.1:5049/api/cad360/mcp/ai-preview -Headers @{ Authorization = "Bearer $token" } -ContentType application/json -Body $body
+```
+
+**There is intentionally no AI commit/execute endpoint in this release.** Preview/Confirm/Undo and document UID/epoch/revision protections will need a separate, tested, explicitly user-approved write workflow. Run `dotnet run --project integrations/oidc-host-dotnet/Cad360OidcHost.csproj -- --self-test` for host role and prompt guards. This test does not prove that the live CAD desktop or AuthServer were contacted. Do not claim end-to-end acceptance without actual CI, signed token and EXE test evidence.
