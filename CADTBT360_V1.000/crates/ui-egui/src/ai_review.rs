@@ -708,11 +708,8 @@ fn commit_steps(session:&mut Session,preview:&Preview)->Result<Vec<String>,Strin
         st.uid==preview.uid && st.revision==preview.revision) {
         return Err("Bản vẽ đã đổi sau Preview, tuyệt đối không thực thi lệnh".into());
     }
-    if preview.steps.len()==1 && preview.replace_handles.is_none() {
-        let (command,params)=&preview.steps[0];
-        let result=session.execute(command,params).map_err(|e|e.to_string())?;
-        return returned_handles(&result);
-    }
+    // Stage274: even a single command goes through UNDO BEGIN/END.
+    // A malformed/missing response handle must not leave an untracked CAD mutation.
     let same=|s:&Session,rev:u64,group:bool| {
         s.doc_epoch==preview.epoch && s.state().is_ok_and(|st|
             st.uid==preview.uid && st.revision==rev && st.undo_ctl.group.is_some()==group)
@@ -750,6 +747,13 @@ fn commit_steps(session:&mut Session,preview:&Preview)->Result<Vec<String>,Strin
                     succeeded+=1;
                     match returned_handles(&value) {
                         Ok(mut new)=>{
+                            if new.len()!=1 || new.iter().any(|raw| {
+                                cadcraft_doc::Handle::parse_hex(raw).is_none_or(|h|
+                                    session.doc().is_err_or(|doc|doc.entity(h).is_none()))
+                            }) {
+                                failure=Some(format!("Lệnh {command} không trả đúng một handle CAD tồn tại; yêu cầu rollback"));
+                                break;
+                            }
                             if let Some(snapshot)=&preview.replace_snapshot {
                                 for raw in &new {
                                     let Some(handle)=cadcraft_doc::Handle::parse_hex(raw) else {
@@ -1365,6 +1369,42 @@ mod tests {
         assert!(commit_steps(&mut s,&stale).is_err(),"revision mismatch must reject destructive replacement");
         assert_eq!(s.doc().unwrap().entity_count(),count);
         assert!(s.doc().unwrap().entity(wall).is_some());
+    }
+
+    #[test]
+    fn stage274_single_native_line_uses_group_and_one_undo_redo() {
+        let mut session=Session::default();
+        let state=session.state().unwrap();
+        let (steps,description)=plan_from_text("vẽ đường thẳng từ 0,0 đến 100,0").unwrap();
+        let approved=Preview {uid:state.uid,epoch:session.doc_epoch,revision:state.revision,
+            text:"vẽ đường thẳng từ 0,0 đến 100,0".into(),steps,description,
+            image_evidence:None,selected_opening_guide:None,selected_door_arc:None,
+            replace_handles:None,replace_snapshot:None,review_token:None,image_controls:None,
+            owned_entities:None};
+        let handles=commit_steps(&mut session,&approved).expect("single native LINE grouped commit");
+        assert_eq!(handles.len(),1);
+        assert_eq!(session.doc().unwrap().entity_count(),1);
+        assert!(session.state().unwrap().undo_ctl.group.is_none());
+        session.execute("undo",&json!({"count":1})).unwrap();
+        assert_eq!(session.doc().unwrap().entity_count(),0);
+        session.execute("redo",&json!({})).unwrap();
+        assert_eq!(session.doc().unwrap().entity_count(),1);
+    }
+
+    #[test]
+    fn stage274_single_command_failure_never_opens_unclosed_undo_group() {
+        let mut session=Session::default();
+        let state=session.state().unwrap();
+        let preview=Preview {uid:state.uid,epoch:session.doc_epoch,revision:state.revision,
+            text:"test-invalid-single".into(),
+            steps:vec![("line",json!({"points":[[1,1],[1,1]]}))],
+            description:"Must fail safely".into(),
+            image_evidence:None,selected_opening_guide:None,selected_door_arc:None,
+            replace_handles:None,replace_snapshot:None,review_token:None,image_controls:None,
+            owned_entities:None};
+        assert!(commit_steps(&mut session,&preview).is_err());
+        assert_eq!(session.doc().unwrap().entity_count(),0);
+        assert!(session.state().unwrap().undo_ctl.group.is_none());
     }
 
     #[test]
