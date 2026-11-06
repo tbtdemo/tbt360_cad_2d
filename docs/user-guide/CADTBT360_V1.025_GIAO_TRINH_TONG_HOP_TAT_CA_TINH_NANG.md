@@ -3129,3 +3129,36 @@ Kế hoạch: Đợt 240 sửa lỗi CI, hoàn thiện thử DWG hai chiều v�
 5. Chưa thể đánh dấu hoàn thành AI ảnh→CAD ngữ nghĩa, OIDC/UI Approval, EXE Windows hoặc DWG AutoCAD cho đến khi có kết quả kiểm thử thực tế; phần này chỉ cải thiện tính toàn vẹn của hình học CAD và rollback.
 
 **Phạm vi Đợt 273:** Có mã, test và workflow Windows cho bảo vệ snapshot; CI PASS, bộ cài EXE và xác minh DWG độc lập vẫn chưa được chứng minh.
+
+
+## 114. Đợt 274 — Thống nhất Undo cho một lệnh và nhóm lệnh AI Review
+
+### Bài 273 — Lệnh CAD đơn cũng phải có giao dịch an toàn
+1. Mở CAD 360, chọn **Tools → CAD 360 AI Review...** và nhập ví dụ `vẽ đường thẳng từ 0,0 đến 100,0`.
+2. Bấm **1. Xem trước**, kiểm tra bản vẽ/đơn vị, sau đó bấm **2. Tôi đồng ý – Vẽ vào CAD**.
+3. Kể từ Đợt 274, kể cả khi Preview chỉ có **một lệnh**, hệ thống cũng thực hiện `UNDO BEGIN` trước khi gọi CAD Engine, và `UNDO END` khi hoàn tất, thay vì chạy riêng ngoài nhóm.
+4. Phải kiểm tra kết quả Engine có đúng **một handle hợp lệ**, handle đó phải tồn tại trong bản vẽ. Nếu không, giao dịch yêu cầu rollback có kiểm soát thay vì báo thành công rồi để lại hình học không được quản lý.
+5. Sau thành công, một lần Undo loại bỏ LINE mới và Redo khôi phục, không tác động các đối tượng độc lập khác.
+
+### Bài 274 — Kiểm tra đầu ra và lỗi nửa chừng
+1. AI Review vẫn kiểm tra UID, Epoch, Revision và Undo Control All trước khi bắt đầu ghi CAD.
+2. Với mỗi bước `LINE`, `PLINE`, `ARC` được chương trình sinh ra, kết quả chuẩn phải chứa đúng một handle mới tồn tại; nếu lệnh thất bại, trả sai handle hoặc handle không tồn tại, không coi giao dịch là thành công.
+3. Nếu lỗi xảy ra giữa các lệnh, kết thúc nhóm Undo và rollback **chỉ khi vẫn chứng minh được quyền sở hữu giao dịch cùng UID/Revision**. Nếu không còn quyền sở hữu, dừng với lỗi, không tự Undo thay người khác.
+4. Một lệnh LINE có hai điểm trùng nhau không hợp lệ: không được tạo hình học, không được để Undo Group mở sau khi từ chối.
+5. Các quy tắc này kiểm tra tính toàn vẹn giao dịch CAD, **không thay thế** xác thực OIDC cho tác nhân bên ngoài hoặc nghiệm thu DWG AutoCAD.
+
+### Bài 275 — Kiểm thử Windows và hồi quy
+1. Workflow `CAD 360 Stage274 Single and Grouped Native Undo Contract` chạy `cargo check --locked -p cadcraft-ui-egui` và `cargo test --locked -p cadcraft-ui-egui stage274 -- --nocapture` trên Windows.
+2. Bài test `stage274_single_native_line_uses_group_and_one_undo_redo` tạo LINE đơn từ lệnh tiếng Việt, kiểm tra handle, số entity, trạng thái nhóm, Undo xóa và Redo khôi phục.
+3. Bài test `stage274_single_command_failure_never_opens_unclosed_undo_group` cố tình gửi LINE có hai đầu trùng nhau và kiểm tra không còn entity mới, Undo Group đã đóng.
+4. Chạy hồi quy Stage272–273 về tùy chọn duyệt ảnh và snapshot tường/cửa, cùng Stage26 cho mô hình xử lý nhiều entity.
+5. Chỉ công nhận CI PASS khi có bản ghi GitHub Actions trên đúng SHA; mới có commit workflow không đồng nghĩa các test đã chạy thành công.
+
+### Bài 276 — Thử nghiệm và điều kiện phát hành
+1. Trên bản EXE Windows, thử riêng LINE, PLINE, CIRCLE, ARC, RECTANG và hai PLINE tường/cửa; với mỗi lệnh, kiểm tra Preview không tự sửa bản vẽ và Confirm mới ghi hình học.
+2. Với PNG/JPEG, kiểm thử nguồn ảnh đổi sau Preview, số nét LINE, chỉ dẫn PLINE/ARC, một lần Undo cho toàn bộ nét mới và Redo khôi phục.
+3. Lưu/mở lại bản vẽ DWG, đối chiếu số entity và thuộc tính lớp; mở và lưu hai chiều bằng AutoCAD độc lập.
+4. Không khẳng định AI đã hiểu mọi bản vẽ kiến trúc hoặc đã đạt mức tự dựng mặt bằng thông minh: bộ nhận dạng ảnh hiện vẫn là thuật toán vector hóa cùng phê duyệt của người dùng.
+5. **Tình trạng Đợt 274:** đã commit mã kiểm soát nhóm Undo và bài kiểm thử Windows; chưa có bằng chứng CI PASS, Windows EXE và DWG hai chiều đã nghiệm thu.
+
+**Đường dẫn:** `CADTBT360_V1.000/crates/ui-egui/src/ai_review.rs`, `.github/workflows/cad360-stage274-native-undo.yml`.
