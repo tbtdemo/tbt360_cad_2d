@@ -1,0 +1,33 @@
+name: CAD 360 Stage263 Image Opening Candidate Review
+on:
+  push:
+    branches:
+      - feature/CADTBT360_V1.025_xref-regression
+    paths:
+      - CADTBT360_V1.000/crates/ui-egui/src/ai_review.rs
+      - CADTBT360_V1.000/crates/mcp/src/raster_vector.rs
+      - .github/workflows/cad360-stage263-opening-review.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  image-opening-review:
+    runs-on: windows-latest
+    timeout-minutes: 95
+    defaults:
+      run:
+        working-directory: CADTBT360_V1.000
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: CADTBT360_V1.000
+      - name: Native Windows GUI compile
+        run: cargo check --locked -p cadcraft-ui-egui
+      - name: Paired wall opening + door arc selection, undo and invalid index
+        run: cargo test --locked -p cadcraft-ui-egui stage263 -- --nocapture
+      - name: PNG vector source preservation regression
+        run: cargo test --locked -p cadcraft-ui-egui stage262 -- --nocapture
+      - name: Existing door geometry contract
+        run: cargo test --locked -p cadcraft-ui-egui stage261 -- --nocapture
