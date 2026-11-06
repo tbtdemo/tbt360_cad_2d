@@ -138,6 +138,13 @@ impl Server {
                 eprintln!("CAD360_MCP_AUDIT mode={} tool={} decision={}",
                     self.access_mode(),safe_name,if access.is_ok(){"allow"}else{"deny"});
                 access.map_err(|reason|(INVALID_PARAMS,reason.to_string()))?;
+                if let Some(scope)=self.host_scope.as_ref() {
+                    let current=self.backend.call("drawing.inspect",json!({"entities":false}))
+                        .map_err(|_| (INVALID_PARAMS,"Scoped MCP cannot verify active document".to_string()))?;
+                    if current["documentUid"].as_u64()!=Some(scope.document_uid()) {
+                        return Err((INVALID_PARAMS,"Scoped MCP active drawing differs from trusted host binding".into()));
+                    }
+                }
                 call_tool(self.backend.as_mut(), name, args).map_err(|m| (INVALID_PARAMS, m))
             }
             "resources/list" => Ok(json!({"resources": [
@@ -145,6 +152,13 @@ impl Server {
                 {"uri": "cadcraft://commands", "name": "Command catalog", "mimeType": "application/json"},
             ]})),
             "resources/read" => {
+                if let Some(scope)=self.host_scope.as_ref() {
+                    let current=self.backend.call("drawing.inspect",json!({"entities":false}))
+                        .map_err(|_| (INVALID_PARAMS,"Scoped resource access cannot verify drawing".to_string()))?;
+                    if current["documentUid"].as_u64()!=Some(scope.document_uid()) {
+                        return Err((INVALID_PARAMS,"Scoped resource denied on different drawing".to_string()));
+                    }
+                }
                 let uri = params.get("uri").and_then(Value::as_str).unwrap_or("");
                 let v = match uri {
                     "cadcraft://drawing" => self.backend.call("drawing.inspect", json!({})),
