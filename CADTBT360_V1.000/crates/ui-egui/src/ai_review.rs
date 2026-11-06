@@ -1759,6 +1759,26 @@ mod tests {
     }
 
     #[test]
+    fn ai_multi_object_runtime_failure_rolls_back_first_created_native_entity() {
+        let mut session=Session::default();
+        let st=session.state().unwrap();
+        // Simulate a low-level engine error AFTER one valid command has already mutated CAD.
+        let preview=Preview {uid:st.uid,epoch:session.doc_epoch,revision:st.revision,
+            text:"runtime-error-fixture".into(),
+            steps:vec![
+                ("line",json!({"points":[[0,0],[100,0]]})),
+                ("line",json!({"points":[[10,10],[10,10]]})),
+            ],
+            description:"Rollback all AI work when any command fails".into(),
+            image_evidence:None,selected_opening_guide:None,selected_door_arc:None,
+            replace_handles:None,replace_snapshot:None,review_token:None,
+            image_controls:None,owned_entities:None};
+        assert!(commit_steps(&mut session,&preview).is_err());
+        assert_eq!(session.doc().unwrap().entity_count(),0,"partial AI plan must leave no geometry");
+        assert!(session.state().unwrap().undo_ctl.group.is_none(),"AI Undo group must be closed");
+    }
+
+    #[test]
     fn ai_multi_object_plan_rejects_bad_command_without_starting_undo_or_writing_cad() {
         let mut session=Session::default();
         let plan="vẽ đường thẳng từ 0,0 đến 100,0 | xóa tất cả";
