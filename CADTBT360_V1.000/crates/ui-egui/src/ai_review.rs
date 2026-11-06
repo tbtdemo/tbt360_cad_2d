@@ -637,7 +637,7 @@ fn commit_steps(session:&mut Session,preview:&Preview)->Result<Vec<String>,Strin
             let handle=cadcraft_doc::Handle::parse_hex(raw).ok_or("Handle thay thế sai định dạng")?;
             let doc=session.doc().map_err(|e|e.to_string())?;
             let entity=doc.entity(handle).ok_or("Một đối tượng đã bị xóa: không được thay thế")?;
-            if preview.replace_snapshot.as_ref().is_some_and(|snapshot|snapshot!=entity) {
+            if preview.replace_snapshot.as_ref().is_some_and(|snapshot|snapshot!=entity.as_ref()) {
                 return Err("Đối tượng PLINE đã thay đổi từ Preview, phải làm lại".into());
             }
             if doc.layer(&entity.common.layer).is_some_and(|l|l.locked) {
