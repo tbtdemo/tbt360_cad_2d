@@ -922,8 +922,8 @@ jobs:
           $sourceZip = 'dist/v1025/CADTBT360_V1.025_Full_Source.zip'
           $headSha = (git rev-parse HEAD).Trim()
           if ($LASTEXITCODE -ne 0 -or $headSha -ne $env:GITHUB_SHA) { throw 'Source checkout SHA differs from release build' }
-          git archive --format=zip --output=$sourceZip HEAD
-          if ($LASTEXITCODE -ne 0 -or !(Test-Path $sourceZip)) { throw 'Failed to archive complete CAD 360 source at release commit' }
+          python scripts/verify_source_bundle.py --build $sourceZip
+          if ($LASTEXITCODE -ne 0 -or !(Test-Path $sourceZip)) { throw 'Full source ZIP generation from exact Git blobs or SHA verification failed' }
           python scripts/verify_source_bundle.py $sourceZip
           if ($LASTEXITCODE -ne 0) { throw 'Full source ZIP missing files or differs from the exact release SHA' }
           $hashes = @()
