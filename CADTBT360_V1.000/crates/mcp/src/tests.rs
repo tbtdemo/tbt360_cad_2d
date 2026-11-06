@@ -865,3 +865,25 @@ fn stage246_readonly_server_hides_mutating_commands_from_discovery() {
     assert!(!names.contains(&"command_line"));
     assert!(!names.contains(&"ai_draw_vietnamese"));
 }
+
+#[test]
+fn stage247_mcp_resource_discovery_and_reads_match_host_grants() {
+    use crate::backend::Backend;
+    use crate::access_policy::HostScope;
+    let mut backend=Headless::default();
+    let drawing=backend.call("drawing.inspect",json!({"entities":false})).unwrap();
+    let uid=drawing["documentUid"].as_u64().unwrap();
+    let scope=HostScope::new("tenant-one","user-one","viewer",uid).unwrap()
+        .restrict_tools(&["inspect_drawing"]).unwrap();
+    let mut server=Server::with_host_scope(Box::new(backend),scope);
+    let list=call(&mut server,701,"resources/list",json!({}));
+    let resources=list["result"]["resources"].as_array().expect("resources");
+    assert_eq!(resources.len(),1);
+    assert_eq!(resources[0]["uri"],"cadcraft://drawing");
+    let allowed=call(&mut server,702,"resources/read",json!({"uri":"cadcraft://drawing"}));
+    assert!(allowed["result"]["contents"].is_array(),"scoped drawing resource should be readable");
+    let forbidden=call(&mut server,703,"resources/read",json!({"uri":"cadcraft://commands"}));
+    assert_eq!(forbidden["error"]["code"],-32602,"ungranted command catalog must be denied");
+    let private=call(&mut server,704,"resources/read",json!({"uri":"file:///etc/passwd"}));
+    assert_eq!(private["error"]["code"],-32602);
+}
