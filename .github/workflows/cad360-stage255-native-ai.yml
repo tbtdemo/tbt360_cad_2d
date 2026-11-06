@@ -1,0 +1,28 @@
+name: CAD 360 Stage255 Native AI MCP Undo
+on:
+  push:
+    branches:
+      - feature/CADTBT360_V1.025_xref-regression
+    paths:
+      - CADTBT360_V1.000/crates/mcp/src/tests.rs
+      - CADTBT360_V1.000/crates/mcp/src/tools.rs
+      - CADTBT360_V1.000/crates/mcp/src/access_policy.rs
+      - .github/workflows/cad360-stage255-native-ai.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  native-mcp-ai-undo:
+    runs-on: windows-latest
+    timeout-minutes: 90
+    defaults:
+      run:
+        working-directory: CADTBT360_V1.000
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: CADTBT360_V1.000
+      - name: Native AI preview/confirm/Undo and stale-document regression
+        run: cargo test --locked -p cadcraft-mcp stage255 -- --nocapture
