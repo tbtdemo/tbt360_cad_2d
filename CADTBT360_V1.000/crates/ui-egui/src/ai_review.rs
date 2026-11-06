@@ -747,6 +747,7 @@ fn commit_steps(session:&mut Session,preview:&Preview)->Result<Vec<String>,Strin
     session.execute("undo",&json!({"mode":"begin"})).map_err(|e|e.to_string())?;
     let mut succeeded=0_u64;
     let mut handles=Vec::<String>::new();
+    let mut seen_new_handles=std::collections::HashSet::<String>::new();
     let mut failure:Option<String>=None;
     if let Some(old)=&preview.replace_handles {
         if !same(session,preview.revision,true) {
@@ -787,6 +788,11 @@ fn commit_steps(session:&mut Session,preview:&Preview)->Result<Vec<String>,Strin
                                     session.doc().map_or(true,|doc|doc.entity(h).is_none()))
                             }) {
                                 failure=Some(format!("Lệnh {command} không trả đúng một handle CAD tồn tại; yêu cầu rollback"));
+                                break;
+                            }
+                            if !seen_new_handles.insert(new[0].clone())
+                                || preview.replace_handles.as_ref().is_some_and(|old|old.contains(&new[0])) {
+                                failure=Some("Lệnh AI trả handle bị trùng hoặc tái sử dụng handle bị thay thế; yêu cầu rollback".into());
                                 break;
                             }
                             if let Some(snapshot)=&preview.replace_snapshot {
@@ -1432,6 +1438,52 @@ mod tests {
         assert!(failed_command_revision_step(25,27).is_err());
         assert!(failed_command_revision_step(25,24).is_err());
         assert!(failed_command_revision_step(u64::MAX,0).is_err());
+    }
+
+    #[test]
+    fn stage281_ai_review_large_native_group_at_full_undo_limit_preserves_handles_and_source() {
+        let mut session=Session::default();
+        let old=session.execute("line",&json!({"points":[[10000.0,10000.0],[11000.0,10000.0]]})).unwrap();
+        let old_handle=cadcraft_doc::Handle::parse_hex(old["handles"][0].as_str().unwrap()).unwrap();
+        // The old history is deliberately full; the 128 inserted entities are actual
+        // CAD Engine LINE operations via AI Review::commit_steps.
+        while session.state().unwrap().undo.len()<cadcraft_engine::undoctl::MAX_UNDO {
+            let prior={
+                let s=session.state().unwrap();
+                cadcraft_engine::Snapshot {label:"prior-history".into(),doc:s.doc.clone(),selection:Vec::new()}
+            };
+            session.state_mut().unwrap().push_undo(prior);
+        }
+        let previous_count=session.doc().unwrap().entity_count();
+        let state=session.state().unwrap();
+        let mut steps=Vec::new();
+        for n in 0..128 {
+            let y=5000.0+f64::from(n)*20.0;
+            steps.push(("line",json!({"points":[[0.0,y],[700.0,y]]})));
+        }
+        let preview=Preview {uid:state.uid,epoch:session.doc_epoch,revision:state.revision,
+            text:"stage281 batch 128 native LINE".into(),
+            steps,description:"Full history import regression".into(),image_evidence:None,
+            selected_opening_guide:None,selected_door_arc:None,replace_handles:None,
+            replace_snapshot:None,review_token:None,image_controls:None,owned_entities:None};
+        let created=commit_steps(&mut session,&preview).unwrap();
+        assert_eq!(created.len(),128);
+        assert_eq!(created.iter().collect::<std::collections::HashSet<_>>().len(),128);
+        assert_eq!(session.state().unwrap().undo.len(),cadcraft_engine::undoctl::MAX_UNDO);
+        assert!(session.state().unwrap().undo_ctl.group.is_none());
+        assert_eq!(session.doc().unwrap().entity_count(),previous_count+128);
+        assert!(session.doc().unwrap().entity(old_handle).is_some());
+        session.execute("undo",&json!({"count":1})).unwrap();
+        assert_eq!(session.doc().unwrap().entity_count(),previous_count);
+        assert!(session.doc().unwrap().entity(old_handle).is_some());
+        for raw in &created {
+            assert!(session.doc().unwrap().entity(cadcraft_doc::Handle::parse_hex(raw).unwrap()).is_none());
+        }
+        session.execute("redo",&json!({})).unwrap();
+        assert_eq!(session.doc().unwrap().entity_count(),previous_count+128);
+        for raw in &created {
+            assert!(session.doc().unwrap().entity(cadcraft_doc::Handle::parse_hex(raw).unwrap()).is_some());
+        }
     }
 
     #[test]
