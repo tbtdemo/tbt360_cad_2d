@@ -578,6 +578,13 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
                     if !state.local_message.is_empty() {ui.small(&state.local_message);}
                     if let Some(command)=state.local_command.clone() {
                         ui.label("Lệnh đề xuất — phải kiểm tra trước khi chấp nhận:");
+                        match cadcraft_ui_egui::ai_review::AiReview::describe_native_plan(&command) {
+                            Ok((instructions,entities,description))=>{
+                                ui.strong(format!("{instructions} lệnh → {entities} đối tượng hình học CAD dự kiến"));
+                                ui.small(description);
+                            },
+                            Err(error)=>{ui.colored_label(egui::Color32::RED,format!("Không thể lập kế hoạch CAD: {error}"));}
+                        }
                         ui.code(&command);
                         if ui.button("Chuyển lệnh sang AI Review để xem trước").clicked() {
                             cad.ai_review.open_with_prompt(&command);
