@@ -12,7 +12,7 @@ def make_pdf(path: pathlib.Path) -> None:
         b"<< /Type /Catalog /Pages 2 0 R >>",
         b"<< /Type /Pages /Count 1 /Kids [3 0 R] >>",
         b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 180] /Contents 4 0 R /Resources << >> >>",
-        b"<< /Length 30 >>\nstream\n0 0 0 RG 10 80 m 290 80 l S\nendstream",
+        b"<< /Length 27 >>\nstream\n0 0 0 RG 10 80 m 290 80 l S\nendstream",
     ]
     data = bytearray(b"%PDF-1.4\n%\xe2\xe3\xcf\xd3\n")
     offsets = [0]
