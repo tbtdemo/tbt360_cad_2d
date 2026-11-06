@@ -959,6 +959,40 @@ mod ai_draft_vietnamese_tests {
         std::fs::remove_file(&path).expect("cleanup DWG fixture");
     }
 
+    /// Stage239 cross-checks DXF as an independent standard CAD interchange format.
+    /// A separate Headless session must reconstruct the editable door BLOCK and layers.
+    #[test]
+    fn ai_vietnamese_stage239_native_dxf_save_reopen_preserves_editable_door_layers() {
+        use crate::backend::{Backend,Headless};
+        let mut cad=Headless::default();
+        let inspected=cad.call("drawing.inspect",json!({"entities":false})).unwrap();
+        let text="vẽ hai phòng liền kề rộng 3000 và 4000 dài 4000 tại 0,0 cửa 900 giữa bản lề dưới mở phải";
+        let preview=super::ai_draw_plan_vietnamese(&mut cad,&json!({"text":text,"createDoorBlock":true,"applyLayers":true})).unwrap();
+        assert_eq!(preview["previewOnly"],true);
+        assert_eq!(cad.session.doc().unwrap().entity_count(),0,"Preview must not write entities");
+        let args=json!({"text":text,"createDoorBlock":true,"applyLayers":true,"preview":false,"confirm":true,
+            "expectedDocumentUid":inspected["documentUid"],"expectedDocumentEpoch":inspected["documentEpoch"],
+            "expectedRevision":inspected["revision"]});
+        let response=super::ai_draw_plan_vietnamese(&mut cad,&args).unwrap();
+        assert_eq!(response["executed"],true);
+        let nonce=std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let path=std::env::temp_dir().join(format!("cad360-stage239-{}-{nonce}.dxf",std::process::id()));
+        let name=path.to_string_lossy().into_owned();
+        cad.call("app.save",json!({"path":name,"version":2018})).expect("native DXF save");
+        assert!(path.exists() && std::fs::metadata(&path).unwrap().len()>128,"actual DXF file required");
+        let mut reopened=Headless::default();
+        reopened.call("app.open",json!({"path":name})).expect("native DXF reopen");
+        let doc=reopened.session.doc().unwrap();
+        assert_eq!(doc.entity_count(),4,"DXF must retain room, two wall parts, one door INSERT");
+        for (layer,count) in [("TBT_AI_ROOM",1),("TBT_AI_WALL",2),("TBT_AI_DOOR",1)] {
+            let actual=doc.model.iter().filter(|entity|entity.common.layer==layer).count();
+            assert_eq!(actual,count,"DXF roundtrip lost entities on {layer}");
+        }
+        assert!(doc.blocks.keys().any(|key|key.starts_with("TBT_AI_DOOR_")),
+            "DXF must retain the editable native door Block definition");
+        std::fs::remove_file(path).expect("remove DXF fixture");
+    }
+
     #[test]
     fn ai_vietnamese_plan_is_atomic_on_parser_validation() {
         assert!(super::parse_vietnamese_plan("vẽ đường thẳng từ 0,0 đến 10,0").is_err());
