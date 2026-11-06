@@ -2571,3 +2571,29 @@ Kế hoạch: Đợt 240 sửa lỗi CI, hoàn thiện thử DWG hai chiều v�
 5. Kiểm chứng qua `cargo test --locked -p cadcraft-mcp stage255 -- --nocapture` trong `CADTBT360_V1.000`.
 
 **Giới hạn nghiệm thu:** Mới bổ sung regression tests vào Rust MCP và cấu hình Windows workflow; kết quả CI, GUI EXE, OIDC ngoài đời thực và lưu DWG chưa được công nhận chỉ từ việc commit.
+
+
+## 96. Đợt 256 — Kiểm thử phân quyền Host OIDC đến AI CAD Engine
+
+### Bài 205 — Luồng xác thực và cấp quyền
+1. Mô hình sử dụng: AuthServer OpenIddict → host xác thực access token bằng JWT/JWKS → tạo `VerifiedClaims` → `OidcTrustPolicy.admit` → MCP `Server::with_verified_oidc` → CAD Engine.
+2. Các trường `issuer`, `audience`, `subject`, `tenant`, `role`, `not_before_unix`, `expires_at_unix` phải đến từ token đã được host kiểm tra chữ ký, không được tin trực tiếp từ JSON của Agent.
+3. Trong Rust, `HostRole::Viewer` được đọc bản vẽ nhưng không được Preview/Commit AI; `Editor` hoặc `Approver` chỉ được dùng công cụ nằm trong danh sách host cấp. Cấm tự động mở rộng sang `execute` hay `script`.
+4. `HostScope` luôn ràng buộc UID của bản vẽ và thời hạn phiên. `expectedDocumentUid`, `expectedDocumentEpoch`, `expectedRevision` được so với trạng thái đang mở trước khi ghi.
+5. Không dùng đăng nhập ChatGPT/Gemini gói chat thay thế chữ ký OAuth/OIDC của phần mềm.
+
+### Bài 206 — Kiểm thử AI Editor thực thi trên CAD Engine
+1. Chạy `cargo test --locked -p cadcraft-mcp stage256 -- --nocapture` từ `CADTBT360_V1.000`. Test dùng `TestVerifier` có kiểm soát thay vì kết nối AuthServer thật.
+2. `stage256_verified_editor_can_preview_and_commit_native_ai_only_with_matching_scope` tạo HostScope Editor với danh sách chỉ gồm `inspect_drawing`, `query_entities`, `ai_draw_plan_vietnamese`.
+3. Gọi Preview tạo kế hoạch hai phòng, kiểm tra chưa xuất hiện entity. Sau đó xác nhận bằng UID/Epoch/Revision chính xác, kiểm tra hình học đã được tạo qua `query_entities`.
+4. Thử `execute` và `script` từ bên ngoài; MCP phải từ chối trước khi tới CAD Engine.
+5. `stage256_verified_host_rejects_wrong_token_viewer_write_and_wrong_document` kiểm tra token thử nghiệm không hợp lệ, Viewer không được gọi AI Preview và scope UID không đúng thì không đọc bản vẽ.
+
+### Bài 207 — Đánh giá kết quả và điều kiện nghiệm thu
+1. Trong GitHub Actions chọn `CAD 360 Stage256 Verified OIDC Scope to Native AI`, kiểm tra cả test `stage255` và `stage256` PASS tại đúng SHA cuối.
+2. Sau khi CI PASS, tiếp tục thử trên máy Windows thật: host .NET 8 cấu hình issuer/audience/JWKS đến AuthServer thực; token hợp lệ/thu hồi/hết hạn/sai Tenant phải được xử lý chính xác.
+3. Xây dựng UI để người dùng **tự xác nhận phương án vẽ**, có bản ghi Audit gồm user, tenant, UID, revision và kết quả; không đưa access token vào log.
+4. Kiểm chứng WinForms/Rust GUI cùng CAD Engine có thể Undo/Redo/Save/Reopen; thử DXF và DWG hai chiều với AutoCAD. Chưa công nhận chỉ dựa trên Headless test.
+5. Giữ nguyên chính sách CAD Free không bắt buộc đăng nhập khi khởi động; chỉ áp dụng xác thực đúng với chức năng dịch vụ có yêu cầu. File DWG phải giữ cấu trúc chuẩn và tương thích hai chiều.
+
+**Trạng thái thực tế:** Đợt 256 bổ sung regression tests Rust dùng token verifier giả lập và Windows CI. Chưa có bằng chứng kết nối AuthServer/JWKS thật, UX xác nhận, Windows EXE và DWG qua AutoCAD.
