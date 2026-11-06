@@ -6,6 +6,7 @@ use serde_json::{Value, json};
 
 use crate::backend::Backend;
 use crate::access_policy::{AccessMode,HostScope};
+use crate::oidc_host::{OidcTrustPolicy,VerifiedTokenProvider};
 use crate::tools::{call_tool, tool_definitions};
 
 pub const PROTOCOL_VERSION: &str = "2025-06-18";
@@ -48,6 +49,15 @@ impl Server {
     /// the caller. JSON-RPC clients cannot set or override this scope.
     pub fn with_host_scope(backend:Box<dyn Backend>,scope:HostScope)->Self {
         Self {backend,initialized:false,access_mode:AccessMode::Reviewed,host_scope:Some(scope)}
+    }
+    /// Admit an externally verified OIDC access token into a time-limited,
+    /// tool-scoped MCP session. The verifier MUST cryptographically validate JWT
+    /// signature / JWKS and OIDC standard claims before returning identity.
+    pub fn with_verified_oidc(backend:Box<dyn Backend>,policy:&OidcTrustPolicy,
+        verifier:&dyn VerifiedTokenProvider,access_token:&str,document_uid:u64,
+        allowed_tools:&[&str])->Result<Self,String> {
+        let scope=policy.admit(verifier,access_token,document_uid,allowed_tools)?;
+        Ok(Self::with_host_scope(backend,scope))
     }
     pub fn access_mode(&self)->&'static str {
         if self.host_scope.is_some() {"scoped"} else {self.access_mode.as_str()}
