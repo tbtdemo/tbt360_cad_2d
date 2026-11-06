@@ -16,6 +16,7 @@ pub fn tool_definitions(has_ui: bool) -> Value {
             "inputSchema": {"type": "object", "properties": {"command": {"type": "string"}, "params": {"type": "object"}}, "required": ["command"]}}),
         json!({"name":"ai_draw_plan_vietnamese","description":"CAD 360 AI deterministic multi-step Vietnamese drawing plan. Supply 2-8 native commands through newline-delimited drafts (LINE, CIRCLE, RECTANG, PLINE), or one high-level room pair: vẽ hai phòng liền kề rộng 3000 và 4000 dài 4000 tại 0,0 [cửa 900 giữa] (one outer RECTANG and two gap-preserving LINEs; optional explicit hinge/swing adds native door-leaf LINE and swing ARC, not a BLOCK or BIM door). Preview is default; commit requires confirm:true and exact document identity/revision from preview. Executes all steps as one guarded Undo group and attempts safe rollback on failure. Optional createDoorBlock=true converts the last explicitly described door leaf LINE and swing ARC into a native BLOCK/INSERT in the same Undo group; defaults false. applyLayers=true assigns native TBT_AI_ROOM/TBT_AI_WALL/TBT_AI_DOOR via laymch, opt-in only and verified against the active document. Does not interpret arbitrary natural language.","inputSchema":{"type":"object","properties":{"text":{"type":"string"},"preview":{"type":"boolean"},"confirm":{"type":"boolean"},"createDoorBlock":{"type":"boolean"},"applyLayers":{"type":"boolean"},"expectedDocumentUid":{"type":"integer","minimum":0},"expectedDocumentEpoch":{"type":"integer","minimum":0},"expectedRevision":{"type":"integer","minimum":0}},"required":["text"]}}),
         json!({"name":"ai_draw_vietnamese","description":"CAD 360 Vietnamese drafting bridge (bounded deterministic grammar, not a general LLM). Supports bounded LINE, CIRCLE, RECTANG, PLINE, plus dimensioned room 'vẽ phòng rộng 6000 dài 4000 tại 0,0' and wall 'vẽ tường từ 0,0 đến 6000,0 dày 200'. Room and wall are editable CAD outlines, NOT semantically verified BIM geometry. Preview by default; to commit, set preview:false, confirm:true and expectedDocumentUid, expectedDocumentEpoch, expectedRevision obtained from a fresh preview. Executes exactly one native CAD engine command, never saves or modifies DWG structure.","inputSchema":{"type":"object","properties":{"text":{"type":"string"},"preview":{"type":"boolean"},"confirm":{"type":"boolean"},"expectedDocumentUid":{"type":"integer","minimum":0},"expectedDocumentEpoch":{"type":"integer","minimum":0},"expectedRevision":{"type":"integer","minimum":0}},"required":["text"]}}),
+        json!({"name":"ai_cad_capabilities","description":"Read-only AI CAD 360 integration manifest for external MCP agent clients (ChatGPT-compatible MCP, Gemini-compatible MCP bridge or other approved hosts). Reports supported CAD operations and strict preview/confirm/Undo contract; never requests API keys, never authenticates into web chat sessions and never modifies the drawing.","inputSchema":{"type":"object","properties":{}}}),
         json!({"name": "list_commands", "description": "List commands with ids, labels, menu paths, aliases and parameter docs. Optional filter: a substring of the command id, label or an alias.",
             "inputSchema": {"type": "object", "properties": {"filter": {"type": "string"}}}}),
         json!({"name": "inspect_drawing", "description": "Summary of the active drawing: entity counts, extents, layers, styles, blocks, layouts, selection, undo history and (optionally) entities with handles and geometry.",
@@ -606,6 +607,27 @@ pub fn call_tool(b: &mut dyn Backend, name: &str, args: &Value) -> Result<Value,
         ),
         "ai_draw_vietnamese" => ai_draw_vietnamese(b, &a),
         "ai_draw_plan_vietnamese" => ai_draw_plan_vietnamese(b, &a),
+        "ai_cad_capabilities" => Ok(json!({
+            "product":"CAD 360 Viet Nam","apiVersion":"stage242-mcp-1",
+            "transport":"MCP stdio or approved authenticated local CAD control bridge",
+            "providerAgnostic":true,
+            "availableTools":["ai_draw_vietnamese","ai_draw_plan_vietnamese",
+                "trace_perspective_image","fit_image_controls","calibrate_image",
+                "inspect_drawing","query_entities","list_commands"],
+            "nativeCad":["LINE","PLINE","RECTANG","CIRCLE","ARC","BLOCK","INSERT","LAYER","DWG","DXF"],
+            "reviewContract":{"previewByDefault":true,"confirmRequired":true,
+                "requires":["expectedDocumentUid","expectedDocumentEpoch","expectedRevision"],
+                "undo":"single native CAD group for supported AI plan"},
+            "selfImprovement":{"automaticModelWeightTraining":false,
+                "recommended":"consented feedback -> audited benchmark -> human review -> CI -> versioned release"},
+            "externalProviders":{"chatSubscriptionGrantsApiAccess":false,
+                "requiresSupportedMcpHostOrOfficialProviderApi":true,
+                "neverCollectBrowserSessionCookies":true},
+            "limitations":["bounded Vietnamese parser is not a general reasoning LLM",
+                "AutoCAD two-way DWG compatibility requires external acceptance testing",
+                "arbitrary external agents must be authenticated and permission-scoped"]
+        })),
+
         "list_commands" => b.call("engine.commands", json!({})).map(|v| {
             let f = a.get("filter").and_then(Value::as_str).map(str::to_ascii_lowercase);
             match (v, f) {
@@ -1063,6 +1085,21 @@ mod ai_draft_vietnamese_tests {
         assert!(response.unwrap_err().contains("revision"));
         assert_eq!(cad.session.doc().unwrap().entity_count(),before,
             "stale AI commit cannot destroy or duplicate existing native edit");
+    }
+
+    #[test]
+    fn ai_cad_capabilities_external_host_read_only_and_no_secret_requirement() {
+        use crate::backend::Backend;
+        struct NoCall;
+        impl Backend for NoCall {
+            fn call(&mut self,method:&str,_:serde_json::Value)->Result<serde_json::Value,String> {Err(format!("Unexpected call: {method}"))}
+            fn has_ui(&self)->bool {false}
+            fn describe(&self)->String {"NoCall".into()}
+        }
+        let output=super::call_tool(&mut NoCall,"ai_cad_capabilities",&json!({})).unwrap();
+        assert!(output["content"][0]["text"].as_str().unwrap().contains("providerAgnostic"));
+        assert!(output["content"][0]["text"].as_str().unwrap().contains("previewByDefault"));
+        assert!(!output["content"][0]["text"].as_str().unwrap().contains("access_token"));
     }
 
     #[test]
