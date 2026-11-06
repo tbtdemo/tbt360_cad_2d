@@ -1,0 +1,42 @@
+name: CAD 360 Stage276 Real ERASE Revision and PNG Regression
+on:
+  push:
+    branches:
+      - feature/CADTBT360_V1.025_xref-regression
+    paths:
+      - CADTBT360_V1.000/crates/ui-egui/src/ai_review.rs
+      - .github/workflows/cad360-stage276-erase-revision.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  erase-revision-safety:
+    runs-on: windows-latest
+    timeout-minutes: 100
+    defaults:
+      run:
+        working-directory: CADTBT360_V1.000
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.95.0'
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: CADTBT360_V1.000
+      - name: Identify commit and toolchain
+        shell: pwsh
+        run: |
+          git rev-parse HEAD
+          rustc --version
+          cargo --version
+      - name: Compile Windows AI Review
+        run: cargo check --locked -p cadcraft-ui-egui
+      - name: Zero ERASE and revision group safety
+        run: cargo test --locked -p cadcraft-ui-egui stage276 -- --nocapture
+      - name: Real PNG Preview native CAD Undo Redo
+        run: cargo test --locked -p cadcraft-ui-egui stage275 -- --nocapture
+      - name: Native one-step and group failure rollback
+        run: cargo test --locked -p cadcraft-ui-egui stage274 -- --nocapture
+      - name: Managed wall strict snapshot protection
+        run: cargo test --locked -p cadcraft-ui-egui stage273 -- --nocapture
