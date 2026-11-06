@@ -32,6 +32,8 @@ jobs:
         run: cargo check --locked -p cadcraft
       - name: Validate local Ollama model ID protection
         run: cargo test --locked -p cadcraft --bin cadcraft model_id_refuses_shell_injection_and_path_tricks -- --nocapture
+      - name: Reject fabricated and multi-command Ollama responses
+        run: cargo test --locked -p cadcraft --bin cadcraft response_accepts_one_native_candidate_and_only_safe_simple_fences -- --nocapture
       - name: Validate local prompt length and control-character boundary
         run: cargo test --locked -p cadcraft --bin cadcraft local_model_request_is_bounded_and_not_executed -- --nocapture
       - name: Confirm model proposed command cannot skip native CAD review
