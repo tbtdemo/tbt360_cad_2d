@@ -721,6 +721,79 @@ mod ai_draft_vietnamese_tests {
         assert!(invalid.calls.is_empty(),"unsupported Block plan must be rejected before contacting CAD");
     }
 
+    struct Stage235CadBackend {
+        revision:u64, group_open:bool, fail_block:bool, undo_calls:u32,
+        create_commands:Vec<String>
+    }
+    impl crate::backend::Backend for Stage235CadBackend {
+        fn call(&mut self,method:&str,params:serde_json::Value)->Result<serde_json::Value,String> {
+            match method {
+                "drawing.inspect"=>Ok(json!({"documentUid":15,"documentEpoch":2,
+                    "revision":self.revision,"undoControl":"all","undoGroupOpen":self.group_open})),
+                "cmdline.state"=>Ok(json!({})),
+                "engine.execute"=>{
+                    let command=params["command"].as_str().ok_or("command absent")?;
+                    if command=="undo" {
+                        match params["params"]["mode"].as_str() {
+                            Some("begin")=>{self.group_open=true;return Ok(json!({"ok":true}));},
+                            Some("end")=>{self.group_open=false;return Ok(json!({"ok":true}));},
+                            _=>{}
+                        }
+                        if params["params"]["count"]==1 {
+                            self.undo_calls+=1;
+                            return Ok(json!({"undone":1}));
+                        }
+                        return Err("invalid undo".into());
+                    }
+                    if command=="block" && self.fail_block {return Err("block insert simulated fail".into());}
+                    self.revision+=1;
+                    self.create_commands.push(command.into());
+                    let n=self.create_commands.len();
+                    match command {
+                        "line"=>Ok(json!({"handles":[format!("L{n}")]})),
+                        "arc"=>Ok(json!({"handle":format!("A{n}")})),
+                        "rectang"=>Ok(json!({"handle":format!("R{n}")})),
+                        "block"=> {
+                            assert_eq!(params["params"]["handles"],json!(["L4","A5"]));
+                            assert_eq!(params["params"]["base"],json!([3000.0,1550.0]));
+                            Ok(json!({"insert":"B6"}))
+                        },
+                        _=>Err(format!("unsupported command: {command}"))
+                    }
+                }
+                other=>Err(format!("unsupported control call: {other}"))
+            }
+        }
+        fn has_ui(&self)->bool {false}
+        fn describe(&self)->String {"Stage235CadBackend".into()}
+    }
+    fn stage235_commit_args()->serde_json::Value {
+        json!({"text":"vẽ hai phòng liền kề rộng 3000 và 4000 dài 4000 tại 0,0 cửa 900 giữa bản lề dưới mở phải",
+            "createDoorBlock":true,"preview":false,"confirm":true,
+            "expectedDocumentUid":15,"expectedDocumentEpoch":2,"expectedRevision":8})
+    }
+    #[test]
+    fn ai_vietnamese_block_transaction_commits_native_insert_and_one_undo_group() {
+        let mut mock=Stage235CadBackend{revision:8,group_open:false,fail_block:false,undo_calls:0,create_commands:Vec::new()};
+        let response=super::ai_draw_plan_vietnamese(&mut mock,&stage235_commit_args()).unwrap();
+        assert_eq!(response["executed"],true);
+        assert_eq!(response["stepCount"],6);
+        assert_eq!(response["results"][5]["insert"],"B6");
+        assert_eq!(mock.create_commands,vec!["rectang","line","line","line","arc","block"]);
+        assert_eq!(mock.revision,14);
+        assert!(!mock.group_open);
+        assert_eq!(mock.undo_calls,0);
+    }
+    #[test]
+    fn ai_vietnamese_block_failure_rolls_back_owned_document_once() {
+        let mut mock=Stage235CadBackend{revision:8,group_open:false,fail_block:true,undo_calls:0,create_commands:Vec::new()};
+        let error=super::ai_draw_plan_vietnamese(&mut mock,&stage235_commit_args()).unwrap_err();
+        assert!(error.contains("rollback"),"{error}");
+        assert_eq!(mock.create_commands.len(),5);
+        assert!(!mock.group_open);
+        assert_eq!(mock.undo_calls,1);
+    }
+
     #[test]
     fn ai_vietnamese_plan_is_atomic_on_parser_validation() {
         assert!(super::parse_vietnamese_plan("vẽ đường thẳng từ 0,0 đến 10,0").is_err());
