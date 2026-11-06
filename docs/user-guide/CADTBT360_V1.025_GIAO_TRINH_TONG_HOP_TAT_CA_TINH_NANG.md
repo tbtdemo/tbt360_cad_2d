@@ -2430,3 +2430,32 @@ Kế hoạch: Đợt 240 sửa lỗi CI, hoàn thiện thử DWG hai chiều v�
 6. Hình trong Word là sơ đồ kỹ thuật minh họa. Không được mô tả đó là ảnh chụp từ EXE thực tế.
 
 **Giới hạn:** Đợt 249 bổ sung host mẫu ASP.NET JWTBearer và bài kiểm thử hạn token của Rust. Chưa có xác nhận JWT/JWKS bằng AuthServer thật hoặc kết nối MCP end-to-end, nên không công bố OIDC/AI bên ngoài đã được nghiệm thu.
+
+
+## 90. Đợt 250 — Host OIDC đọc bản vẽ CAD qua MCP readonly trên loopback
+
+### Bài 187 — Kết nối host OIDC đã xác thực với CAD đang chạy
+1. Cài .NET 8 SDK, chuẩn bị CAD 360 Windows EXE và `cadcraft-cli.exe` từ **cùng bản build**, cùng tài khoản Windows. Kênh điều khiển CAD sử dụng loopback với token riêng của người dùng hệ điều hành.
+2. Host phải xác minh JWT Bearer bằng HTTPS issuer/JWKS thật, audience, exp/nbf và các claim `sub`, `tenant_id`, `role`.
+3. Đặt biến môi trường `CAD360_OIDC_AUTHORITY`, `CAD360_OIDC_AUDIENCE`, `CAD360_LOCAL_TENANT_ID` (chính Tenant được phép truy cập tại máy này), `CAD360_MCP_CLI_PATH` (đường dẫn tuyệt đối tới CLI), `CAD360_MCP_CONNECT_ADDRESS=127.0.0.1:7979`.
+4. Khởi động CAD 360 có điều khiển loopback và host tại `http://127.0.0.1:5049`. Dùng access token hợp lệ gọi `GET /api/cad360/mcp/read-drawing`.
+5. Host yêu cầu tenant của token phải khớp chính xác với Tenant cục bộ cấu hình; role chỉ có viewer/editor/approver, không có quyền từ yêu cầu JSON ngoài.
+6. Host khởi chạy tiến trình `cadcraft-cli mcp --connect 127.0.0.1:7979` ở chế độ `readonly`, gửi initialize và initialized, rồi gửi duy nhất `tools/call: inspect_drawing` với `entities:false`.
+7. Không có endpoint ghi CAD trong mẫu này. Không nhận tên lệnh, đường dẫn DWG, lệnh shell, địa chỉ mạng khác hoặc chức năng sửa bản vẽ từ HTTP request. Tiến trình MCP được giới hạn 10 giây.
+
+### Bài 188 — Kiểm thử quyền Tenant, Role và loopback
+1. Chạy `dotnet run --project integrations/oidc-host-dotnet/Cad360OidcHost.csproj -- --self-test` để kiểm tra chính sách thu hẹp host mà không cần token thật.
+2. Các tình huống phải đạt: cùng Tenant với viewer/editor được xét hợp lệ; khác Tenant, thiếu ID, role lạ, thiếu cấu hình Tenant đều phải bị từ chối.
+3. Địa chỉ `127.0.0.1:7979` được cho phép, còn `0.0.0.0:7979`, `localhost:7979`, cổng 0 hoặc địa chỉ công khai bị từ chối.
+4. Windows CI đợt 250 đã chạy `dotnet restore`, `dotnet build` và `dotnet run -- --self-test` trước đóng gói; cần có PASS đúng SHA cuối mới xác nhận build.
+5. Thử nghiệm thực tế vẫn cần AuthServer OpenIddict phát hành access token có chữ ký hợp lệ, máy CAD đang chạy và CLI kết nối cùng user. **Không coi self-test là bằng chứng JWT hoặc Desktop đã hoạt động**.
+6. Chưa có lớp ủy quyền ghi từ .NET host sang Rust MCP; muốn AI vẽ trực tiếp phải tiếp tục thiết kế đường xác nhận, đúng UID/epoch/revision, Undo và quyền từng tool.
+
+### Bài 189 — Đồng bộ tab HƯỚNG DẪN và lộ trình AI
+1. Trong tab **HƯỚNG DẪN → 5. KẾT NỐI & AN TOÀN AI → 5.14 OIDC host đọc CAD qua MCP readonly**, đọc hướng dẫn kết nối.
+2. Mở mục **6. GIÁO TRÌNH FULL** để xem toàn bộ Bài 1–189 từ Markdown nhúng EXE; giữ nút mở Word để in toàn bộ giáo trình.
+3. Excel Đợt 250 tách ba thước đo: đã có mã/kiểm thử, CI PASS đúng commit và thử nghiệm EXE/MCP/AutoCAD thật. Không suy diễn hoàn thành toàn CAD 360.
+4. Đợt 251 cần kiểm thử kết nối OIDC/JWKS end-to-end trên AuthServer và EXE thật, xây dựng channel có xác thực, kiểm soát quyền ghi khi AI vẽ. Đợt 252 tập trung AI nhận dạng ảnh→CAD với benchmark lỗi tọa độ/hình học. Đợt 253 dành cho QTO, DWG hai chiều và ảnh hướng dẫn chụp từ EXE.
+5. Chỉ thu thập dữ liệu/feedback AI khi khách hàng đồng ý; không tự huấn luyện trọng số ChatGPT/Gemini, không sử dụng cookie của giao diện chat thay cho OAuth API.
+
+**Giới hạn:** Mã bridge đọc readonly đã được cập nhật trong repository; chưa có xác nhận hoạt động cùng AuthServer thực tế và CAD Windows EXE. Host không nhận lệnh tùy ý từ AI, không cấp quyền sửa CAD và không cho kết nối ngoài loopback.
