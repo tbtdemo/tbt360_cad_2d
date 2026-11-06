@@ -1,0 +1,32 @@
+name: CAD 360 Stage264 Reviewed Door Geometry Adjustments
+on:
+  push:
+    branches:
+      - feature/CADTBT360_V1.025_xref-regression
+    paths:
+      - CADTBT360_V1.000/crates/ui-egui/src/ai_review.rs
+      - .github/workflows/cad360-stage264-door-adjust.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  adjusted-arc:
+    runs-on: windows-latest
+    timeout-minutes: 95
+    defaults:
+      run:
+        working-directory: CADTBT360_V1.000
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: CADTBT360_V1.000
+      - name: Check native Windows GUI
+        run: cargo check --locked -p cadcraft-ui-egui
+      - name: Test reviewed arc width, hinge, swing, native Undo and Redo
+        run: cargo test --locked -p cadcraft-ui-egui stage264 -- --nocapture
+      - name: Regress image wall-opening and door candidate selection
+        run: cargo test --locked -p cadcraft-ui-egui stage263 -- --nocapture
+      - name: Regress image source revalidation
+        run: cargo test --locked -p cadcraft-ui-egui stage262 -- --nocapture
