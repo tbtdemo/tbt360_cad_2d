@@ -140,6 +140,8 @@ jobs:
             @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_vietnamese_door_block_uses_final_line_and_arc_in_one_plan' },
             @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_vietnamese_block_rejects_unrelated_plan_and_previews_without_mutation' },
             @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_vietnamese_block_transaction_commits_native_insert_and_one_undo_group' },
+            @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_vietnamese_apply_layers_native_commands_and_undo_group' },
+            @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_vietnamese_apply_layers_preview_does_not_touch_canvas' },
             @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_vietnamese_block_failure_rolls_back_owned_document_once' },
             @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_vietnamese_room_wall_plan_produces_closed_native_outlines' },
             @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_vietnamese_plan_parses_four_native_commands' },
@@ -281,6 +283,8 @@ jobs:
           if ($namedTests.Count -lt 4) { $imageTests | Out-Host; throw "V1.025 image test discovery unexpectedly found only $($namedTests.Count) tests" }
           cargo test --locked -p cadcraft-engine --lib image -- --nocapture
           if ($LASTEXITCODE -ne 0) { throw 'V1.025 IMAGE engine regression failed' }
+          cargo test --locked -p cadcraft-mcp --lib ai_vietnamese_apply_layers_ -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'Stage236 AI native Layer opt-in and Preview regressions failed' }
           cargo test --locked -p cadcraft-mcp --lib ai_vietnamese_block_ -- --nocapture
           if ($LASTEXITCODE -ne 0) { throw 'Stage 235 AI Block transaction/rollback regression failed' }
           cargo test --locked -p cadcraft-mcp --lib ai_vietnamese_door_block_uses_final_line_and_arc_in_one_plan -- --nocapture
