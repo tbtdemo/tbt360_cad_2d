@@ -7,6 +7,10 @@ using System.Text.Json;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 
+if (args.Contains("--self-test",StringComparer.Ordinal)) {
+    Environment.ExitCode = HostGrantPolicy.SelfTest();
+    return;
+}
 var builder = WebApplication.CreateBuilder(args);
 string authority = Environment.GetEnvironmentVariable("CAD360_OIDC_AUTHORITY") ?? "";
 string audience = Environment.GetEnvironmentVariable("CAD360_OIDC_AUDIENCE") ?? "";
@@ -62,15 +66,12 @@ app.MapGet("/api/cad360/mcp/read-drawing", async (ClaimsPrincipal user, Cancella
     var tenant = user.FindFirstValue("tenant_id");
     var role = user.FindFirstValue("role")?.ToLowerInvariant();
     var boundTenant = Environment.GetEnvironmentVariable("CAD360_LOCAL_TENANT_ID");
-    if (string.IsNullOrWhiteSpace(subject) || string.IsNullOrWhiteSpace(tenant)
-        || string.IsNullOrWhiteSpace(boundTenant) || !string.Equals(tenant, boundTenant, StringComparison.Ordinal)
-        || role is not ("viewer" or "editor" or "approver")) return Results.Forbid();
+    if (!HostGrantPolicy.MayRead(subject,tenant,role,boundTenant)) return Results.Forbid();
     var cli = Environment.GetEnvironmentVariable("CAD360_MCP_CLI_PATH");
     if (string.IsNullOrWhiteSpace(cli) || !Path.IsPathFullyQualified(cli) || !File.Exists(cli))
         return Results.Problem("Trusted CAD CLI path is not configured.", statusCode:503);
     var address = Environment.GetEnvironmentVariable("CAD360_MCP_CONNECT_ADDRESS") ?? "127.0.0.1:7979";
-    if (!address.StartsWith("127.0.0.1:", StringComparison.Ordinal)
-        || !int.TryParse(address.AsSpan("127.0.0.1:".Length), out var port) || port is < 1 or > 65535)
+    if (!HostGrantPolicy.IsLoopbackAddress(address))
         return Results.Problem("CAD connection must be bound to IPv4 loopback.", statusCode:503);
     using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellation);
     timeout.CancelAfter(TimeSpan.FromSeconds(10));
@@ -88,9 +89,11 @@ app.MapGet("/api/cad360/mcp/read-drawing", async (ClaimsPrincipal user, Cancella
     process.StartInfo.ArgumentList.Add("--connect");
     process.StartInfo.ArgumentList.Add(address);
     process.StartInfo.Environment["CAD360_MCP_ACCESS_MODE"] = "readonly";
+    var started=false;
     try
     {
         if (!process.Start()) return Results.Problem("Unable to launch CAD MCP.", statusCode:503);
+        started=true;
         var init = JsonSerializer.Serialize(new {jsonrpc="2.0",id=1,method="initialize",
             @params=new {protocolVersion="2025-06-18",capabilities=new {},clientInfo=new {name="cad360-oidc-readonly",version="1"}}});
         await process.StandardInput.WriteLineAsync(init.AsMemory(), timeout.Token);
@@ -126,7 +129,10 @@ app.MapGet("/api/cad360/mcp/read-drawing", async (ClaimsPrincipal user, Cancella
     }
     finally
     {
-        if (!process.HasExited) process.Kill(entireProcessTree:true);
+        if (started) {
+            try {if (!process.HasExited) process.Kill(entireProcessTree:true);}
+            catch (InvalidOperationException) { /* process already exited */ }
+        }
     }
 }).RequireAuthorization("CAD360Scoped");
 
