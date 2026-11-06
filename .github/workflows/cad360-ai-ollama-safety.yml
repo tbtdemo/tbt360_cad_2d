@@ -38,6 +38,10 @@ jobs:
         run: cargo test --locked -p cadcraft --bin cadcraft local_model_request_is_bounded_and_not_executed -- --nocapture
       - name: Confirm model proposed command cannot skip native CAD review
         run: cargo test --locked -p cadcraft --bin cadcraft ai_local_llm_is_optional_and_does_not_commit_native_cad_on_open -- --nocapture
+      - name: Validate actual multi-object commit with one Undo and Redo
+        run: cargo test --locked -p cadcraft-ui-egui ai_multi_object_plan_commits_three_editable_entities_and_one_undo_group -- --nocapture
+      - name: Validate invalid multi-command plan never mutates document
+        run: cargo test --locked -p cadcraft-ui-egui ai_multi_object_plan_rejects_bad_command_without_starting_undo_or_writing_cad -- --nocapture
       - name: Validate atomic multi-object CAD plan and step count limits
         run: cargo test --locked -p cadcraft-ui-egui ai_review_multi_object_plan_is_atomic_at_parser_and_bounded -- --nocapture
       - name: Verify native command review parser rejects destructive requests
