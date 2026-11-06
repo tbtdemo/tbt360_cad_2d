@@ -100,6 +100,14 @@ impl DocState {
             self.undo_ctl.group = Some(depth);
         }
         self.undo.push(snap);
+        // Stage279: during UNDO BEGIN, only the first snapshot is needed to
+        // restore the document to its exact pre-group state. Collapse newer
+        // snapshots *before* enforcing MAX_UNDO; otherwise a long AI import
+        // can evict its own first snapshot and corrupt single-step rollback.
+        if let Some(start) = self.undo_ctl.group {
+            let keep = start.saturating_add(1);
+            if self.undo.len() > keep {self.undo.truncate(keep);}
+        }
         if let Some(extra) = self.undo.len().checked_sub(MAX_UNDO).filter(|e| *e > 0) {
             self.undo.drain(..extra);
             for m in &mut self.undo_ctl.marks {
@@ -166,5 +174,56 @@ impl DocState {
         let keep = if c == Control::One { 1 } else { 0 };
         let drop = self.undo.len().saturating_sub(keep);
         self.undo.drain(..drop);
+    }
+}
+
+// Stage279: a very long native group must keep its first pre-group snapshot even
+// when ordinary history is at the MAX_UNDO ceiling.
+#[cfg(test)]
+mod stage279_tests {
+    use super::*;
+    use cadcraft_doc::Drawing;
+
+    fn snapshot(st:&DocState,label:&str)->Snapshot {
+        Snapshot {label:label.into(),doc:st.doc.clone(),selection:Vec::new()}
+    }
+
+    #[test]
+    fn stage279_undo_group_stays_single_snapshot_at_max_depth() {
+        let mut st=DocState::new(Drawing::default(),"Stage279",None);
+        for _ in 0..MAX_UNDO {
+            let snap=snapshot(&st,"prior");
+            st.push_undo(snap);
+        }
+        assert_eq!(st.undo.len(),MAX_UNDO);
+        assert!(!st.begin_undo_group());
+        let original=st.doc.clone();
+        for _ in 0..256 {
+            let snap=snapshot(&st,"native");
+            st.push_undo(snap);
+            let start=st.undo_ctl.group.expect("group remains open");
+            assert_eq!(st.undo.len(),start+1,"never evict the group baseline");
+            assert_eq!(st.undo.len(),MAX_UNDO);
+            assert!(std::sync::Arc::ptr_eq(&st.undo[start].doc,&original));
+        }
+        assert!(st.end_undo_group());
+        assert_eq!(st.undo.len(),MAX_UNDO);
+        assert!(std::sync::Arc::ptr_eq(&st.undo.last().unwrap().doc,&original));
+    }
+
+    #[test]
+    fn stage279_group_with_many_more_steps_than_history_limit_remains_undoable() {
+        let mut st=DocState::new(Drawing::default(),"Stage279",None);
+        st.begin_undo_group();
+        let original=st.doc.clone();
+        for _ in 0..(MAX_UNDO+32) {
+            let snap=snapshot(&st,"large raster import");
+            st.push_undo(snap);
+            assert_eq!(st.undo.len(),1);
+            assert_eq!(st.undo_ctl.group,Some(0));
+        }
+        assert!(st.end_undo_group());
+        assert_eq!(st.undo.len(),1);
+        assert!(std::sync::Arc::ptr_eq(&st.undo[0].doc,&original));
     }
 }
