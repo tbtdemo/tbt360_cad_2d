@@ -1039,6 +1039,46 @@ mod tests {
         assert!(parse_draft("xóa tất cả").is_err());
     }
     #[test]
+    fn stage270_precise_line_intersection_avoids_bounding_box_false_positive() {
+        let mut session=Session::default();
+        let wall=session.execute("pline",&json!({"vertices":[[0.0,-100.0],[6000.0,-100.0],
+            [6000.0,100.0],[0.0,100.0]],"closed":true})).unwrap();
+        let wall_id=cadcraft_doc::Handle::parse_hex(wall["handle"].as_str().unwrap()).unwrap();
+        let neighbour=session.execute("line",&json!({"points":[[2450.0,110.0],[2600.0,90.0]]})).unwrap();
+        let neighbour_id=cadcraft_doc::Handle::parse_hex(neighbour["handles"][0].as_str().unwrap()).unwrap();
+        session.set_selection(vec![wall_id]);
+        let plan=preview_selected_existing_wall(&session,"3000","900",false)
+            .expect("AABB touches opening, but line segment terminates outside the true quadrilateral");
+        assert_eq!(session.doc().unwrap().entity_count(),2,"Preview must not mutate CAD");
+        let new_handles=commit_steps(&mut session,&plan).unwrap();
+        assert_eq!(new_handles.len(),4);
+        assert!(session.doc().unwrap().entity(neighbour_id).is_some(),"Unrelated LINE remains untouched");
+        session.execute("undo",&json!({"count":1})).unwrap();
+        assert!(session.doc().unwrap().entity(wall_id).is_some());
+        assert!(session.doc().unwrap().entity(neighbour_id).is_some());
+        session.execute("redo",&json!({})).unwrap();
+        assert!(session.doc().unwrap().entity(neighbour_id).is_some());
+    }
+
+    #[test]
+    fn stage270_segment_polygon_cases_cross_touch_and_surround() {
+        let quad=[
+            cadcraft_geom::Vec2::new(0.0,0.0),
+            cadcraft_geom::Vec2::new(10.0,0.0),
+            cadcraft_geom::Vec2::new(10.0,2.0),
+            cadcraft_geom::Vec2::new(0.0,2.0)
+        ];
+        let v=|x,y|cadcraft_geom::Vec2::new(x,y);
+        assert!(segment_hits_opening(v(-1.0,1.0),v(11.0,1.0),&quad,1e-8));
+        assert!(segment_hits_opening(v(-1.0,0.0),v(0.0,0.0),&quad,1e-8));
+        assert!(!segment_hits_opening(v(-1.0,2.1),v(11.0,2.1),&quad,1e-8));
+        assert!(polyline_hits_opening(&[v(-1.0,-1.0),v(11.0,-1.0),
+            v(11.0,3.0),v(-1.0,3.0)],true,&quad,1e-8),
+            "surrounding polygon must be considered an obstruction");
+        assert!(!polyline_hits_opening(&[v(-2.0,-2.0),v(-1.0,-1.0)],false,&quad,1e-8));
+    }
+
+    #[test]
     fn stage269_rejects_neighbour_intersecting_the_door_gap_without_mutation() {
         let mut s=Session::default();
         let wall=s.execute("pline",&json!({"vertices":[[0.0,-100.0],[6000.0,-100.0],
