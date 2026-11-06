@@ -3030,3 +3030,35 @@ Kế hoạch: Đợt 240 sửa lỗi CI, hoàn thiện thử DWG hai chiều v�
 5. Bài này chỉ mở rộng xác định hình học LINE/PLINE, chưa phải AI tự hiểu mọi ảnh bản vẽ, chưa có tự phát hiện/trim tất cả tường, chưa có nghiệm thu sản phẩm phát hành.
 
 **Các giới hạn không thay đổi:** CAD Free dùng không cần đăng nhập khi mở; quyền Export theo license; DWG chuẩn hai chiều và không mã hóa làm mất tương thích.
+
+
+## 111. Đợt 271 — Khóa Preview đã duyệt, sửa lỗi kiểu Entity và gom kiểm thử AI Windows
+
+### Bài 261 — Tại sao dữ liệu sau Preview phải bất biến
+1. Khi người dùng chọn một tường đã có để mở cửa, UI ghi lại chính xác **tâm cửa**, **bề rộng** và **bản lề** tại thời điểm bấm Preview. Nếu các ô nhập này thay đổi trước khi bấm **Tôi đồng ý – Vẽ vào CAD**, UI phải từ chối và yêu cầu Preview lại.
+2. Khi dời cửa trên bộ tường do AI Review quản lý, vị trí **tâm cửa mới** cũng được khóa theo bản Preview đã xem.
+3. Điều này bổ sung cho cơ chế kiểm tra UID, Epoch, Revision, snapshot hình học, handle và layer. Không coi chỉ cùng một Revision là đủ nếu người vận hành đã sửa các ô nhập.
+4. Với Preview ảnh, luôn xác nhận lại nội dung file nguồn và kết quả vector hóa trước khi tạo đối tượng. Với lệnh tiếng Việt, xác nhận nguyên văn lệnh nhập có trùng Preview.
+5. **Giới hạn:** đây là chấp thuận cục bộ của người dùng tại UI, chưa phải chữ ký OIDC hoặc quyền duyệt từ AuthServer.
+
+### Bài 262 — Sửa lỗi so sánh snapshot Entity
+1. CAD Engine lưu thực thể qua cấu trúc `Arc<Entity>`; khi kiểm tra một đối tượng đã được chọn trước khi thực hiện ERASE, cần so sánh **giá trị `Entity`** chứ không trộn `&Entity` với `&Arc<Entity>`.
+2. Mã sửa tại `ai_review.rs` dùng `snapshot != entity.as_ref()`, nhằm tránh lỗi kiểu dữ liệu khi biên dịch và so sánh sai.
+3. Sau Preview, nếu một người hoặc phần mềm khác sửa thuộc tính PLINE, snapshot phải không trùng và thao tác thay thế bị từ chối.
+4. Vẫn giữ nguyên nguyên tắc: xóa đúng handle đã được chọn; không tự động thao tác trên tường khác, không sao chép XData tùy ý.
+
+### Bài 263 — Chặn Preview một lệnh đã quá hạn
+1. Với các Preview chỉ có một lệnh, ví dụ `vẽ đường thẳng từ 0,0 đến 100,0`, trước đây cần kiểm tra cùng mức với các nhóm lệnh; Đợt 271 thêm kiểm tra UID/Epoch/Revision **ngay trong `commit_steps`** trước nhánh thực thi lệnh đơn.
+2. Nếu người dùng sửa bản vẽ sau khi Preview và trước khi xác nhận, lệnh cũ phải bị từ chối mà không tạo thêm đối tượng mới.
+3. Bài test `stage271_rejects_stale_single_native_command_without_mutation` dựng Preview cũ, thêm một LINE khác để thay Revision, thử Commit cũ và xác nhận số đối tượng không tăng.
+4. Bài test `stage271_rejects_changed_controls_and_stale_selected_wall_snapshot` kiểm tra đổi tâm, rộng và hướng cửa sau Preview đều phải từ chối; thay đổi thuộc tính tường cũng bị chặn khi không còn khớp snapshot.
+5. Các kiểm thử phải chạy trên Windows thực tế trước khi đánh dấu PASS.
+
+### Bài 264 — Kiểm thử tổng hợp Windows và quy trình nghiệm thu
+1. Workflow `CAD 360 Stage271 AI Stability Regression Gate` chạy `cargo check --locked -p cadcraft-ui-egui` và kiểm thử Stage271, các bài Stage258–270, cùng kiểm thử vector hóa ảnh trong `cadcraft-mcp`.
+2. Workflow hiển thị phiên bản `rustc`, `cargo`, commit SHA hiện đang chạy; chỉ coi kết quả có giá trị cho đúng phiên bản mã nguồn được chạy.
+3. Mở ứng dụng Windows thật, kiểm thử tối thiểu: lệnh tiếng Việt → Preview → xác nhận → đối tượng native → Undo/Redo; PNG/JPEG → Preview → xác nhận → LINE; chọn tường thẳng/nghiêng → Preview cửa → Commit; giao cắt → từ chối; dữ liệu nguồn hoặc các ô nhập bị sửa → từ chối.
+4. Khi test qua Windows EXE đạt, lưu file DWG, mở bằng AutoCAD độc lập, chỉnh sửa rồi lưu lại; đảm bảo DWG vẫn chuẩn, không đổi đuôi hay mã hóa. Chỉ khi có bằng chứng đó mới đánh dấu nghiệm thu hai chiều.
+5. Không sử dụng hình minh họa tài liệu thay thế ảnh chụp thật của EXE. Cần bổ sung ảnh chụp màn hình thực tế theo từng bước khi ứng dụng chạy thành công.
+
+**Tình trạng:** Đã commit sửa mã, regression test và CI workflow; chưa xác nhận workflow PASS tại SHA cuối, chưa xác nhận Windows EXE/AutoCAD. Đây là đợt ổn định chất lượng, không công bố thêm khả năng AI tự hiểu bản vẽ mới.
