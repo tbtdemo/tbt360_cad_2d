@@ -2164,3 +2164,32 @@ Kế hoạch: Đợt 240 sửa lỗi CI, hoàn thiện thử DWG hai chiều v�
 6. Đợt 241 dự kiến sửa lỗi CI/build phát sinh, bổ sung bộ fixture DWG/DXF đa tình huống và ảnh EXE thật; đợt 242 tiếp tục AI ảnh→CAD và QTO.
 
 **Chú ý:** Bản Word đợt 240 giữ toàn bộ 156 bài và hình trước, bổ sung Bài 157–159 có sơ đồ minh họa riêng. Nguồn chính thức là repository GitHub theo SHA cuối, không được coi ảnh sơ đồ là ảnh EXE thực. Tỷ lệ chỉ đo danh mục công việc đợt 240, không suy ra % hoàn thiện toàn CAD 360.
+
+
+## 81. Đợt 241 — An toàn AI Preview / Confirm khi bản vẽ đổi revision
+
+### Bài 160 — Native CAD từ chối xác nhận sai revision
+
+1. Dùng Headless CAD Engine thực mở bản vẽ thử và lấy `documentUid`, `documentEpoch`, `revision` từ `drawing.inspect`.
+2. Nhập `vẽ hai phòng liền kề rộng 3000 và 4000 dài 4000 tại 0,0 cửa 900 giữa bản lề dưới mở phải`. Bật `createDoorBlock:true`, `applyLayers:true`, chạy Preview mặc định.
+3. Khi xác nhận, cố tình điền `expectedRevision=N+1` trong khi tài liệu vẫn ở revision `N`.
+4. AI cần **từ chối trước khi mở Undo group**, không tạo thêm đối tượng, giữ revision hiện hành và không làm mất entity cũ.
+5. Bài test mới: `ai_vietnamese_stage241_native_stale_preview_rejected_before_mutation`. Chạy qua `cargo test --locked -p cadcraft-mcp --lib ai_vietnamese_stage241_native_stale_preview_rejected_before_mutation -- --nocapture`.
+
+### Bài 161 — Chặn việc AI ghi vào bản vẽ đã được thay đổi sau Preview
+
+1. Đọc Preview của phương án hai phòng và lưu bộ `documentUid`, `documentEpoch`, `revision`.
+2. Trước khi xác nhận AI, tạo một LINE mới (1,2)→(3,4) trên bản vẽ đang mở, mô phỏng người dùng khác chỉnh sửa.
+3. Gửi lại `preview:false`, `confirm:true` và **revision cũ** trong Preview.
+4. AI phải trả lỗi revision, giữ nguyên đối tượng LINE vừa tạo, không phát sinh ROOM, WALL hay DOOR do kế hoạch hết hạn.
+5. Bài test mới: `ai_vietnamese_stage241_native_intervening_edit_invalidates_preview`. Chạy bằng `cargo test --locked -p cadcraft-mcp --lib ai_vietnamese_stage241_native_intervening_edit_invalidates_preview -- --nocapture`.
+
+### Bài 162 — Bảng tỷ lệ thực hiện và nghiệm thu
+
+1. Excel `CAD360_BAO_CAO_TIEN_DO_DOT241.xlsx` liệt kê 12 tiêu chí, trọng số tổng 100; hiện có mã/test **88 điểm**, tức **88% phạm vi đợt 241**.
+2. Tách rõ ba tỷ lệ: đã có mã/test; đã có **CI PASS đúng SHA cuối**; đã có bằng chứng chạy EXE/AutoCAD thật. Chưa nhận được PASS của đúng commit thì cột xác nhận CI/EXE phải bằng 0.
+3. Đây không phải tỷ lệ hoàn thiện toàn CAD 360. Chỉ tính tiến độ toàn sản phẩm sau khi có danh mục và trọng số toàn bộ CAD 2D, AI, tương thích DWG/DXF, QTO, giao thông, BIM, giao diện, performance và release.
+4. Kế hoạch đợt 242: xử lý lỗi CI/native nếu xuất hiện, bổ sung kiểm tra đường đi DWG–DXF và lấy ảnh giao diện EXE thực tế; đợt 243: AI ảnh→CAD có sai số định lượng.
+5. Word FULL có 162 bài và hình, nối tiếp bản 240 và có 3 sơ đồ bổ sung (ảnh minh họa **không phải** screenshot EXE). Code đầy đủ lấy qua GitHub ZIP đúng commit.
+
+**Trạng thái:** Đã bổ sung hai regression test trên Headless CAD Engine và đưa vào Windows workflow. Không xác nhận native test PASS hay EXE đạt khi chưa có workflow success trên commit cuối.
