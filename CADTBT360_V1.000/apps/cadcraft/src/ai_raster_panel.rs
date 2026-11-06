@@ -222,6 +222,9 @@ impl State {
 fn apply_ai_instruction(state: &mut State, instruction: &str) -> Result<&'static str, &'static str> {
     let q=instruction.trim().to_lowercase();
     if q.is_empty() { return Err("Hãy nhập yêu cầu, ví dụ: nhận dạng tường, cửa, cột hoặc nét."); }
+    if !["tường","wall","cửa","door","window","cột","column","nét","line","vector","vẽ"].iter().any(|word| q.contains(word)) {
+        return Err("Yêu cầu chưa được hỗ trợ nội bộ. Hãy chọn gợi ý tường, cửa, cột hoặc nét.");
+    }
     // Switch off mutually exclusive draft generation on a new request. Native changes still need Preview + confirmation.
     state.create_column_guides=false; state.confirm_column_guides=false; state.create_column_blocks=false; state.confirm_column_blocks=false;
     state.create_wall_panel_guides=false; state.confirm_wall_panel_guides=false; state.create_wall_blocks=false; state.confirm_wall_blocks=false;
@@ -275,6 +278,13 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
                     }
                 });
                 ui.small("Yêu cầu chọn chế độ phân tích. Nhấn Nhận dạng và xem trước để thực thi; kiểm tra kết quả trước khi tạo CAD.");
+            });
+            ui.collapsing("Kết nối trợ lý AI ngoài qua MCP", |ui| {
+                ui.label("CAD 360 có MCP server kết nối với ứng dụng AI hỗ trợ Model Context Protocol.");
+                ui.label("Để AI thao tác trên bản vẽ đang mở, chạy CAD 360 với --control 7979 và kết nối:");
+                ui.code("cadcraft-cli mcp --connect 127.0.0.1:7979");
+                ui.small("Chỉ cấp quyền cho AI đáng tin cậy; kiểm tra từng thay đổi và sao lưu trước khi cho phép ghi.");
+                ui.small("Đây là hướng dẫn sử dụng cầu nối MCP hiện có, không phải kết nối tài khoản ChatGPT/Gemini hoặc đăng nhập OAuth trực tiếp.");
             });
             ui.add_space(8.0);
             ui.heading("Nguồn bản vẽ");
