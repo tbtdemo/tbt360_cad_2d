@@ -14,7 +14,7 @@ pub fn tool_definitions(has_ui: bool) -> Value {
             "inputSchema": {"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]}}),
         json!({"name": "execute", "description": "Run any command with JSON parameters (no prompts or dialogs). Use list_commands to find ids and parameter docs. Examples: line {points:[[0,0],[10,0]]}, circle {center:[0,0], radius:5}, layer.new {name:\"Walls\", color:\"red\", current:true}, move {handles:[\"10A\"], delta:[5,0]}, zoom {mode:\"extents\"}.",
             "inputSchema": {"type": "object", "properties": {"command": {"type": "string"}, "params": {"type": "object"}}, "required": ["command"]}}),
-        json!({"name":"ai_draw_plan_vietnamese","description":"CAD 360 AI deterministic multi-step Vietnamese drawing plan. Supply 2-8 native commands through newline-delimited drafts (LINE, CIRCLE, RECTANG, PLINE), or one high-level room pair: vẽ hai phòng liền kề rộng 3000 và 4000 dài 4000 tại 0,0 [cửa 900 giữa] (one outer RECTANG and two gap-preserving LINEs; optional explicit hinge/swing adds native door-leaf LINE and swing ARC, not a BLOCK or BIM door). Preview is default; commit requires confirm:true and exact document identity/revision from preview. Executes all steps as one guarded Undo group and attempts safe rollback on failure. Optional createDoorBlock=true converts the last explicitly described door leaf LINE and swing ARC into a native BLOCK/INSERT in the same Undo group; defaults false. Does not interpret arbitrary natural language.","inputSchema":{"type":"object","properties":{"text":{"type":"string"},"preview":{"type":"boolean"},"confirm":{"type":"boolean"},"createDoorBlock":{"type":"boolean"},"expectedDocumentUid":{"type":"integer","minimum":0},"expectedDocumentEpoch":{"type":"integer","minimum":0},"expectedRevision":{"type":"integer","minimum":0}},"required":["text"]}}),
+        json!({"name":"ai_draw_plan_vietnamese","description":"CAD 360 AI deterministic multi-step Vietnamese drawing plan. Supply 2-8 native commands through newline-delimited drafts (LINE, CIRCLE, RECTANG, PLINE), or one high-level room pair: vẽ hai phòng liền kề rộng 3000 và 4000 dài 4000 tại 0,0 [cửa 900 giữa] (one outer RECTANG and two gap-preserving LINEs; optional explicit hinge/swing adds native door-leaf LINE and swing ARC, not a BLOCK or BIM door). Preview is default; commit requires confirm:true and exact document identity/revision from preview. Executes all steps as one guarded Undo group and attempts safe rollback on failure. Optional createDoorBlock=true converts the last explicitly described door leaf LINE and swing ARC into a native BLOCK/INSERT in the same Undo group; defaults false. applyLayers=true assigns native TBT_AI_ROOM/TBT_AI_WALL/TBT_AI_DOOR via laymch, opt-in only and verified against the active document. Does not interpret arbitrary natural language.","inputSchema":{"type":"object","properties":{"text":{"type":"string"},"preview":{"type":"boolean"},"confirm":{"type":"boolean"},"createDoorBlock":{"type":"boolean"},"applyLayers":{"type":"boolean"},"expectedDocumentUid":{"type":"integer","minimum":0},"expectedDocumentEpoch":{"type":"integer","minimum":0},"expectedRevision":{"type":"integer","minimum":0}},"required":["text"]}}),
         json!({"name":"ai_draw_vietnamese","description":"CAD 360 Vietnamese drafting bridge (bounded deterministic grammar, not a general LLM). Supports bounded LINE, CIRCLE, RECTANG, PLINE, plus dimensioned room 'vẽ phòng rộng 6000 dài 4000 tại 0,0' and wall 'vẽ tường từ 0,0 đến 6000,0 dày 200'. Room and wall are editable CAD outlines, NOT semantically verified BIM geometry. Preview by default; to commit, set preview:false, confirm:true and expectedDocumentUid, expectedDocumentEpoch, expectedRevision obtained from a fresh preview. Executes exactly one native CAD engine command, never saves or modifies DWG structure.","inputSchema":{"type":"object","properties":{"text":{"type":"string"},"preview":{"type":"boolean"},"confirm":{"type":"boolean"},"expectedDocumentUid":{"type":"integer","minimum":0},"expectedDocumentEpoch":{"type":"integer","minimum":0},"expectedRevision":{"type":"integer","minimum":0}},"required":["text"]}}),
         json!({"name": "list_commands", "description": "List commands with ids, labels, menu paths, aliases and parameter docs. Optional filter: a substring of the command id, label or an alias.",
             "inputSchema": {"type": "object", "properties": {"filter": {"type": "string"}}}}),
@@ -376,6 +376,13 @@ fn ai_draw_plan_vietnamese(b: &mut dyn Backend, args: &Value) -> Result<Value,St
     let steps=parse_vietnamese_plan(prompt)?;
     let create_door_block=args["createDoorBlock"].as_bool().unwrap_or(false);
     let block_eligible=prompt.trim().starts_with("vẽ hai phòng liền kề ") && prompt.trim().lines().count()==1 && steps.len()==5 && steps[3].0=="line" && steps[4].0=="arc";
+    let apply_layers=args["applyLayers"].as_bool().unwrap_or(false);
+    let layers_eligible=prompt.trim().starts_with("vẽ hai phòng liền kề ") && prompt.trim().lines().count()==1
+        && (steps.len()==2||steps.len()==3||steps.len()==5);
+    if apply_layers && !layers_eligible {
+        return Err("AI CAD: applyLayers chỉ hỗ trợ đúng một yêu cầu hai phòng được xác minh, tránh gán Layer sai cho lệnh hỗn hợp".into());
+    }
+
     if create_door_block && !block_eligible {
         return Err("AI CAD: createDoorBlock chỉ áp dụng cho kế hoạch hai phòng có bản lề và hướng mở được khai báo đầy đủ".into());
     }
@@ -386,10 +393,10 @@ fn ai_draw_plan_vietnamese(b: &mut dyn Backend, args: &Value) -> Result<Value,St
     let summaries:Vec<Value>=steps.iter().map(|(command,params)|json!({"command":command,"params":params})).collect();
     let plan=json!({"steps":summaries,"stepCount":steps.len(),"documentUid":uid,
         "documentEpoch":epoch,"revision":revision,"requiresConfirmation":true,
-        "transaction":"single-undo-group","createDoorBlock":create_door_block,
+        "transaction":"single-undo-group","createDoorBlock":create_door_block,"applyLayers":apply_layers,
         "doorBlockPreview":if create_door_block {json!({"entity":"BLOCK/INSERT","source":"final LINE leaf + ARC swing","requiresHumanReview":true})} else {Value::Null},
         "layerAssignmentsProposed":[{"entity":"room footprint","layer":"TBT_AI_ROOM"},{"entity":"shared wall","layer":"TBT_AI_WALL"},{"entity":"door leaf and swing","layer":"TBT_AI_DOOR"}],
-        "layerAssignmentsApplied":false,"source":"bounded-vietnamese-parser-v1"});
+        "layerAssignmentsApplied":false,"layerAssignmentsWillApplyOnConfirm":apply_layers,"source":"bounded-vietnamese-parser-v1"});
     if args["preview"].as_bool().unwrap_or(true) {
         return Ok(json!({"previewOnly":true,"editableEntitiesCreated":0,"plan":plan}));
     }
@@ -454,6 +461,50 @@ fn ai_draw_plan_vietnamese(b: &mut dyn Backend, args: &Value) -> Result<Value,St
             }
         }
     }
+    if failure.is_none() && apply_layers {
+        let mut assignments:Vec<(String,String)>=Vec::new();
+        let get_handle=|value:&Value|->Option<String> {
+            value["handle"].as_str().or_else(||value["handles"][0].as_str()).map(str::to_string)
+        };
+        let room=results.first().and_then(get_handle);
+        let wall_handles:Vec<String>=results.iter().skip(1).take(if steps.len()==2 {1} else {2})
+            .filter_map(get_handle).collect();
+        if let Some(room)=room {assignments.push((room,"TBT_AI_ROOM".into()));}
+        if wall_handles.len()!=if steps.len()==2 {1} else {2} {
+            failure=Some("AI CAD: không thu đủ native Handle của vách chung để gán Layer".into());
+        } else {
+            assignments.extend(wall_handles.into_iter().map(|h|(h,"TBT_AI_WALL".into())));
+        }
+        if steps.len()==5 {
+            if create_door_block {
+                if let Some(insert)=results.last().and_then(|r|r["insert"].as_str()) {
+                    assignments.push((insert.to_string(),"TBT_AI_DOOR".into()));
+                } else {
+                    failure=Some("AI CAD: BLOCK cửa không có INSERT để phân Layer".into());
+                }
+            } else {
+                for value in results.iter().skip(3).take(2) {
+                    if let Some(handle)=get_handle(value) {assignments.push((handle,"TBT_AI_DOOR".into()));}
+                    else {failure=Some("AI CAD: cánh cửa hoặc ARC không có Handle để gán Layer".into());break;}
+                }
+            }
+        }
+        if assignments.first().is_none() {failure=Some("AI CAD: không nhận được Handle bao phòng để phân Layer".into());}
+        for (handle,layer) in assignments {
+            if failure.is_some() {break;}
+            let latest=b.call("drawing.inspect",json!({"entities":false}));
+            let owned=latest.as_ref().is_ok_and(|state|
+                state["documentUid"].as_u64()==Some(uid)
+                && state["documentEpoch"].as_u64()==Some(epoch)
+                && state["revision"].as_u64()==revision.checked_add(results.len() as u64)
+                && state["undoGroupOpen"]==true && state["undoControl"]=="all");
+            if !owned {failure=Some("AI CAD: mất quyền sở hữu bản vẽ trước khi phân Layer".into());break;}
+            match b.call("engine.execute",json!({"command":"laymch","params":{"handles":[handle],"layer":layer}})) {
+                Ok(value)=>results.push(value),
+                Err(error)=>{failure=Some(format!("AI CAD: gán Layer thất bại: {error}"));break;}
+            }
+        }
+    }
     let owned=b.call("drawing.inspect",json!({"entities":false})).is_ok_and(|state|
         state["documentUid"].as_u64()==Some(uid) && state["documentEpoch"].as_u64()==Some(epoch)
         && state["revision"].as_u64()==revision.checked_add(results.len() as u64)
@@ -474,7 +525,7 @@ fn ai_draw_plan_vietnamese(b: &mut dyn Backend, args: &Value) -> Result<Value,St
     }
     Ok(json!({"previewOnly":false,"executed":true,"stepCount":results.len(),
         "results":results,"documentUid":uid,"previousRevision":revision,
-        "transaction":"single-undo-group","undo":"one native CAD UNDO"}))
+        "transaction":"single-undo-group","layerAssignmentsApplied":apply_layers,"undo":"one native CAD UNDO"}))
 }
 
 /// Wrap a JSON value as a successful MCP result containing pretty-printed text.
