@@ -375,7 +375,7 @@ fn ai_draw_plan_vietnamese(b: &mut dyn Backend, args: &Value) -> Result<Value,St
     let prompt=args["text"].as_str().ok_or("AI CAD: thiếu kế hoạch vẽ")?;
     let steps=parse_vietnamese_plan(prompt)?;
     let create_door_block=args["createDoorBlock"].as_bool().unwrap_or(false);
-    let block_eligible=steps.len()>=5 && steps[steps.len()-2].0=="line" && steps[steps.len()-1].0=="arc";
+    let block_eligible=prompt.trim().starts_with("vẽ hai phòng liền kề ") && prompt.trim().lines().count()==1 && steps.len()==5 && steps[3].0=="line" && steps[4].0=="arc";
     if create_door_block && !block_eligible {
         return Err("AI CAD: createDoorBlock chỉ áp dụng cho kế hoạch hai phòng có bản lề và hướng mở được khai báo đầy đủ".into());
     }
@@ -388,7 +388,8 @@ fn ai_draw_plan_vietnamese(b: &mut dyn Backend, args: &Value) -> Result<Value,St
         "documentEpoch":epoch,"revision":revision,"requiresConfirmation":true,
         "transaction":"single-undo-group","createDoorBlock":create_door_block,
         "doorBlockPreview":if create_door_block {json!({"entity":"BLOCK/INSERT","source":"final LINE leaf + ARC swing","requiresHumanReview":true})} else {Value::Null},
-        "source":"bounded-vietnamese-parser-v1"});
+        "layerAssignmentsProposed":[{"entity":"room footprint","layer":"TBT_AI_ROOM"},{"entity":"shared wall","layer":"TBT_AI_WALL"},{"entity":"door leaf and swing","layer":"TBT_AI_DOOR"}],
+        "layerAssignmentsApplied":false,"source":"bounded-vietnamese-parser-v1"});
     if args["preview"].as_bool().unwrap_or(true) {
         return Ok(json!({"previewOnly":true,"editableEntitiesCreated":0,"plan":plan}));
     }
@@ -686,6 +687,38 @@ mod ai_draft_vietnamese_tests {
         assert_eq!(steps[4].1["center"],json!([3000.0,1550.0]));
         let without_swing=super::parse_vietnamese_plan("vẽ hai phòng liền kề rộng 3000 và 4000 dài 4000 tại 0,0 cửa 900 giữa").unwrap();
         assert_ne!(without_swing.last().map(|x|x.0.as_str()),Some("arc"));
+    }
+
+    #[test]
+    fn ai_vietnamese_block_rejects_unrelated_plan_and_previews_without_mutation() {
+        use crate::backend::Backend;
+        struct PreviewBackend { calls: Vec<String> }
+        impl Backend for PreviewBackend {
+            fn call(&mut self, method:&str, _params:serde_json::Value)->Result<serde_json::Value,String> {
+                self.calls.push(method.to_string());
+                if method=="drawing.inspect" {
+                    return Ok(json!({"documentUid":15,"documentEpoch":2,"revision":8,
+                        "undoControl":"all","undoGroupOpen":false}));
+                }
+                Err(format!("Unexpected mutating call: {method}"))
+            }
+            fn has_ui(&self)->bool {false}
+            fn describe(&self)->String {"Stage235 PreviewBackend".into()}
+        }
+        let mut backend=PreviewBackend{calls:Vec::new()};
+        let input=json!({"text":"vẽ hai phòng liền kề rộng 3000 và 4000 dài 4000 tại 0,0 cửa 900 giữa bản lề dưới mở phải","createDoorBlock":true});
+        let result=super::ai_draw_plan_vietnamese(&mut backend,&input).unwrap();
+        assert_eq!(result["previewOnly"],true);
+        assert_eq!(result["plan"]["stepCount"],5);
+        assert_eq!(result["plan"]["createDoorBlock"],true);
+        assert_eq!(result["plan"]["layerAssignmentsApplied"],false);
+        assert_eq!(backend.calls,vec!["drawing.inspect"]);
+        let mut invalid=PreviewBackend{calls:Vec::new()};
+        let err=super::ai_draw_plan_vietnamese(&mut invalid,&json!({
+            "text":"vẽ đường thẳng từ 0,0 đến 100,0\\nvẽ hình tròn tâm 0,0 bán kính 5", "createDoorBlock":true
+        })).unwrap_err();
+        assert!(err.contains("createDoorBlock"));
+        assert!(invalid.calls.is_empty(),"unsupported Block plan must be rejected before contacting CAD");
     }
 
     #[test]
