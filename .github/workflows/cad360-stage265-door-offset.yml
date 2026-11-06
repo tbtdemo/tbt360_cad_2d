@@ -1,0 +1,32 @@
+name: CAD 360 Stage265 Shift Door Hinge in Opening
+on:
+  push:
+    branches:
+      - feature/CADTBT360_V1.025_xref-regression
+    paths:
+      - CADTBT360_V1.000/crates/ui-egui/src/ai_review.rs
+      - .github/workflows/cad360-stage265-door-offset.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  checked-offset:
+    runs-on: windows-latest
+    timeout-minutes: 95
+    defaults:
+      run:
+        working-directory: CADTBT360_V1.000
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: CADTBT360_V1.000
+      - name: Native GUI compile
+        run: cargo check --locked -p cadcraft-ui-egui
+      - name: Stage265 door hinge offset and Undo Redo
+        run: cargo test --locked -p cadcraft-ui-egui stage265 -- --nocapture
+      - name: Stage264 width swing regressions
+        run: cargo test --locked -p cadcraft-ui-egui stage264 -- --nocapture
+      - name: Stage263 opening review regressions
+        run: cargo test --locked -p cadcraft-ui-egui stage263 -- --nocapture
