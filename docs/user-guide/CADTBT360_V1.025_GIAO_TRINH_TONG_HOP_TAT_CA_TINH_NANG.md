@@ -2647,3 +2647,29 @@ Kế hoạch: Đợt 240 sửa lỗi CI, hoàn thiện thử DWG hai chiều v�
 5. Hướng dẫn này chỉ công nhận mã UI được commit; không công nhận chức năng chạy thực tế nếu không có bằng chứng Windows GUI.
 
 **Các tệp chính Đợt 258:** `crates/ui-egui/src/ai_review.rs`, `crates/ui-egui/src/lib.rs`, `crates/ui-egui/src/menus.rs`, workflow Stage258. Chức năng hiện mới giới hạn vẽ phòng hình chữ nhật theo cú pháp đã định.
+
+
+## 99. Đợt 259 — Mở rộng AI Review LINE, RECTANG, CIRCLE
+
+### Bài 214 — Vẽ đường thẳng từ câu lệnh tiếng Việt
+1. Trong CAD 360, mở **Tools → CAD 360 AI Review...** và chọn bản vẽ.
+2. Nhập `vẽ đường thẳng từ 0,0 đến 100,50` rồi chọn **1. Xem trước**.
+3. Hệ thống kiểm tra tọa độ hữu hạn, hai đầu mút khác nhau, giới hạn tọa độ và UID/Epoch/Revision.
+4. Đọc mô tả LINE (0,0) → (100,50). Bấm **2. Tôi đồng ý – Vẽ vào CAD** để gọi lệnh native `line` của CAD Engine; kiểm tra entity và Undo/Redo trên EXE thật.
+5. Lệnh sai, điểm trùng hoặc NaN/Infinity phải bị từ chối trước khi ghi bản vẽ.
+
+### Bài 215 — Vẽ hình chữ nhật và hình tròn
+1. Nhập `vẽ hình chữ nhật từ 0,0 đến 100,50`; Preview phải hiển thị RECTANG, không cho phép hai chiều bằng 0.
+2. Nhập `vẽ hình tròn tâm 0,0 bán kính 50`; Preview phải hiển thị CIRCLE, kiểm tra bán kính lớn hơn 0 và hữu hạn.
+3. Đối chiếu đơn vị CAD và vị trí trước khi xác nhận.
+4. Thực hiện một lần một phương án; sau khi vẽ thành công, cửa sổ tiêu thụ Preview cũ để tránh bấm lại mà vô tình nhân đôi đối tượng.
+5. Khi bản vẽ thay đổi Revision, người dùng phải Preview lại.
+
+### Bài 216 — Kiểm thử và giới hạn AI Review
+1. Workflow Windows `CAD 360 Stage259 Native AI Review Window` (tệp `.github/workflows/cad360-stage258-ui-review.yml`) kiểm tra `cargo check --locked -p cadcraft-ui-egui` và test `stage258_room_parser`, `stage259_multiple_native_shapes`.
+2. Bổ sung test LINE điểm trùng, hình chữ nhật có chiều bằng 0, CIRCLE bán kính 0, tọa độ NaN.
+3. Chỉ công nhận Windows GUI sau khi CI PASS và có ảnh chụp EXE thực tế. Không xem việc commit Rust là bằng chứng UI đã chạy.
+4. Đợt này chỉ hỗ trợ **bốn cú pháp giới hạn**: phòng chữ nhật, đường thẳng, chữ nhật, tròn. Chưa hỗ trợ hiểu ý định tự do, nhận dạng ảnh tự động, tường/cửa theo ngữ nghĩa, lựa chọn model bên ngoài hay kết nối nút UI với host OIDC.
+5. DWG cần kiểm chứng mở/sửa/lưu hai chiều với AutoCAD riêng; các lệnh CAD Engine không mặc nhiên chứng minh DWG chuẩn.
+
+**Trạng thái:** Có mã nguồn parser/UI và workflow, chưa có bằng chứng CI PASS đúng commit cuối hay nghiệm thu EXE thực tế.
