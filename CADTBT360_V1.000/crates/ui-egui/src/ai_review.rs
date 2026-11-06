@@ -357,11 +357,11 @@ fn prepare_managed_wall_shift(session:&Session,managed:&ManagedDoorWall,new_cent
     }
     let center=number(new_center.trim())?;
     let words:Vec<&str>=managed.command_text.split_whitespace().collect();
-    if words.len()!=16 || words.get(0)!=Some(&"vẽ") || words.get(13)!=Some(&"tại") {
+    if words.len()!=16 || words.get(0)!=Some(&"vẽ") || words.get(12)!=Some(&"tại") {
         return Err("Chỉ quản lý lệnh tường có cửa theo cú pháp đã xác nhận".into());
     }
     let mut copy=words.iter().map(|s|(*s).to_string()).collect::<Vec<_>>();
-    copy[14]=center.to_string();
+    copy[13]=center.to_string();
     let revised=copy.join(" ");
     let Some((steps,description))=parse_door_wall(&revised)? else {
         return Err("Không thể tái tạo hình học tường/cửa".into());
@@ -795,6 +795,7 @@ mod tests {
         assert!(prepare_managed_wall_shift(&session,&managed,"-100").is_err());
         let revised=prepare_managed_wall_shift(&session,&managed,"3500").unwrap();
         assert_eq!(revised.replace_handles.as_ref().unwrap(),&originals);
+        assert!(revised.text.contains("tại 3500 mở trái"),"only the center position may change");
         assert_eq!(revised.steps.len(),4);
         assert_eq!(session.doc().unwrap().entity_count(),5,"Preview must be read-only");
         let newest=commit_steps(&mut session,&revised).unwrap();
