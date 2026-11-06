@@ -3529,3 +3529,36 @@ Kế hoạch: Đợt 240 sửa lỗi CI, hoàn thiện thử DWG hai chiều v�
 7. Đợt tiếp theo ưu tiên kiểm tra Windows CI thực tế, khắc phục các bài test thất bại nếu có, và mở rộng kiểm tra các đối tượng/thuộc tính có rủi ro như XRef, XData và nhiều layout.
 
 **Đợt 285:** Đã commit hai bài test mở/sửa/lưu lại DWG/DXF cùng workflow Windows và giáo trình đến Bài 320. CI PASS, EXE phát hành và AutoCAD độc lập chưa được nghiệm thu.
+
+
+## 126. Đợt 286 — Bảo toàn Model Space, nhiều Layout và XData qua DWG/DXF
+
+### Bài 321 — Phân biệt Model Space và Paper Space khi ghi/mở lại
+1. Trong CAD 360, bản vẽ chứa `Model Space` là nơi các đối tượng thiết kế chính được tạo và `Paper Space` thuộc từng layout để thể hiện bản vẽ in.
+2. Trên bản vẽ metric mẫu, Đợt 286 tạo ba đối tượng LINE native: một thuộc Model, một thuộc `Layout1`, một thuộc `Layout2`.
+3. Các đối tượng Model và Layout sử dụng layer riêng `AI-MODEL` / `AI-SHEETS`. LINE Model mang XData `TBT360_BIM` với metadata `stage=286;scope=model;approved=yes`.
+4. Khi lưu/mở lại bản vẽ, không chỉ kiểm tra 3 handle còn tồn tại mà phải bảo đảm **không chuyển LINE từ Model sang Layout hoặc ngược lại**; từng Paper Layout cần giữ đúng entity riêng.
+5. Kiểm thử này chỉ bao phủ hai layout mẫu, chưa phải bảo đảm tất cả bố cục, viewport hoặc các XRef ngoài.
+
+### Bài 322 — Kiểm thử DXF qua hai chu kỳ
+1. Chạy test `stage286_dxf_model_and_two_layouts_preserve_handles_and_bim_xdata` trong crate `cadcraft-io`.
+2. Tạo bản vẽ bằng `stage286_layouts_sample`, ghi DXF, mở lại thành Drawing lần một, sau đó ghi lại từ Drawing đó và mở lần hai.
+3. Ở mỗi vòng, kiểm tra `entity_count`, số entity Model, số entity trong `Layout1`/`Layout2`, `Drawing::space_of(handle)`, layer, màu, tọa độ LINE và danh sách XData.
+4. Nếu layout bị mất, handle bị thay hoặc LINE chuyển không gian khi mở lại, bài test phải thất bại. Không di chuyển dữ liệu thủ công để làm test đạt.
+5. Bài test dùng bộ đọc/ghi DXF nội bộ; khả năng tương thích với phần mềm khác vẫn cần nghiệm thu.
+
+### Bài 323 — Kiểm thử DWG qua hai chu kỳ
+1. Chạy test `stage286_dwg_model_and_two_layouts_preserve_handles_and_bim_xdata` trên Windows.
+2. Ghi bản vẽ bằng `cadcraft_io::write(..., \"multi-layout-ai.dwg\")`, mở bằng `cadcraft_io::read`, sau đó tiếp tục ghi/mở lần hai.
+3. So sánh sau cả hai chu kỳ: Model và hai layout vẫn có đối tượng đúng vị trí; entity giữ nguyên handle, layer, màu, XData `TBT360_BIM`, tọa độ LINE trong sai số tuyệt đối 1e-6 đơn vị CAD.
+4. Bài test này kiểm tra DWG qua **reader/writer CAD 360**, không có bằng chứng DWG đã được Autodesk AutoCAD độc lập mở/sửa/lưu hai chiều.
+
+### Bài 324 — Windows CI và tiêu chí nghiệm thu XRef tiếp theo
+1. Workflow `CAD 360 Stage286 Multi Layout and BIM XData` chạy `cargo check --locked -p cadcraft-io`, `cargo test --locked -p cadcraft-io stage286 -- --nocapture`, hồi quy Stage284–285 và nhóm test chứa `xref` nếu có.
+2. Chỉ xác nhận Windows CI PASS khi có log chạy thành công tại commit đúng SHA; nếu truy vấn không trả về workflow run thì trạng thái là `chưa xác nhận`.
+3. Trên EXE Windows thật, tạo bản vẽ có Model và 2 layout; lưu DWG; đóng/mở lại; vào từng tab kiểm tra đúng LINE và metadata, không để đối tượng sai không gian.
+4. Bước nghiệm thu bên ngoài: mở DWG bằng AutoCAD, sửa một LINE tại Model và một LINE tại Paper Space, lưu rồi mở lại bằng CAD 360 để xác nhận trao đổi hai chiều.
+5. Riêng **XRef**, cần bài test có file tham chiếu thật, đường dẫn tương đối/tuyệt đối, bản vẽ nguồn, trạng thái unload/reload và đường dẫn khi chuyển thư mục. Chưa coi XRef đạt chỉ từ các test Layout/XData.
+6. Giữ DWG chuẩn, không mã hóa file hoặc đóng gói lại theo định dạng riêng; tăng độ an toàn và khả năng trao đổi là mục tiêu ưu tiên.
+
+**Trạng thái Đợt 286:** Đã commit kiểm thử Model + hai layout với XData, workflow Windows và giáo trình đến Bài 324. Windows CI PASS, EXE thực tế, XRef end-to-end và AutoCAD độc lập chưa nghiệm thu.
