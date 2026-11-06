@@ -661,6 +661,14 @@ fn returned_handles(result:&Value)->Result<Vec<String>,String> {
 
 /// Stage276: an ERASE result with 0 removed handles is still Ok at command level,
 /// but it does not represent a CAD revision step.
+/// The engine may return Err after a document mutation (it then bumps Revision).
+/// Count that mutation so the same owned Undo group can be closed and rolled back.
+fn failed_command_revision_step(before:u64,after:u64)->Result<u64,String> {
+    if before==after {return Ok(0);}
+    if before.checked_add(1)==Some(after) {return Ok(1);}
+    Err("Lệnh lỗi thay đổi Revision ngoài phạm vi một bước; không tự Undo".into())
+}
+
 fn erase_revision_step(removed:u64,before:u64,after:u64)->Result<u64,String> {
     if removed==0 {
         if after==before {return Ok(0);}
@@ -792,7 +800,17 @@ fn commit_steps(session:&mut Session,preview:&Preview)->Result<Vec<String>,Strin
                         Err(error)=>{failure=Some(error);break;}
                     }
                 }
-                Err(error)=>{failure=Some(format!("Lệnh {command} thất bại: {error}"));break;}
+                Err(error)=>{
+                    // Session::execute may leave a changed document after a command error.
+                    // Reconcile observed Revision before deciding whether to rollback.
+                    let observed=session.state().map_err(|e|e.to_string())?.revision;
+                    match failed_command_revision_step(expected,observed) {
+                        Ok(actual)=>succeeded+=actual,
+                        Err(e)=>failure=Some(format!("{error}; {e}")),
+                    }
+                    if failure.is_none() {failure=Some(format!("Lệnh {command} thất bại: {error}"));}
+                    break;
+                }
             }
         }
     }
@@ -1391,6 +1409,15 @@ mod tests {
         assert!(commit_steps(&mut s,&stale).is_err(),"revision mismatch must reject destructive replacement");
         assert_eq!(s.doc().unwrap().entity_count(),count);
         assert!(s.doc().unwrap().entity(wall).is_some());
+    }
+
+    #[test]
+    fn stage277_reconcile_failed_engine_command_revision_without_touching_prior_history() {
+        assert_eq!(failed_command_revision_step(25,25).unwrap(),0);
+        assert_eq!(failed_command_revision_step(25,26).unwrap(),1);
+        assert!(failed_command_revision_step(25,27).is_err());
+        assert!(failed_command_revision_step(25,24).is_err());
+        assert!(failed_command_revision_step(u64::MAX,0).is_err());
     }
 
     #[test]
