@@ -1099,9 +1099,10 @@ impl AiReview {
             }
             if let Some(p)=self.preview.as_ref() {
                 ui.separator();
+                ui.strong(format!("Bản xem trước: {} thao tác CAD | chưa thay đổi bản vẽ",p.steps.len()));
                 ui.label(&p.description);
-                if p.image_evidence.is_some() || p.replace_handles.is_some() {
-                    // Draw both detected LINE strokes and the explicitly selected PLINE guide.
+                {
+                    // Draw native line/rectangle/circle/polyline/arc previews before approval.
                     let mut segments:Vec<([f32;2],[f32;2],bool)>=Vec::new();
                     for (command,params) in &p.steps {
                         let to_xy=|value:&Value| -> Option<[f32;2]> {
@@ -1114,6 +1115,24 @@ impl AiReview {
                                 && points.len()==2
                                 && let (Some(a),Some(b))=(to_xy(&points[0]),to_xy(&points[1])) {
                                 segments.push((a,b,false));
+                            }
+                        } else if *command=="rectang" {
+                            if let (Some(a),Some(b))=(to_xy(&params["p1"]),to_xy(&params["p2"])) {
+                                let corners=[a,[b[0],a[1]],b,[a[0],b[1]],a];
+                                for edge in corners.windows(2) {segments.push((edge[0],edge[1],true));}
+                            }
+                        } else if *command=="circle" {
+                            if let (Some(center),Some(r))=(to_xy(&params["center"]),params["radius"].as_f64()) {
+                                if r>0.0 && r.is_finite() {
+                                    let radius=r as f32;
+                                    let mut previous=None;
+                                    for index in 0..=64 {
+                                        let angle=std::f32::consts::TAU * index as f32 / 64.0;
+                                        let next=[center[0]+radius*angle.cos(),center[1]+radius*angle.sin()];
+                                        if let Some(a)=previous {segments.push((a,next,true));}
+                                        previous=Some(next);
+                                    }
+                                }
                             }
                         } else if *command=="arc" {
                             let center=params["center"].as_array().cloned().unwrap_or_default();
