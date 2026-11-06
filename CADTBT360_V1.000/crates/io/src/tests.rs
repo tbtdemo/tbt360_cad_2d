@@ -147,6 +147,94 @@ fn sample() -> Drawing {
     d
 }
 
+/// Stage282: end-to-end native drafting entities representative of AI Review
+/// must survive serialized DXF/DWG and re-opening with our real file-format reader.
+/// Third-party AutoCAD acceptance is still a separate manual release gate.
+fn stage282_trace_sample() -> (Drawing,Vec<Handle>) {
+    let mut d=Drawing::new_metric();
+    d.layers.push(Layer {name:"AI-TRACE".into(),color:Color::Index(3),..Layer::default()});
+    let common=||Common {layer:"AI-TRACE".into(),ltscale:1.5,..Common::default()};
+    let mut handles=Vec::new();
+    for n in 0..24 {
+        let y=120.0+f64::from(n)*42.0;
+        let h=d.add(&Space::Model,common(),EntityKind::Line(Line {
+            a:Vec3::new(25.0,y,0.0),b:Vec3::new(825.0,y,0.0)
+        })).unwrap();
+        handles.push(h);
+    }
+    let polygon=d.add(&Space::Model,common(),EntityKind::LwPolyline(LwPolyline {
+        vertices:vec![
+            PolyVertex::new(Vec2::new(1200.0,300.0)),
+            PolyVertex::new(Vec2::new(1500.0,300.0)),
+            PolyVertex::new(Vec2::new(1500.0,480.0)),
+            PolyVertex::new(Vec2::new(1200.0,480.0))
+        ],
+        closed:true,const_width:0.0,elevation:0.0,plinegen:false,
+    })).unwrap();
+    handles.push(polygon);
+    let arc=d.add(&Space::Model,common(),EntityKind::Arc(Arc {
+        center:Vec3::new(1350.0,300.0,0.0),radius:175.0,start:0.0,end:std::f64::consts::FRAC_PI_2
+    })).unwrap();
+    handles.push(arc);
+    (d,handles)
+}
+
+#[test]
+fn stage282_dxf_ai_trace_lines_pline_arc_survive_two_save_reopen_cycles() {
+    let (original,handles)=stage282_trace_sample();
+    let bytes=write(&original,"ai_trace.dxf").unwrap();
+    let first=read(&bytes,"ai_trace.dxf").unwrap();
+    let second=read(&write(&first,"ai_trace.dxf").unwrap(),"ai_trace.dxf").unwrap();
+    assert_eq!(first.entity_count(),handles.len());
+    assert_eq!(second.entity_count(),handles.len());
+    for back in [&first,&second] {
+        for h in &handles {
+            let before=original.entity(*h).unwrap();
+            let after=back.entity(*h).expect("DXF must retain each native entity handle");
+            assert_eq!(after.common.layer,"AI-TRACE");
+            assert!((after.common.ltscale-1.5).abs()<1e-8);
+            assert_eq!(after.kind,before.kind,"LINE/PLINE/ARC geometry must be editable after reopen");
+        }
+        assert!(back.layer("AI-TRACE").is_some());
+    }
+}
+
+#[cfg(not(target_arch="wasm32"))]
+#[test]
+fn stage282_dwg_ai_trace_lines_pline_arc_reopen_with_native_geometry() {
+    let (original,handles)=stage282_trace_sample();
+    let bytes=write(&original,"ai_trace.dwg").unwrap();
+    assert!(cadcraft_dwg::is_dwg(&bytes),"DWG output must have the real DWG signature");
+    let back=read(&bytes,"ai_trace.dwg").unwrap();
+    assert_eq!(back.entity_count(),handles.len());
+    assert!(back.layer("AI-TRACE").is_some());
+    for h in &handles {
+        let prior=original.entity(*h).unwrap();
+        let entity=back.entity(*h).expect("DWG reader should preserve CAD native handle");
+        assert_eq!(entity.common.layer,"AI-TRACE");
+        match (&prior.kind,&entity.kind) {
+            (EntityKind::Line(a),EntityKind::Line(b))=>{
+                assert!((a.a.x-b.a.x).abs()<1e-6 && (a.a.y-b.a.y).abs()<1e-6);
+                assert!((a.b.x-b.b.x).abs()<1e-6 && (a.b.y-b.b.y).abs()<1e-6);
+            }
+            (EntityKind::LwPolyline(a),EntityKind::LwPolyline(b))=>{
+                assert_eq!(a.vertices.len(),b.vertices.len());
+                assert_eq!(a.closed,b.closed);
+                for (u,v) in a.vertices.iter().zip(&b.vertices) {
+                    assert!((u.p.x-v.p.x).abs()<1e-6 && (u.p.y-v.p.y).abs()<1e-6);
+                }
+            }
+            (EntityKind::Arc(a),EntityKind::Arc(b))=>{
+                assert!((a.center.x-b.center.x).abs()<1e-6);
+                assert!((a.center.y-b.center.y).abs()<1e-6);
+                assert!((a.radius-b.radius).abs()<1e-6);
+                assert!((a.start-b.start).abs()<1e-6 && (a.end-b.end).abs()<1e-6);
+            }
+            _=>panic!("LINE/PLINE/ARC kind changed through the CAD 360 DWG bridge"),
+        }
+    }
+}
+
 #[test]
 fn dxf_roundtrip_preserves_entities() {
     let d = sample();
