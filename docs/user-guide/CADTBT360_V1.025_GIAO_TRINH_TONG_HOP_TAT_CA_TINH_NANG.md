@@ -2019,3 +2019,31 @@ Tài liệu XLSX `CAD360_BAO_CAO_TIEN_DO_DOT235.xlsx` có 18 tiêu chí riêng c
 - Mỗi lần bàn giao bao gồm mã nguồn qua nhánh GitHub để dùng tính năng **Code → Download ZIP**, giáo trình Word FULL có hình, Excel tiến độ, và liên kết CI/Setup khi có artifact. Môi trường biên soạn hiện không có bản clone đầy đủ của repository để đóng gói ZIP nguồn tại chỗ.
 
 **Giáo trình Word FULL đợt 235:** Kế thừa toàn bộ 141 bài và 142 hình/sơ đồ của đợt 234, bổ sung Bài 142–144 cùng ba hình minh họa mới về giao dịch Block, Layer dự kiến, và % tiến độ. Tất cả hình dựng là sơ đồ minh họa, chưa phải ảnh chụp EXE; bản phát hành chưa công nhận CI PASS.
+
+
+## 76. Đợt 236 — AI gán Layer thật cho phòng, vách và cửa bằng native CAD
+
+### Bài 145 — Preview phân Layer tự động có kiểm soát
+1. Dùng một bản vẽ thử, kiểm tra đơn vị và kết nối MCP tới CAD 360. Chọn công cụ `ai_draw_plan_vietnamese`.
+2. Nhập: `vẽ hai phòng liền kề rộng 3000 và 4000 dài 4000 tại 0,0 cửa 900 giữa bản lề dưới mở phải`.
+3. Đặt `{"createDoorBlock":true,"applyLayers":true}` với `preview` để mặc định. Bản Preview chứa 5 lệnh CAD, kế hoạch chuyển thành BLOCK và `layerAssignmentsWillApplyOnConfirm=true`.
+4. Danh sách Layer: `TBT_AI_ROOM` (đường bao), `TBT_AI_WALL` (hai đoạn vách), `TBT_AI_DOOR` (BLOCK cửa). `layerAssignmentsApplied=false` là trạng thái **chưa chỉnh sửa**, không phải lỗi.
+5. `applyLayers=false` giữ nguyên quy trình đợt 235; không tự tạo/gán Layer. Các lệnh không phải yêu cầu **một dòng đúng dạng hai phòng** sẽ bị từ chối nếu bật `applyLayers=true`.
+
+### Bài 146 — Xác nhận tạo đối tượng và gán Layer thật
+1. Chỉ sau khi kiểm tra Preview và đồng ý, truyền `preview=false`, `confirm=true`, `createDoorBlock=true`, `applyLayers=true` cùng `expectedDocumentUid`, `expectedDocumentEpoch`, `expectedRevision`.
+2. MCP dùng `engine.execute` tạo lần lượt RECTANG, LINE tường, LINE cửa, ARC cửa, rồi chuyển cánh/cung thành BLOCK nếu được yêu cầu.
+3. MCP sử dụng **native lệnh `laymch`** với `{"handles":["..."],"layer":"TBT_AI_ROOM"}`, `TBT_AI_WALL`, hoặc `TBT_AI_DOOR`. Lệnh này tự tạo Layer nếu thiếu và sửa Layer của đúng entity theo handle.
+4. Trước mỗi `laymch`, MCP kiểm tra UID, epoch, revision và trạng thái Undo group. Các lệnh thao tác CAD và gán Layer nằm trong cùng Undo group.
+5. Sau commit, kiểm tra `layerAssignmentsApplied=true`, `query_entities` cho Layer thực tế của từng đối tượng, và thử Undo một lần trên bản thử. Đặc biệt kiểm tra BLOCK/INSERT là đối tượng trên Layer cửa, không tự nhận là cửa BIM.
+6. Lưu ý: khẳng định về Undo xuyên cả thay đổi Layer chỉ được nghiệm thu sau **test native Engine + Windows EXE thực tế**. Kiểm thử Mock có thể mô phỏng giao dịch, không chứng minh Undo trong tất cả điều kiện.
+
+### Bài 147 — Kiểm thử hồi quy, báo cáo tiến độ theo bằng chứng
+1. Chạy `cargo test --locked -p cadcraft-mcp --lib ai_vietnamese_apply_layers_ -- --nocapture`.
+2. Chạy `cargo test --locked -p cadcraft-mcp --lib ai_vietnamese_block_ -- --nocapture`, và kiểm thử block native.
+3. Kiểm tra GitHub Actions trên **commit cuối**, không lấy kết quả PASS của SHA cũ thay cho bản mới.
+4. Báo cáo Excel phải tách `đã có mã / đã kiểm chứng CI-EXE / còn thiếu`; các tỷ lệ chỉ áp dụng cho danh mục tiêu chí có trọng số đã liệt kê, không phải % toàn CAD 360.
+5. Bản Word FULL giữ Bài 1–144 và bổ sung Bài 145–147 có hình; hình dựng từ sơ đồ được ghi rõ `MINH HỌA`, chưa phải ảnh chụp Windows EXE.
+6. Kế hoạch đợt 237: kiểm thử native CAD Engine với Layer + Undo + BLOCK, kiểm tra xuất/lưu DWG chuẩn và tương thích AutoCAD; đợt 238: tăng cường AI chỉnh sửa bản vẽ và QTO.
+
+**Trạng thái đợt 236:** mã opt-in `applyLayers` đã commit, kèm Mock regression; không công bố Windows EXE PASS khi CI của SHA cuối chưa hoàn tất. Nguồn đầy đủ lấy qua GitHub Code → Download ZIP; nếu không thể kết nối GitHub từ máy biên soạn thì không giả mạo ZIP chứa toàn bộ repo.
