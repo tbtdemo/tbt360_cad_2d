@@ -2772,3 +2772,35 @@ Kế hoạch: Đợt 240 sửa lỗi CI, hoàn thiện thử DWG hai chiều v�
 5. Đã có nút **Chọn ảnh PNG/JPEG...** sử dụng bộ chọn file cục bộ của desktop; khi chọn ảnh khác, Preview cũ bị hủy. Hạn chế còn lại: chưa phân biệt cửa/tường/vách đáng tin cậy, chưa tự dựng cửa từ ảnh, chưa nối giao diện với OIDC Host thật, chưa có CI PASS hoặc nghiệm thu EXE trong báo cáo này.
 
 **Phân biệt ba mức:** (a) Có code và test trong nhánh; (b) CI PASS đúng SHA; (c) Windows EXE/AutoCAD nghiệm thu thực tế. Đợt 262 hiện chỉ có bằng chứng (a).
+
+
+## 103. Đợt 263 — Xem xét ứng viên ô cửa từ ảnh và tạo chỉ dẫn CAD có kiểm soát
+
+### Bài 229 — Nhận dạng cặp khoảng hở trên tường
+1. Trong CAD 360 mở **Tools → CAD 360 AI Review...**, chọn file PNG/JPEG và hiệu chuẩn `Đơn vị CAD trên mỗi pixel`, rồi bấm **Đọc ảnh → Xem trước các nét CAD**.
+2. Chức năng kế thừa `raster_vector::preview` và tính ứng viên có `pairedWallOpeningCandidates`, `outlineCAD`, `wallThicknessCAD`, `doorLeafCandidate`. Bộ phát hiện chỉ dựa trên các nét raster có thể tạo thành hai mép tường và khoảng trống xuyên tường, nên **không xác nhận là cửa kiến trúc**.
+3. Kiểm tra số lượng ứng viên; mỗi ứng viên được đánh chỉ số từ **0**. Không kết luận chỉ số thay thế cho mã nhận diện bền vững nếu ảnh hoặc thuật toán thay đổi.
+4. Người dùng phải quan sát hình vector, so kích thước và vị trí, không tự điền điểm ô cửa nếu ảnh thiếu cạnh.
+
+### Bài 230 — Chỉ chọn một PLINE hướng dẫn ô cửa
+1. Khi Preview có ứng viên, nhập chỉ số `0` tại phần chọn khoảng mở.
+2. Bấm **Thêm PLINE chỉ dẫn cho ô cửa đã chọn vào Preview**. Chương trình trích `outlineCAD` bốn đỉnh, kiểm tra tọa độ hữu hạn, diện tích khác 0 và nhãn ứng viên; kết quả là **một PLINE kín**.
+3. Nét vector nguồn giữ nguyên. PLINE chỉ dẫn được hiển thị **màu vàng** trên hình xem trước, phân biệt với LINE ảnh màu xanh; chưa ghi vào bản vẽ cho đến khi người dùng bấm **Tôi đồng ý – Vẽ vào CAD**.
+4. Nhấp lại cùng chỉ số không nhân đôi PLINE. Chỉ số ngoài phạm vi bị từ chối, không thêm bất kỳ hình học mới nào.
+5. Đây là **đường viền chỉ dẫn**; không tự cắt, sửa, nối hai đoạn tường hiện có hay tự dựng BIM Door.
+
+### Bài 231 — Chọn ứng viên cung mở ARC sau xác nhận thủ công
+1. Nếu bộ dò thấy nét có thể giống cánh cửa, giao diện hiện số ứng viên. Nhập chỉ số cung (từ 0) và chọn **Thêm ARC cung mở của ứng viên đã chọn vào Preview**.
+2. Chương trình chạy lại preview của detector với `createDoorSwingArcs:true`, `confirmDoorSwingArcs:true`, so sánh danh sách nét nguồn và ứng viên tường cũ. Nếu có thay đổi, phải Preview ảnh lại.
+3. Chỉ nhận đề xuất `confirmed-drafting-arc-not-door-block`, kiểm tra tâm, bán kính, góc và giới hạn tọa độ; bổ sung **ARC native** vào các LINE nguồn.
+4. Phương án ARC và PLINE ô cửa được chọn **tách biệt** ở giai đoạn này để tránh vẽ chồng. Chọn lại một phương án sau khi đã có phương án kia yêu cầu Preview ảnh mới.
+5. Chỉ sau khi quan sát Preview và bấm xác nhận, CAD Engine mới tạo ARC; **không phải** phần mềm tự khẳng định mỗi nét ảnh nhận dạng là cửa thật.
+
+### Bài 232 — Undo, kiểm thử và nghiệm thu
+1. Khi người dùng chấp thuận, `commit_steps` kiểm tra lại byte ảnh, kết quả detector, UID/Epoch/Revision và trạng thái Undo; thực thi các LINE cùng PLINE/ARC được duyệt trong một nhóm UNDO.
+2. Kiểm thử Rust: `stage263_paired_wall_opening_is_explicit_reviewed_native_guide` xác minh một PLINE được chọn sau Preview, từ chối chỉ số sai, không nhân đôi và UNDO/REDO khôi phục.
+3. Kiểm thử Rust: `stage263_door_arc_requires_explicit_operator_selection_and_preserves_image_lines` xác minh ARC chỉ được tạo sau lựa chọn và UNDO loại bỏ nhóm; không thay nét nguồn.
+4. GitHub Actions `CAD 360 Stage263 Image Opening Candidate Review` kiểm tra biên dịch UI Windows và các regression 261–263. Chỉ đánh dấu PASS khi workflow có kết quả tại đúng commit.
+5. Nghiệm thu thực tế vẫn cần Windows EXE, ảnh chụp giao diện thật, kiểm tra trên nhiều ảnh mặt bằng thực tế, Undo/Redo, lưu/mở lại DWG với AutoCAD độc lập và rà soát các tình huống nhận dạng sai.
+
+**Phân biệt khả năng:** Đây là công cụ đề xuất và chấp thuận **hình học cửa dạng chỉ dẫn**, chưa đạt nhận dạng tường/cửa có ngữ nghĩa, chưa có tự động cắt tường hoặc BIM Door, chưa xác minh GUI/CI/AutoCAD PASS chỉ từ commit.
