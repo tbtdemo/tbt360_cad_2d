@@ -926,3 +926,65 @@ fn stage248_mcp_oidc_verified_host_session_can_read_but_cannot_escalate() {
     let denied_resources=call(&mut server,803,"resources/read",json!({"uri":"cadcraft://commands"}));
     assert_eq!(denied_resources["error"]["code"],-32602);
 }
+
+
+/// Stage255: verify the actual Rust MCP -> CAD Engine path, not the offline DXF prototype.
+#[test]
+fn stage255_reviewed_ai_plan_preview_commit_and_single_native_undo() {
+    let mut s=Server::with_access_mode(Box::new(Headless::default()),"reviewed");
+    let text="vẽ hai phòng liền kề rộng 3000 và 4000 dài 4000 tại 0,0";
+    let before=tool(&mut s,"query_entities",json!({}));
+    assert_eq!(before["count"],0);
+    let preview=tool(&mut s,"ai_draw_plan_vietnamese",json!({"text":text,"preview":true}));
+    assert_eq!(preview["previewOnly"],true);
+    assert_eq!(preview["editableEntitiesCreated"],0);
+    assert_eq!(tool(&mut s,"query_entities",json!({}))["count"],0);
+    let plan=&preview["plan"];
+    let uid=plan["documentUid"].as_u64().expect("preview UID");
+    let epoch=plan["documentEpoch"].as_u64().expect("preview epoch");
+    let revision=plan["revision"].as_u64().expect("preview revision");
+    let committed=tool(&mut s,"ai_draw_plan_vietnamese",json!({"text":text,"preview":false,"confirm":true,
+        "expectedDocumentUid":uid,"expectedDocumentEpoch":epoch,"expectedRevision":revision}));
+    assert!(committed.is_object());
+    assert!(tool(&mut s,"query_entities",json!({}))["count"].as_u64().unwrap_or(0)>0);
+    // Privileged in-process test driver invokes the engine undo; external MCP reviewed
+    // mode correctly does not grant arbitrary execute/undo to agents.
+    let _=s.backend().call("engine.execute",json!({"command":"undo","params":{"count":1}})).expect("native Undo");
+    assert_eq!(tool(&mut s,"query_entities",json!({}))["count"],0,
+        "all AI plan geometry must be removed in exactly one native Undo");
+}
+
+#[test]
+fn stage255_reviewed_ai_plan_rejects_stale_revision_and_wrong_drawing_without_mutation() {
+    let mut s=Server::with_access_mode(Box::new(Headless::default()),"reviewed");
+    let text="vẽ hai phòng liền kề rộng 3000 và 4000 dài 4000 tại 0,0";
+    let preview=tool(&mut s,"ai_draw_plan_vietnamese",json!({"text":text,"preview":true}));
+    let plan=&preview["plan"];
+    let uid=plan["documentUid"].as_u64().expect("preview UID");
+    let epoch=plan["documentEpoch"].as_u64().expect("preview epoch");
+    let revision=plan["revision"].as_u64().expect("preview revision");
+    let inputs=[
+        json!({"text":text,"preview":false,"confirm":true,
+            "expectedDocumentUid":uid.saturating_add(1),"expectedDocumentEpoch":epoch,"expectedRevision":revision}),
+        json!({"text":text,"preview":false,"confirm":true,
+            "expectedDocumentUid":uid,"expectedDocumentEpoch":epoch.saturating_add(1),"expectedRevision":revision}),
+        json!({"text":text,"preview":false,"confirm":true,
+            "expectedDocumentUid":uid,"expectedDocumentEpoch":epoch,"expectedRevision":revision.saturating_add(1)}),
+    ];
+    for (i,args) in inputs.into_iter().enumerate() {
+        let denied=call(&mut s,2550+i as u64,"tools/call",json!({"name":"ai_draw_plan_vietnamese","arguments":args}));
+        assert!(denied.get("error").is_some() || denied["result"]["isError"]==true,
+            "stale/foreign document confirmation must be rejected: {denied}");
+        assert_eq!(tool(&mut s,"query_entities",json!({}))["count"],0,
+            "rejected agent request must not create geometry");
+    }
+    // Fresh preview becomes stale after another editor changes the drawing.
+    s.backend().call("engine.execute",json!({"command":"line","params":{"points":[[0,0],[5,0]]}})).expect("native edit");
+    let stale=call(&mut s,2599,"tools/call",json!({"name":"ai_draw_plan_vietnamese",
+        "arguments":{"text":text,"preview":false,"confirm":true,
+            "expectedDocumentUid":uid,"expectedDocumentEpoch":epoch,"expectedRevision":revision}}));
+    assert!(stale.get("error").is_some()||stale["result"]["isError"]==true,
+        "old preview must never apply after intervening edits");
+    assert_eq!(tool(&mut s,"query_entities",json!({}))["count"],1,
+        "only the legitimate intervening LINE should remain");
+}
