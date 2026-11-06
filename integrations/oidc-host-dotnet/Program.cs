@@ -106,6 +106,8 @@ app.MapGet("/api/cad360/mcp/read-drawing", async (ClaimsPrincipal user, Cancella
             if (!handshake.RootElement.TryGetProperty("result",out _))
                 return Results.Problem("MCP rejected initialization.",statusCode:502);
         }
+        await process.StandardInput.WriteLineAsync("{\\"jsonrpc\\":\\"2.0\\",\\"method\\":\\"notifications/initialized\\"}".AsMemory(),timeout.Token);
+        await process.StandardInput.FlushAsync(timeout.Token);
         const string read = "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{\"name\":\"inspect_drawing\",\"arguments\":{\"entities\":false}}}";
         await process.StandardInput.WriteLineAsync(read.AsMemory(),timeout.Token);
         await process.StandardInput.FlushAsync(timeout.Token);
