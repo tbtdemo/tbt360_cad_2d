@@ -3460,3 +3460,36 @@ Kế hoạch: Đợt 240 sửa lỗi CI, hoàn thiện thử DWG hai chiều v�
 5. Chụp hình từ EXE khi thực tế chạy, đưa vào giáo trình tổng hợp; không sử dụng sơ đồ giả lập làm hình ảnh nghiệm thu.
 
 **Đợt 283:** Đã commit kiểm thử hai chu kỳ DWG, so đầy đủ loại hình học và thuộc tính cơ bản, workflow Windows; Windows CI, EXE và AutoCAD độc lập chưa được xác nhận PASS. Giáo trình tổng hợp cập nhật đến Bài 312.
+
+
+## 124. Đợt 284 — Kiểm tra DWG/DXF có nhiều layer, màu, tỷ lệ nét và XData
+
+### Bài 313 — Tạo dữ liệu mô phỏng bản vẽ kiến trúc đa lớp
+1. Đợt 283 đã kiểm tra kỹ 26 đối tượng trên một layer `AI-TRACE`. Bản vẽ thực tế thường có nhiều lớp, màu nét và dữ liệu quản lý; vì vậy Đợt 284 bổ sung một fixture mới tên `stage284_multilayer_ai_sample`.
+2. Bản vẽ metric gồm ba layer: `AI-WALLS` màu Index 1; `AI-DOORS` màu Index 3; `AI-CONTROL` màu Index 5.
+3. Fixture chứa 36 LINE phân bố vào ba layer, mỗi LINE có màu ByLayer hoặc màu chỉ định riêng Index 2/6, tỷ lệ nét (`ltscale`) biến thiên 1,00–1,75; thêm một LWPOLYLINE kín trên layer tường và một ARC trên layer cửa. Tổng là **38 đối tượng native**.
+4. Một LINE có XData chuẩn với ứng dụng `TBT360_BIM` và thông tin `stage=284;source=ai-trace;approved=yes`, dùng để kiểm tra dữ liệu quản lý có còn nguyên sau khi ghi file hay không.
+5. Đây là fixture kiểm thử bộ đọc/ghi CAD, chưa phải bản vẽ được AI tự phân loại kiến trúc.
+
+### Bài 314 — Chạy hai chu kỳ ghi/đọc DXF
+1. Chạy Rust test `stage284_multilayer_dxf_two_roundtrips_keep_colors_scale_geometry_and_handles`.
+2. Từ Drawing gốc, gọi `cadcraft_io::write(...,\"layered_ai.dxf\")` rồi `cadcraft_io::read` để mở lại. Từ bản vừa mở, tiếp tục lưu và đọc lại lần hai.
+3. Sau mỗi chu kỳ, `stage284_compare_multilayer` phải xác minh 38 entity và 38 handle duy nhất, cả ba layer và màu layer.
+4. Từng entity phải giữ handle, layer, màu riêng hoặc ByLayer, `ltscale` và hình học LINE/PLINE/ARC. LINE và PLINE dùng ngưỡng sai số tọa độ 1e-6; ARC dùng cùng ngưỡng cho tâm, bán kính và góc.
+5. Với LINE gắn XData, so sánh nguyên danh sách RawTag. Nếu một thẻ bị mất hoặc đổi giá trị, test phải thất bại.
+
+### Bài 315 — Chạy hai chu kỳ ghi/đọc DWG chuẩn
+1. Chạy `stage284_multilayer_dwg_two_roundtrips_keep_colors_scale_geometry_and_handles`. Mã sử dụng writer DWG và reader DWG có sẵn trong `cadcraft-io`.
+2. Sau mỗi vòng, so sánh số entity, tập handle, màu layer, màu entity, tỷ lệ nét, hình học và XData, không chỉ chữ ký đầu file DWG.
+3. Bài test phải báo lỗi nếu lớp cửa và lớp tường bị trộn, entity đổi màu, XData bị xóa hoặc hình học ARC/PLINE sai khác quá ngưỡng.
+4. Bài test này dùng **bộ đọc/ghi nội bộ CAD 360**; kết quả thành công không đồng nghĩa DWG đã được Autodesk AutoCAD độc lập chứng nhận.
+
+### Bài 316 — CI Windows, nghiệm thu và định hướng đợt sau
+1. Workflow `CAD 360 Stage284 Multilayer DWG Metadata Fidelity` chạy `cargo check --locked -p cadcraft-io` và `cargo test --locked -p cadcraft-io stage284 -- --nocapture` trên Windows, cùng hồi quy Stage282–283 và test DWG XData trước đây.
+2. Đánh dấu Windows CI PASS **chỉ khi có kết quả và log thành công đúng SHA**. Nếu không lấy được log, trạng thái là `chưa xác nhận`, không phải `đã đạt`.
+3. Trên ứng dụng Windows EXE thật, kiểm tra PNG/JPEG → AI Preview → Confirm → các entity native → Save DWG → đóng/mở lại, kiểm tra lần lượt layer, màu, đường nét, PLINE/ARC và metadata.
+4. Dùng **AutoCAD độc lập** để mở, chỉnh sửa LINE/PLINE/ARC, thay đổi layer, lưu DWG và mở lại bằng CAD 360. Chỉ khi trao đổi hai chiều không mất dữ liệu mới nghiệm thu tính tương thích.
+5. Không mã hóa hay đóng gói .DWG theo cấu trúc riêng. Hình minh họa quy trình trong tài liệu Word không được coi là ảnh chụp EXE thật.
+6. Trọng tâm Đợt 285 là thu thập log Windows CI và xử lý **lỗi thật** của DWG bridge nếu các test mới chỉ ra sai khác về XData/màu, không hạ yêu cầu kiểm thử cho dễ PASS.
+
+**Trạng thái Đợt 284:** Đã commit fixture 38 entity, hai bài test DXF/DWG đa layer, ràng buộc XData, Windows workflow và giáo trình đến Bài 316. Chưa có bằng chứng nghiệm thu Windows EXE hoặc AutoCAD độc lập.
