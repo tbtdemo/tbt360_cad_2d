@@ -1,0 +1,40 @@
+name: CAD 360 Stage283 DWG Two-Cycle Entity Integrity
+on:
+  push:
+    branches:
+      - feature/CADTBT360_V1.025_xref-regression
+    paths:
+      - CADTBT360_V1.000/crates/io/src/tests.rs
+      - .github/workflows/cad360-stage283-dwg-integrity.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  dwg-integrity:
+    runs-on: windows-latest
+    timeout-minutes: 105
+    defaults:
+      run:
+        working-directory: CADTBT360_V1.000
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.95.0'
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: CADTBT360_V1.000
+      - name: Identify source commit
+        shell: pwsh
+        run: |
+          git rev-parse HEAD
+          rustc --version
+          cargo --version
+      - name: Compile DWG and DXF I/O
+        run: cargo check --locked -p cadcraft-io
+      - name: Validate geometry, layer, linetype and handles after two DWG reopens
+        run: cargo test --locked -p cadcraft-io stage283 -- --nocapture
+      - name: Regress Stage282 disk DWG and DXF tests
+        run: cargo test --locked -p cadcraft-io stage282 -- --nocapture
+      - name: Existing DWG bridge tests
+        run: cargo test --locked -p cadcraft-io dwg_roundtrip -- --nocapture
