@@ -16,6 +16,7 @@ mod server;
 mod tools;
 
 pub use backend::{Backend, Headless, Remote};
+pub use access_policy::{HostScope, HostRole};
 pub use server::{PROTOCOL_VERSION, Server};
 
 #[cfg(test)]
