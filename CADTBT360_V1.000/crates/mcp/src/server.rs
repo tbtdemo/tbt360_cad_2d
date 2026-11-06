@@ -159,19 +159,28 @@ impl Server {
                 }
                 call_tool(self.backend.as_mut(), name, args).map_err(|m| (INVALID_PARAMS, m))
             }
-            "resources/list" => Ok(json!({"resources": [
-                {"uri": "cadcraft://drawing", "name": "Active drawing", "mimeType": "application/json"},
-                {"uri": "cadcraft://commands", "name": "Command catalog", "mimeType": "application/json"},
-            ]})),
+            "resources/list" => {
+                let entries=[("cadcraft://drawing","Active drawing"),
+                    ("cadcraft://commands","Command catalog")];
+                let mut resources=Vec::new();
+                for (uri,name) in entries {
+                    if self.host_scope.as_ref().is_some_and(|scope|scope.resource_allowed(uri).is_err()) {
+                        continue;
+                    }
+                    resources.push(json!({"uri":uri,"name":name,"mimeType":"application/json"}));
+                }
+                Ok(json!({"resources":resources}))
+            },
             "resources/read" => {
+                let uri = params.get("uri").and_then(Value::as_str).unwrap_or("");
                 if let Some(scope)=self.host_scope.as_ref() {
+                    scope.resource_allowed(uri).map_err(|reason|(INVALID_PARAMS,reason.to_string()))?;
                     let current=self.backend.call("drawing.inspect",json!({"entities":false}))
                         .map_err(|_| (INVALID_PARAMS,"Scoped resource access cannot verify drawing".to_string()))?;
                     if current["documentUid"].as_u64()!=Some(scope.document_uid()) {
                         return Err((INVALID_PARAMS,"Scoped resource denied on different drawing".to_string()));
                     }
                 }
-                let uri = params.get("uri").and_then(Value::as_str).unwrap_or("");
                 let v = match uri {
                     "cadcraft://drawing" => self.backend.call("drawing.inspect", json!({})),
                     "cadcraft://commands" => self.backend.call("engine.commands", json!({})),
