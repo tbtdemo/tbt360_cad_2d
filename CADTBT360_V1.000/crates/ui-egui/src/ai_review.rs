@@ -388,7 +388,7 @@ mod tests {
         let path=std::env::temp_dir().join(filename);
         img.save(&path).unwrap();
         let source=path.to_string_lossy().to_string();
-        let session=Session::default();
+        let mut session=Session::default();
         let p=preview_raster(&session,&source,"2").expect("PNG preview vectorization");
         assert!(p.steps.len()>=1);
         assert!(p.steps.iter().all(|(command,_)|*command=="line"),
@@ -397,6 +397,15 @@ mod tests {
         let (args,accepted,bytes)=p.image_evidence.as_ref().unwrap();
         assert!(!bytes.is_empty());
         assert_eq!(cadcraft_mcp::raster_vector::preview(args).unwrap(),*accepted);
+        assert_eq!(session.doc().unwrap().entity_count(),0,
+            "image Preview alone must not mutate CAD");
+        commit_steps(&mut session,&p).expect("confirmed image vectors inserted in native CAD Engine");
+        let inserted=session.doc().unwrap().entity_count();
+        assert_eq!(inserted,p.steps.len(),"each detected stroke must be native CAD LINE");
+        session.execute("undo",&json!({"count":1})).expect("one grouped native Undo");
+        assert_eq!(session.doc().unwrap().entity_count(),0,"Undo must remove all image vectors");
+        session.execute("redo",&json!({})).expect("native Redo");
+        assert_eq!(session.doc().unwrap().entity_count(),inserted,"Redo must restore every LINE");
         for x in 8..=80 {img.put_pixel(x,16,Luma([255]));}
         img.save(&path).unwrap();
         let changed=cadcraft_mcp::raster_vector::preview(args).unwrap();
