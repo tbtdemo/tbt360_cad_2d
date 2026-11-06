@@ -23,6 +23,7 @@ struct PreviewTask {
     uid: Option<u64>,
     revision: Option<u64>,
     epoch: u64,
+    source_fingerprint: (u64,u64),
 }
 
 #[derive(Default)]
@@ -41,6 +42,8 @@ pub struct State {
     path: String,
     preview: Option<Value>,
     preview_task: Option<PreviewTask>,
+    preview_source_fingerprint: Option<(u64,u64)>,
+    preview_params: Option<Value>,
     preview_document_uid: Option<u64>,
     preview_revision: Option<u64>,
     preview_document_epoch: Option<u64>,
@@ -385,20 +388,53 @@ fn apply_ai_instruction(state: &mut State, instruction: &str) -> Result<&'static
     else { Ok("Đã áp dụng những nhóm nhận dạng được nêu trong yêu cầu. Chỉ Preview, không tự sửa bản vẽ.") }
 }
 
+/// Streams the source image without holding an additional full copy in RAM.
+/// Detects accidental source mutation even when path, length and modified timestamp stay the same.
+fn fingerprint_image(path:&str)->Result<(u64,u64),String> {
+    use std::hash::{Hash,Hasher};
+    use std::io::Read;
+    let file=std::fs::File::open(path).map_err(|e|format!("Không đọc được ảnh nguồn AI: {e}"))?;
+    let size=file.metadata().map_err(|e|e.to_string())?.len();
+    if size==0 || size>80*1024*1024 {return Err("Ảnh nguồn AI phải từ 1 byte đến 80 MB.".into());}
+    let mut reader=std::io::BufReader::new(file);
+    let mut hasher=std::collections::hash_map::DefaultHasher::new();
+    let mut total=0u64;
+    let mut buffer=[0u8;32768];
+    loop {
+        let n=reader.read(&mut buffer).map_err(|e|format!("Lỗi đọc ảnh nguồn AI: {e}"))?;
+        if n==0 {break;}
+        total+=n as u64;
+        if total>80*1024*1024 {return Err("Ảnh nguồn AI vượt giới hạn 80 MB.".into());}
+        buffer[..n].hash(&mut hasher);
+    }
+    Ok((total,hasher.finish()))
+}
+
 /// Spawn image inference off the UI thread, retaining the source and exact drawing revision.
 fn start_image_preview(state:&mut State,cad:&CadApp,ctx:&egui::Context) {
     if state.preview_task.is_some() || state.pdf_pending.is_some() {return;}
     let params=state.params();
+    let source=match fingerprint_image(&state.path) {
+        Ok(source)=>source,
+        Err(error)=>{state.error=Some(error);return;}
+    };
     let snapshot=cad.session.state().ok();
     let uid=snapshot.map(|s|s.uid);
     let revision=snapshot.map(|s|s.revision);
     let (tx,rx)=std::sync::mpsc::channel();
     let ctx=ctx.clone();
     let worker_params=params.clone();
-    state.preview_task=Some(PreviewTask{receiver:rx,params,uid,revision,epoch:cad.session.doc_epoch});
+    state.preview_task=Some(PreviewTask{receiver:rx,params,uid,revision,epoch:cad.session.doc_epoch,source_fingerprint:source});
     state.preview=None;state.preview_document_uid=None;state.preview_revision=None;state.preview_document_epoch=None;state.error=None;
+    state.preview_source_fingerprint=None;state.preview_params=None;
     std::thread::spawn(move || {
-        let result=cadcraft_mcp::raster_vector::preview(&worker_params);
+        let result=cadcraft_mcp::raster_vector::preview(&worker_params).and_then(|proposal| {
+            let path=worker_params["path"].as_str().ok_or("AI thiếu đường dẫn ảnh")?;
+            if fingerprint_image(path)?!=source {
+                return Err("Ảnh nguồn thay đổi trong khi AI đang nhận dạng; vui lòng Preview lại.".into());
+            }
+            Ok(proposal)
+        });
         let _=tx.send(result);
         ctx.request_repaint();
     });
@@ -417,7 +453,7 @@ fn poll_image_preview(state:&mut State,cad:&CadApp,ctx:&egui::Context) {
     let current=cad.session.state().ok();
     let same_document=current.map(|s|s.uid)==task.uid && current.map(|s|s.revision)==task.revision
         && cad.session.doc_epoch==task.epoch;
-    if !same_document || state.params()!=task.params {
+    if !same_document || state.params()!=task.params || fingerprint_image(&state.path).ok()!=Some(task.source_fingerprint) {
         state.preview=None;state.error=Some("Nguồn ảnh, tham số AI hoặc bản vẽ đã thay đổi trong khi nhận dạng. Hãy xem trước lại.".into());
         return;
     }
@@ -426,6 +462,8 @@ fn poll_image_preview(state:&mut State,cad:&CadApp,ctx:&egui::Context) {
             state.last_door_source_keys=value["doorBlockDrafts"].as_array().map(|items|items.iter()
                 .filter_map(|door|door["sourceDoorKey"].as_str().map(str::to_owned)).collect()).unwrap_or_default();
             state.preview=Some(value);
+            state.preview_source_fingerprint=Some(task.source_fingerprint);
+            state.preview_params=Some(task.params);
             state.preview_document_uid=task.uid;
             state.preview_revision=task.revision;
             state.preview_document_epoch=Some(task.epoch);
@@ -1305,6 +1343,14 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
                     d.undo_ctl.control == cadcraft_engine::undoctl::Control::All && d.undo_ctl.group.is_none()
                         && state.matches_document(d.uid, d.revision, cad.session.doc_epoch) && cad.session.running.is_none()
                 }).unwrap_or(false);
+                if state.preview_source_fingerprint.is_none()
+                    || fingerprint_image(&state.path).ok()!=state.preview_source_fingerprint
+                    || state.preview_params.as_ref()!=Some(&state.params()) {
+                    state.error=Some("Ảnh nguồn hoặc cấu hình AI đã thay đổi sau Preview. Không ghi CAD; hãy nhận dạng lại.".into());
+                    state.preview=None;
+                    state.preview_source_fingerprint=None;state.preview_params=None;
+                    return;
+                }
                 if !undo_ready {
                     state.error = Some("Không thể ghi nét AI: bản vẽ đã chuyển hoặc thay đổi sau Preview, lệnh CAD khác đang chạy, hoặc UNDO Control chưa bật All. Hãy nhận dạng và xem trước lại.".to_string());
                     return;
@@ -1948,6 +1994,18 @@ mod tests {
         let err=render_pdf_page(&path,1).unwrap_err();
         let _=std::fs::remove_file(&path);
         assert!(err.contains("chữ ký PDF"),"unexpected validation error: {err}");
+    }
+
+    #[test]
+    fn ai_image_fingerprint_detects_same_size_source_mutation_without_timestamp_check() {
+        let path=std::env::temp_dir().join(format!("cad360-ai-image-fingerprint-{}.png",std::process::id()));
+        std::fs::write(&path,b"PNG-demo-contents-A").unwrap();
+        let original=fingerprint_image(&path.to_string_lossy()).unwrap();
+        std::fs::write(&path,b"PNG-demo-contents-B").unwrap();
+        let modified=fingerprint_image(&path.to_string_lossy()).unwrap();
+        assert_eq!(original.0,modified.0);
+        assert_ne!(original.1,modified.1,"same-length changed image must invalidate approval");
+        let _=std::fs::remove_file(path);
     }
 
     #[test]
