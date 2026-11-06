@@ -613,7 +613,7 @@ fn preview_selected_existing_wall(session:&Session,center_text:&str,door_width_t
     Ok(Preview {uid:state.uid,epoch:session.doc_epoch,revision:state.revision,
         text:command,steps,description:format!("PLINE đã chọn #{}: {}. Sẽ thay thế đúng đối tượng này sau khi xác nhận. Không tự sửa tường khác.",handle.hex(),summary),
         image_evidence:None,selected_opening_guide:None,selected_door_arc:None,
-        replace_handles:Some(vec![handle.hex()]),replace_snapshot:Some(entity.clone()),
+        replace_handles:Some(vec![handle.hex()]),replace_snapshot:Some((*entity).clone()),
         review_token:Some(format!("existing|{center_text}|{door_width_text}|{open_right}")),image_controls:None,owned_entities:None})
 }
 
