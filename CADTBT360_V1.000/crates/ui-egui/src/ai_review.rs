@@ -136,15 +136,10 @@ fn parse_door_wall(text:&str)->Result<Option<(Vec<(&'static str,Value)>,String)>
         (end,(-uy).atan2(-ux).to_degrees().rem_euclid(360.0),
             [end[0]+uy*door,end[1]-ux*door])
     };
-    let (arc_start,arc_end)=if *direction=="trái" {
-        (angle,angle+90.0)
-    } else {
-        // Native ARC is always counterclockwise; right hinge uses the perpendicular-to-axis leaf
-        // as start and the wall-axis ray as end.
-        (angle-90.0,angle)
-    };
-    let arc_start=arc_start.rem_euclid(360.0);
-    let arc_end=arc_start+90.0;
+    // Both swing variants go CCW from their own wall-axis ray toward the native leaf.
+    // For the right hinge, the ray points backward and CCW reaches its right-hand side.
+    let arc_start=angle;
+    let arc_end=angle+90.0;
     let points=[a,b,start,end,hinge,leaf];
     if points.iter().flatten().any(|v|!v.is_finite()||v.abs()>1e9)
         || [a,b,start,end].iter().any(|p|p.iter().any(|v|v.abs()+door>1e9)) {
@@ -287,6 +282,7 @@ mod tests {
         let right=plan_from_text("vẽ tường có cửa từ 0,0 đến 6000,0 dày 200 cửa 900 tại 3000 mở phải").unwrap().0;
         assert_eq!(right.len(),4);
         assert_eq!(right[2].1["points"],json!([[3450.0,0.0],[3450.0,-900.0]]));
+        assert_eq!(right[3].1["start"],180.0);assert_eq!(right[3].1["end"],270.0);
         assert!(plan_from_text("vẽ tường có cửa từ 0,0 đến 6000,0 dày 200 cửa 7000 tại 3000 mở trái").is_err());
         assert!(plan_from_text("vẽ tường có cửa từ 0,0 đến 6000,0 dày 200 cửa 900 tại 100 mở trái").is_err());
         assert!(plan_from_text("vẽ tường có cửa từ 0,0 đến 6000,0 dày 200 cửa 900 tại 3000 mở lên").is_err());
