@@ -785,3 +785,24 @@ fn ai_auto_raster_mcp_document_switch_must_not_undo_unrelated_new_drawing() {
         "switching to another drawing must not erase the unrelated LINE");
     let _ = std::fs::remove_file(file);
 }
+
+#[test]
+fn stage244_server_denies_unapproved_mcp_calls_before_backend_dispatch() {
+    let mut readonly=Server::with_access_mode(Box::new(Headless::default()),"readonly");
+    assert_eq!(readonly.access_mode(),"readonly");
+    let denied=call(&mut readonly,1,"tools/call",json!({"name":"execute",
+        "arguments":{"command":"line","params":{"points":[[0,0],[5,5]]}}}));
+    assert_eq!(denied["error"]["code"],-32602);
+    let inspected=tool(&mut readonly,"inspect_drawing",json!({"entities":false}));
+    assert_eq!(inspected["totalEntities"],0);
+    let mut reviewed=Server::with_access_mode(Box::new(Headless::default()),"reviewed");
+    let script=call(&mut reviewed,2,"tools/call",json!({"name":"script","arguments":{"text":"erase all"}}));
+    assert_eq!(script["error"]["code"],-32602);
+    let preview=call(&mut reviewed,3,"tools/call",json!({"name":"ai_draw_plan_vietnamese",
+        "arguments":{"text":"vẽ hai phòng liền kề rộng 3000 và 4000 dài 4000 tại 0,0"}}));
+    assert!(preview.get("result").is_some(),"reviewed mode must allow preview");
+    let rejected=call(&mut reviewed,4,"tools/call",json!({"name":"ai_draw_plan_vietnamese",
+        "arguments":{"text":"vẽ hai phòng liền kề rộng 3000 và 4000 dài 4000 tại 0,0",
+        "preview":false,"confirm":true}}));
+    assert_eq!(rejected["error"]["code"],-32602);
+}
