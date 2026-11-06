@@ -13,6 +13,7 @@ struct Preview {
     description: String,
     /// For raster plans: exact preview snapshot for source revalidation before any CAD mutation.
     image_evidence: Option<(Value, Value, Vec<u8>)>,
+    selected_opening_guide: Option<usize>,
 }
 
 #[derive(Default)]
@@ -21,6 +22,7 @@ pub struct AiReview {
     prompt: String,
     image_path: String,
     image_scale: String,
+    opening_index: String,
     preview: Option<Preview>,
     message: String,
 }
@@ -164,6 +166,46 @@ fn plan_from_text(text:&str)->Result<(Vec<(&'static str,Value)>,String),String> 
     Ok((vec![(command,params)],description))
 }
 
+/// Stage263: add only a selected, human-reviewed opening outline as a separate native PLINE.
+ /// Existing image strokes are not removed, joined or changed by this proposal.
+fn select_opening_guide(preview:&mut Preview,index:usize)->Result<(),String> {
+    let Some((_,proposal,_))=preview.image_evidence.as_ref() else {
+        return Err("Chỉ chọn gợi ý ô cửa khi đang Preview ảnh".into());
+    };
+    let candidate=proposal["pairedWallOpeningCandidates"].as_array()
+        .and_then(|items|items.get(index)).ok_or("Không tồn tại ứng viên ô cửa này trong Preview")?;
+    if candidate["classification"]!="paired-through-wall-gap-unverified" {
+        return Err("Phân loại ứng viên chưa được kiểm chứng, không tạo ô cửa".into());
+    }
+    let shape=candidate["outlineCAD"].as_array().filter(|v|v.len()==4)
+        .ok_or("Ứng viên không có biên dạng 4 đỉnh")?;
+    let mut coords=Vec::<[f64;2]>::with_capacity(4);
+    for vertex in shape {
+        let xy=vertex.as_array().filter(|v|v.len()==2).ok_or("Đỉnh ứng viên phải là [X,Y]")?;
+        let (Some(x),Some(y))=(xy[0].as_f64(),xy[1].as_f64()) else {
+            return Err("Đỉnh ứng viên không phải tọa độ số".into());
+        };
+        if !x.is_finite() || !y.is_finite() || x.abs()>1e9 || y.abs()>1e9 {
+            return Err("Ứng viên vượt giới hạn CAD".into());
+        }
+        coords.push([x,y]);
+    }
+    let twice_area: f64=coords.iter().zip(coords.iter().cycle().skip(1))
+        .take(4).map(|(a,b)|a[0]*b[1]-b[0]*a[1]).sum();
+    if !twice_area.is_finite() || twice_area.abs()<=1e-8 {
+        return Err("Biên dạng ô cửa có diện tích bằng 0".into());
+    }
+    if let Some(previous)=preview.selected_opening_guide {
+        if previous==index {return Ok(());}
+        preview.steps.pop();
+    }
+    preview.steps.push(("pline",json!({"vertices":coords,"closed":true})));
+    preview.selected_opening_guide=Some(index);
+    preview.description=format!("Ảnh: {} LINE nguồn + 1 PLINE hướng dẫn ứng viên ô cửa #{} (không tự cắt tường, không kết luận là cửa).",
+        preview.steps.len()-1,index);
+    Ok(())
+}
+
 fn commit_steps(session:&mut Session,preview:&Preview)->Result<(),String> {
     #[cfg(not(target_arch = "wasm32"))]
     if let Some((args,approved_proposal,source_bytes))=&preview.image_evidence {
@@ -254,7 +296,7 @@ fn preview_raster(session:&Session,path:&str,scale_text:&str)->Result<Preview,St
     let summary=format!("Ảnh: {} LINE chỉnh sửa được; {} khoảng mở nghi vấn; {} nét giống cánh cửa. Không tự suy đoán/cắt cửa.",steps.len(),gap_count,door_count);
     Ok(Preview {uid:s.uid,epoch:session.doc_epoch,revision:s.revision,
         text:format!("{}|{}",path,scale_text),steps,description:summary,
-        image_evidence:Some((args,proposal,source_bytes))})
+        image_evidence:Some((args,proposal,source_bytes)),selected_opening_guide:None})
 }
 
 fn drawing_ready(session:&Session)->bool {
@@ -310,9 +352,34 @@ impl AiReview {
                     if !drawing_ready(session) {return Err("CAD đang có lệnh/Undo Group hoặc Block Editor: chưa thể Preview".into());}
                     let st=session.state().map_err(|e|e.to_string())?;
                     Ok(Preview {uid:st.uid,epoch:session.doc_epoch,revision:st.revision,
-                        text:self.prompt.clone(),steps,description,image_evidence:None})
+                        text:self.prompt.clone(),steps,description,image_evidence:None,selected_opening_guide:None})
                 })();
                 match next {Ok(p)=>{self.preview=Some(p);self.message="Đã xem trước; chưa ghi đối tượng.".into();},Err(e)=>self.message=e}
+            }
+            if self.preview.as_ref().is_some_and(|p|p.image_evidence.is_some()) {
+                let options=self.preview.as_ref()
+                    .and_then(|p|p.image_evidence.as_ref())
+                    .and_then(|(_,proposal,_)|proposal["pairedWallOpeningCandidates"].as_array())
+                    .map_or(0,Vec::len);
+                if options>0 {
+                    ui.label(format!("Phát hiện {} ứng viên ô cửa (chưa xác minh). Chọn chỉ số từ 0:",options));
+                    ui.text_edit_singleline(&mut self.opening_index);
+                    if ui.button("Thêm PLINE chỉ dẫn cho ô cửa đã chọn vào Preview").clicked() {
+                        let selected=self.opening_index.trim().parse::<usize>()
+                            .map_err(|_|"Chỉ số ứng viên phải là số nguyên không âm".to_string());
+                        match selected {
+                            Ok(index)=>{
+                                if let Some(p)=&mut self.preview {
+                                    match select_opening_guide(p,index) {
+                                        Ok(())=>self.message="Đã thêm một PLINE chỉ dẫn; xem trước rồi xác nhận. Nét ảnh gốc vẫn giữ nguyên.".into(),
+                                        Err(e)=>self.message=e
+                                    }
+                                }
+                            }
+                            Err(e)=>self.message=e
+                        }
+                    }
+                }
             }
             if let Some(p)=self.preview.as_ref() {
                 ui.separator();
@@ -385,6 +452,41 @@ mod tests {
         assert!(parse_draft("vẽ phòng rộng NaN dài 4000 tại 0,0").is_err());
         assert!(parse_draft("xóa tất cả").is_err());
     }
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn stage263_paired_wall_opening_is_explicit_reviewed_native_guide() {
+        use image::{GrayImage,Luma};
+        let mut img=GrayImage::from_pixel(110,48,Luma([255]));
+        for y in [15,22] {
+            for x in 5..=39 {img.put_pixel(x,y,Luma([0]));}
+            for x in 51..=95 {img.put_pixel(x,y,Luma([0]));}
+        }
+        let path=std::env::temp_dir().join(format!("cad360-stage263-{}-{}.png",
+            std::process::id(),std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        img.save(&path).unwrap();
+        let mut session=Session::default();
+        let mut p=preview_raster(&session,&path.to_string_lossy(),"2").unwrap();
+        let original=p.steps.len();
+        assert_eq!(p.image_evidence.as_ref().unwrap().1["pairedWallOpeningCandidateCount"],1);
+        assert_eq!(session.doc().unwrap().entity_count(),0);
+        assert!(select_opening_guide(&mut p,1).is_err(),"invalid candidate index must fail");
+        assert_eq!(p.steps.len(),original,"no approval must keep source-only proposal");
+        select_opening_guide(&mut p,0).unwrap();
+        assert_eq!(p.steps.len(),original+1);
+        assert_eq!(p.steps.last().unwrap().0,"pline");
+        assert_eq!(p.steps.last().unwrap().1["closed"],true);
+        select_opening_guide(&mut p,0).unwrap();
+        assert_eq!(p.steps.len(),original+1,"duplicate click must not duplicate the guide");
+        commit_steps(&mut session,&p).unwrap();
+        assert_eq!(session.doc().unwrap().entity_count(),original+1);
+        session.execute("undo",&json!({"count":1})).unwrap();
+        assert_eq!(session.doc().unwrap().entity_count(),0);
+        session.execute("redo",&json!({})).unwrap();
+        assert_eq!(session.doc().unwrap().entity_count(),original+1);
+        let _=std::fs::remove_file(path);
+    }
+
     #[cfg(not(target_arch = "wasm32"))]
     #[test]
     fn stage262_png_to_native_cad_preview_is_readonly_and_source_changes_are_detected() {
