@@ -4,6 +4,15 @@
 use cadcraft_ui_egui::CadApp;
 use serde_json::{Value, json};
 
+/// Preview is computed in a worker. Snapshot prevents applying stale AI geometry to a changed drawing.
+struct PreviewTask {
+    receiver: std::sync::mpsc::Receiver<Result<Value,String>>,
+    params: Value,
+    uid: Option<u64>,
+    revision: Option<u64>,
+    epoch: u64,
+}
+
 #[derive(Default)]
 pub struct State {
     pub open: bool,
@@ -15,6 +24,7 @@ pub struct State {
     pdf_owned_image: Option<std::path::PathBuf>,
     path: String,
     preview: Option<Value>,
+    preview_task: Option<PreviewTask>,
     preview_document_uid: Option<u64>,
     preview_revision: Option<u64>,
     preview_document_epoch: Option<u64>,
@@ -340,8 +350,59 @@ fn apply_ai_instruction(state: &mut State, instruction: &str) -> Result<&'static
     else { Ok("Đã áp dụng những nhóm nhận dạng được nêu trong yêu cầu. Chỉ Preview, không tự sửa bản vẽ.") }
 }
 
+/// Spawn image inference off the UI thread, retaining the source and exact drawing revision.
+fn start_image_preview(state:&mut State,cad:&CadApp,ctx:&egui::Context) {
+    if state.preview_task.is_some() || state.pdf_pending.is_some() {return;}
+    let params=state.params();
+    let snapshot=cad.session.state().ok();
+    let uid=snapshot.map(|s|s.uid);
+    let revision=snapshot.map(|s|s.revision);
+    let (tx,rx)=std::sync::mpsc::channel();
+    let ctx=ctx.clone();
+    let worker_params=params.clone();
+    state.preview_task=Some(PreviewTask{receiver:rx,params,uid,revision,epoch:cad.session.doc_epoch});
+    state.preview=None;state.preview_document_uid=None;state.preview_revision=None;state.preview_document_epoch=None;state.error=None;
+    std::thread::spawn(move || {
+        let result=cadcraft_mcp::raster_vector::preview(&worker_params);
+        let _=tx.send(result);
+        ctx.request_repaint();
+    });
+}
+
+/// Discard inference when parameters, source, or the live CAD document changed during execution.
+fn poll_image_preview(state:&mut State,cad:&CadApp,ctx:&egui::Context) {
+    let Some(task)=state.preview_task.as_ref() else {return;};
+    let result=match task.receiver.try_recv() {
+        Ok(result)=>Some(result),
+        Err(std::sync::mpsc::TryRecvError::Empty)=>{ctx.request_repaint_after(std::time::Duration::from_millis(150));None},
+        Err(std::sync::mpsc::TryRecvError::Disconnected)=>Some(Err("Bộ nhận dạng AI không trả về kết quả.".into())),
+    };
+    let Some(result)=result else {return};
+    let Some(task)=state.preview_task.take() else {return};
+    let current=cad.session.state().ok();
+    let same_document=current.map(|s|s.uid)==task.uid && current.map(|s|s.revision)==task.revision
+        && cad.session.doc_epoch==task.epoch;
+    if !same_document || state.params()!=task.params {
+        state.preview=None;state.error=Some("Nguồn ảnh, tham số AI hoặc bản vẽ đã thay đổi trong khi nhận dạng. Hãy xem trước lại.".into());
+        return;
+    }
+    match result {
+        Ok(value)=>{
+            state.last_door_source_keys=value["doorBlockDrafts"].as_array().map(|items|items.iter()
+                .filter_map(|door|door["sourceDoorKey"].as_str().map(str::to_owned)).collect()).unwrap_or_default();
+            state.preview=Some(value);
+            state.preview_document_uid=task.uid;
+            state.preview_revision=task.revision;
+            state.preview_document_epoch=Some(task.epoch);
+            state.error=None;
+        }
+        Err(error)=>{state.preview=None;state.error=Some(error);}
+    }
+}
+
 pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
     poll_pdf_render(state,ctx);
+    poll_image_preview(state,cad,ctx);
     if !state.open { return; }
     let mut open = state.open;
     egui::Window::new("CAD 360 | AI Drawing Studio")
@@ -727,15 +788,13 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
             });
             ui.separator();
             ui.heading("Nhận dạng và kiểm tra kết quả");
-            if ui.add_enabled(state.pdf_pending.is_none() && !state.path.is_empty(),egui::Button::new("1. Nhận dạng và xem trước")).clicked() {
+            if ui.add_enabled(state.pdf_pending.is_none() && state.preview_task.is_none() && !state.path.is_empty(),
+                egui::Button::new("1. Nhận dạng và xem trước")).clicked() {
                 state.reset_wall_junction_review();
-                match cadcraft_mcp::raster_vector::preview(&state.params()) {
-                    Ok(value) => {
-                        state.last_door_source_keys=value["doorBlockDrafts"].as_array().map(|items|items.iter()
-                            .filter_map(|door|door["sourceDoorKey"].as_str().map(str::to_owned)).collect()).unwrap_or_default();
-                        state.preview = Some(value); state.preview_document_uid = cad.session.state().ok().map(|doc| doc.uid); state.preview_revision = cad.session.state().ok().map(|doc| doc.revision); state.preview_document_epoch = Some(cad.session.doc_epoch); state.error = None; }
-                    Err(e) => { state.preview = None; state.preview_document_uid = None; state.preview_revision = None; state.preview_document_epoch = None; state.error = Some(e); }
-                }
+                start_image_preview(state,cad,ctx);
+            }
+            if state.preview_task.is_some() {
+                ui.horizontal(|ui| {ui.spinner();ui.label("AI đang phân tích ảnh và dựng bản nháp CAD. Bạn vẫn có thể thao tác trên giao diện.");});
             }
             if let Some(error) = &state.error {
                 ui.colored_label(egui::Color32::RED, error);
@@ -1780,6 +1839,14 @@ mod tests {
         let err=render_pdf_page(&path,1).unwrap_err();
         let _=std::fs::remove_file(&path);
         assert!(err.contains("chữ ký PDF"),"unexpected validation error: {err}");
+    }
+
+    #[test]
+    fn ai_preview_task_starts_empty_and_never_commits_geometry_on_open() {
+        let mut state=State::default();state.open();
+        assert!(state.preview_task.is_none());
+        assert!(state.preview.is_none());
+        assert!(state.params()["preview"].as_bool().unwrap());
     }
 
     #[test]
