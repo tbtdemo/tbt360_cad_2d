@@ -410,6 +410,20 @@ fn fingerprint_image(path:&str)->Result<(u64,u64),String> {
     Ok((total,hasher.finish()))
 }
 
+/// The sole approval gate for the source and parameters behind raster-to-CAD output.
+/// This rejects a same-name source overwrite, a changed unit scale, or changed detector options.
+fn ensure_raster_preview_input_unchanged(state:&State)->Result<(),String> {
+    let source=state.preview_source_fingerprint.ok_or("AI chưa có bản xem trước gắn với ảnh nguồn.")?;
+    if state.preview_params.as_ref()!=Some(&state.params()) {
+        return Err("Thông số AI đã thay đổi sau Preview; hãy nhận dạng lại.".into());
+    }
+    let current=fingerprint_image(&state.path)?;
+    if current!=source {
+        return Err("Nội dung ảnh nguồn đã thay đổi sau Preview; không ghi CAD.".into());
+    }
+    Ok(())
+}
+
 /// Spawn image inference off the UI thread, retaining the source and exact drawing revision.
 fn start_image_preview(state:&mut State,cad:&CadApp,ctx:&egui::Context) {
     if state.preview_task.is_some() || state.pdf_pending.is_some() {return;}
@@ -1343,10 +1357,8 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
                     d.undo_ctl.control == cadcraft_engine::undoctl::Control::All && d.undo_ctl.group.is_none()
                         && state.matches_document(d.uid, d.revision, cad.session.doc_epoch) && cad.session.running.is_none()
                 }).unwrap_or(false);
-                if state.preview_source_fingerprint.is_none()
-                    || fingerprint_image(&state.path).ok()!=state.preview_source_fingerprint
-                    || state.preview_params.as_ref()!=Some(&state.params()) {
-                    state.error=Some("Ảnh nguồn hoặc cấu hình AI đã thay đổi sau Preview. Không ghi CAD; hãy nhận dạng lại.".into());
+                if let Err(reason)=ensure_raster_preview_input_unchanged(state) {
+                    state.error=Some(reason);
                     state.preview=None;
                     state.preview_source_fingerprint=None;state.preview_params=None;
                     return;
@@ -1994,6 +2006,25 @@ mod tests {
         let err=render_pdf_page(&path,1).unwrap_err();
         let _=std::fs::remove_file(&path);
         assert!(err.contains("chữ ký PDF"),"unexpected validation error: {err}");
+    }
+
+    #[test]
+    fn ai_raster_commit_guard_rejects_changed_image_and_calibration_after_preview() {
+        let path=std::env::temp_dir().join(format!("cad360-ai-commit-guard-{}.png",std::process::id()));
+        std::fs::write(&path,b"PNG-plan-111111").unwrap();
+        let mut state=State::default();
+        state.open();
+        state.path=path.to_string_lossy().into_owned();
+        state.preview_source_fingerprint=Some(fingerprint_image(&state.path).unwrap());
+        state.preview_params=Some(state.params());
+        assert!(ensure_raster_preview_input_unchanged(&state).is_ok());
+        state.scale=2.0;
+        assert!(ensure_raster_preview_input_unchanged(&state).is_err(),"unit scale change invalidates approval");
+        state.scale=1.0;
+        assert!(ensure_raster_preview_input_unchanged(&state).is_ok());
+        std::fs::write(&path,b"PNG-plan-222222").unwrap();
+        assert!(ensure_raster_preview_input_unchanged(&state).is_err(),"source overwrite invalidates approval");
+        let _=std::fs::remove_file(path);
     }
 
     #[test]
