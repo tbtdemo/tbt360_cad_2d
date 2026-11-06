@@ -2109,3 +2109,31 @@ Bảng `CAD360_BAO_CAO_TIEN_DO_DOT237.xlsx` có **15 tiêu chí** với tổng t
 6. Tài liệu Word FULL `CADTBT360_V1.025_GIAO_TRINH_FULL_CO_HINH_DOT238.docx` kế thừa 150 bài và 151 hình của đợt 237, thêm 3 bài với hình mô phỏng, để người mới theo dõi được từng bước. Các hình là sơ đồ minh họa, **không phải ảnh chụp EXE thật**.
 
 **Bằng chứng và giới hạn:** GitHub commit mã kiểm thử đợt 238 và workflow có điều kiện chặn phát hành; chỉ khi CI của commit cuối PASS mới coi native test đạt. Chưa có đối chiếu AutoCAD thực tế hoặc bộ ảnh giao diện EXE đầy đủ.
+
+
+## 79. Đợt 239 — AI bảo toàn BLOCK/Layer khi lưu DXF; đối chiếu DWG
+
+### Bài 154 — Chạy song song hai phép kiểm thử DWG/DXF native
+1. Chuẩn bị bản vẽ CAD mới và lấy `documentUid`, `documentEpoch`, `revision` từ `drawing.inspect`.
+2. Nhập `vẽ hai phòng liền kề rộng 3000 và 4000 dài 4000 tại 0,0 cửa 900 giữa bản lề dưới mở phải`. Bật `createDoorBlock:true`, `applyLayers:true`; kiểm tra Preview không thay đổi entity.
+3. Chỉ sau phê duyệt, chạy `preview:false`, `confirm:true` cùng bộ định danh tài liệu. Đối chiếu 4 entity native: 1 room outline, 2 shared wall fragments, 1 BLOCK/INSERT door.
+4. Lưu DWG 2018 bằng `app.save`, tạo CAD Headless Session thứ hai để mở lại DWG; đối chiếu số entity, Layer, BLOCK.
+5. Lưu DXF 2018 bằng `app.save`, tạo Headless Session thứ ba mở lại và kiểm tra số entity, Layer, BLOCK. Bài kiểm thử đợt 239 mới: `ai_vietnamese_stage239_native_dxf_save_reopen_preserves_editable_door_layers`.
+6. Chạy lần lượt:
+   - `cargo test --locked -p cadcraft-mcp --lib ai_vietnamese_stage238_native_dwg_save_reopen_preserves_door_layers -- --nocapture`
+   - `cargo test --locked -p cadcraft-mcp --lib ai_vietnamese_stage239_native_dxf_save_reopen_preserves_editable_door_layers -- --nocapture`
+7. Hai bài test chạy CAD Engine thật, không phải chỉ Backend mock. **Kết quả CI/EXE vẫn phải được xác nhận qua workflow trên đúng SHA.**
+
+### Bài 155 — So sánh số lượng thực thể, Layer và BLOCK sau mở lại
+1. `TBT_AI_ROOM`: đúng **1** đối tượng bao ngoài; `TBT_AI_WALL`: đúng **2** đoạn vách chừa khoảng cửa 900; `TBT_AI_DOOR`: đúng **1** INSERT.
+2. Kiểm tra định nghĩa BLOCK bắt đầu bằng tên `TBT_AI_DOOR_`. Việc bảo toàn INSERT là điều kiện tối thiểu để chỉnh sửa bản vẽ.
+3. Đối chiếu nội dung bằng `drawing.inspect`, không chỉ dựa vào màu sắc hoặc sơ đồ.
+4. Không suy luận việc native DXF/DWG roundtrip đạt đồng nghĩa AutoCAD đã kiểm chứng. Kiểm tra tương thích AutoCAD hai chiều phải mở, sửa, lưu DWG trong AutoCAD thật rồi mở lại bằng CAD 360.
+5. DWG và DXF phải đúng tiêu chuẩn trao đổi bản vẽ, không mã hóa hoặc đổi cấu trúc phá hỏng khả năng chỉnh sửa hai chiều.
+
+### Bài 156 — Báo cáo tiến độ có mẫu số và kế hoạch tiếp theo
+Bảng `CAD360_BAO_CAO_TIEN_DO_DOT239.xlsx`: **12 tiêu chí**, tổng **100 điểm trọng số**, có mã/test **88 điểm (88%)**. CI PASS trên đúng commit cuối và nghiệm thu AutoCAD/EXE: **0 điểm đã xác nhận** tại thời điểm lập báo cáo. Đây **chỉ là phạm vi đợt 239**, không phải tỷ lệ toàn bộ CAD 360 hay toàn bộ AI.
+
+Kế hoạch: Đợt 240 sửa lỗi CI, hoàn thiện thử DWG hai chiều với AutoCAD và bổ sung hình chụp EXE; Đợt 241 tăng độ chính xác AI ảnh→CAD; Đợt 242 hỗ trợ AI chỉnh sửa và QTO theo vùng. Giáo trình Word FULL đợt 239 kế thừa **153 bài, 154 hình** của đợt 238, bổ sung **3 bài và 3 hình minh họa**, thành **156 bài, 157 hình nhúng** (trang có thể thay đổi theo định dạng và trình render). Hình dựng là **sơ đồ**, không được mô tả như screenshot từ EXE.
+
+**Phát hành:** Chỉ nhận Windows EXE/Portable nếu GitHub Actions của commit cuối báo PASS và artifact có sẵn. Mã nguồn đầy đủ tải từ ZIP archive của GitHub tại commit cuối.
