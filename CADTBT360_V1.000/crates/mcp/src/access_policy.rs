@@ -55,6 +55,17 @@ pub struct HostScope {
     document_uid: u64,
     expires_at_unix: u64,
     allowed_tools: Option<Vec<String>>,
+    /// Explicit approval supplied by a trusted host after its own human review.
+    /// Cannot be set from JSON-RPC tool arguments.
+    approved_ai_plan: Option<ApprovedAiPlan>,
+}
+
+#[derive(Clone, Debug)]
+struct ApprovedAiPlan {
+    tool: String,
+    text: String,
+    document_epoch: u64,
+    revision: u64,
 }
 impl HostScope {
     pub fn new(tenant_id:&str,user_id:&str,role:&str,document_uid:u64)->Result<Self,&'static str> {
@@ -67,7 +78,7 @@ impl HostScope {
         let now=std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)
             .map_err(|_|"System clock before UNIX epoch")?.as_secs();
         Ok(Self{tenant_id:tenant_id.into(),user_id:user_id.into(),role,document_uid,
-            expires_at_unix:now.saturating_add(900),allowed_tools:None})
+            expires_at_unix:now.saturating_add(900),allowed_tools:None,approved_ai_plan:None})
     }
     /// Trusted host sets the session expiry derived from a previously VERIFIED OIDC
     /// access token; this method does not parse or verify tokens itself.
@@ -88,6 +99,21 @@ impl HostScope {
             return Err("Invalid MCP host tool restriction");
         }
         self.allowed_tools=Some(tools.iter().map(|t|t.to_string()).collect());
+        Ok(self)
+    }
+    /// Trusted host only: bind an already-reviewed AI plan to a specific tool,
+    /// exact user-visible text and CAD state. This is not itself a user-consent UI.
+    /// The host MUST obtain approval from a real user before calling it.
+    pub fn with_approved_ai_plan(mut self,tool:&str,text:&str,document_epoch:u64,revision:u64)->Result<Self,&'static str> {
+        if !["ai_draw_plan_vietnamese","ai_draw_vietnamese"].contains(&tool)
+            || text.trim().is_empty() || text.len()>4000 || text.chars().any(|c|c=='\\0') {
+            return Err("Invalid trusted-host AI approval");
+        }
+        self.ensure_live()?;
+        if self.role==HostRole::Viewer {return Err("Viewer cannot approve AI writing");}
+        self.approved_ai_plan=Some(ApprovedAiPlan {
+            tool:tool.to_string(),text:text.to_string(),document_epoch,revision
+        });
         Ok(self)
     }
     pub fn expires_at_unix(&self)->u64 {self.expires_at_unix}
@@ -124,6 +150,14 @@ impl HostScope {
             return Err("Unknown role denied");
         }
         if args.get("preview").and_then(Value::as_bool)==Some(false) {
+            if ["ai_draw_plan_vietnamese","ai_draw_vietnamese"].contains(&tool) {
+                let approval=self.approved_ai_plan.as_ref().ok_or("Host has not approved this AI plan")?;
+                if approval.tool!=tool || args.get("text").and_then(Value::as_str)!=Some(approval.text.as_str())
+                    || args.get("expectedDocumentEpoch").and_then(Value::as_u64)!=Some(approval.document_epoch)
+                    || args.get("expectedRevision").and_then(Value::as_u64)!=Some(approval.revision) {
+                    return Err("AI plan does not match the trusted-host approval");
+                }
+            }
             if args.get("expectedDocumentUid").and_then(Value::as_u64)!=Some(self.document_uid) {
                 return Err("Host-scoped drawing UID mismatch");
             }
@@ -136,6 +170,30 @@ mod tests {
     use super::*;
     use serde_json::json;
 
+
+    #[test]
+    fn stage257_trusted_host_approval_cannot_be_forged_or_reused_for_changed_text() {
+        let text="vẽ hai phòng liền kề rộng 3000 và 4000 dài 4000 tại 0,0";
+        let base=HostScope::new("tenant-a","editor-1","editor",42).unwrap();
+        let accepted=json!({"text":text,"preview":false,"confirm":true,
+            "expectedDocumentUid":42,"expectedDocumentEpoch":8,"expectedRevision":3});
+        assert!(base.allowed("ai_draw_plan_vietnamese",&accepted).is_err());
+        assert!(base.allowed("ai_draw_plan_vietnamese",&json!({"text":text,"preview":true})).is_ok());
+        let approved=base.with_approved_ai_plan("ai_draw_plan_vietnamese",text,8,3).unwrap();
+        assert!(approved.allowed("ai_draw_plan_vietnamese",&accepted).is_ok());
+        let mut changed=accepted.clone();
+        changed["text"]=json!("vẽ hai phòng liền kề rộng 8000 và 4000 dài 4000 tại 0,0");
+        assert!(approved.allowed("ai_draw_plan_vietnamese",&changed).is_err());
+        changed=accepted.clone();changed["expectedRevision"]=json!(4);
+        assert!(approved.allowed("ai_draw_plan_vietnamese",&changed).is_err());
+        changed=accepted.clone();changed["expectedDocumentEpoch"]=json!(9);
+        assert!(approved.allowed("ai_draw_plan_vietnamese",&changed).is_err());
+        changed=accepted.clone();changed["expectedDocumentUid"]=json!(99);
+        assert!(approved.allowed("ai_draw_plan_vietnamese",&changed).is_err());
+        assert!(HostScope::new("tenant-a","viewer-1","viewer",42).unwrap()
+            .with_approved_ai_plan("ai_draw_plan_vietnamese",text,8,3).is_err());
+        assert!(base.with_approved_ai_plan("execute",text,8,3).is_err());
+    }
 
     #[test]
     fn stage247_scoped_resource_permissions_match_tool_grants() {
@@ -184,7 +242,11 @@ mod tests {
         assert!(editor.allowed("ai_draw_plan_vietnamese",&json!({})).is_ok());
         assert!(editor.allowed("script",&json!({})).is_err());
         let valid=json!({"preview":false,"confirm":true,"expectedDocumentUid":7,"expectedDocumentEpoch":1,"expectedRevision":6});
-        assert!(editor.allowed("ai_draw_plan_vietnamese",&valid).is_ok());
+        assert!(editor.allowed("ai_draw_plan_vietnamese",&valid).is_err());
+        let approved=editor.with_approved_ai_plan("ai_draw_plan_vietnamese",
+            "vẽ phòng",1,6).unwrap();
+        let mut approved_valid=valid.clone();approved_valid["text"]=json!("vẽ phòng");
+        assert!(approved.allowed("ai_draw_plan_vietnamese",&approved_valid).is_ok());
         let forged=json!({"preview":false,"confirm":true,"expectedDocumentUid":8,"expectedDocumentEpoch":1,"expectedRevision":6});
         assert!(editor.allowed("ai_draw_plan_vietnamese",&forged).is_err());
         assert!(HostScope::new("","user","editor",7).is_err());
