@@ -3298,3 +3298,35 @@ Kế hoạch: Đợt 240 sửa lỗi CI, hoàn thiện thử DWG hai chiều v�
 6. Chưa nghiệm thu EXE, DWG hoặc AI tự nhận dạng kiến trúc có ngữ nghĩa khi chưa có bằng chứng thực tế.
 
 **Phạm vi Đợt 278:** Thêm kiểm soát Undo Snapshot thật và các test bảo vệ lịch sử người dùng. Không công bố tính năng mới ngoài phạm vi an toàn giao dịch; giáo trình tổng hợp bổ sung đến Bài 292.
+
+
+## 119. Đợt 279 — Giữ Undo Snapshot đầu nhóm khi đạt giới hạn lịch sử 2.000 bước
+
+### Bài 293 — Phân tích giới hạn `MAX_UNDO = 2000`
+1. CAD Engine lưu tối đa `MAX_UNDO = 2000` bản ghi. `UNDO BEGIN` nhớ vị trí đầu nhóm theo `undo_ctl.group`.
+2. Với ảnh tạo hàng trăm LINE hoặc thao tác AI kéo dài, lịch sử có thể đã đầy trước khi AI bắt đầu. Nếu liên tục đẩy Snapshot rồi cắt bớt bản ghi cũ, mốc đầu nhóm có nguy cơ dịch chuyển và Snapshot chứa trạng thái trước giao dịch có thể bị loại khỏi lịch sử.
+3. Không được coi Revision tăng hoặc handle mới được tạo là đủ để bảo đảm một Undo có thể khôi phục nguyên trạng bản vẽ.
+4. Mục tiêu bảo vệ Snapshot tại đúng thời điểm **trước thay đổi đầu tiên của nhóm** cho đến `UNDO END`, kể cả khi lịch sử cũ đã chạm mức 2.000.
+
+### Bài 294 — Cơ chế gom Snapshot ngay trong nhóm
+1. Đợt 279 sửa `CADTBT360_V1.000/crates/engine/src/undoctl.rs`, ngay trong `DocState::push_undo`.
+2. Khi `undo_ctl.group = Some(start)`, chỉ cần giữ **Snapshot đầu tiên của nhóm** để thực hiện một lần Undo khôi phục toàn bộ giao dịch. Sau khi thêm một snapshot mới, nếu trong nhóm đã có bản ghi đầu tiên thì cắt các snapshot mới hơn, giữ nguyên Snapshot đầu nhóm.
+3. Bước gom snapshot phải chạy **trước khi** kiểm tra và cắt lịch sử vượt `MAX_UNDO`. Khi ngăn xếp đã đầy, hệ thống có thể loại một bản ghi cũ ở ngoài nhóm để dành chỗ cho Snapshot đầu nhóm, nhưng không làm mất bản ghi cần cho rollback.
+4. `UNDO END` vẫn đóng nhóm; một Undo khôi phục toàn bộ trạng thái trước nhóm. Nhóm Undo không có thay đổi không tạo Snapshot mới, không được Undo nhầm lịch sử trước.
+5. Đây là thay đổi tại **CAD Engine**, nên ảnh hưởng tới các nhóm Undo native hợp lệ khác, không chỉ panel AI Review.
+
+### Bài 295 — Thử nghiệm áp lực 2.000 bước
+1. Test `stage279_undo_group_stays_single_snapshot_at_max_depth`: tạo đúng 2.000 snapshot lịch sử, bắt đầu nhóm, thêm 256 bước mô phỏng; sau mỗi bước phải vẫn giữ đúng một snapshot riêng cho nhóm tại vị trí `undo_ctl.group`, tổng độ sâu không vượt 2.000.
+2. Test `stage279_group_with_many_more_steps_than_history_limit_remains_undoable`: bắt đầu từ lịch sử rỗng, thêm 2.032 snapshot trong cùng nhóm; chỉ giữ một snapshot đầu nhóm cho đến kết thúc.
+3. Kiểm tra Snapshot đầu nhóm vẫn trỏ đến trạng thái tài liệu trước khi thao tác; `UNDO END` không được làm mất snapshot này.
+4. Chạy hồi quy Stage278 về bảo vệ lịch sử lệnh cũ và Stage275 về PNG → LINE native → một lần Undo/Redo.
+5. Stress test là kiểm tra cấu trúc lịch sử và rollback. Chưa thay thế bài thử trên EXE Windows và bản vẽ DWG thực tế.
+
+### Bài 296 — Điều kiện nghiệm thu và hướng tiếp theo
+1. Workflow `CAD 360 Stage279 Undo 2000 History Stress` chạy `cargo check --locked -p cadcraft-engine`, `cargo test --locked -p cadcraft-engine stage279 -- --nocapture` cùng GUI regression trên `windows-latest`.
+2. Trên EXE Windows thật, xây dựng bản vẽ có nhiều thao tác, nhập ảnh tạo nhiều LINE, chạy Undo một lần rồi Redo; đối chiếu số và tọa độ entity trước và sau.
+3. Thử lưu/mở DWG bằng CAD 360, sau đó mở/chỉnh sửa/lưu lại bằng AutoCAD độc lập. DWG phải luôn là định dạng chuẩn có thể trao đổi hai chiều.
+4. Chỉ đánh dấu CI PASS nếu có log chạy thành công tại đúng SHA, và chỉ nghiệm thu sản phẩm khi Windows EXE cùng DWG đã kiểm chứng thực tế.
+5. Không công bố AI hiểu ngữ nghĩa kiến trúc hoặc khả năng tự dựng mặt bằng hoàn chỉnh chỉ từ việc kiểm thử Undo.
+
+**Đợt 279:** đã bổ sung mã bảo vệ Undo Snapshot đầu nhóm, stress test và workflow Windows; kết quả CI/EXE/AutoCAD chưa được xác nhận.
