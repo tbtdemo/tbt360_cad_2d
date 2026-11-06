@@ -147,6 +147,7 @@ jobs:
             @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_cad_preflight_is_read_only_and_denies_unsafe_external_agent_actions' },
             @{ Package='cadcraft-mcp'; Target='lib'; Test='stage244_policy_profiles_enforce_read_only_and_reviewed_write_without_backend_calls' },
             @{ Package='cadcraft-mcp'; Target='lib'; Test='stage244_server_denies_unapproved_mcp_calls_before_backend_dispatch' },
+            @{ Package='cadcraft-mcp'; Target='lib'; Test='stage249_oidc_host_rejects_inverted_token_lifetime_and_future_not_before' },
             @{ Package='cadcraft-mcp'; Target='lib'; Test='stage248_oidc_host_rejects_wrong_audience_issuer_expiry_and_invalid_role' },
             @{ Package='cadcraft-mcp'; Target='lib'; Test='stage248_oidc_host_never_accepts_unverified_provider_or_unsafe_issuer' },
             @{ Package='cadcraft-mcp'; Target='lib'; Test='stage248_mcp_oidc_verified_host_session_can_read_but_cannot_escalate' },
@@ -308,6 +309,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Stage237 native Block Layer Undo regression failed' }
           cargo test --locked -p cadcraft-mcp --lib ai_vietnamese_stage238_native_dwg_save_reopen_preserves_door_layers -- --nocapture
           if ($LASTEXITCODE -ne 0) { throw 'Stage238 native DWG 2018 save-reopen test failed' }
+          cargo test --locked -p cadcraft-mcp --lib stage249_ -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'Stage249 OIDC time validity regression failed' }
           cargo test --locked -p cadcraft-mcp --lib stage248_ -- --nocapture
           if ($LASTEXITCODE -ne 0) { throw 'Stage248 OIDC host claim binding and MCP access regressions failed' }
           cargo test --locked -p cadcraft-mcp --lib stage247_ -- --nocapture
