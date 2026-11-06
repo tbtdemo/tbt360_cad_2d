@@ -12,7 +12,7 @@ struct Preview {
     steps: Vec<(&'static str, Value)>,
     description: String,
     /// For raster plans: exact preview snapshot for source revalidation before any CAD mutation.
-    image_evidence: Option<(Value, Value)>,
+    image_evidence: Option<(Value, Value, Vec<u8>)>,
 }
 
 #[derive(Default)]
@@ -166,8 +166,14 @@ fn plan_from_text(text:&str)->Result<(Vec<(&'static str,Value)>,String),String> 
 
 fn commit_steps(session:&mut Session,preview:&Preview)->Result<(),String> {
     #[cfg(not(target_arch = "wasm32"))]
-    if let Some((args,approved_proposal))=&preview.image_evidence {
+    if let Some((args,approved_proposal,source_bytes))=&preview.image_evidence {
+        let path=args["path"].as_str().ok_or("Ảnh Preview thiếu đường dẫn")?;
+        let bytes=std::fs::read(path).map_err(|e|format!("Không thể đọc lại ảnh trước xác nhận: {e}"))?;
+        if &bytes!=source_bytes {return Err("Nội dung ảnh đã đổi sau khi xem trước; cần Preview lại".into());}
         let latest=cadcraft_mcp::raster_vector::preview(args)?;
+        if std::fs::read(path).map_err(|e|format!("Không thể kiểm tra ảnh sau vector hóa: {e}"))?!=*source_bytes {
+            return Err("Ảnh thay đổi ngay trong lúc vector hóa; không vẽ CAD".into());
+        }
         if &latest!=approved_proposal {
             return Err("Ảnh hoặc kết quả phát hiện đã đổi sau Preview; phải đọc ảnh lại".into());
         }
@@ -215,10 +221,16 @@ fn preview_raster(session:&Session,path:&str,scale_text:&str)->Result<Preview,St
     if path.trim().is_empty() {return Err("Nhập đường dẫn PNG/JPEG trên máy tính".into());}
     let scale=number(scale_text.trim())?;
     if !(scale>0.0&&scale<=1000000.0) {return Err("Đơn vị CAD / pixel phải nằm trong (0, 1000000]".into());}
+    let metadata=std::fs::metadata(path.trim()).map_err(|e|format!("Không đọc được thông tin ảnh: {e}"))?;
+    if !metadata.is_file() || metadata.len()>16*1024*1024 {return Err("Ảnh phải là file tối đa 16 MiB".into());}
+    let source_bytes=std::fs::read(path.trim()).map_err(|e|format!("Không đọc được ảnh: {e}"))?;
     let args=json!({"path":path.trim(),"preview":true,"unitsPerPixel":scale,
         "openingGapHints":true,"pairedWallOpeningHints":true,"doorLeafHints":true,"maxGapPixels":0,
         "minLengthPixels":12,"maxLines":128,"includeDiagonals":true});
     let proposal=cadcraft_mcp::raster_vector::preview(&args)?;
+    if std::fs::read(path.trim()).map_err(|e|format!("Không kiểm tra lại được file ảnh: {e}"))?!=source_bytes {
+        return Err("Ảnh đã bị sửa trong khi tạo Preview; hãy đọc lại".into());
+    }
     let lines=proposal["lines"].as_array().ok_or("Ảnh không trả về mảng LINE hợp lệ")?;
     if lines.is_empty() {return Err("Không phát hiện đường nét vector đủ dài; ảnh chưa được vẽ".into());}
     if lines.len()>128 {return Err("Ảnh có quá 128 nét; cần lọc vùng ảnh nhỏ hơn".into());}
@@ -242,7 +254,7 @@ fn preview_raster(session:&Session,path:&str,scale_text:&str)->Result<Preview,St
     let summary=format!("Ảnh: {} LINE chỉnh sửa được; {} khoảng mở nghi vấn; {} nét giống cánh cửa. Không tự suy đoán/cắt cửa.",steps.len(),gap_count,door_count);
     Ok(Preview {uid:s.uid,epoch:session.doc_epoch,revision:s.revision,
         text:format!("{}|{}",path,scale_text),steps,description:summary,
-        image_evidence:Some((args,proposal))})
+        image_evidence:Some((args,proposal,source_bytes))})
 }
 
 fn drawing_ready(session:&Session)->bool {
@@ -297,6 +309,35 @@ impl AiReview {
             if let Some(p)=self.preview.as_ref() {
                 ui.separator();
                 ui.label(&p.description);
+                if p.image_evidence.is_some() {
+                    let segments:Vec<([f32;2],[f32;2])>=p.steps.iter().filter_map(|(_,params)| {
+                        let points=params.get("points")?.as_array()?;
+                        let xy=|k:usize| -> Option<[f32;2]> {
+                            let src=points.get(k)?.as_array()?;
+                            Some([src.first()?.as_f64()? as f32,src.get(1)?.as_f64()? as f32])
+                        };
+                        Some((xy(0)?,xy(1)?))
+                    }).collect();
+                    if !segments.is_empty() {
+                        let xs=segments.iter().flat_map(|(a,b)|[a[0],b[0]]);
+                        let ys=segments.iter().flat_map(|(a,b)|[a[1],b[1]]);
+                        let min_x=xs.clone().fold(f32::INFINITY,f32::min);
+                        let max_x=xs.fold(f32::NEG_INFINITY,f32::max);
+                        let min_y=ys.clone().fold(f32::INFINITY,f32::min);
+                        let max_y=ys.fold(f32::NEG_INFINITY,f32::max);
+                        let (response,painter)=ui.allocate_painter(egui::vec2(470.0,240.0),egui::Sense::hover());
+                        let bounds=response.rect.shrink(12.0);
+                        let sx=bounds.width()/(max_x-min_x).max(0.01);
+                        let sy=bounds.height()/(max_y-min_y).max(0.01);
+                        let k=sx.min(sy);
+                        let position=|point:[f32;2]|egui::pos2(bounds.left()+(point[0]-min_x)*k,
+                            bounds.bottom()-(point[1]-min_y)*k);
+                        for (a,b) in segments {
+                            painter.line_segment([position(a),position(b)],
+                                egui::Stroke::new(1.5,egui::Color32::LIGHT_BLUE));
+                        }
+                    }
+                }
                 ui.label(format!("UID: {} | Epoch: {} | Revision: {}",p.uid,p.epoch,p.revision));
                 ui.label("Kiểm tra tọa độ, đơn vị, đúng bản vẽ trước khi xác nhận.");
             }
@@ -353,7 +394,8 @@ mod tests {
         assert!(p.steps.iter().all(|(command,_)|*command=="line"),
             "image hints must never silently fabricate CAD doors");
         assert!(p.image_evidence.is_some());
-        let (args,accepted)=p.image_evidence.as_ref().unwrap();
+        let (args,accepted,bytes)=p.image_evidence.as_ref().unwrap();
+        assert!(!bytes.is_empty());
         assert_eq!(cadcraft_mcp::raster_vector::preview(args).unwrap(),*accepted);
         for x in 8..=80 {img.put_pixel(x,16,Luma([255]));}
         img.save(&path).unwrap();
