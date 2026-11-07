@@ -56,6 +56,7 @@ pub struct State {
     min_length: u32,
     max_lines: u32,
     studio_tab: usize,
+    advanced_tab: usize,
     scale: f64,
     calibration_pixels: f64,
     calibration_length: f64,
@@ -809,8 +810,14 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
             }
             if state.studio_tab==2 {
             ui.heading("Thiết lập nhận dạng nâng cao");
-            ui.small("Đặt tham số tại đây rồi quay lại tab Ảnh / PDF để chạy nhận dạng.");
+            ui.small("Chọn nhóm cài đặt theo hàng ngang. Mỗi thay đổi cần xem trước lại bản vẽ.");
+            ui.horizontal_wrapped(|ui|{
+                for (index,label) in ["Tỷ lệ & nét","Tường","Cửa / cửa sổ","Cột / PLINE"].iter().enumerate() {
+                    if ui.selectable_label(state.advanced_tab==index,*label).clicked() {state.advanced_tab=index;}
+                }
+            });
             ui.group(|ui| {
+            if state.advanced_tab==0 {
             ui.group(|ui| {
                 ui.label("Hiệu chuẩn tỷ lệ theo chiều dài đã biết (không tự nhận dạng kích thước):");
                 ui.horizontal(|ui| {
@@ -837,9 +844,13 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
                 }
                 ui.small("Đo khoảng pixel giữa hai điểm tham chiếu trong ảnh; nhập chiều dài thực cùng đơn vị bản vẽ. Tỷ lệ = chiều dài thực / số pixel.");
             });
-            ui.horizontal(|ui| {
+            }
+            ui.vertical(|ui| {
+                if state.advanced_tab==0 {
                 if ui.checkbox(&mut state.include_diagonals, "Nét 45°").changed() { state.preview = None; }
                 if ui.checkbox(&mut state.arbitrary_angles, "Góc bất kỳ (thử nghiệm)").changed() { state.preview = None; }
+                }
+                if state.advanced_tab==1 {
                 if ui.checkbox(&mut state.wall_pair_hints, "Gợi ý cặp nét tường song song (chỉ Preview)").changed() {
                     if !state.wall_pair_hints {
                         state.create_wall_centerlines=false;
@@ -893,6 +904,8 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
                 if ui.add_enabled(state.wall_pair_hints, egui::Checkbox::new(&mut state.create_wall_centerlines, "Tạo tim tường từ cặp nét duy nhất (tùy chọn)")).changed() {
                     state.preview = None;
                 }
+                }
+                if state.advanced_tab==2 {
                 if ui.checkbox(&mut state.opening_gap_hints, "Gợi ý khoảng hở có thể là cửa (chỉ Preview)").changed() {
                     if !state.opening_gap_hints {
                         state.paired_wall_opening_hints=false;
@@ -1055,6 +1068,8 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
                         }
                     }
                 }
+                }
+                if state.advanced_tab==3 {
                 if ui.checkbox(&mut state.column_hatch_hints,"Gợi ý cột: hình chữ nhật kín + 2 nét giao nhau bên trong").changed() {
                     if !state.column_hatch_hints {state.create_column_guides=false;state.confirm_column_guides=false;state.create_column_blocks=false;state.confirm_column_blocks=false;}
                     state.preview=None;
@@ -1084,6 +1099,7 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
                     }
                     state.preview = None; state.preview_document_uid = None;
                     state.preview_revision = None; state.preview_document_epoch = None;
+                }
                 }
             });
             });
