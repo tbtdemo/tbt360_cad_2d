@@ -60,6 +60,7 @@ jobs:
             'next_command_habits_use_only_observed_verified_session_commands',
             'selection_context_prioritizes_only_real_native_edit_commands',
             'native_entity_kind_guides_related_commands_without_inventing_geometry',
+            'vietnamese_ime_works_at_idle_command_but_not_inside_numeric_point_prompts',
             'expanded_vietnamese_command_vocabulary_resolves_only_existing_engine_commands',
             'next_command_suggestions_are_registry_backed_and_have_actual_shortcuts',
             'every_registered_command_has_english_first_in_app_guide',
