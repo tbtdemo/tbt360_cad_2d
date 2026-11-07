@@ -1403,8 +1403,14 @@ fn zones(app: &CadApp, canvas: Rect, bar: Rect) -> Zones {
 /// the top edge sets how many lines show (`ui.cmdline.lines`).
 fn history(app: &mut CadApp, ui: &mut egui::Ui, canvas: Rect, bar: Rect) {
     let z = zones(app, canvas, bar);
-    let resp = ui.interact(z.all, ui.scope_id().with("cmdline"), Sense::click_and_drag());
-    let at = resp.hover_pos().or(resp.interact_pointer_pos());
+    // Only the 6-pixel resize grip owns a drag. The old all-area
+    // click_and_drag() captured the pointer over autocomplete/history and
+    // caused a stuck cursor or a phantom selection when returning to canvas.
+    let resp = ui.interact(bar, ui.scope_id().with("cmdline"), Sense::click());
+    let line_resp = z.lines.map(|r| ui.interact(r, ui.scope_id().with("cmd_history_lines"), Sense::click()));
+    let grip_resp = ui.interact(z.grip, ui.scope_id().with("cmdline_grip"), Sense::drag());
+    let at = grip_resp.hover_pos().or(resp.hover_pos())
+        .or_else(|| line_resp.as_ref().and_then(|r|r.hover_pos()));
     let on_grip = |p: Pos2| z.grip.contains(p) && z.window.is_none();
     let on_toggle = |p: Pos2| z.chevron.contains(p) || z.lines.is_some_and(|r| r.contains(p));
     if app.cmd.resize_from.is_some() || at.is_some_and(on_grip) {
@@ -1412,14 +1418,14 @@ fn history(app: &mut CadApp, ui: &mut egui::Ui, canvas: Rect, bar: Rect) {
     } else if at.is_some_and(on_toggle) {
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }
-    if resp.drag_started()
+    if grip_resp.drag_started() && z.window.is_none()
         && let Some(o) = ui.input(|i| i.pointer.press_origin())
         && on_grip(o)
     {
         app.cmd.resize_from = Some((o.y, visible_lines(app, canvas, bar)));
     }
     if let Some((y0, n0)) = app.cmd.resize_from {
-        if let (true, Some(p)) = (resp.dragged(), resp.interact_pointer_pos()) {
+        if let (true, Some(p)) = (grip_resp.dragged(), grip_resp.interact_pointer_pos()) {
             let n = (n0 as f32 + (y0 - p.y) / LINE_H).round().clamp(0.0, MAX_LINES as f32) as usize;
             if n != app.ui.history_lines {
                 let _ = app.run("ui.cmdline.lines", serde_json::json!({ "lines": n }));
@@ -1428,13 +1434,40 @@ fn history(app: &mut CadApp, ui: &mut egui::Ui, canvas: Rect, bar: Rect) {
             app.cmd.resize_from = None;
         }
     }
-    if resp.clicked() && resp.interact_pointer_pos().is_some_and(on_toggle) {
+    if (resp.clicked() && resp.interact_pointer_pos().is_some_and(on_toggle))
+        || line_resp.as_ref().is_some_and(|r|r.clicked()) {
         let _ = app.run("ui.toggle.history", serde_json::json!({}));
     }
     crate::shortcut_menus::attach(app, &resp, crate::shortcut_menus::command_line_entries);
     if let Some(r) = zones(app, canvas, bar).window {
         history_window(app, ui, r);
     }
+}
+
+/// Reject canvas gestures if the pointer is over an interactive command
+/// overlay. This is computed BEFORE the command line is painted, so relying
+/// solely on egui's topmost layer is too late within the frame.
+pub(super) fn overlay_hit(app:&CadApp, canvas:Rect, pos:Pos2)->bool {
+    if !app.ui.show_command_line || !canvas.contains(pos) {return false;}
+    let w=(canvas.width()*0.48).clamp(360.0,760.0).min((canvas.width()-8.0).max(0.0));
+    let bar=Rect::from_min_size(pos2(canvas.center().x-w/2.0,canvas.bottom()-34.0),vec2(w,24.0));
+    let z=zones(app,canvas,bar);
+    if bar.contains(pos) || z.grip.contains(pos) || z.lines.is_some_and(|r|r.contains(pos))
+        || z.window.is_some_and(|r|r.contains(pos)) {return true;}
+    if !app.session.prompting() {
+        let k=suggestions(&app.cmd.buffer).len();
+        if k>0 {
+            let above=if z.lines.is_some() {
+                let n=visible_lines(app,canvas,bar).min(app.session.log.len());
+                if n>0 {LINE_H*n as f32+6.0} else {0.0}
+            } else {0.0};
+            let rect=Rect::from_min_size(
+                pos2(bar.left()+24.0,bar.top()-6.0-20.0*k as f32-above),
+                vec2((bar.width()-24.0).max(0.0),20.0*k as f32));
+            if rect.contains(pos) {return true;}
+        }
+    }
+    false
 }
 
 /// The expanded history: the whole command log, scrollable, newest at the bottom.
