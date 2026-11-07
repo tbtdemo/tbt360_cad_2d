@@ -1005,15 +1005,24 @@ fn reference_room_geometry_benchmark(detected:&[Value], references:&Value, toler
     for item in detected {
         let Some(corners)=item["outlineCAD"].as_array() else {continue};
         if corners.len()!=4 {continue;}
-        let mut lowx=f64::INFINITY;let mut lowy=f64::INFINITY;
-        let mut highx=f64::NEG_INFINITY;let mut highy=f64::NEG_INFINITY;
-        for p in corners {
-            let (Some(x),Some(y))=(p[0].as_f64(),p[1].as_f64()) else {continue};
-            lowx=lowx.min(x);lowy=lowy.min(y);highx=highx.max(x);highy=highy.max(y);
-        }
-        if lowx.is_finite() && lowy.is_finite() && lowx<highx && lowy<highy {
-            found.push([lowx,lowy,highx,highy]);
-        }
+        // A malformed or skewed four-point polygon is not evidence for a
+        // rectangular room. Reject the WHOLE candidate: skipping one invalid
+        // corner would inflate precision/recall from partial source geometry.
+        let Some(points)=corners.iter().map(|p|{
+            let a=p.as_array().filter(|a|a.len()==2)?;
+            let (x,y)=(a[0].as_f64()?,a[1].as_f64()?);
+            (x.is_finite() && y.is_finite() && x.abs()<=1e12 && y.abs()<=1e12)
+                .then_some([x,y])
+        }).collect::<Option<Vec<_>>>() else {continue};
+        let lowx=points.iter().map(|p|p[0]).fold(f64::INFINITY,f64::min);
+        let lowy=points.iter().map(|p|p[1]).fold(f64::INFINITY,f64::min);
+        let highx=points.iter().map(|p|p[0]).fold(f64::NEG_INFINITY,f64::max);
+        let highy=points.iter().map(|p|p[1]).fold(f64::NEG_INFINITY,f64::max);
+        if !(lowx<highx && lowy<highy) {continue;}
+        let corners_ok=[[lowx,lowy],[highx,lowy],[highx,highy],[lowx,highy]]
+            .iter().all(|corner|points.iter().any(|p|
+                (p[0]-corner[0]).abs()<=1e-7 && (p[1]-corner[1]).abs()<=1e-7));
+        if corners_ok {found.push([lowx,lowy,highx,highy]);}
     }
     let mut matched=0usize;
     let mut used=vec![false;found.len()];
@@ -3094,6 +3103,23 @@ mod tests {
         assert_eq!(result["recall"],0.5);
         assert!(reference_room_geometry_benchmark(&candidates,&json!([[0,0,0,5]]),1.0).is_err());
         assert!(reference_room_geometry_benchmark(&candidates,&truth,-1.0).is_err());
+    }
+
+    #[test]
+    fn ai_room_geometry_benchmark_excludes_missing_corner_and_skew_false_positive() {
+        let reference=json!([[0,0,100,80]]);
+        let invalid=vec![
+            json!({"outlineCAD":[[0,0],[100,0],[100,80],[null,80]]}),
+            json!({"outlineCAD":[[0,0],[100,0],[90,80],[0,80]]}),
+        ];
+        let bad=reference_room_geometry_benchmark(&invalid,&reference,0.5).unwrap();
+        assert_eq!(bad["candidateRoomCount"],0);
+        assert_eq!(bad["matchedRoomCount"],0);
+        assert_eq!(bad["recall"],0.0);
+        let correct=vec![json!({"outlineCAD":[[0,0],[100,0],[100,80],[0,80]]})];
+        let good=reference_room_geometry_benchmark(&correct,&reference,0.5).unwrap();
+        assert_eq!(good["matchedRoomCount"],1);
+        assert_eq!(good["precision"],1.0);
     }
 
     #[test]
