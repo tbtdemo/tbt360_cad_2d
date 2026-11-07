@@ -205,9 +205,10 @@ fn parse_door_wall(text:&str)->Result<Option<(Vec<(&'static str,Value)>,String)>
 fn plan_from_text(text:&str)->Result<(Vec<(&'static str,Value)>,String),String> {
     let text=text.trim();
     if text.is_empty() || text.len()>6000 {return Err("Kế hoạch AI phải từ 1 đến 6000 ký tự.".into());}
-    // A reviewed plan may contain up to 12 native commands, separated ONLY by a vertical bar.
+    // A reviewed plan may contain up to 12 native commands. Each new line or
+    // vertical bar starts the next command; no partial CAD plan is committed.
     // Parse every command first: no CAD mutation occurs if even one command is invalid.
-    let commands:Vec<&str>=text.split('|').map(str::trim).collect();
+    let commands:Vec<&str>=text.split(['|','\n']).map(str::trim).collect();
     if commands.len()>12 {return Err("Tối đa 12 lệnh CAD trong một kế hoạch AI.".into());}
     let mut steps=Vec::new();
     let mut descriptions=Vec::new();
@@ -957,9 +958,9 @@ impl AiReview {
             ui.small("AI chỉ đề xuất lệnh. Xem trước và xác nhận mới được ghi vào CAD.");
             if self.review_tab==3 && self.preview.is_none() {ui.label("Chưa có phương án xem trước. Quay lại tab Lệnh vẽ hoặc Từ ảnh và nhấn Xem trước.");}
             if self.review_tab==0 {
-            ui.label("Kế hoạch lệnh CAD (tối đa 12 lệnh, phân cách bằng dấu |):");
+            ui.label("Kế hoạch CAD (tối đa 12 lệnh; mỗi dòng một lệnh hoặc phân cách bằng |):");
             if ui.add(egui::TextEdit::multiline(&mut self.prompt).desired_rows(3).desired_width(f32::INFINITY)
-                .hint_text("vẽ phòng rộng 6000 dài 4000 tại 0,0 | vẽ hình tròn tâm 3000,2000 bán kính 250")).changed() {
+                .hint_text("vẽ phòng rộng 6000 dài 4000 tại 0,0\nvẽ hình tròn tâm 3000,2000 bán kính 250")).changed() {
                 self.preview=None;
                 self.review_tab=0;
                 self.message="Lệnh thay đổi. Hãy tạo Preview mới trước khi xác nhận.".into();
@@ -1304,6 +1305,17 @@ mod tests {
         assert!(plan_from_text("vẽ phòng rộng 6000 dài 4000 tại 0,0 | ").is_err());
         let repeated=vec!["vẽ đường thẳng từ 0,0 đến 100,0";13].join(" | ");
         assert!(plan_from_text(&repeated).is_err());
+    }
+
+    #[test]
+    fn ai_review_accepts_one_command_per_line_without_partial_mutation() {
+        let text="vẽ phòng rộng 6000 dài 4000 tại 0,0\nvẽ hình tròn tâm 3000,2000 bán kính 250";
+        let (steps,_) = plan_from_text(text).unwrap();
+        assert_eq!(steps.len(),2);
+        assert_eq!(steps[0].0,"rectang");
+        assert_eq!(steps[1].0,"circle");
+        assert!(plan_from_text("vẽ phòng rộng 6000 dài 4000 tại 0,0\nxóa toàn bộ").is_err());
+        assert!(plan_from_text("vẽ phòng rộng 6000 dài 4000 tại 0,0\n\n").is_err());
     }
 
     #[test]
