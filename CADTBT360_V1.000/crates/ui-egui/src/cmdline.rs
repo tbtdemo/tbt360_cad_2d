@@ -1500,6 +1500,62 @@ mod tests {
     use egui::{Event, PointerButton};
 
     #[test]
+    fn v1028_vietnamese_spaced_command_suggestions_keep_native_engine_ids() {
+        let want = ["đường", "đường thẳng", "vẽ đường thẳng", "duong thang"];
+        for query in want {
+            let options = suggestions(query);
+            assert!(options.iter().any(|s|s.id=="LINE"),
+                "Vietnamese spaced search {query:?} must suggest native LINE: {options:?}");
+        }
+        assert!(vietnamese_query_continues("đường"),
+            "space after Đường must extend the search, not prematurely execute");
+        assert!(vietnamese_query_continues("vẽ đường"),
+            "space after Vẽ Đường must extend the search");
+        assert!(!vietnamese_query_continues("L"),"native L + Space is still LINE");
+        assert!(!vietnamese_query_continues("C"),"native C + Space is still CIRCLE");
+        assert_eq!(fold_vi("Đường Thẳng"),"duong thang");
+    }
+
+    #[test]
+    fn v1028_autocomplete_arrows_select_real_native_command_without_rewriting_input() {
+        let mut app=CadApp::new(Session::new(),crate::Services::default());
+        let query="đường".to_string();
+        app.cmd.buffer=query.clone();
+        let options=suggestions(&query);
+        assert!(options.len()>=2,"multi-choice Vietnamese list required");
+        let ctx=egui::Context::default();
+        let key=|key| Event::Key {key,physical_key:None,pressed:true,repeat:false,modifiers:egui::Modifiers::NONE};
+        frame(&mut app,&ctx,vec![key(Key::ArrowDown)]);
+        assert_eq!(app.cmd.suggestion_index,Some(0));
+        assert_eq!(app.cmd.buffer,query);
+        frame(&mut app,&ctx,vec![key(Key::ArrowDown)]);
+        assert_eq!(app.cmd.suggestion_index,Some(1));
+        assert_eq!(app.cmd.buffer,query);
+        frame(&mut app,&ctx,vec![key(Key::ArrowUp)]);
+        assert_eq!(app.cmd.suggestion_index,Some(0));
+        frame(&mut app,&ctx,vec![key(Key::Enter)]);
+        assert!(app.session.running.as_ref().is_some_and(|cmd|
+            cmd.id.eq_ignore_ascii_case(&options[0].id)),
+            "Enter must invoke the highlighted native CAD command");
+        assert!(app.cmd.buffer.is_empty());
+        assert_eq!(app.cmd.suggestion_index,None);
+    }
+
+    #[test]
+    fn v1028_command_overlay_has_precise_hit_regions_not_a_large_drag_capture() {
+        let mut app=CadApp::new(Session::new(),crate::Services::default());
+        app.ui.show_command_line=true;
+        app.cmd.buffer="đường".into();
+        let canvas=Rect::from_min_size(Pos2::ZERO,vec2(1200.0,800.0));
+        assert!(overlay_hit(&app,canvas,pos2(600.0,765.0)),
+            "command text bar is interactive");
+        assert!(!overlay_hit(&app,canvas,pos2(600.0,400.0)),
+            "middle of drawing must remain available for snapping and dragging");
+        assert!(!overlay_hit(&app,canvas,pos2(100.0,765.0)),
+            "canvas beside the command bar remains a normal CAD viewport");
+    }
+
+    #[test]
     fn compact_canvas_contains_history_controls_without_changing_line_preference() {
         let mut app = CadApp::new(Session::empty(), crate::Services::default());
         app.ui.history_lines = 12;
