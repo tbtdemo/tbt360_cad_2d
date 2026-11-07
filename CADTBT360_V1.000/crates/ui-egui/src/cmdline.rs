@@ -18,6 +18,8 @@ pub struct CmdLine {
     typed_since_selection: bool,
     pub history: Vec<String>,
     pub history_pos: Option<usize>,
+    /// Highlighted autocomplete row; arrows navigate without changing the typed text.
+    pub suggestion_index: Option<usize>,
     /// What was typed at command prompts (not command names), oldest first: the in-command
     /// shortcut menu's Recent Input.
     pub recent_input: Vec<String>,
@@ -238,7 +240,7 @@ fn vietnamese_matches(text: &str) -> Vec<Suggestion> {
     let mut seen = HashSet::new();
     let mut results = Vec::new();
     for (phrase, command, label) in VI_COMMANDS {
-        if !phrase.starts_with(&folded) {continue;}
+        if !phrase.contains(&folded) {continue;}
         let Some(spec)=cadcraft_engine::cmd::find_command(command) else {continue};
         if seen.insert(spec.id) {
             results.push(Suggestion {
@@ -502,8 +504,11 @@ fn vietnamese_query_continues(buffer:&str)->bool {
     // to spell the beginning of a Vietnamese word.
     let native=cadcraft_engine::cmd::resolve_alias(&normalized);
     if cadcraft_engine::cmd::find_command(&native).is_some() {return false;}
-    !normalized.is_empty() && VI_COMMANDS.iter()
-        .any(|(phrase,_,_)|phrase.starts_with(&(normalized.clone()+" ")))
+    !normalized.is_empty() && (
+        VI_COMMANDS.iter().any(|(phrase,_,_)|phrase.contains(&(normalized.clone()+" ")))
+        || translated_command_matches(buffer).iter().any(|s|
+            fold_vi(&crate::i18n::tr("vi",s.label)).contains(&(normalized.clone()+" ")))
+    )
 }
 
 fn active_command_guide(id:&str)->&'static str {
@@ -893,6 +898,7 @@ pub fn keyboard(app: &mut CadApp, ctx: &egui::Context) {
                 } else {
                     app.cmd.preedit.clear();
                     app.cmd.buffer.push_str(&t);
+                    app.cmd.suggestion_index=None;
                 }
             }
             // IME composition: the pre-edit is shown but stays out of the buffer; the commit is
@@ -903,14 +909,29 @@ pub fn keyboard(app: &mut CadApp, ctx: &egui::Context) {
                 app.cmd.preedit.clear();
                 if text != "\n" && text != "\r" {
                     app.cmd.buffer.push_str(&text);
+                    app.cmd.suggestion_index=None;
                 }
             }
             egui::Event::Ime(_) => {}
             egui::Event::Key { key, pressed: true, repeat, modifiers, .. } => match key {
-                Key::Enter => submit(app),
+                Key::Enter => {
+                    if !app.session.prompting() && !app.cmd.buffer.trim().is_empty() {
+                        if let Some(i)=app.cmd.suggestion_index {
+                            if let Some(suggestion)=suggestions(&app.cmd.buffer).get(i) {
+                                let command=suggestion.id.to_ascii_lowercase();
+                                app.cmd.suggestion_index=None;
+                                app.cmd.buffer.clear();
+                                app.start(&command);
+                                continue;
+                            }
+                        }
+                    }
+                    submit(app);
+                },
                 Key::Escape => {
                     app.cmd.buffer.clear();
                     app.cmd.preedit.clear();
+                    app.cmd.suggestion_index=None;
                     app.session.cancel();
                 }
                 Key::Backspace => {
@@ -927,9 +948,15 @@ pub fn keyboard(app: &mut CadApp, ctx: &egui::Context) {
                         let _ = app.run("erase.selection", serde_json::json!({}));
                     } else {
                         app.cmd.buffer.pop();
+                        app.cmd.suggestion_index=None;
                     }
                 }
                 Key::ArrowUp if !modifiers.any() => {
+                    if !app.session.prompting() && !app.cmd.buffer.is_empty() && !suggestions(&app.cmd.buffer).is_empty() {
+                        let n=suggestions(&app.cmd.buffer).len();
+                        app.cmd.suggestion_index=Some(app.cmd.suggestion_index.map_or(n-1,|i|i.checked_sub(1).unwrap_or(n-1)));
+                        continue;
+                    }
                     if !app.cmd.history.is_empty() {
                         let n = app.cmd.history.len();
                         let pos = app.cmd.history_pos.map(|p| p.saturating_sub(1)).unwrap_or(n - 1);
@@ -938,6 +965,11 @@ pub fn keyboard(app: &mut CadApp, ctx: &egui::Context) {
                     }
                 }
                 Key::ArrowDown if !modifiers.any() => {
+                    if !app.session.prompting() && !app.cmd.buffer.is_empty() && !suggestions(&app.cmd.buffer).is_empty() {
+                        let n=suggestions(&app.cmd.buffer).len();
+                        app.cmd.suggestion_index=Some(app.cmd.suggestion_index.map_or(0,|i|(i+1)%n));
+                        continue;
+                    }
                     if !options_key(app, 1)
                         && let Some(p) = app.cmd.history_pos
                     {
@@ -980,6 +1012,7 @@ pub fn submit(app: &mut CadApp) {
         }
     }
     let text = std::mem::take(&mut app.cmd.buffer);
+    app.cmd.suggestion_index=None;
     app.cmd.locked_second = None;
     app.cmd.history_pos = None;
     if !text.trim().is_empty() && !app.session.prompting() {
@@ -1306,8 +1339,9 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui, canvas: Rect) {
             for (i, s) in sug.iter().enumerate() {
                 let r = Rect::from_min_size(pos2(lr.left(), lr.top() + rh * i as f32), vec2(lr.width(), rh));
                 let resp = ui.interact(r, ui.scope_id().with(("sug", i)), Sense::click());
-                if resp.hovered() || i == 0 {
-                    p.rect_filled(r.shrink(1.0), 2.0, if resp.hovered() { t.cmd_keyword_hover } else { t.list_row });
+                if resp.hovered() || app.cmd.suggestion_index == Some(i) || (app.cmd.suggestion_index.is_none() && i == 0) {
+                    p.rect_filled(r.shrink(1.0), 2.0,
+                        if resp.hovered() || app.cmd.suggestion_index == Some(i) { t.cmd_keyword_hover } else { t.list_row });
                 }
                 p.text(Pos2::new(r.left() + 8.0, r.center().y), egui::Align2::LEFT_CENTER, &s.display, crate::theme::body(), t.text);
                 p.text(
@@ -1318,6 +1352,7 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui, canvas: Rect) {
                     t.text_faint,
                 );
                 if resp.clicked() {
+                    app.cmd.suggestion_index=None;
                     app.cmd.buffer.clear();
                     app.start(&s.id.to_ascii_lowercase());
                 }
