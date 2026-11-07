@@ -1166,6 +1166,19 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
             let door_blocks_count = proposal["doorBlockDraftCount"].as_u64().unwrap_or(0);
             ui.label(format!("Đã nhận dạng: {count} nét nguồn, {rectangle_count} PLINE kín, {wall_pairs} cặp nét song song nghi là mép tường."));
             ui.strong(format!("PHÂN TÍCH MẶT BẰNG: {room_count} vùng khép kín nghi là phòng · {wall_panel_count} dải tường · {paired_opening_count} khoảng mở · {column_hint_count} ứng viên cột"));
+            if let Some(tiles)=proposal["rasterTiles"].as_array() {
+                let populated=tiles.iter().filter(|tile|
+                    tile["vectorCount"].as_u64().unwrap_or(0)>0).count();
+                let overfull=tiles.iter().filter(|tile|
+                    tile["indicesTruncated"]==true).count();
+                ui.small(format!("Phân vùng ảnh 1024 px: {} vùng, {} vùng có nét · tọa độ toàn cục giữ nguyên",
+                    tiles.len(),populated));
+                if overfull>0 {
+                    ui.colored_label(egui::Color32::YELLOW,
+                        format!("{overfull} vùng có >256 nét giao biên; danh sách chỉ số chi tiết bị giới hạn để tránh nặng giao diện."));
+                }
+                ui.small("Phân vùng là số liệu kiểm soát nguồn; CHƯA chứng minh AI đã hiểu cửa, cột và phòng phức tạp.");
+            }
             if room_count>0 {
                 ui.small("Phòng chỉ là giả thuyết từ 4 cạnh khép kín quan sát được; chưa tự xác định tên phòng hoặc công năng.");
                 if let Some(rooms)=proposal["roomCandidates"].as_array() {
