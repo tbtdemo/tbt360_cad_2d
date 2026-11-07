@@ -62,6 +62,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'V1.026 raster vector tests failed' }
           cargo test --locked -p cadcraft-mcp --lib ai_large_drawing_wall_pairs_use_original_indices_after_spatial_sort -- --nocapture
           if ($LASTEXITCODE -ne 0) { throw 'V1.026 2500-stroke wall-pair regression failed' }
+          cargo test --locked -p cadcraft-mcp --lib ai_preview_reports_closed_room_without_opt_in_to_create_rectangle -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'V1.026 AI Preview suppressed valid room when closedRectangles was disabled' }
           cargo test --locked -p cadcraft-mcp --lib ai_adjacent_rooms_share_true_partition_wall_without_fake_geometry -- --nocapture
           if ($LASTEXITCODE -ne 0) { throw 'AI shared interior-wall two-room geometry regression failed' }
           cargo test --locked -p cadcraft-mcp --lib ai_large_floorplan_room_detection_keeps_global_entity_indices -- --nocapture
