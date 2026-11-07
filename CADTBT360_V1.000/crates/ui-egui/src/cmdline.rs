@@ -185,6 +185,29 @@ fn vietnamese_matches(text: &str) -> Vec<Suggestion> {
     results
 }
 
+/// Search the existing Vietnamese translation catalog across registered
+/// commands. This scales to hundreds of commands without a second hardcoded
+/// command registry; only exposed engine IDs are allowed.
+fn translated_command_matches(text:&str)->Vec<Suggestion> {
+    let folded=fold_vi(text);
+    if folded.chars().count()<2 {return Vec::new();}
+    let mut found=Vec::new();
+    for spec in cadcraft_engine::command_specs() {
+        if spec.id.contains('.') {continue;}
+        let translated=crate::i18n::tr("vi",spec.label);
+        if translated==spec.label {continue;}
+        let normalized=fold_vi(translated);
+        if normalized.starts_with(&folded) || normalized.contains(&folded) {
+            found.push((!normalized.starts_with(&folded),normalized.len(),spec.id,
+                Suggestion {id:spec.id.to_ascii_uppercase(),
+                    display:format!("{translated} · {}",spec.id.to_ascii_uppercase()),
+                    label:spec.label}));
+        }
+    }
+    found.sort_by_key(|item|(item.0,item.1,item.2));
+    found.into_iter().take(8).map(|(_,_,_,suggestion)|suggestion).collect()
+}
+
 fn bilingual_label(command: &str) -> Option<&'static str> {
     VI_COMMANDS.iter().find(|(_,id,_)|id.eq_ignore_ascii_case(command))
         .map(|(_,_,label)|*label)
@@ -221,7 +244,10 @@ fn active_command_guide(id:&str)->&'static str {
 /// Matching command names/aliases for AutoComplete.
 fn suggestions(prefix: &str) -> Vec<Suggestion> {
     if prefix.is_empty() {return Vec::new();}
-    if prefix.chars().any(char::is_whitespace) {return vietnamese_matches(prefix);}
+    if prefix.chars().any(char::is_whitespace) {
+        let phrases=vietnamese_matches(prefix);
+        return if phrases.is_empty() {translated_command_matches(prefix)} else {phrases};
+    }
     let p = prefix.to_ascii_lowercase();
 
     let mut out: Vec<Suggestion> = Vec::new();
@@ -243,6 +269,8 @@ fn suggestions(prefix: &str) -> Vec<Suggestion> {
     if out.is_empty() {
         let vi=vietnamese_matches(prefix);
         if !vi.is_empty() {return vi;}
+        let translated=translated_command_matches(prefix);
+        if !translated.is_empty() {return translated;}
     }
 
     // 2. Command ID prefix matches (excluding already matched exact command).
@@ -1038,6 +1066,8 @@ mod autocomplete_tests {
         assert_eq!(suggestions("đo khoảng cách")[0].id,"DIST");
         assert_eq!(suggestions("tim toa do")[0].id,"ID");
         assert_eq!(suggestions("ghi kich thuoc")[0].id,"DIMLINEAR");
+        assert_eq!(suggestions("duong thang")[0].id,"LINE");
+        assert_eq!(suggestions("hinh chu nhat")[0].id,"RECTANG");
         assert!(suggestions("lam sach xyz").is_empty());
     }
 
