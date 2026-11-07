@@ -146,6 +146,65 @@ const VI_COMMANDS: &[(&str, &str, &str)] = &[
     ("thu phong ban ve", "zoom", "Thu phóng bản vẽ"),
     ("xem toan bo ban ve", "zoom", "Xem toàn bộ bản vẽ"),
     ("quan ly lop", "layer", "Quản lý lớp"),
+    ("ve duong song song", "offset", "Vẽ đường song song"),
+    ("dich chuyen song song", "offset", "Dịch chuyển song song"),
+    ("bo tron goc", "fillet", "Bo tròn góc"),
+    ("vat mep", "chamfer", "Vát mép"),
+    ("lay doi xung", "mirror", "Lấy đối xứng"),
+    ("doi ty le", "scale", "Đổi tỷ lệ"),
+    ("keo gian doi tuong", "stretch", "Kéo giãn đối tượng"),
+    ("nhan ban theo mang", "array", "Nhân bản theo mảng"),
+    ("pha khoi", "explode", "Phá khối"),
+    ("noi doan thang", "join", "Nối đoạn thẳng"),
+    ("ngat doan thang", "break", "Ngắt đoạn thẳng"),
+    ("to mat cat", "hatch", "Tô mặt cắt"),
+    ("to hatch", "hatch", "Tô mẫu vật liệu"),
+    ("ve chu", "text", "Vẽ chữ"),
+    ("ghi chu nhieu dong", "mtext", "Ghi chú nhiều dòng"),
+    ("ghi ban kinh", "dimradius", "Ghi kích thước bán kính"),
+    ("ghi duong kinh", "dimdiameter", "Ghi kích thước đường kính"),
+    ("ghi kich thuoc goc", "dimangular", "Ghi kích thước góc"),
+    ("luu ban ve", "qsave", "Lưu bản vẽ"),
+    ("luu ban ve thanh", "saveas", "Lưu bản vẽ thành tệp mới"),
+    ("mo ban ve", "open", "Mở bản vẽ"),
+    ("tao ban ve moi", "new", "Tạo bản vẽ mới"),
+    ("hoan tac", "undo", "Hoàn tác"),
+    ("lam lai thao tac", "redo", "Làm lại thao tác"),
+    ("bat diem doi tuong", "osnap", "Bắt điểm đối tượng"),
+    ("cai dat bat diem", "dsettings", "Thiết lập bắt điểm"),
+    ("cai dat ve", "dsettings", "Thiết lập vẽ"),
+    ("xem thuoc tinh", "properties", "Xem thuộc tính"),
+    ("sao chep thuoc tinh", "matchprop", "Sao chép thuộc tính"),
+    ("tao khoi", "block", "Tạo khối"),
+    ("chen khoi", "insert", "Chèn khối"),
+    ("chen tham chieu", "xref", "Chèn tham chiếu"),
+    ("in ban ve", "plot", "In bản vẽ"),
+    ("di chuyen khung nhin", "pan", "Di chuyển khung nhìn"),
+    ("tai tao hien thi", "regen", "Tái tạo hiển thị"),
+    ("cai dat don vi", "units", "Cài đặt đơn vị"),
+    ("xem danh sach doi tuong", "list", "Xem danh sách đối tượng"),
+    ("thong ke doi tuong", "count", "Thống kê đối tượng"),
+    ("do ban kinh", "dimradius", "Đo bán kính và ghi kích thước"),
+    ("do duong kinh", "dimdiameter", "Đo đường kính và ghi kích thước"),
+    ("ve duong cong", "spline", "Vẽ đường cong spline"),
+    ("ve duong xuyen tam", "xline", "Vẽ đường thẳng vô hạn"),
+    ("ghi chu thich", "mleader", "Ghi chú dẫn hướng"),
+    ("sap xep thu tu ve", "draworder", "Sắp xếp thứ tự hiển thị"),
+    ("doi ten lop", "layer", "Đổi tên lớp"),
+    ("ve elip", "ellipse", "Vẽ elip"),
+    ("ve diem", "point", "Vẽ điểm"),
+    ("can chinh doi tuong", "align", "Căn chỉnh đối tượng"),
+    ("can chinh chu", "textalign", "Căn chỉnh chữ"),
+    ("chon nhanh doi tuong", "qselect", "Chọn nhanh đối tượng"),
+    ("chon cung thuoc tinh", "selectsimilar", "Chọn đối tượng cùng thuộc tính"),
+    ("lay thong tin ban ve", "status", "Lấy thông tin bản vẽ"),
+    ("tim va thay the chu", "find", "Tìm và thay thế chữ"),
+    ("don net trung", "overkill", "Dọn nét trùng"),
+    ("khoi phuc tep ve", "recover", "Khôi phục bản vẽ"),
+    ("quan ly kieu chu", "style", "Quản lý kiểu chữ"),
+    ("tao bang", "table", "Tạo bảng"),
+    ("bao ve ban ve", "lock", "Khóa đối tượng"),
+    ("xuat du lieu", "export", "Xuất dữ liệu"),
 ];
 
 pub(crate) fn fold_vi(text: &str) -> String {
@@ -1332,6 +1391,28 @@ mod autocomplete_tests {
         assert_eq!(suggestions("duong thang")[0].id,"LINE");
         assert_eq!(suggestions("hinh chu nhat")[0].id,"RECTANG");
         assert!(suggestions("lam sach xyz").is_empty());
+    }
+
+    #[test]
+    fn expanded_vietnamese_command_vocabulary_resolves_only_existing_engine_commands() {
+        let mut unique=std::collections::HashSet::new();
+        let mut known=0usize;
+        for (phrase,id,_) in VI_COMMANDS {
+            assert!(unique.insert(*phrase),"duplicate Vietnamese phrase {phrase}");
+            if cadcraft_engine::cmd::find_command(id).is_some() {known+=1;}
+        }
+        assert!(known>=25,"expected real native commands in Vietnamese dictionary");
+        for (phrase,id) in [
+            ("bo tron goc","fillet"),
+            ("ve duong song song","offset"),
+            ("ghi ban kinh","dimradius"),
+            ("luu ban ve","qsave"),
+            ("ve duong cong","spline"),
+        ] {
+            let expected=cadcraft_engine::cmd::find_command(id).is_some();
+            let found=suggestions(phrase).iter().any(|s|s.id.eq_ignore_ascii_case(id));
+            assert_eq!(found,expected,"incorrect Vietnamese phrase mapping: {phrase}");
+        }
     }
 
     #[test]
