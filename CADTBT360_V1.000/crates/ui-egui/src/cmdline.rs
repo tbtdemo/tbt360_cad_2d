@@ -580,10 +580,16 @@ fn active_prompt_help(prompt:&cadcraft_engine::Prompt)->String {
             result.push_str(" · See OPTIONS (Xem tất cả tùy chọn)");
         }
     }
-    // Enter is valid even when keywords are present; report the engine's
-    // actual accept flag instead of guessing from the menu contents.
+    // Only advertise Enter when the native prompt accepts it. Do not label
+    // Enter as a "default" for a point prompt with explicit keywords: that
+    // falsely suggests a default geometry point or a selected keyword.
+    // The engine owns actual Enter semantics; this is display text only.
     if prompt.accept.enter {
-        result.push_str(" · Enter (Mặc định/kết thúc theo bước)");
+        if prompt.accept.point && !prompt.keywords.is_empty() {
+            result.push_str(" · Enter (Theo xử lý của lệnh gốc)");
+        } else {
+            result.push_str(" · Enter (Mặc định/kết thúc theo bước)");
+        }
     }
     result.push_str(" · Esc (Hủy)");
     result
@@ -1761,6 +1767,14 @@ mod autocomplete_tests {
         assert!(next_help.contains("See OPTIONS"));
         assert!(next_help.contains("Undo (Hoàn tác)"));
         assert!(!next_help.contains("Enter (Mặc định"));
+        assert!(!next_help.contains("Enter (Theo xử lý") || next.accept.enter);
+        // Enter must never be advertised when the engine refuses it.
+        let no_enter=cadcraft_engine::Prompt::new("Specify next point",cadcraft_engine::Accept::POINT)
+            .kw(&["Undo","Close"]);
+        let guide=active_prompt_help(&no_enter);
+        if !no_enter.accept.enter {
+            assert!(!guide.contains(" · Enter ("));
+        }
     }
 
     #[test]
