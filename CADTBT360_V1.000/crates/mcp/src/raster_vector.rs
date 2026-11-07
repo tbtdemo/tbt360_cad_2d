@@ -1207,6 +1207,20 @@ pub fn preview(args: &Value) -> Result<Value, String> {
     let column_hints=args["columnHatchHints"].as_bool().unwrap_or(false);
     let all_rectangles=if args["closedRectangles"].as_bool().unwrap_or(false) || column_hints {closed_rectangles(&lines)} else {Vec::new()};
     let mut column_candidates=if column_hints {column_hatch_candidates(&all_rectangles,&lines)} else {Vec::new()};
+    // First conservative architectural-space hypothesis from four observed closed
+    // boundaries, not inferred gaps. Reject small cross-hatched column rectangles.
+    // No label/type/occupancy is guessed; each candidate remains review-only.
+    let room_candidates:Vec<Value>=all_rectangles.iter().filter_map(|outline| {
+        let p=outline.corners;
+        let width=(p[1][0]-p[0][0]).abs();
+        let depth=(p[3][1]-p[0][1]).abs();
+        if width<48.0 || depth<48.0 || width*depth<4000.0 {return None;}
+        if column_candidates.iter().any(|column|column["sourceOutlineEdges"]==json!(outline.edges)) {return None;}
+        Some(json!({"outlinePixels":p,"sourceEdgeIndices":outline.edges,
+            "widthPixels":width,"depthPixels":depth,"areaPixels2":width*depth,
+            "classification":"four-observed-boundaries-possible-room-unverified",
+            "requiresHumanReview":true}))
+    }).take(128).collect();
     let candidates=if args["closedRectangles"].as_bool().unwrap_or(false) {all_rectangles} else {Vec::new()};
     let mut replacement = vec![false; lines.len()];
     for outline in &candidates { for &index in &outline.edges { replacement[index] = true; } }
@@ -1386,7 +1400,21 @@ pub fn preview(args: &Value) -> Result<Value, String> {
         "doorBlockDraftCount":door_blocks.len(),"doorBlocksRequested":create_door_blocks,
         "doorBlockDrafts":door_blocks
     });
+    let room_world:Vec<Value>=room_candidates.iter().map(|room| {
+        let corners:Vec<Value>=room["outlinePixels"].as_array().into_iter().flatten().map(|point| {
+            let x=point[0].as_f64().unwrap_or(0.0);
+            let y=point[1].as_f64().unwrap_or(0.0);
+            json!([ox+x*scale,oy+(f64::from(height)-y)*scale])
+        }).collect();
+        json!({"outlineCAD":corners,"sourceEdgeIndices":room["sourceEdgeIndices"],
+            "widthCAD":room["widthPixels"].as_f64().unwrap_or(0.0)*scale,
+            "depthCAD":room["depthPixels"].as_f64().unwrap_or(0.0)*scale,
+            "areaCAD2":room["areaPixels2"].as_f64().unwrap_or(0.0)*scale*scale,
+            "classification":room["classification"],"requiresHumanReview":true})
+    }).collect();
     let geometry=json!({
+        "roomCandidateCount":room_world.len(),"roomCandidates":room_world,
+        "roomRecognitionStatus":"observed-closed-boundaries-only-needs-human-confirmation",
         "openingGuidePolylines":opening_guides_preview,
         "openingGuidePolylinesRequested":create_opening_guides,
         "minOpeningGapPixels":opening_min,"maxOpeningGapPixels":opening_max,
@@ -2755,6 +2783,21 @@ mod tests {
         let x0 = points[0][0].as_f64().expect("start x");
         let x1 = points[1][0].as_f64().expect("end x");
         assert!((x1-x0-500.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn ai_architecture_room_candidate_is_only_evidence_and_never_auto_commits() {
+        let path=std::env::temp_dir().join(format!("cad360_arch_room_{}.png",std::process::id()));
+        let mut img=image::RgbImage::from_pixel(180,140,image::Rgb([255,255,255]));
+        for x in 20..=150 {for y in [20,110] {img.put_pixel(x,y,image::Rgb([0,0,0]));}}
+        for y in 20..=110 {for x in [20,150] {img.put_pixel(x,y,image::Rgb([0,0,0]));}}
+        img.save(&path).unwrap();
+        let args=json!({"path":path.to_string_lossy(),"preview":true,"columnHatchHints":true,"maxLines":500,"minLengthPixels":8});
+        let result=preview(&args).unwrap();
+        assert!(result["roomCandidateCount"].as_u64().unwrap_or(0)>=1);
+        assert_eq!(result["editableEntitiesCreated"],0);
+        assert_eq!(result["roomCandidates"][0]["requiresHumanReview"],true);
+        let _=std::fs::remove_file(path);
     }
 
     #[test]
