@@ -109,6 +109,13 @@ jobs:
           $ErrorActionPreference = 'Stop'
           cargo test --locked -p cadcraft-engine --lib snap::tests:: -- --nocapture
           if ($LASTEXITCODE -ne 0) { throw 'Native CAD geometry OSNAP regression failed' }
+      - name: Verify snapped geometry becomes exact editable native LINE
+        run: |
+          $ErrorActionPreference = 'Stop'
+          cargo test --locked -p cadcraft-engine --lib snap::tests::snapped_endpoint_and_center_become_exact_native_line_geometry -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'OSNAP endpoint/center was not faithfully consumed by native LINE engine' }
+          cargo test --locked -p cadcraft-engine --lib snap::tests::osnap_never_invents_a_pick_outside_aperture_or_when_disabled -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'OSNAP OFF/aperture rejection violated' }
       - name: Verify native snap overrides and point modifiers
         run: |
           $ErrorActionPreference = 'Stop'
