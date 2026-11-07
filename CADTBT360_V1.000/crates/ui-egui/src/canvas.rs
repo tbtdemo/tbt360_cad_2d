@@ -1299,7 +1299,7 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui) {
     // is disabled. Keep this hint paint-only, so selection and snapping still go
     // through the existing engine cursor and click dispatch.
     if inside && !on_menu
-        && !app.session.settings.dynmode
+        && (!app.session.settings.dynmode || !app.session.settings.dynprompt)
         && let Some(hp) = hover_pos
     {
         paint_cursor_command_hint(app, &painter, rect, hp);
