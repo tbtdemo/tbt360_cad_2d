@@ -2952,6 +2952,36 @@ mod tests {
     }
 
     #[test]
+    fn ai_three_room_ground_truth_geometry_has_no_extra_closed_rooms() {
+        // Known labelled *geometric* rooms, not a semantic/BIM accuracy claim.
+        // Distractor strokes simulate annotations, dimensions and short hatches.
+        let mut source=Vec::new();
+        for i in 0..1800 {
+            let x=i as f64*2.0;
+            source.push(Line{x0:x,y0:1500.0,x1:x+1.0,y1:1500.0});
+        }
+        let start=source.len();
+        for (x0,y0,x1,y1) in [
+            (20.0,30.0,520.0,430.0),
+            (700.0,30.0,1100.0,430.0),
+            (1350.0,30.0,1700.0,530.0),
+        ] {
+            source.push(Line{x0,y0,x1,y1:y0});
+            source.push(Line{x0,y0:y1,x1,y1});
+            source.push(Line{x0,y0,x1:x0,y1});
+            source.push(Line{x0:x1,y0,x1,y1});
+        }
+        let candidates=closed_rectangles(&source);
+        assert_eq!(candidates.len(),3,
+            "three labelled closed geometries must produce three reviewed room outlines");
+        for index in 0..3 {
+            assert!(candidates.iter().any(|room|
+                room.edges[0]==start+index*4 && room.edges[1]==start+index*4+1),
+                "room source-line evidence must trace to original source indices");
+        }
+    }
+
+    #[test]
     fn ai_large_floorplan_room_detection_keeps_global_entity_indices() {
         let mut source=Vec::new();
         for i in 0..2400 {
