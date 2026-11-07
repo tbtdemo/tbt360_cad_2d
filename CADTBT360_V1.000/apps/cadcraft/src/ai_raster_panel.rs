@@ -1136,6 +1136,7 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
             let count = proposal["strokes"].as_u64().unwrap_or(0);
             ui.separator();
             let rectangle_count = proposal["closedPolylines"].as_array().map_or(0,Vec::len);
+            let room_count=proposal["roomCandidateCount"].as_u64().unwrap_or(0);
             let column_hint_count=proposal["columnHatchCandidateCount"].as_u64().unwrap_or(0);
             let column_block_count=proposal["columnBlockDraftCount"].as_u64().unwrap_or(0);
             let wall_pairs = proposal["wallPairCandidateCount"].as_u64().unwrap_or(0);
@@ -1151,6 +1152,17 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
             let door_arcs_count = proposal["doorSwingArcsProposed"].as_u64().unwrap_or(0);
             let door_blocks_count = proposal["doorBlockDraftCount"].as_u64().unwrap_or(0);
             ui.label(format!("Đã nhận dạng: {count} nét nguồn, {rectangle_count} PLINE kín, {wall_pairs} cặp nét song song nghi là mép tường."));
+            ui.strong(format!("PHÂN TÍCH MẶT BẰNG: {room_count} vùng khép kín nghi là phòng · {wall_panel_count} dải tường · {paired_opening_count} khoảng mở · {column_hint_count} ứng viên cột"));
+            if room_count>0 {
+                ui.small("Phòng chỉ là giả thuyết từ 4 cạnh khép kín quan sát được; chưa tự xác định tên phòng hoặc công năng.");
+                if let Some(rooms)=proposal["roomCandidates"].as_array() {
+                    for (index,room) in rooms.iter().take(12).enumerate() {
+                        let w=room["widthCAD"].as_f64().unwrap_or(0.0);
+                        let h=room["depthCAD"].as_f64().unwrap_or(0.0);
+                        ui.small(format!("Vùng {} · {:.1} × {:.1} đơn vị CAD · chờ xác nhận",index+1,w,h));
+                    }
+                }
+            }
             if state.column_hatch_hints {
                 ui.small(format!("Có {column_hint_count} ứng viên hình chữ nhật có dấu gạch chéo chữ thập bên trong; chưa xác nhận là cột."));
                 ui.small("Ứng viên cột hiện viền vàng trên Preview. Chỉ tạo PLINE/BLOCK sau khi xác nhận.");
