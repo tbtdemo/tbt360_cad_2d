@@ -1,0 +1,206 @@
+name: CAD 360 V1.027 - Windows x64 Setup and Portable
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/cad360-v1027-windows-package.yml'
+      - 'installer/CADTBT360_V1.027_Windows.iss'
+      - 'CADTBT360_V1.000/crates/**'
+      - 'CADTBT360_V1.000/Cargo.lock'
+      - 'docs/user-guide/**'
+  push:
+    branches:
+      - feature/CADTBT360_V1.027_BILINGUAL_COMMAND_UX
+    paths:
+      - '.github/workflows/cad360-v1027-windows-package.yml'
+      - 'installer/CADTBT360_V1.027_Windows.iss'
+      - 'CADTBT360_V1.000/crates/**'
+      - 'CADTBT360_V1.000/Cargo.lock'
+      - 'docs/user-guide/**'
+permissions:
+  contents: read
+concurrency:
+  group: cad360-v1027-package-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  windows-x64:
+    name: Check, build, install, verify and archive V1.027
+    runs-on: windows-latest
+    timeout-minutes: 120
+    steps:
+      - name: Checkout exact revision
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Rust stable
+        uses: dtolnay/rust-toolchain@stable
+      - name: Prepare Python for complete user guide
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Cargo cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: CADTBT360_V1.000
+          key: cad360-v1027-package
+      - name: Verify GUI and test targets compile before release
+        shell: pwsh
+        working-directory: CADTBT360_V1.000
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force '../dist/v1027/diagnostics' | Out-Null
+          cargo check --locked -p cadcraft -p cadcraft-cli -p cadcraft-engine -p cadcraft-ui-egui 2>&1 | Tee-Object '../dist/v1027/diagnostics/check.log' | Out-Host
+          if ($LASTEXITCODE -ne 0) { throw 'CAD GUI/CLI/engine compilation failed: check.log' }
+          cargo check --locked -p cadcraft-engine --tests 2>&1 | Tee-Object '../dist/v1027/diagnostics/engine-tests-check.log' | Out-Host
+          if ($LASTEXITCODE -ne 0) { throw 'CAD engine tests failed to compile' }
+          cargo check --locked -p cadcraft-ui-egui --tests 2>&1 | Tee-Object '../dist/v1027/diagnostics/ui-tests-check.log' | Out-Host
+          if ($LASTEXITCODE -ne 0) { throw 'CAD UI OSNAP regression tests failed to compile' }
+      - name: Run mandatory V1.027 OSNAP and native editing tests
+        shell: pwsh
+        working-directory: CADTBT360_V1.000
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $cases = @(
+            @('cadcraft-ui-egui','--lib','snap_label_layout_tests::'),
+            @('cadcraft-ui-egui','--lib','cmdline::autocomplete_tests::'),
+            @('cadcraft-engine','--lib','snap::tests::'),
+            @('cadcraft-engine','--test it','fillet_chamfer::'),
+            @('cadcraft-engine','--test it','trim_extend_options::'),
+            @('cadcraft-engine','--test it','offset_move::')
+          )
+          foreach ($c in $cases) {
+            $pkg, $target, $filter = $c
+            Write-Host "Running $pkg $target $filter"
+            $args = @('test','--locked','-p',$pkg)
+            if ($target -eq '--lib') { $args += '--lib' }
+            else { $args += @('--test','it') }
+            $args += @($filter,'--','--nocapture')
+            & cargo @args 2>&1 | Tee-Object -FilePath "../dist/v1027/diagnostics/test-$pkg-$($filter.Replace(':','-')).log" | Out-Host
+            if ($LASTEXITCODE -ne 0) { throw "Required test failed: $pkg $filter" }
+          }
+      - name: Compile Windows release GUI and CLI
+        shell: pwsh
+        working-directory: CADTBT360_V1.000
+        run: |
+          $ErrorActionPreference = 'Stop'
+          cargo build --locked --release -p cadcraft --bin cadcraft -p cadcraft-cli --bin cadcraft-cli 2>&1 | Tee-Object '../dist/v1027/diagnostics/release-build.log' | Out-Host
+          if ($LASTEXITCODE -ne 0) { throw 'Windows x64 release build failed' }
+          foreach ($file in @('target/release/cadcraft.exe','target/release/cadcraft-cli.exe')) {
+            if (!(Test-Path $file)) { throw "Missing release executable: $file" }
+          }
+      - name: Validate and generate complete Word guide
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python scripts/validate_full_user_guide.py docs/user-guide/CADTBT360_V1.025_GIAO_TRINH_TONG_HOP_TAT_CA_TINH_NANG.md
+          if ($LASTEXITCODE -ne 0) { throw 'Complete user guide validation failed' }
+          python docs/user-guide/build_word_guide.py docs/user-guide/CADTBT360_V1.025_HUONG_DAN_AI_TU_ANH_THANH_CAD.md dist/v1027/CADTBT360_V1.027_HUONG_DAN_AI_TU_ANH_THANH_CAD.docx
+          if ($LASTEXITCODE -ne 0) { throw 'AI Word guide generation failed' }
+          python docs/user-guide/build_word_guide.py docs/user-guide/CADTBT360_V1.025_GIAO_TRINH_TONG_HOP_TAT_CA_TINH_NANG.md dist/v1027/CADTBT360_V1.027_GIAO_TRINH_TONG_HOP.docx
+          if ($LASTEXITCODE -ne 0) { throw 'Complete Word guide generation failed' }
+          python scripts/validate_word_guide.py dist/v1027/CADTBT360_V1.027_GIAO_TRINH_TONG_HOP.docx
+          if ($LASTEXITCODE -ne 0) { throw 'Complete Word guide failed validation' }
+      - name: Bundle verified PDF renderer for PDF-to-image functionality
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          # Official pinned Poppler package used successfully by the V1.025
+          # release builder. The old V1.025 Portable ZIP is NOT a renderer
+          # source: its layout and contents cannot be assumed.
+          $url = 'https://github.com/oschwartz10612/poppler-windows/releases/download/v26.07.0-0/Release-26.07.0-0.zip'
+          $expectedSha = 'A711B0563B06EDC488583D28198B6734C5A494AFBBD1B9D87D3D2866062FB7E2'
+          $zip = Join-Path $env:RUNNER_TEMP 'cad360-poppler-26.07.zip'
+          $unpacked = Join-Path $env:RUNNER_TEMP 'cad360-poppler-26.07'
+          Invoke-WebRequest -Uri $url -OutFile $zip -MaximumRedirection 5
+          $actualSha = (Get-FileHash $zip -Algorithm SHA256).Hash
+          if ($actualSha -ne $expectedSha) { throw "Pinned Poppler SHA256 mismatch: $actualSha" }
+          Expand-Archive $zip -DestinationPath $unpacked -Force
+          $candidate = Get-ChildItem -Path $unpacked -Recurse -File -Filter 'pdftoppm.exe' | Select-Object -First 1
+          if ($null -eq $candidate) { throw 'Verified standalone Poppler package lacks pdftoppm.exe' }
+          $destBin = 'dist/v1027/pdf-tools/bin'
+          $destLic = 'dist/v1027/pdf-tools/licenses'
+          New-Item -ItemType Directory -Force $destBin, $destLic | Out-Null
+          Copy-Item (Join-Path $candidate.Directory.FullName '*') $destBin -Recurse -Force
+          $bundled = Join-Path $destBin 'pdftoppm.exe'
+          if (!(Test-Path $bundled)) { throw 'Poppler executable was not copied' }
+          & (Resolve-Path $bundled).Path -v
+          if ($LASTEXITCODE -ne 0) { throw 'Bundled Poppler cannot start on Windows' }
+          python scripts/verify_ai_pdf_renderer.py $bundled
+          if ($LASTEXITCODE -ne 0) { throw 'Bundled Poppler failed real PDF-to-PNG smoke test' }
+          Get-ChildItem $unpacked -Recurse -File | Where-Object { $_.Name -match '^(COPYING|LICENSE)([.]txt)?$' } | ForEach-Object {
+            Copy-Item $_.FullName (Join-Path $destLic $_.Name) -Force
+          }
+      - name: Build Inno Setup and Portable ZIP
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $iscc = 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe'
+          if (!(Test-Path $iscc)) { choco install innosetup -y --no-progress }
+          if (!(Test-Path $iscc)) { throw 'Inno Setup 6 missing' }
+          @('Release=CADTBT360_V1.027',"SourceCommit=$env:GITHUB_SHA",'Architecture=windows-x64','NativeBuild=true','GUIAcceptance=NOT_VERIFIED') | Set-Content dist/v1027/BUILD_INFO.txt -Encoding utf8
+          & $iscc /Qp installer/CADTBT360_V1.027_Windows.iss 2>&1 | Tee-Object dist/v1027/diagnostics/inno.log | Out-Host
+          if ($LASTEXITCODE -ne 0) { throw 'Inno Setup packaging failed' }
+          $setup='dist/v1027/CADTBT360_V1.027_Setup_Windows_x64.exe'
+          if (!(Test-Path $setup)) { throw 'Missing V1.027 Setup EXE' }
+          $portable='dist/v1027/portable'
+          New-Item -ItemType Directory -Force "$portable/Tools" | Out-Null
+          Copy-Item CADTBT360_V1.000/target/release/cadcraft.exe "$portable/CADTBT360.exe"
+          Copy-Item CADTBT360_V1.000/target/release/cadcraft-cli.exe "$portable/CADTBT360_CLI.exe"
+          Copy-Item dist/v1027/BUILD_INFO.txt $portable
+          Copy-Item dist/v1027/pdf-tools "$portable/Tools/Poppler" -Recurse -Force
+          Copy-Item docs/user-guide/CADTBT360_V1.025_HUONG_DAN_AI_TU_ANH_THANH_CAD.md "$portable/HUONG_DAN_AI_TU_ANH_THANH_CAD.md"
+          Copy-Item dist/v1027/CADTBT360_V1.027_HUONG_DAN_AI_TU_ANH_THANH_CAD.docx "$portable/HUONG_DAN_AI_TU_ANH_THANH_CAD.docx"
+          Copy-Item dist/v1027/CADTBT360_V1.027_GIAO_TRINH_TONG_HOP.docx "$portable/GIAO_TRINH_TONG_HOP_CAD360.docx"
+          Compress-Archive -Path "$portable/*" -DestinationPath dist/v1027/CADTBT360_V1.027_Portable_Windows_x64.zip -Force
+      - name: Install and uninstall smoke + Portable integrity
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $setup = (Resolve-Path 'dist/v1027/CADTBT360_V1.027_Setup_Windows_x64.exe').Path
+          $dir = Join-Path $env:RUNNER_TEMP 'CAD360_V1027_Setup_Smoke'
+          $dest = '/DIR="{0}"' -f $dir
+          $p = Start-Process -FilePath $setup -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',$dest) -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "Setup failed: $($p.ExitCode)" }
+          foreach ($file in @('CADTBT360.exe','CADTBT360_CLI.exe','Tools/Poppler/bin/pdftoppm.exe','HuongDan/GIAO_TRINH_TONG_HOP_CAD360.docx')) {
+            if (!(Test-Path (Join-Path $dir $file))) { throw "Setup missing $file" }
+          }
+          $uninstall = Join-Path $dir 'unins000.exe'
+          if (!(Test-Path $uninstall)) { throw 'Uninstaller missing' }
+          $p = Start-Process -FilePath $uninstall -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART') -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "Uninstaller failed: $($p.ExitCode)" }
+          $unzipped = Join-Path $env:RUNNER_TEMP 'CAD360_V1027_Portable_Smoke'
+          Expand-Archive 'dist/v1027/CADTBT360_V1.027_Portable_Windows_x64.zip' -DestinationPath $unzipped -Force
+          foreach ($file in @('CADTBT360.exe','CADTBT360_CLI.exe','BUILD_INFO.txt','Tools/Poppler/bin/pdftoppm.exe','GIAO_TRINH_TONG_HOP_CAD360.docx')) {
+            if (!(Test-Path (Join-Path $unzipped $file))) { throw "Portable missing $file" }
+          }
+          if ((Get-FileHash (Join-Path $unzipped 'CADTBT360.exe') -Algorithm SHA256).Hash -ne (Get-FileHash 'CADTBT360_V1.000/target/release/cadcraft.exe' -Algorithm SHA256).Hash) { throw 'Portable GUI binary differs from verified release build' }
+      - name: Generate SHA256 release manifest
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $files = @('dist/v1027/CADTBT360_V1.027_Setup_Windows_x64.exe','dist/v1027/CADTBT360_V1.027_Portable_Windows_x64.zip')
+          $hashes = foreach ($file in $files) {
+            $digest = (Get-FileHash $file -Algorithm SHA256).Hash.ToLowerInvariant()
+            "$digest  $(Split-Path $file -Leaf)"
+          }
+          $hashes | Set-Content 'dist/v1027/SHA256SUMS.txt' -Encoding ascii
+          $hashes | Out-Host
+      - name: Upload verified V1.027 Setup and Portable
+        uses: actions/upload-artifact@v4
+        with:
+          name: CADTBT360_V1.027_Windows_x64_Setup_Portable
+          path: |
+            dist/v1027/CADTBT360_V1.027_Setup_Windows_x64.exe
+            dist/v1027/CADTBT360_V1.027_Portable_Windows_x64.zip
+            dist/v1027/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 30
+      - name: Upload diagnostics on failure
+        if: ${{ failure() || cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: CADTBT360_V1.027_Failure_Diagnostics
+          path: dist/v1027/diagnostics/
+          if-no-files-found: warn
+          retention-days: 30

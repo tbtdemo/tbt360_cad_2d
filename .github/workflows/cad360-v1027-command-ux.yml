@@ -1,0 +1,175 @@
+name: CAD 360 V1.027 - Native Command and Bilingual UX Windows Gate
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/CADTBT360_V1.027_BILINGUAL_COMMAND_UX
+    paths:
+      - 'CADTBT360_V1.000/crates/ui-egui/**'
+      - 'CADTBT360_V1.000/crates/engine/**'
+      - '.github/workflows/cad360-v1027-command-ux.yml'
+  pull_request:
+    paths:
+      - 'CADTBT360_V1.000/crates/ui-egui/**'
+      - 'CADTBT360_V1.000/crates/engine/**'
+      - '.github/workflows/cad360-v1027-command-ux.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cad360-v1027-commands-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  command-ux:
+    runs-on: windows-latest
+    timeout-minutes: 70
+    defaults:
+      run:
+        shell: pwsh
+        working-directory: CADTBT360_V1.000
+    steps:
+      - name: Checkout exact V1.027 source
+        uses: actions/checkout@v4
+      - name: Rust stable
+        uses: dtolnay/rust-toolchain@stable
+      - name: Cache cargo dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: CADTBT360_V1.000
+          key: v1027-native-bilingual-ui
+      - name: Compile CAD engine, native UI and desktop
+        run: |
+          $ErrorActionPreference = 'Stop'
+          cargo check --locked -p cadcraft-engine -p cadcraft-ui-egui -p cadcraft
+          if ($LASTEXITCODE -ne 0) { throw 'CAD V1.027 native command/desktop compilation failed' }
+      - name: Discover original CAD and bilingual command UX tests
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $listing = @(cargo test --locked -p cadcraft-ui-egui --lib cmdline::autocomplete_tests:: -- --list 2>&1)
+          if ($LASTEXITCODE -ne 0) { $listing | Out-Host; throw 'Cannot list V1.027 command UX tests' }
+          foreach ($required in @(
+            'vietnamese_command_suggestions_accept_accents_and_plain_text',
+            'space_keeps_vietnamese_phrase_but_not_native_cad_alias',
+            'every_public_native_command_remains_searchable_by_full_id',
+            'native_alias_space_dispatch_is_never_replaced_by_translation',
+            'bilingual_ui_keeps_english_first_and_actual_aliases',
+            'original_english_prompts_preserved_with_vietnamese_in_parentheses',
+            'native_prompt_keyword_input_stays_english_when_caption_is_bilingual',
+            'native_keyword_catalog_never_changes_when_rendered_bilingually',
+            'full_bilingual_option_palette_keeps_all_original_keywords',
+            'keyword_abbreviation_is_verified_with_native_prompt_parser',
+            'prompt_guidance_respects_enter_and_real_point_input_context',
+            'command_input_scroll_keeps_original_vietnamese_and_coordinates',
+            'long_cad_input_binary_scroll_limits_layout_work_and_does_not_split_accents',
+            'next_command_habits_use_only_observed_verified_session_commands',
+            'selection_context_prioritizes_only_real_native_edit_commands',
+            'native_entity_kind_guides_related_commands_without_inventing_geometry',
+            'vietnamese_ime_works_at_idle_command_but_not_inside_numeric_point_prompts',
+            'expanded_vietnamese_command_vocabulary_resolves_only_existing_engine_commands',
+            'next_command_suggestions_are_registry_backed_and_have_actual_shortcuts',
+            'every_registered_command_has_english_first_in_app_guide',
+            'exact_alias_is_first_suggestion_with_alias_display'
+          )) {
+            $matches = @($listing | Where-Object { $_ -match ('::' + [regex]::Escape($required) + ': test$') })
+            if ($matches.Count -ne 1) {
+              $listing | Out-Host
+              throw "Required original CAD / bilingual regression test missing: $required"
+            }
+          }
+          $listing | Where-Object { $_ -match ': test$' } | Out-Host
+      - name: Run all bilingual and native CAD command autocomplete regressions
+        run: |
+          $ErrorActionPreference = 'Stop'
+          cargo test --locked -p cadcraft-ui-egui --lib cmdline::autocomplete_tests:: -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'CAD V1.027 bilingual/native command UX tests failed' }
+      - name: Verify exact native alias ranking in bilingual command handbook
+        run: |
+          $ErrorActionPreference = 'Stop'
+          cargo test --locked -p cadcraft-ui-egui --lib dialogs::command_handbook_tests::handbook_exact_native_aliases_rank_ahead_of_similar_matches -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'V1.027 native CAD alias order was overridden by search ranking' }
+      - name: Verify full command handbook filters preserve complete native registry
+        run: |
+          $ErrorActionPreference = 'Stop'
+          cargo test --locked -p cadcraft-ui-egui --lib dialogs::command_handbook_tests::handbook_filters_never_hide_native_commands_by_default -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'V1.027 handbook filters unexpectedly hide native CAD commands' }
+      - name: Verify actual egui Vietnamese IME composition and committed text
+        run: |
+          $ErrorActionPreference = 'Stop'
+          cargo test --locked -p cadcraft-ui-egui --lib cmdline::tests::ime_preedit_is_shown_and_its_commit_is_inserted_once -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'V1.027 Vietnamese IME integration regression failed' }
+      - name: Verify bilingual full command handbook covers native registry
+        run: |
+          $ErrorActionPreference = 'Stop'
+          cargo test --locked -p cadcraft-ui-egui --lib dialogs::command_handbook_tests:: -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'V1.027 bilingual native Command Handbook test failed' }
+      - name: Verify OSNAP marker labels stay within real canvas boundaries
+        run: |
+          $ErrorActionPreference = 'Stop'
+          cargo test --locked -p cadcraft-ui-egui --lib snap_label_layout_tests:: -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'CAD OSNAP labels may disappear outside the drawing viewport or lose English-first names' }
+      - name: Verify real CAD engine object snap modes and geometry
+        run: |
+          $ErrorActionPreference = 'Stop'
+          cargo test --locked -p cadcraft-engine --lib snap::tests:: -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'Native CAD geometry OSNAP regression failed' }
+      - name: Verify snapped geometry becomes exact editable native LINE
+        run: |
+          $ErrorActionPreference = 'Stop'
+          cargo test --locked -p cadcraft-engine --lib snap::tests::snapped_endpoint_and_center_become_exact_native_line_geometry -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'OSNAP endpoint/center was not faithfully consumed by native LINE engine' }
+          cargo test --locked -p cadcraft-engine --lib snap::tests::native_closed_pline_preserves_editable_vertices_after_dxf_reopen -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'Architectural closed PLINE lost editable vertices after DXF reopen' }
+          cargo test --locked -p cadcraft-engine --lib snap::tests::osnap_line_undo_redo_restores_exact_geometry -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'OSNAP native LINE undo/redo geometry regression failed' }
+          cargo test --locked -p cadcraft-engine --lib snap::tests::snapped_native_line_survives_dxf_save_and_reopen_editably -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'Native OSNAP LINE lost editable geometry on DXF roundtrip' }
+          cargo test --locked -p cadcraft-engine --lib snap::tests::osnap_never_invents_a_pick_outside_aperture_or_when_disabled -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'OSNAP OFF/aperture rejection violated' }
+      - name: Verify native snap overrides and point modifiers
+        run: |
+          $ErrorActionPreference = 'Stop'
+          cargo test --locked -p cadcraft-engine --lib pointmod::tests:: -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'Native CAD point modifier and snap override regression failed' }
+      - name: Verify real interactive LINE coordinates and point modifiers
+        run: |
+          $ErrorActionPreference = 'Stop'
+          cargo test --locked -p cadcraft-engine --test it point_modifiers:: -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'Native LINE points, relative coordinates and point overrides failed' }
+      - name: Verify real CAD command keyword workflows
+        run: |
+          $ErrorActionPreference = 'Stop'
+          cargo test --locked -p cadcraft-engine --test it prompt_keywords:: -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'Native CAD interactive keyword acceptance failed' }
+      - name: Verify native architectural MOVE COPY OFFSET Undo Redo and DXF persistence
+        run: |
+          $ErrorActionPreference = 'Stop'
+          cargo test --locked -p cadcraft-engine --test it offset_move:: -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'CAD geometry fidelity failed: MOVE/COPY/OFFSET/Undo/Redo/DXF roundtrip' }
+      - name: Verify real architectural TRIM EXTEND endpoints Undo Redo and DXF persistence
+        run: |
+          $ErrorActionPreference = 'Stop'
+          cargo test --locked -p cadcraft-engine --test it trim_extend_options:: -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'CAD TRIM EXTEND exact geometry Undo/Redo or DXF reopen regression failed' }
+      - name: Verify native FILLET CHAMFER Polyline bulges and complete option regressions
+        run: |
+          $ErrorActionPreference = 'Stop'
+          cargo test --locked -p cadcraft-engine --test it fillet_chamfer:: -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'FILLET CHAMFER native options, POLYLINE bulges, Undo/Redo or DXF roundtrip failed' }
+      - name: Verify native architectural editing does not regress when engine changes
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $listing = @(cargo test --locked -p cadcraft-engine --test it -- --list 2>&1)
+          if ($LASTEXITCODE -ne 0) { $listing | Out-Host; throw 'Could not enumerate the native architectural editing regression suite' }
+          foreach ($suite in @('trim_extend_options::','offset_move::','fillet_chamfer::')) {
+            if (-not @($listing | Where-Object { $_ -match [regex]::Escape($suite) }).Count) {
+              throw "Required architectural CAD regression suite not registered: $suite"
+            }
+          }
+          $listing | Where-Object { $_ -match 'trim_extend_options::|offset_move::|fillet_chamfer::' } | Out-Host
+      - name: Report verification boundary
+        run: |
+          Write-Host 'PASS verifies compilation and the listed native CAD engine/UI unit and integration tests, not Windows GUI mouse acceptance.'
+          Write-Host 'Windows real-EXE OSNAP clicks, whole AutoCAD 2027 parity, screenshots and installers require separate acceptance.'

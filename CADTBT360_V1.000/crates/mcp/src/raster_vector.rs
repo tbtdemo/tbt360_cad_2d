@@ -1238,7 +1238,27 @@ pub fn preview(args: &Value) -> Result<Value, String> {
     let (Some(ox), Some(oy)) = (origin[0].as_f64(), origin[1].as_f64()) else { return Err("origin coordinates must be numbers".into()); };
     if !ox.is_finite() || !oy.is_finite() || ox.abs() > 1.0e12 || oy.abs() > 1.0e12 { return Err("origin exceeds finite CAD coordinate limits".into()); }
     let threshold = threshold as u8;
-    let gray = decoded.to_luma8();
+    let mut gray = decoded.to_luma8();
+    // Restrict expensive architectural detection to an explicitly selected
+    // source-pixel rectangle. Keep the ORIGINAL canvas dimensions and pixel
+    // coordinates: drawing scale, origin, door indices and review are not
+    // silently shifted by an image crop. White means no candidate geometry.
+    if let Some(roi) = args.get("regionPixels") {
+        let values = roi.as_array().ok_or("regionPixels must be [x,y,width,height]")?;
+        if values.len()!=4 {return Err("regionPixels must contain four integers".into());}
+        let corners:Vec<u32>=values.iter().map(|v|v.as_u64().and_then(|x|u32::try_from(x).ok()))
+            .collect::<Option<Vec<_>>>().ok_or("regionPixels values must be nonnegative u32 integers")?;
+        let (rx,ry,rw,rh)=(corners[0],corners[1],corners[2],corners[3]);
+        if rw==0 || rh==0 || rx>=width || ry>=height ||
+            rx.checked_add(rw).is_none_or(|end|end>width) ||
+            ry.checked_add(rh).is_none_or(|end|end>height) {
+            return Err("regionPixels must be a nonempty rectangle inside the original source image".into());
+        }
+        let (right,bottom)=(rx+rw,ry+rh);
+        for (x,y,pixel) in gray.enumerate_pixels_mut() {
+            if x<rx || x>=right || y<ry || y>=bottom { pixel.0[0]=255; }
+        }
+    }
     let mut lines = strokes(&gray, threshold, min_length as u32, true);
     lines.extend(strokes(&gray, threshold, min_length as u32, false));
     // Optional: angled 45° screen strokes, including the opposite slope.
@@ -3143,6 +3163,30 @@ mod tests {
         let x0 = points[0][0].as_f64().expect("start x");
         let x1 = points[1][0].as_f64().expect("end x");
         assert!((x1-x0-500.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn raster_region_preview_excludes_ui_strokes_without_changing_original_cad_coordinates() {
+        let path=std::env::temp_dir().join(format!("cad360_roi_test_{}.png",std::process::id()));
+        let mut img=image::RgbImage::from_pixel(240,120,image::Rgb([255,255,255]));
+        // A dense artificial ribbon on the left, and one architectural line
+        // on the right, in the original source coordinate system.
+        for y in (5..110).step_by(5) {
+            for x in 5..=100 { img.put_pixel(x,y,image::Rgb([0,0,0])); }
+        }
+        for x in 130..=220 {img.put_pixel(x,55,image::Rgb([0,0,0]));}
+        img.save(&path).unwrap();
+        let args=json!({"path":path.to_string_lossy(),"preview":true,
+            "minLengthPixels":12,"includeDiagonals":false,"maxLines":500,
+            "unitsPerPixel":10.0,"regionPixels":[120,20,110,80]});
+        let result=preview(&args).expect("ROI preview should ignore off-region ribbon");
+        assert_eq!(result["imageSize"],json!([240,120]));
+        assert_eq!(result["strokes"],1);
+        assert_eq!(result["lines"],json!([[[1305.0,655.0],[2205.0,655.0]]]));
+        assert_eq!(result["editableEntitiesCreated"],0);
+        let bad=preview(&json!({"path":path.to_string_lossy(),"regionPixels":[200,20,100,80]}));
+        assert!(bad.unwrap_err().contains("regionPixels"));
+        let _=std::fs::remove_file(path);
     }
 
     #[test]

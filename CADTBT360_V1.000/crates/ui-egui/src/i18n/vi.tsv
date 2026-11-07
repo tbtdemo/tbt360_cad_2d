@@ -328,3 +328,83 @@
 	Backwards	Viết ngược
 	Upside down	Lật ngược
 	Annotative	Theo tỷ lệ chú thích
+
+# CAD 360 V1.027: concise Vietnamese interactive commands, OSNAP labels and prompt examples.
+	Type a command	Nhập lệnh CAD hoặc tiếng Việt, ví dụ: làm sạch bản vẽ
+	Specify first point	Chọn điểm thứ nhất (nhấp chuột hoặc nhập X,Y)
+	Specify next point	Chọn điểm tiếp theo (nhấn Enter để kết thúc)
+	Specify second point	Chọn điểm thứ hai (nhấp chuột hoặc nhập X,Y)
+	Specify point	Chọn điểm trên bản vẽ
+	Specify first corner point	Chọn góc thứ nhất
+	Specify other corner	Chọn góc đối diện
+	Specify opposite corner	Chọn góc đối diện
+	Specify center point	Chọn tâm đường tròn
+	Specify radius	Nhập bán kính hoặc nhấp điểm
+	Specify diameter	Nhập đường kính hoặc nhấp điểm
+	Specify first extension line origin	Chọn điểm gốc đường gióng thứ nhất
+	Specify second extension line origin	Chọn điểm gốc đường gióng thứ hai
+	Specify dimension line location	Chọn vị trí đặt đường kích thước
+	Select objects	Chọn đối tượng (nhấn Enter để hoàn tất chọn)
+	Select object	Chọn một đối tượng trên bản vẽ
+	Enter an option	Nhập tùy chọn
+	Enter distance	Nhập khoảng cách
+	Enter angle	Nhập góc
+	ID Point	Tọa độ điểm
+	Linear	Kích thước thẳng
+	Purge	Dọn các thành phần không sử dụng
+	Measure Geometry	Đo hình học
+	Endpoint	Điểm cuối
+	Midpoint	Trung điểm
+	Geometric Center	Tâm hình học
+	Apparent Intersection	Giao điểm biểu kiến
+	Perpendicular	Vuông góc
+	Tangent	Tiếp tuyến
+	Nearest	Điểm gần nhất
+	Quadrant	Điểm góc phần tư
+	Extension	Điểm kéo dài
+	Node	Điểm nút
+	Insertion	Điểm chèn
+	Parallel	Song song
+	None	Không bắt điểm
+	Object Snap Settings	Thiết lập bắt điểm đối tượng
+	Object Snap Tracking	Dò theo điểm bắt
+	Polar Tracking	Dò góc cực
+	Snap Mode	Chế độ bắt điểm
+	Grid Display	Hiển thị lưới
+	Unknown command	Không nhận diện được lệnh
+	Draw	Vẽ
+	Annotation	Chú thích
+	Clipboard	Bộ nhớ tạm
+	Rectangle	Hình chữ nhật
+# V1.027: original English command keywords with Vietnamese explanations.
+	Width	Bề rộng
+	Halfwidth	Nửa bề rộng
+	Length	Chiều dài
+	Join	Nối
+	Decurve	Bỏ đường cong
+	Previous	Đối tượng trước
+	Next	Tiếp theo
+	Last	Đối tượng cuối
+	Object	Đối tượng
+	Add	Thêm
+	Remove	Loại bỏ
+	eXit	Thoát
+	Through	Đi qua điểm
+	Rotation	Góc xoay
+	Total	Tổng
+	Partial	Một phần
+	Vertex	Đỉnh
+	Edit vertex	Sửa đỉnh
+	Straighten	Nắn thẳng
+	Direction	Hướng
+	Current	Hiện tại
+	Set	Thiết lập
+	New	Mới
+	Select first object	Chọn đối tượng thứ nhất
+	Select second object	Chọn đối tượng thứ hai
+	Specify base point	Chọn điểm gốc
+	Specify displacement	Nhập độ dịch chuyển
+	Specify distance	Nhập khoảng cách
+	Specify rotation angle	Nhập góc xoay
+	Enter new value	Nhập giá trị mới
+	Enter option	Nhập tùy chọn

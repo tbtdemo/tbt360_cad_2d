@@ -110,7 +110,25 @@ fn dsettings(app: &mut CadApp, ctx: &egui::Context, open: &mut bool) {
         egui::Grid::new("osnap_grid").num_columns(2).show(ui, |ui| {
             for (i, (bit, name)) in cadcraft_engine::snap::mode::ALL.iter().enumerate() {
                 let mut v = s.osmode & bit != 0;
-                if ui.checkbox(&mut v, crate::i18n::t(name)).changed() {
+                let description=match *name {
+                    "Endpoint" => "Endpoint / Điểm cuối: khi LINE chạm gần đầu mút một cạnh tường, bắt đúng tọa độ đầu mút.",
+                    "Midpoint" => "Midpoint / Trung điểm: bắt chính giữa đoạn LINE, ví dụ tâm cửa trên tường dài 4000.",
+                    "Center" => "Center / Tâm: bắt tâm CIRCLE hoặc ARC để dựng đường tròn đồng tâm.",
+                    "Geometric Center" => "Geometric Center / Trọng tâm hình: bắt tâm hình khép kín được hỗ trợ.",
+                    "Intersection" => "Intersection / Giao điểm: bắt vị trí hai nét cắt nhau, ví dụ hai trục cột.",
+                    "Perpendicular" => "Perpendicular / Vuông góc: hạ đường vuông góc xuống nét hiện có.",
+                    "Tangent" => "Tangent / Tiếp tuyến: nối nét tới đường tròn hoặc cung theo tiếp xúc.",
+                    "Nearest" => "Nearest / Gần nhất: bắt điểm gần con trỏ trên cạnh, không nhất thiết là điểm cuối.",
+                    "Quadrant" => "Quadrant / Điểm góc phần tư: bắt đỉnh 0, 90, 180, 270 độ của đường tròn.",
+                    "Node" => "Node / Điểm nút: bắt đối tượng điểm đã tồn tại trên bản vẽ.",
+                    "Insertion" => "Insertion / Điểm chèn: bắt điểm gốc chèn BLOCK hoặc đối tượng tương thích.",
+                    "Extension" => "Extension / Kéo dài: dò hướng nối dài nét gốc để canh điểm.",
+                    "Apparent Intersection" => "Apparent Intersection / Giao điểm biểu kiến: tham chiếu giao tuyến kéo dài.",
+                    "Parallel" => "Parallel / Song song: canh hướng nét mới song song nét tham chiếu.",
+                    _ => "Chọn chế độ bắt điểm để vẽ chính xác; các ví dụ phía dưới.",
+                };
+                if ui.checkbox(&mut v, crate::i18n::t(name))
+                    .on_hover_text(description).changed() {
                     if v {
                         s.osmode |= bit;
                     } else {
@@ -121,6 +139,14 @@ fn dsettings(app: &mut CadApp, ctx: &egui::Context, open: &mut bool) {
                     ui.end_row();
                 }
             }
+        });
+        ui.collapsing("HƯỚNG DẪN OSNAP / OBJECT SNAP — VÍ DỤ", |ui| {
+            ui.small("1. Nhấn F3 để bật bắt điểm đối tượng; chọn Endpoint (Điểm cuối) và Midpoint (Trung điểm).");
+            ui.small("2. Gõ L hoặc 'vẽ đường thẳng', Enter → đưa chuột đến đầu mút của đoạn tường → nhấp khi thấy điểm bắt.");
+            ui.small("3. Di chuyển tới giữa một cạnh khác → nhấp điểm Midpoint → Enter kết thúc lệnh. Hai đầu của LINE dùng tọa độ bắt điểm thật.");
+            ui.small("4. DIST/DI: chọn hai điểm END/MID để đọc khoảng cách. ID: chọn một điểm để đọc tọa độ X,Y,Z.");
+            ui.small("5. F8 bật vẽ thẳng ngang/dọc; F10 dò góc; F12 hiển thị nhập tọa độ/chiều dài gần con trỏ.");
+            ui.small("Nếu không bắt đúng: kiểm tra F3, loại OSNAP đã bật, mức thu phóng và ô APERTURE; không nhầm Snap Grid (F9) với OSNAP (F3).");
         });
         ui.separator();
         ui.checkbox(&mut s.dynmode, crate::tl!("Enable Dynamic Input (F12)"));
@@ -353,44 +379,293 @@ fn about(ctx: &egui::Context, open: &mut bool) {
         });
 }
 
-/// Command Reference window; filters commands by id or label (English or translated) and starts the clicked command after closing the dialog.
+/// All public native commands remain visible; this is a metadata-driven,
+/// bilingual help/search surface, not a replacement command interpreter.
+fn command_ref_matches(spec:&cadcraft_engine::CommandSpec,filter:&str)->bool {
+    let term=crate::cmdline::fold_vi(filter);
+    if term.is_empty() {return true;}
+    let vi=crate::i18n::tr("vi",spec.label);
+    crate::cmdline::matches_vietnamese_command_phrase(spec.id,&term)
+        || [spec.id,spec.label,vi].into_iter()
+            .chain(spec.aliases.iter().copied())
+            .chain(spec.menu.iter().copied())
+            .any(|part|crate::cmdline::fold_vi(part).contains(&term))
+}
+
+/// Precise examples for common operations, not a claim that all CAD commands
+/// have bespoke tutorials. Unlisted commands fall back to their native spec
+/// and to the actual interactive Prompt shown while the command runs.
+fn command_ref_example(id:&str)->Option<&'static str> {
+    match id {
+        "line"=>Some("L (LINE): pick start (chọn điểm đầu) 0,0 → pick next (điểm sau) 5000,0 → Enter (kết thúc). C/A are ONLY available if the current command prompt lists them."),
+        "pline"=>Some("PL (PLINE): pick 0,0 → 5000,0 → 5000,3000 → Close (khép kín) nếu prompt hỗ trợ; Enter để kết thúc."),
+        "circle"=>Some("C (CIRCLE): pick center (chọn tâm) 1000,1000 → radius (bán kính) 500 → Enter."),
+        "rectang"=>Some("REC (RECTANG): pick first corner (chọn góc đầu) 0,0 → opposite corner (góc đối diện) 6000,4000."),
+        "arc"=>Some("ARC (Cung tròn): chọn điểm đầu, điểm thứ hai và điểm kết thúc đúng theo lựa chọn đang hiện trong lệnh."),
+        "dist"=>Some("DI (DIST): chọn hai điểm bằng OSNAP; xem Distance (Khoảng cách) trong lịch sử lệnh. F3 bật bắt điểm."),
+        "id"=>Some("ID (Tọa độ điểm): nhấp một điểm bằng OSNAP; xem tọa độ X,Y trong dòng lịch sử."),
+        "area"=>Some("AA (AREA): chọn đối tượng kín hoặc chọn từng đỉnh theo prompt để tính diện tích."),
+        "dimlinear"=>Some("DIMLINEAR (Kích thước thẳng): chọn hai điểm đo → chọn vị trí đặt đường kích thước."),
+        "dimaligned"=>Some("DIMALIGNED (Kích thước xiên): chọn hai điểm → vị trí đặt số đo trên đường xiên."),
+        "trim"=>Some("TR (TRIM): làm theo Select objects (Chọn đối tượng)/cutting edges (Cạnh cắt) trên dòng lệnh; Enter khi prompt cho phép."),
+        "extend"=>Some("EX (EXTEND): chọn biên giới hạn → chọn cạnh cần kéo dài theo prompt."),
+        "copy"=>Some("CO (COPY): chọn đối tượng → Enter kết thúc chọn → điểm gốc → điểm đích; Escape (Esc) hủy."),
+        "move"=>Some("M (MOVE): chọn đối tượng → Enter kết thúc chọn → điểm gốc → điểm đích."),
+        "offset"=>Some("OFFSET (Vẽ song song): nhập khoảng cách → chọn nét → chọn phía cần offset."),
+        "purge"=>Some("PURGE (Làm sạch bản vẽ): kiểm tra nhóm dữ liệu không được sử dụng trước khi xác nhận xóa."),
+        "audit"=>Some("AUDIT (Kiểm tra bản vẽ): chạy kiểm tra, đọc thông báo sửa lỗi trước khi lưu."),
+        "layer"=>Some("LAYER (Quản lý lớp): mở quản lý Layer để đổi lớp đang dùng, màu, khóa/mở khóa."),
+        "zoom"=>Some("ZOOM (Thu phóng): chọn Extents (Toàn bộ) hoặc Window (Theo vùng) nếu prompt hiện tùy chọn đó."),
+        _=>None,
+    }
+}
+
+/// Strictly a display filter: never alters the engine command registry.
+fn command_ref_in_view(spec:&cadcraft_engine::CommandSpec,filter:&str,
+    require_vietnamese:bool,require_example:bool,interactive_only:bool)->bool {
+    command_ref_matches(spec,filter)
+        && (!require_vietnamese || crate::i18n::tr("vi",spec.label)!=spec.label)
+        && (!require_example || command_ref_example(spec.id).is_some())
+        && (!interactive_only || spec.interactive.is_some())
+}
+
+/// Rank only the visual search result order: exact original alias/command
+/// first, then ID prefixes, Vietnamese phrases and finally loose matches.
+/// No command is removed, renamed or executed by this ranking.
+fn command_ref_rank(spec:&cadcraft_engine::CommandSpec,filter:&str)->u8 {
+    let term=crate::cmdline::fold_vi(filter);
+    if term.is_empty(){return 5;}
+    if crate::cmdline::fold_vi(spec.id)==term
+        || spec.aliases.iter().any(|alias|crate::cmdline::fold_vi(alias)==term) {return 0;}
+    if crate::cmdline::fold_vi(spec.id).starts_with(&term)
+        || spec.aliases.iter().any(|alias|crate::cmdline::fold_vi(alias).starts_with(&term)) {return 1;}
+    if crate::cmdline::matches_vietnamese_command_phrase(spec.id,&term) {return 2;}
+    let vi=crate::i18n::tr("vi",spec.label);
+    if crate::cmdline::fold_vi(spec.label).starts_with(&term)
+        || crate::cmdline::fold_vi(vi).starts_with(&term) {return 3;}
+    4
+}
+
+/// Full command handbook: original aliases remain executable from native
+/// command specs. Selecting a row only changes HELP selection; executing
+/// still calls the original CadApp::start path.
 fn commands(app: &mut CadApp, ctx: &egui::Context, open: &mut bool) {
-    let mut start = None;
-    egui::Window::new(crate::tl!("Command Reference")).id(egui::Id::unique("Command Reference")).open(open).default_size(vec2(640.0, 480.0)).show(
-        ctx,
-        |ui| {
-            let id = ui.scope_id().with("cmdfilter");
-            let mut filter = ui.data_mut(|d| d.get_temp::<String>(id)).unwrap_or_default();
-            ui.horizontal(|ui| {
-                let label = ui.label(crate::tl!("Filter"));
-                ui.text_edit_singleline(&mut filter).labelled_by(label.id);
+    let mut start:Option<&'static str>=None;
+    egui::Window::new("COMMAND HANDBOOK (Sổ tay lệnh CAD)")
+        .id(egui::Id::unique("Command Reference"))
+        .open(open).default_size(vec2(920.0,590.0)).min_width(560.0)
+        .show(ctx,|ui|{
+            let filter_id=ui.scope_id().with("cmdfilter");
+            let selected_id=ui.scope_id().with("cmd_selected");
+            let mut filter=ui.data_mut(|d|d.get_temp::<String>(filter_id)).unwrap_or_default();
+            let mut selected=ui.data_mut(|d|d.get_temp::<String>(selected_id))
+                .unwrap_or_else(||"line".to_owned());
+            ui.horizontal_wrapped(|ui|{
+                ui.strong("SEARCH (Tìm lệnh):");
+                ui.add(egui::TextEdit::singleline(&mut filter)
+                    .hint_text("L, PL, LINE, vẽ đường thẳng, đo khoảng cách, tô màu..."));
+                if ui.small_button("CLEAR (Xóa lọc)").clicked(){filter.clear();}
             });
-            ui.data_mut(|d| d.insert_temp(id, filter.clone()));
-            let f = filter.to_lowercase();
-            egui::ScrollArea::vertical().show(ui, |ui| {
-                egui::Grid::new("cmdref").striped(true).num_columns(3).show(ui, |ui| {
-                    for c in cadcraft_engine::command_specs() {
-                        if !f.is_empty()
-                            && !c.id.contains(&f)
-                            && !c.label.to_ascii_lowercase().contains(&f)
-                            && !crate::i18n::t(c.label).to_lowercase().contains(&f)
-                        {
-                            continue;
-                        }
-                        if ui.link(c.id.to_ascii_uppercase()).clicked() {
-                            start = Some(c.id);
-                        }
-                        ui.label(crate::i18n::t(c.label));
-                        ui.label(RichText::new(if c.aliases.is_empty() { String::new() } else { c.aliases.join(", ").to_ascii_uppercase() }).small());
-                        ui.end_row();
-                    }
-                });
+            ui.small("Search by English, Vietnamese with/without accents, native ID, aliases or menu path (Tìm theo Anh/Việt có dấu/không dấu, mã lệnh, phím tắt, menu).");
+            let show_vi_id=ui.scope_id().with("cmd_show_vi_only");
+            let examples_id=ui.scope_id().with("cmd_examples_only");
+            let interactive_id=ui.scope_id().with("cmd_interactive_only");
+            let mut show_vi=ui.data_mut(|d|d.get_temp::<bool>(show_vi_id)).unwrap_or(false);
+            let mut examples_only=ui.data_mut(|d|d.get_temp::<bool>(examples_id)).unwrap_or(false);
+            let mut interactive_only=ui.data_mut(|d|d.get_temp::<bool>(interactive_id)).unwrap_or(false);
+            ui.horizontal_wrapped(|ui|{
+                ui.checkbox(&mut show_vi,"VI TRANSLATED (Đã dịch)");
+                ui.checkbox(&mut examples_only,"EXAMPLES (Có ví dụ)");
+                ui.checkbox(&mut interactive_only,"INTERACTIVE (Cần chọn điểm/đối tượng)");
             });
-        },
-    );
-    if let Some(c) = start {
-        app.ui.dialog = None;
-        app.start(c);
+            let public=cadcraft_engine::command_specs().iter()
+                .filter(|spec|!spec.id.contains('.')).collect::<Vec<_>>();
+            let mut visible=public.iter().copied()
+                .filter(|spec|command_ref_in_view(spec,&filter,show_vi,examples_only,interactive_only))
+                .collect::<Vec<_>>();
+            if !filter.trim().is_empty() {
+                visible.sort_by_key(|spec|(command_ref_rank(spec,&filter),spec.id));
+            }
+            let vi_count=public.iter().filter(|spec|crate::i18n::tr("vi",spec.label)!=spec.label).count();
+            let example_count=public.iter().filter(|spec|command_ref_example(spec.id).is_some()).count();
+            ui.label(format!("{} / {} COMMANDS (Lệnh) · VI {} / {} · LESSONS {} / {} (Bài hướng dẫn)",
+                visible.len(),public.len(),vi_count,public.len(),example_count,public.len()));
+            ui.data_mut(|d|{
+                d.insert_temp(show_vi_id,show_vi);
+                d.insert_temp(examples_id,examples_only);
+                d.insert_temp(interactive_id,interactive_only);
+            });
+            ui.separator();
+            ui.columns(2,|cols|{
+                let [left,right]=cols else{return};
+                left.strong("COMMANDS (Danh sách lệnh)");
+                egui::ScrollArea::vertical().id_salt("cmd_handbook_list")
+                    .max_height(440.0).show(left,|ui|{
+                        for spec in &visible {
+                            let vi=crate::i18n::tr("vi",spec.label);
+                            let alias=spec.aliases.iter().min_by_key(|a|(a.len(),*a)).copied();
+                            let short=alias.map(|a|format!("{} · ",a.to_ascii_uppercase()))
+                                .unwrap_or_default();
+                            let title=format!("{short}{} ({})",spec.id.to_ascii_uppercase(),
+                                if vi==spec.label {spec.label}else{vi});
+                            if ui.selectable_label(selected==spec.id,title)
+                                .on_hover_text(format!("{} ({}) · Enter RUN in detail (Xem rồi chạy)",spec.label,vi))
+                                .clicked(){selected=spec.id.to_owned();}
+                        }
+                    });
+                right.strong("HOW TO (Hướng dẫn sử dụng)");
+                egui::ScrollArea::vertical().id_salt("cmd_handbook_detail")
+                    .max_height(445.0).show(right,|ui|{
+                        let selected_spec=cadcraft_engine::cmd::find_command(&selected)
+                            .filter(|spec|!spec.id.contains('.'));
+                        if let Some(spec)=selected_spec {
+                            let vi=crate::i18n::tr("vi",spec.label);
+                            ui.heading(format!("{} ({})",spec.id.to_ascii_uppercase(),
+                                if vi==spec.label{spec.label}else{vi}));
+                            ui.label(format!("English (Tiếng Anh): {}",spec.label));
+                            ui.label(format!("ALIAS (Viết tắt có thật): {}",
+                                if spec.aliases.is_empty(){"—".to_owned()}
+                                else{spec.aliases.join(", ").to_ascii_uppercase()}));
+                            if let Some(key)=spec.shortcut {
+                                ui.label(format!("SHORTCUT (Phím tắt): {key}"));
+                            }
+                            ui.label(format!("GROUP (Nhóm lệnh): {}",
+                                if spec.menu.is_empty(){"Engine command (Lệnh CAD)".to_owned()}
+                                else{spec.menu.join(" > ")}));
+                            ui.label(format!("MODE (Chế độ): {}",
+                                if spec.interactive.is_some(){"Interactive (Tương tác theo prompt)"}
+                                else{"Direct (Lệnh trực tiếp hoặc hộp thoại)"}));
+                            if !spec.params.is_empty() {
+                                ui.collapsing("API PARAMETERS (Tham số tự động hóa)",|ui|{
+                                    ui.code(spec.params);
+                                });
+                            }
+                            ui.separator();
+                            if let Some(example)=command_ref_example(spec.id) {
+                                ui.label("EXAMPLE (Ví dụ thao tác):");
+                                ui.label(example);
+                            } else {
+                                ui.label("STEP 1 (Bước 1): Click RUN / type full command or registered alias (Nhấn chạy hoặc nhập lệnh/viết tắt).");
+                                ui.label("STEP 2 (Bước 2): Follow the original command prompt (Chọn điểm, đối tượng, số hoặc tùy chọn đang hiển thị).");
+                                ui.label("STEP 3 (Bước 3): Finish according to prompt; Esc cancels (Kết thúc đúng bước, Esc để hủy).");
+                            }
+                            ui.separator();
+                            ui.small("F3 OSNAP (Bật bắt điểm) · Esc CANCEL (Hủy) · Enter only when prompted (Enter theo trạng thái lệnh).");
+                            match (spec.enabled)(&app.session) {
+                                Ok(())=>{
+                                    if ui.button(format!("▶ RUN {} (Thực hiện lệnh)",spec.id.to_ascii_uppercase())).clicked() {
+                                        start=Some(spec.id);
+                                    }
+                                },
+                                Err(reason)=>{
+                                    ui.label(format!("UNAVAILABLE (Chưa thể chạy): {reason}"));
+                                }
+                            }
+                            ui.small("RUN uses original CAD engine. Suggestions only help discover/execute existing commands (Không tạo cú pháp giả).");
+                        } else {
+                            ui.label("SELECT COMMAND (Chọn một lệnh từ danh sách).");
+                        }
+                    });
+            });
+            ui.data_mut(|d|{
+                d.insert_temp(filter_id,filter);
+                d.insert_temp(selected_id,selected);
+            });
+        });
+    if let Some(id)=start {
+        app.ui.dialog=None;
+        app.start(id);
+    }
+}
+
+#[cfg(test)]
+mod command_handbook_tests {
+    use super::*;
+    #[test]
+    fn entire_public_command_registry_remains_searchable_in_handbook() {
+        let specs=cadcraft_engine::command_specs();
+        let mut count=0;
+        for spec in specs {
+            if spec.id.contains('.') {continue;}
+            count+=1;
+            assert!(command_ref_matches(spec,spec.id),"missing full CAD command {}",spec.id);
+            for alias in spec.aliases {
+                assert!(command_ref_matches(spec,alias),"missing alias {alias} for {}",spec.id);
+            }
+        }
+        assert!(count>100,"expected real CAD registry");
+    }
+    #[test]
+    fn handbook_exact_native_aliases_rank_ahead_of_similar_matches() {
+        let specs=cadcraft_engine::command_specs();
+        for (input,id) in [("l","line"),("pl","pline"),("c","circle"),("rec","rectang"),("di","dist")] {
+            let matches=specs.iter().filter(|spec|!spec.id.contains('.')
+                && command_ref_matches(spec,input)).collect::<Vec<_>>();
+            let top=matches.into_iter().min_by_key(|spec|(command_ref_rank(spec,input),spec.id))
+                .expect("native CAD alias missing");
+            assert_eq!(top.id,id,"native alias ranking changed for {input}");
+            assert_eq!(command_ref_rank(top,input),0);
+        }
+        let purge=cadcraft_engine::cmd::find_command("purge").unwrap();
+        assert!(command_ref_rank(purge,"làm sạch bản vẽ")<=2);
+        assert!(command_ref_rank(purge,"lam sach ban ve")<=2);
+    }
+
+    #[test]
+    fn handbook_filters_never_hide_native_commands_by_default() {
+        let public=cadcraft_engine::command_specs().iter()
+            .filter(|spec|!spec.id.contains('.')).collect::<Vec<_>>();
+        for spec in public {
+            assert!(command_ref_in_view(spec,"",false,false,false),
+                "default handbook must include command {}",spec.id);
+            if command_ref_example(spec.id).is_some() {
+                assert!(command_ref_in_view(spec,"",false,true,false));
+            } else {
+                assert!(!command_ref_in_view(spec,"",false,true,false));
+            }
+            if spec.interactive.is_some() {
+                assert!(command_ref_in_view(spec,"",false,false,true));
+            }
+        }
+    }
+
+    #[test]
+    fn audit_native_cad_command_handbook_coverage() {
+        let public=cadcraft_engine::command_specs().iter()
+            .filter(|spec|!spec.id.contains('.')).collect::<Vec<_>>();
+        let translated=public.iter().filter(|spec|
+            crate::i18n::tr("vi",spec.label)!=spec.label).count();
+        let illustrated=public.iter().filter(|spec|
+            command_ref_example(spec.id).is_some()).count();
+        let with_alias=public.iter().filter(|spec|!spec.aliases.is_empty()).count();
+        let with_menu=public.iter().filter(|spec|!spec.menu.is_empty()).count();
+        let interactive=public.iter().filter(|spec|spec.interactive.is_some()).count();
+        assert!(public.len()>100);
+        assert!(translated<=public.len()&&illustrated<=public.len());
+        println!("CAD360_V1027_COMMAND_COVERAGE registered={} vi_translated={} with_alias={} with_menu={} interactive={} hand_illustrated={} without_example={}",
+            public.len(),translated,with_alias,with_menu,interactive,illustrated,
+            public.len()-illustrated);
+        // Searchability applies to all native commands. Full written lessons
+        // and AutoCAD 2027 parity are deliberately *not* asserted.
+        for spec in public {
+            assert!(command_ref_matches(spec,spec.id));
+        }
+    }
+
+    #[test]
+    fn vietnamese_search_and_examples_keep_native_identifiers() {
+        let line=cadcraft_engine::cmd::find_command("line").unwrap();
+        assert!(command_ref_matches(line,"vẽ đường thẳng")||command_ref_matches(line,"đường thẳng"));
+        let dist=cadcraft_engine::cmd::find_command("dist").unwrap();
+        assert!(command_ref_matches(dist,"khoảng cách"));
+        assert!(command_ref_matches(line,"vẽ đường thẳng"));
+        assert!(command_ref_matches(line,"ve duong thang"));
+        let purge=cadcraft_engine::cmd::find_command("purge").unwrap();
+        assert!(command_ref_matches(purge,"làm sạch bản vẽ"));
+        assert!(command_ref_matches(purge,"lam sach ban ve"));
+        assert!(command_ref_example("line").unwrap().contains("L (LINE)"));
+        assert!(command_ref_example("dist").unwrap().contains("DI (DIST)"));
+        assert!(command_ref_example("not_a_cad_command").is_none());
     }
 }
 

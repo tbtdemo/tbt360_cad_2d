@@ -55,6 +55,11 @@ pub struct State {
     error: Option<String>,
     min_length: u32,
     max_lines: u32,
+    roi_enabled: bool,
+    roi_x: u32,
+    roi_y: u32,
+    roi_width: u32,
+    roi_height: u32,
     studio_tab: usize,
     advanced_tab: usize,
     scale: f64,
@@ -239,6 +244,9 @@ impl State {
             "doorHingeFlips":if self.create_door_blocks && !self.door_hinge_flips.is_empty() {Some(&self.door_hinge_flips)} else {None},
             "doorSwingFlips":if self.create_door_blocks && !self.door_swing_flips.is_empty() {Some(&self.door_swing_flips)} else {None},
             "expectedDoorSourceKeys":if self.create_door_blocks && self.has_individual_door_review() {Some(&self.last_door_source_keys)} else {None}});
+        if self.roi_enabled {
+            params["regionPixels"]=json!([self.roi_x,self.roi_y,self.roi_width,self.roi_height]);
+        }
         let group5=json!({"createOpeningGuidePolylines":self.create_opening_guides,
             "confirmOpeningGuides":self.confirm_opening_guides,
             "minOpeningGapPixels":self.min_opening_gap,
@@ -735,6 +743,42 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
             }
             if state.studio_tab==3 {
             ui.heading("Kết nối AI & Tài liệu");
+            ui.collapsing("BẮT ĐẦU TỪ SỐ 0 — AI ẢNH → CAD", |ui| {
+                ui.label("1. Chỉ dùng ảnh hoặc PDF có MẶT BẰNG, không chụp cả ribbon CAD, bảng Layer, chữ menu; cắt vùng tầng hoặc phân khu nếu nhiều nét.");
+                ui.label("2. Mở tab 01 Ảnh/PDF → Chọn ảnh → đặt tỷ lệ CAD/pixel theo kích thước đã biết → Nhận dạng và xem trước.");
+                ui.label("3. Nếu báo quá 1.000 nét kiến trúc hoặc 10.000 nét hình học: tăng Nét tối thiểu hoặc cắt ảnh, KHÔNG tăng tùy tiện tỷ lệ CAD để né lỗi.");
+                ui.label("4. Đối chiếu các nét, phòng P1/P2, tường, khoảng cửa nghi vấn với ảnh gốc. Khoảng mở chưa được coi là cửa thực tế.");
+                ui.label("5. Chỉ khi đã xem trước và xác nhận, mới cho phép tạo LINE/PLINE/BLOCK; lưu bản vẽ mới và dùng UNDO khi cần.");
+                ui.small("GIỚI HẠN: đây là dò hình học raster; chưa phải AI ngữ nghĩa đọc hoàn chỉnh mặt bằng kiến trúc.");
+            });
+            ui.collapsing("LỆNH TIẾNG VIỆT — VÍ DỤ THỰC HIỆN", |ui| {
+                ui.label("Gõ ở dòng lệnh dưới bản vẽ (có dấu hoặc không dấu), chọn gợi ý hoặc gõ đủ câu rồi Enter:");
+                for (vi,cmd,guide) in [
+                    ("làm sạch bản vẽ","PURGE","Chọn các thành phần không dùng để dọn"),
+                    ("vẽ đường thẳng","LINE / L","Chọn điểm đầu và điểm tiếp theo"),
+                    ("vẽ đa đoạn","PLINE / PL","Chọn các đỉnh, Enter kết thúc"),
+                    ("vẽ hình chữ nhật","RECTANG / REC","Chọn hai góc đối diện"),
+                    ("đo khoảng cách","DIST / DI","Chọn hai điểm để đọc kết quả"),
+                    ("tìm tọa độ","ID","Chọn một điểm đọc X,Y,Z"),
+                    ("ghi kích thước","DIMLINEAR / DLI","Chọn hai điểm và vị trí đặt số đo"),
+                ] {
+                    ui.horizontal_wrapped(|ui| {
+                        ui.strong(vi);ui.small(format!("→ {cmd} · {guide}"));
+                    });
+                }
+                ui.small("ĐANG CHỜ hiển thị loại thao tác lệnh đang đợi. F3 bật OSNAP; Esc hủy; Enter kết thúc hoặc xác nhận tùy lệnh.");
+            });
+            ui.collapsing("AI REVIEW KHÁC AI STUDIO NHƯ THẾ NÀO?", |ui| {
+                ui.label("AI Studio (01) đọc ảnh để tạo bản xem trước nhiều nét. AI Review (02) là trình kiểm duyệt câu lệnh CAD đã mô tả rõ tọa độ.");
+                ui.label("Ví dụ bản nháp AI Review: vẽ phòng rộng 6000 dài 4000 tại 0,0; xem trước RECTANG trước khi xác nhận.");
+                ui.label("Không dùng lời tự do chưa có trong từ điển để trực tiếp tạo hình học; AI Review chưa tự đồng bộ với kết quả nhận dạng ảnh.");
+                ui.label("Nếu cần tường + cửa: chọn ví dụ 'Tường và cửa' trong tab 02 và xem tọa độ, độ dày, hướng mở trước khi ghi.");
+            });
+            ui.collapsing("OSNAP / BẮT ĐIỂM — KHÔNG PHẢI TỌA ĐỘ ƯỚC LƯỢNG", |ui| {
+                ui.label("F3: bật bắt điểm thật trên đối tượng; END: đầu mút LINE; MID: trung điểm LINE; CEN: tâm CIRCLE; INT: giao điểm.");
+                ui.label("Ví dụ: L → nhấp END của tường A → nhấp MID của tường B → Enter. DIST → nhấp lại hai điểm để đo khoảng cách.");
+                ui.label("Mở Options → Drafting → Drafting Settings để xem từng OSNAP có ví dụ. F8 trực giao, F10 dò góc, F12 nhập động.");
+            });
             ui.collapsing("Kết nối trợ lý AI ngoài qua MCP", |ui| {
                 ui.label("CAD 360 có MCP server kết nối với ứng dụng AI hỗ trợ Model Context Protocol.");
                 ui.label("Để AI thao tác trên bản vẽ đang mở, chạy CAD 360 với --control 7979 và kết nối:");
@@ -820,8 +864,44 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
                 ui.label("Đơn vị CAD/pixel");
                 if ui.add(egui::DragValue::new(&mut state.scale).speed(0.01).range(0.000001..=1_000_000.0)).changed() { state.preview = None; }
             });
+            ui.group(|ui| {
+                ui.horizontal_wrapped(|ui| {
+                    ui.strong("Vùng bản vẽ cần phân tích (ROI)");
+                    if ui.checkbox(&mut state.roi_enabled,"Chỉ phân tích vùng chọn").changed() {state.preview=None;}
+                    if ui.button("Toàn ảnh").clicked() {state.roi_enabled=false;state.preview=None;}
+                });
+                ui.small("Chọn 1/4 ảnh để loại bỏ ribbon, bảng Layer, chữ và nét ngoài mặt bằng. Tọa độ CAD giữ theo ảnh gốc; Preview vẫn phải được duyệt.");
+                if !state.path.is_empty() {
+                    if let Ok((w,h))=image::image_dimensions(&state.path) {
+                        ui.small(format!("Kích thước ảnh gốc: {w} × {h} px"));
+                        ui.horizontal_wrapped(|ui| {
+                            for (label,x,y,cw,ch) in [
+                                ("1/4 trên trái",0,0,w/2,h/2),
+                                ("1/4 trên phải",w/2,0,w-w/2,h/2),
+                                ("1/4 dưới trái",0,h/2,w/2,h-h/2),
+                                ("1/4 dưới phải",w/2,h/2,w-w/2,h-h/2)
+                            ] {
+                                if ui.button(label).clicked() {
+                                    state.roi_enabled=true;state.roi_x=x;state.roi_y=y;
+                                    state.roi_width=cw;state.roi_height=ch;
+                                    state.preview=None;
+                                }
+                            }
+                        });
+                    }
+                }
+                if state.roi_enabled {
+                    ui.horizontal_wrapped(|ui| {
+                        ui.label("X");if ui.add(egui::DragValue::new(&mut state.roi_x).range(0..=8192)).changed() {state.preview=None;}
+                        ui.label("Y");if ui.add(egui::DragValue::new(&mut state.roi_y).range(0..=8192)).changed() {state.preview=None;}
+                        ui.label("Rộng");if ui.add(egui::DragValue::new(&mut state.roi_width).range(1..=8192)).changed() {state.preview=None;}
+                        ui.label("Cao");if ui.add(egui::DragValue::new(&mut state.roi_height).range(1..=8192)).changed() {state.preview=None;}
+                    });
+                    ui.small("ROI dùng tọa độ pixel, gốc (0,0) ở góc trên trái ảnh. Chỉ các nét bên trong vùng này được nhận dạng.");
+                }
+            });
             if state.max_lines > 1000 {
-                ui.small("Chế độ dữ liệu lớn: hỗ trợ tối đa 10.000 nét hình học; một số chức năng nhận dạng phòng/cửa/cột vẫn phải phân vùng để tránh sai và treo máy.");
+                ui.small("Chế độ dữ liệu lớn: 10.000 nét hình học; phân tích kiến trúc tối đa 1.000 nét trong ROI. Hãy chọn từng khu vực, không tự bỏ giới hạn để suy đoán cấu kiện.");
             }
             }
             if state.studio_tab==2 {

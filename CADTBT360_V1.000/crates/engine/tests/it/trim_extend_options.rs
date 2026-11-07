@@ -201,3 +201,127 @@ fn json_forms_take_fence_crossing_edge_mode_and_mode() {
     assert_eq!(r["extended"], 1);
     assert_eq!(lines(&s), vec![((0.0, 0.0), (10.0, 0.0)), ((10.0, -5.0), (10.0, 5.0))]);
 }
+
+
+/// Regression for an architectural crossing: TRIM and EXTEND must preserve
+/// actual editable line endpoints through Undo, Redo and DXF serialization.
+#[test]
+fn architectural_trim_extend_undo_redo_and_dxf_reopen() {
+    let mut trim = ladder();
+    let original = lines(&trim);
+    trim.script("TRIM 5,0\n\n").expect("native quick TRIM");
+    assert!(trim.running.is_none());
+    let trimmed=with_edges(&[
+        ((-5.0,0.0),(0.0,0.0)),
+        ((-5.0,2.0),(15.0,2.0)),
+        ((10.0,0.0),(15.0,0.0)),
+    ]);
+    assert_eq!(lines(&trim),trimmed,"TRIM must remove only the picked run");
+    trim.undo().expect("Undo TRIM");
+    assert_eq!(lines(&trim),original,"Undo restores original crossing");
+    trim.redo().expect("Redo TRIM");
+    assert_eq!(lines(&trim),trimmed,"Redo restores exact trim endpoints");
+    let saved=cadcraft_io::write_dxf(trim.doc().unwrap());
+    let reopened=cadcraft_io::read_dxf(saved.as_bytes()).expect("reopen trimmed DXF");
+    let reopened_lines={
+        let mut found=reopened.model.iter().filter_map(|e|match &e.kind{
+            EntityKind::Line(l)=>Some(((r(l.a.x),r(l.a.y)),(r(l.b.x),r(l.b.y)))),
+            _=>None,
+        }).map(|(a,b)|if a<=b{(a,b)}else{(b,a)}).collect::<Vec<_>>();
+        found.sort_by(|a,b|a.partial_cmp(b).unwrap());
+        found
+    };
+    assert_eq!(reopened_lines,trimmed,"DXF must keep editable TRIM lines");
+
+    let mut extend=session(&["10,-5 10,5","0,0 4,0","0,2 4,2"]);
+    let before=lines(&extend);
+    extend.script("EXTEND F 3,-1 3,3\n\n\n").expect("native EXTEND fence");
+    let after=vec![
+        ((0.0,0.0),(10.0,0.0)),
+        ((0.0,2.0),(10.0,2.0)),
+        ((10.0,-5.0),(10.0,5.0)),
+    ];
+    assert_eq!(lines(&extend),after,"EXTEND must stop exactly at boundary");
+    extend.undo().expect("Undo EXTEND");
+    assert_eq!(lines(&extend),before);
+    extend.redo().expect("Redo EXTEND");
+    assert_eq!(lines(&extend),after);
+}
+
+
+/// Regression for the native FILLET/CHAMFER commands on an architectural
+/// right-angle corner; validates real editable geometry, undo and DXF reload.
+/// Existing command semantics are exercised, not replaced by a mock.
+#[test]
+fn architectural_fillet_chamfer_native_geometry_undo_redo_and_dxf() {
+    let mut s = session(&["0,0 10,0", "10,0 10,10"]);
+    let handles = s.doc().unwrap().model.iter().map(|e| e.handle.hex()).collect::<Vec<_>>();
+    assert_eq!(handles.len(), 2);
+    let before = lines(&s);
+    s.execute("fillet", &json!({
+        "h1": handles[0], "h2": handles[1],
+        "p1": [2,0], "p2": [10,8], "radius": 2.0,
+        "trim": true
+    })).expect("native FILLET on two perpendicular LINEs");
+    let filleted = lines(&s);
+    assert_ne!(filleted, before, "FILLET must trim original line geometry");
+    assert_eq!(filleted, vec![
+        ((0.0, 0.0), (8.0, 0.0)),
+        ((10.0, 2.0), (10.0, 10.0)),
+    ], "FILLET radius 2 at a perpendicular corner must have exact tangent endpoints");
+    assert_eq!(s.doc().unwrap().model.iter()
+        .filter(|e| matches!(&e.kind, EntityKind::Arc(_))).count(), 1,
+        "FILLET must create a native editable ARC");
+    s.undo().expect("Undo FILLET");
+    assert_eq!(lines(&s), before);
+    s.redo().expect("Redo FILLET");
+    assert_eq!(lines(&s), filleted);
+    let dxf = cadcraft_io::write_dxf(s.doc().unwrap());
+    let reopened = cadcraft_io::read_dxf(dxf.as_bytes()).expect("FILLET DXF roundtrip");
+    assert_eq!(reopened.model.iter()
+        .filter(|e| matches!(&e.kind, EntityKind::Arc(_))).count(), 1,
+        "FILLET arc must remain a native CAD entity after DXF reopen");
+
+    let mut c = session(&["0,0 10,0", "10,0 10,10"]);
+    let handles = c.doc().unwrap().model.iter().map(|e| e.handle.hex()).collect::<Vec<_>>();
+    let original = lines(&c);
+    c.execute("chamfer", &json!({
+        "h1": handles[0], "h2": handles[1],
+        "p1": [2,0], "p2": [10,8], "d1": 2.0, "d2": 3.0,
+        "trim": false
+    })).expect("native CHAMFER with No trim");
+    assert_eq!(lines(&c).len(), 3, "CHAMFER must produce an editable LINE");
+    assert!(lines(&c).contains(&((8.0,0.0),(10.0,3.0))),
+        "CHAMFER 2 x 3 must create an exact editable diagonal");
+    for segment in original.iter() {
+        assert!(lines(&c).contains(segment), "No trim must preserve source lines");
+    }
+    c.undo().expect("Undo CHAMFER");
+    assert_eq!(lines(&c), original);
+    c.redo().expect("Redo CHAMFER");
+    assert_eq!(lines(&c).len(), 3);
+    let dxf = cadcraft_io::write_dxf(c.doc().unwrap());
+    let reloaded = cadcraft_io::read_dxf(dxf.as_bytes()).expect("CHAMFER DXF roundtrip");
+    assert_eq!(reloaded.model.iter()
+        .filter(|e| matches!(&e.kind, EntityKind::Line(_))).count(), 3);
+}
+
+
+/// Parallel lines cannot form a unique FILLET or CHAMFER corner.
+/// The failure must not destroy native line geometry.
+#[test]
+fn architectural_parallel_fillet_chamfer_reject_without_geometry_loss() {
+    let mut s = session(&["0,0 10,0", "0,5 10,5"]);
+    let handles = s.doc().unwrap().model.iter().map(|e| e.handle.hex()).collect::<Vec<_>>();
+    let original = lines(&s);
+    assert!(s.execute("chamfer", &json!({
+        "h1": handles[0], "h2": handles[1],
+        "p1": [2,0], "p2": [2,5], "d1": 2.0, "d2": 3.0
+    })).is_err(), "Parallel CHAMFER must reject ambiguous corner");
+    assert_eq!(lines(&s), original, "Invalid CHAMFER may not change entities");
+    assert!(s.execute("fillet", &json!({
+        "h1": handles[0], "h2": handles[1],
+        "p1": [2,0], "p2": [2,5], "radius": 2.0
+    })).is_err(), "Parallel FILLET must reject ambiguous corner");
+    assert_eq!(lines(&s), original, "Invalid FILLET may not change entities");
+}

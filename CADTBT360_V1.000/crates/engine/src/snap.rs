@@ -1096,6 +1096,118 @@ mod tests {
         d
     }
 
+    /// An actual native engine LINE consumes coordinates returned from
+    /// geometry OSNAP; this verifies the saved geometry, not just a cursor
+    /// marker on the drawing canvas.
+    #[test]
+    fn snapped_endpoint_and_center_become_exact_native_line_geometry() {
+        let d=drawing();
+        let endpoint=osnap(&d,&Space::Model,Vec2::new(9.8,0.1),
+            0.5,mode::END,None,false).expect("endpoint");
+        let center=osnap(&d,&Space::Model,Vec2::new(20.1,0.1),
+            0.5,mode::CEN,None,false).expect("circle center");
+        let mut session=crate::Session::new();
+        session.start("line").expect("start native LINE");
+        session.input(crate::Input::Point(endpoint.point)).expect("first snap");
+        session.input(crate::Input::Point(center.point)).expect("second snap");
+        session.input(crate::Input::Enter).expect("finish LINE");
+        assert!(session.running.is_none());
+        let entities=session.doc().unwrap().model.iter()
+            .filter_map(|e|match &e.kind {
+                EntityKind::Line(line)=>Some((line.a.xy(),line.b.xy())),
+                _=>None,
+            }).collect::<Vec<_>>();
+        assert!(entities.iter().any(|(a,b)|
+            a.near(Vec2::new(10.0,0.0),1e-9)
+                && b.near(Vec2::new(20.0,0.0),1e-9)),
+            "the native drawing must contain the exact OSNAP endpoints: {entities:?}");
+    }
+
+    #[test]
+    fn native_closed_pline_preserves_editable_vertices_after_dxf_reopen() {
+        let mut session=crate::Session::new();
+        session.cmdline("PLINE 0,0 6000,0 6000,4000 0,4000 C")
+            .expect("native closed polyline command");
+        assert!(session.running.is_none(),"PLINE should finish on C");
+        let first=session.doc().unwrap().model.iter()
+            .find_map(|e|if let EntityKind::LwPolyline(p)=&e.kind{
+                Some((p.vertices.len(),p.closed))
+            }else{None})
+            .expect("native editable LWPOLYLINE");
+        assert_eq!(first,(4,true));
+        let dxf=cadcraft_io::write_dxf(session.doc().unwrap());
+        let reopened=cadcraft_io::read_dxf(dxf.as_bytes()).expect("DXF reopen");
+        let restored=reopened.model.iter()
+            .find_map(|e|if let EntityKind::LwPolyline(p)=&e.kind{
+                Some((p.vertices.len(),p.closed))
+            }else{None})
+            .expect("LWPOLYLINE remains editable after reopen");
+        assert_eq!(restored,first);
+    }
+
+    #[test]
+    fn osnap_line_undo_redo_restores_exact_geometry() {
+        let reference=drawing();
+        let first=osnap(&reference,&Space::Model,Vec2::new(9.8,0.1),
+            0.5,mode::END,None,false).unwrap().point;
+        let second=osnap(&reference,&Space::Model,Vec2::new(20.1,0.1),
+            0.5,mode::CEN,None,false).unwrap().point;
+        let mut session=crate::Session::new();
+        let count_lines=|session:&crate::Session|session.doc().unwrap().model.iter()
+            .filter(|e|matches!(&e.kind,EntityKind::Line(_))).count();
+        let before=count_lines(&session);
+        session.start("line").unwrap();
+        session.input(crate::Input::Point(first)).unwrap();
+        session.input(crate::Input::Point(second)).unwrap();
+        session.input(crate::Input::Enter).unwrap();
+        assert_eq!(count_lines(&session),before+1);
+        session.undo().expect("undo native snapped LINE");
+        assert_eq!(count_lines(&session),before,"undo must restore the original drawing");
+        session.redo().expect("redo native snapped LINE");
+        assert_eq!(count_lines(&session),before+1);
+        let restored=session.doc().unwrap().model.iter()
+            .filter_map(|e|match &e.kind {
+                EntityKind::Line(line)=>Some((line.a.xy(),line.b.xy())),
+                _=>None,
+            }).collect::<Vec<_>>();
+        assert!(restored.iter().any(|(a,b)|
+            a.near(first,1e-9)&&b.near(second,1e-9)),
+            "redo must keep the original OSNAP points: {restored:?}");
+    }
+
+    #[test]
+    fn snapped_native_line_survives_dxf_save_and_reopen_editably() {
+        let source=drawing();
+        let start=osnap(&source,&Space::Model,Vec2::new(0.1,0.1),
+            0.5,mode::END,None,false).expect("snap start").point;
+        let end=osnap(&source,&Space::Model,Vec2::new(20.1,0.1),
+            0.5,mode::CEN,None,false).expect("snap end").point;
+        let mut session=crate::Session::new();
+        session.start("line").unwrap();
+        session.input(crate::Input::Point(start)).unwrap();
+        session.input(crate::Input::Point(end)).unwrap();
+        session.input(crate::Input::Enter).unwrap();
+        let dxf=cadcraft_io::write_dxf(session.doc().unwrap());
+        let restored=cadcraft_io::read_dxf(dxf.as_bytes()).expect("reopen native DXF");
+        let matching=restored.model.iter().filter(|entity|match &entity.kind {
+            EntityKind::Line(line)=>
+                line.a.xy().near(start,1e-9)&&line.b.xy().near(end,1e-9),
+            _=>false,
+        }).count();
+        assert_eq!(matching,1,"snapped LINE must reopen as an editable CAD line");
+    }
+
+    #[test]
+    fn osnap_never_invents_a_pick_outside_aperture_or_when_disabled() {
+        let d=drawing();
+        for mask in [mode::END,mode::MID,mode::CEN,mode::INT] {
+            assert!(osnap(&d,&Space::Model,Vec2::new(100.0,100.0),
+                0.1,mask,None,false).is_none());
+            assert!(osnap(&d,&Space::Model,Vec2::new(5.0,0.0),
+                1.0,mask|mode::OFF,None,false).is_none());
+        }
+    }
+
     #[test]
     fn endpoint_and_mid() {
         let d = drawing();
