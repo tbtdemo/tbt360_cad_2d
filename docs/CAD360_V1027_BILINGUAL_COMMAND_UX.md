@@ -155,3 +155,15 @@ Thay cửa sổ Command Reference cũ (chỉ danh sách ID, tên, alias) thành 
 - [ ] Cần mở rộng bao phủ bản dịch tiếng Việt qua thống kê CI của toàn bộ CommandSpec, dịch Properties/Settings, và đo bộ hồ sơ AutoCAD 2027 độc lập.
 
 **Giới hạn nghiệm thu:** Tầng gợi ý là trợ lý thao tác theo quy tắc và lịch sử phiên; không phải mô hình AI tự học đã qua huấn luyện. Không thay đổi CAD engine và không bảo đảm chức năng AutoCAD 2027 chưa kiểm thử.
+
+## 14. Đợt nâng cấp nhận diện thực thể được chọn — native CAD EntityKind
+
+- [x] Không chỉ đếm vùng chọn: đọc trực tiếp `EntityKind` của các đối tượng thật trong tài liệu hiện hành, **không dùng AI phỏng đoán hình học**. Hỗ trợ phân nhóm: LINE/XLINE/RAY; CIRCLE/ARC/ELLIPSE/SPLINE; LWPOLYLINE/POLYLINE3D/MLINE; TEXT/MTEXT; INSERT/BLOCK; DIMENSION/LEADER; HATCH; MIXED/OTHER.
+- [x] Không sao chép nội dung đối tượng khi tính gợi ý: đọc `&EntityKind` theo tham chiếu, giảm chi phí với bản vẽ có nhiều đối tượng được chọn.
+- [x] Gợi ý lệnh theo hình học thật: LINE → OFFSET/TRIM/EXTEND/DIST; CIRCLE/ARC → TRIM/OFFSET/DIMRADIUS; POLYLINE → PEDIT/AREA/HATCH; BLOCK → BEDIT/EXPLODE; TEXT → TEXTEDIT/STYLE; DIMENSION → DIMEDIT/DIMSTYLE; HATCH → HATCHEDIT; MIXED → MOVE/COPY/ROTATE.
+- [x] Tất cả lệnh đề xuất qua `find_command`, không gợi ý lệnh chưa đăng ký trong engine. Dòng trạng thái hiển thị số lượng + loại đối tượng theo **English (Tiếng Việt)**; không có hành vi tự chạy lệnh.
+- [x] Regression `native_entity_kind_guides_related_commands_without_inventing_geometry` kiểm tra LINE, CIRCLE, vùng chọn nhiều loại, danh mục gợi ý hợp lệ; đã đưa vào Windows CI.
+- [ ] Phải xác nhận Windows CI của commit mới và kiểm thử EXE với hình học thật, đặc biệt trường hợp chọn nhiều đối tượng bị ẩn/xóa hoặc đổi bản vẽ/Undo.
+- [ ] Chưa có kiểm chứng 100% mọi lệnh AutoCAD 2027 hoặc tự học AI ngữ nghĩa. Đây là mô hình gợi ý dựa trên các kiểu đối tượng CAD đã có và lịch sử phiên.
+
+**Ví dụ giao diện**: `1 LINE (Đường thẳng) · NEXT (Tiếp): O (OFFSET) | TR (TRIM) | EX (EXTEND)`. Các alias hiển thị thực tế được lấy từ `CommandSpec.aliases`, không gán cứng nếu registry không đăng ký.
