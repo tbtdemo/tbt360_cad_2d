@@ -334,6 +334,36 @@ mod snap_label_layout_tests {
     }
 
     #[test]
+    fn fast_click_osnap_aperture_is_screen_pixel_stable_across_zoom_levels() {
+        use crate::Services;
+        use cadcraft_doc::EntityKind;
+        for scale in [5.0, 20.0, 100.0] {
+            let mut app = CadApp::new(cadcraft_engine::Session::new(), Services::default());
+            app.session.cmdline("LINE 0,0 10,0").unwrap();
+            app.session.cmdline("").unwrap();
+            app.session.settings.osmode = cadcraft_engine::snap::mode::END;
+            app.session.settings.aperture = 12.0;
+            app.session.cmdline("LINE").unwrap();
+            let ctx = egui::Context::default();
+            let xf = Xf { rect: Rect::from_min_size(Pos2::ZERO, vec2(800.0, 600.0)),
+                center: Vec2::new(5.0, 0.0), scale };
+            // The first click misses the actual endpoint by 3 screen pixels,
+            // which must snap at every zoom. The second misses the opposite end
+            // by 3 pixels. No stale snap may leak between physical events.
+            input_earlier_snapped_point(&mut app, Vec2::new(10.0 - 3.0 / scale, 0.0), &xf, &ctx)
+                .expect("END snap on first batched click");
+            input_earlier_snapped_point(&mut app, Vec2::new(3.0 / scale, 0.0), &xf, &ctx)
+                .expect("END snap on second batched click");
+            let lines: Vec<_> = app.session.doc().unwrap().model.iter().filter_map(|e| {
+                if let EntityKind::Line(line) = &e.kind { Some((line.a.xy(), line.b.xy())) } else { None }
+            }).collect();
+            assert!(lines.iter().any(|(a,b)|
+                a.near(Vec2::new(10.0,0.0),1e-9) && b.near(Vec2::new(0.0,0.0),1e-9)),
+                "END must follow world coordinates with constant screen-pixel aperture at scale {scale}: {lines:?}");
+        }
+    }
+
+    #[test]
     fn native_snap_names_remain_english_first_with_vietnamese_explanation() {
         for (english,translation) in [
             ("Endpoint","Điểm cuối"),("Midpoint","Trung điểm"),
