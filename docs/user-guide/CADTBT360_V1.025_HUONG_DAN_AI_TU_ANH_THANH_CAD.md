@@ -315,3 +315,24 @@ Mỗi lượt phát hành Windows thành công được cấu hình để kèm `
 4. Lưu DWG chuẩn, mở lại trong CAD 360 và kiểm tra số lượng/loại hình học; kiểm tra thêm bằng AutoCAD hoặc phần mềm CAD độc lập trước khi nghiệm thu khả năng trao đổi hai chiều.
 
 **Tình trạng xác minh:** Kiểm thử Windows PDF → PNG độc lập đã từng PASS. Các kiểm thử mới về Ollama, hủy AI, nguồn PDF bất biến, kế hoạch nhiều đối tượng, Undo/Redo và DWG cần CI mới nhất PASS và thao tác kiểm thử GUI trên máy Windows trước khi xác nhận sản phẩm hoạt động 100%.
+
+## Bổ sung ngày 07/11/2026 — Phân tích mặt bằng kiến trúc và bắt điểm đối tượng AI
+
+### Phân tích mặt bằng một lần
+1. Chọn **Ảnh / PDF** trong AI Studio; nạp tệp PNG/JPG hoặc trang PDF cần xử lý.
+2. Xác định **Đơn vị CAD/pixel** theo kích thước kiểm chứng trên bản vẽ. Nếu chưa hiệu chuẩn, kết quả chỉ là hình học chưa đúng kích thước thật.
+3. Nhấn **PHÂN TÍCH MẶT BẰNG KIẾN TRÚC - Tường / Cửa / Cột / Phòng**. Chế độ này bật kiểm tra cặp nét tường, dải tường, khoảng mở, cánh cửa, khung cửa sổ và cột. Kết quả chỉ hiện trong **Preview**, không tự ghi CAD.
+4. Đọc số lượng **vùng khép kín nghi là phòng**, cặp tường, dải tường, khoảng mở và ứng viên cột. Kiểm tra từng hình vẽ; không tự coi vùng khép kín là phòng đã được xác nhận.
+5. Chỉ khi các đối tượng được kiểm tra và đồng ý mới nhấn **Tạo vào CAD**. Sau khi tạo, kiểm tra hình học, Undo/Redo, lưu và mở lại DWG.
+
+**Ảnh có nhiều nét:** giới hạn giao diện mặc định 500, chỉnh 50–1.000 trong tab Ảnh / PDF; lõi tìm cặp nét tường và hình chữ nhật khép kín không còn trả rỗng chỉ vì ảnh vượt 256 nét. Mặt bằng có quá nhiều nhiễu có thể đòi hỏi tăng **Nét tối thiểu** hoặc chia vùng ảnh; không được bỏ bớt cấu kiện quan trọng một cách tự động.
+
+### Bắt điểm trên đối tượng do AI tạo
+- **Bắt điểm thực tế (OSNAP)** áp dụng lên đối tượng CAD gốc có thể chỉnh sửa (LINE/PLINE/ARC/CIRCLE), không áp dụng vào từng pixel của ảnh nền PNG/PDF. Phải thực hiện bước tạo đối tượng CAD sau Preview trước khi kiểm tra OSNAP.
+- Mặc định chạy **Endpoint (đầu mút), Midpoint (trung điểm), Center (tâm), Intersection (giao điểm), Extension (kéo dài)**.
+- Di chuột qua đối tượng để xem dấu OSNAP khi đứng ở trạng thái chờ; khi đang thực hiện lệnh yêu cầu tọa độ, OSNAP mới ảnh hưởng tới điểm được chọn. Nhấn **F3** để bật/tắt bắt điểm nếu người dùng đã tắt.
+- Thử dựng một LINE bằng AI, vào lệnh LINE thủ công, rê gần đầu mút rồi trung điểm và kiểm tra dấu bắt điểm; thử CIRCLE để kiểm tra điểm tâm. Vị trí bắt điểm phụ thuộc độ phóng đại và giới hạn aperture.
+- Đối tượng AI xuất thành ảnh raster đơn thuần **không có** điểm END/MID/CEN CAD; phải vector hóa thành đối tượng native.
+
+### Giới hạn hiện tại
+Phân tích vùng khép kín và tường/cửa/cột hiện dựa trên bằng chứng hình học quan sát được; các vùng bị che, phòng không khép kín, nét đứt, cửa đặc biệt, chú thích/kích thước và bản vẽ đa lớp vẫn cần phát triển thêm và xác nhận bằng bộ bản vẽ thực. Không tuyên bố AI đã hiểu hoàn chỉnh mọi loại mặt bằng hoặc dựng chính xác 100% khi chưa nghiệm thu.
