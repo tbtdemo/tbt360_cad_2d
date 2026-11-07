@@ -284,3 +284,17 @@ Các bài test đã được khai báo là bắt buộc trong `cad360-v1027-comm
 - [ ] Cần thao tác kiểm nghiệm trực tiếp bằng EXE Windows: click TRIM/EXTEND trong canvas, xem selection/aperture/OSNAP, so sánh kết quả trước và sau với bản vẽ thật, đối chiếu AutoCAD và DWG 2 chiều.
 
 **Giới hạn:** kiểm thử trực tiếp trên engine bằng script native và DXF; chưa đại diện cho mọi cấu kiện kiến trúc, mọi trường hợp TRIM/EXTEND, UI Windows và DWG.
+
+
+## 25. V1.027 — Sửa gợi ý Enter và mở rộng nghiệm thu toàn bộ nhóm lệnh kiến trúc
+
+- [x] Đọc Windows CI run `42353679425`: bước biên dịch đạt, nhưng 1/23 ca lệnh song ngữ lỗi tại `prompt_guidance_respects_enter_and_real_point_input_context` (hướng dẫn Enter bị mô tả như giá trị mặc định cho prompt chọn điểm với keyword).
+- [x] `cmdline.rs`: khi prompt nhận điểm có danh sách keyword, UI không còn mô tả Enter là **Mặc định**. Vẫn chỉ hiển thị Enter khi `prompt.accept.enter` thực sự bật. Không thay đổi hành vi engine, cú pháp parser, Input::Enter, native aliases hoặc menu lệnh gốc.
+- [x] Cập nhật regression nhằm xác nhận không hiển thị Enter khi prompt không hỗ trợ; kiểm thử hiện có vẫn kiểm tra Enter trong ngữ cảnh điểm + keyword.
+- [x] Windows workflow V1.027 đổi từ chạy **một** test theo tên trong `offset_move` và `trim_extend_options` sang chạy **toàn bộ test** trong hai module này. Bộ test bao phủ MOVE/COPY displacement, OFFSET Erase/Layer/Multiple/Undo/JSON, TRIM Quick/Standard, Fence/Crossing, cutting edges, implied Edge, Project, Erase/Undo, EXTEND Fence/Crossing, JSON và hình học DXF/Undo/Redo.
+- [x] Workflow chạy khi nhánh V1.027 thay đổi trong `crates/engine/**` bên cạnh `crates/ui-egui/**`. Tránh bỏ sót sửa lỗi engine mà không chạy cổng kiểm thử phù hợp.
+- [ ] Chờ Windows CI chạy **commit mới nhất** kết luận `success`; không dùng kết quả `compile` của commit trước để tuyên bố toàn bộ bài test đã PASS.
+- [ ] Chưa nghiệm thu OSNAP click trực tiếp trên EXE, các lệnh sửa hình học qua chuột và bản vẽ DWG mở/chỉnh sửa/lưu hai chiều trong AutoCAD.
+- [ ] Chưa đạt mục tiêu AI nhận diện mặt bằng kiến trúc và dựng bản vẽ CAD hoàn chỉnh.
+
+**Phân biệt trạng thái:** `đã commit` = mã và workflow đã lưu GitHub; `CI PASS` = đã chạy thành công Windows test; `nghiệm thu EXE` = kiểm chứng thực tế qua chuột, màn hình, DXF/DWG và AutoCAD. Không đánh đồng ba trạng thái.
