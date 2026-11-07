@@ -177,6 +177,17 @@ Các tỷ lệ trên cố ý **không cộng điểm cho build đang Queued**. N
 
 **% triển khai vẫn 33%; phát hành nghiệm thu 0%.** Sơ đồ kề phòng là chứng cứ hình học, chưa chứng minh AI hiểu toàn bộ mặt bằng.
 
+## Tiếp tục V1.026 — đo tường chung CAD và giữ nguyên ranh giới ngữ nghĩa
+
+- [x] Lấy tọa độ hai đầu và chiều dài từ **chính nét tường nguồn** của liên kết phòng `roomAdjacencies`, quy đổi sang CAD theo `origin/unitsPerPixel`; bổ sung `sharedWallCAD`, `sharedWallLengthCAD`, `canAutoCreateDoor=false`. Không sửa hình học đầu vào.
+- [x] Test riêng đảm bảo một cặp phòng chung tường không phát sinh `opening` hoặc `doorBlockDraft` do suy đoán.
+- [x] Gắn bài test vào CI ảnh lớn và đóng gói Windows.
+- [ ] Ghép được **khoảng mở có đủ bằng chứng từ hai mép tường** với hai không gian phòng, có kiểm chứng tọa độ và review người dùng (chưa đạt).
+- [ ] CI trên commit cuối phải PASS, RAM đo thực tế và Setup/Portable/Source/Word nghiệm thu đồng bộ (chưa đạt).
+- [ ] Kiểm tra OSNAP trên các LINE/PLINE native và DWG hai chiều trong AutoCAD độc lập (chưa đạt).
+
+**Tổng tiến độ kỹ thuật giữ 33%, nghiệm thu phát hành 0%**. Không biến một cạnh dùng chung thành cửa nếu chưa có bằng chứng.
+
 ## Định hướng lần nâng cấp tiếp theo (theo thứ tự)
 
 1. **P0 – Gỡ lỗi CI Windows đúng SHA**: fix compile/test, chỉ ghi PASS khi kết quả hiện hữu. Không push liên tục làm nhiễu lượt kiểm thử.
