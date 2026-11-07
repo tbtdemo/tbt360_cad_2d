@@ -104,6 +104,11 @@ jobs:
           $ErrorActionPreference = 'Stop'
           cargo test --locked -p cadcraft-ui-egui --lib dialogs::command_handbook_tests:: -- --nocapture
           if ($LASTEXITCODE -ne 0) { throw 'V1.027 bilingual native Command Handbook test failed' }
+      - name: Verify OSNAP marker labels stay within real canvas boundaries
+        run: |
+          $ErrorActionPreference = 'Stop'
+          cargo test --locked -p cadcraft-ui-egui --lib snap_label_layout_tests:: -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'CAD OSNAP labels may disappear outside the drawing viewport' }
       - name: Verify real CAD engine object snap modes and geometry
         run: |
           $ErrorActionPreference = 'Stop'
