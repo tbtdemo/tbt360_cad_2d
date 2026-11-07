@@ -347,6 +347,58 @@ fn active_command_guide(id:&str)->&'static str {
     }
 }
 
+/// The user sees the real registered command and its *actual* shortest
+/// alias even if this command has no hand-authored tutorial yet. All command
+/// IDs remain owned by the native engine; this never changes CAD semantics.
+fn registered_active_command_help(id:&str)->String {
+    let named=active_command_guide(id);
+    if !named.starts_with("ACTIVE COMMAND") {return named.to_owned();}
+    let Some(spec)=cadcraft_engine::cmd::find_command(id) else {
+        return format!("{} (Lệnh chưa có trong danh mục): Esc (Hủy)",id.to_ascii_uppercase());
+    };
+    let vi=natural_language_command(id).or_else(||{
+        let translated=crate::i18n::tr("vi",spec.label);
+        (translated!=spec.label).then_some(translated)
+    });
+    let abbrev=shortest_registered_alias(id)
+        .filter(|alias| !alias.eq_ignore_ascii_case(id))
+        .map(|alias|format!(" / {}",alias.to_ascii_uppercase()))
+        .unwrap_or_default();
+    let label=vi.map(|vn|format!("{} ({vn})",spec.label))
+        .unwrap_or_else(||spec.label.to_owned());
+    format!("{}{} — {} · Follow prompt (Theo bước đang chờ) · Esc (Hủy)",
+        spec.id.to_ascii_uppercase(),abbrev,label)
+}
+
+/// Generate the assistance from the *actual active Prompt*, not guessed
+/// command-specific steps. Object picks, point/number/text prompts, keyword
+/// options and Enter semantics remain controlled by the engine.
+fn active_prompt_help(prompt:&cadcraft_engine::Prompt)->String {
+    let action=if prompt.picks_objects() {
+        "Select object (Chọn đối tượng) · Click on drawing (Nhấp đối tượng)"
+    } else if prompt.accept.point && prompt.accept.number {
+        "Pick point / Enter value (Chọn điểm hoặc nhập số)"
+    } else if prompt.accept.point {
+        "Pick point / X,Y (Chọn điểm trên bản vẽ hoặc nhập tọa độ)"
+    } else if prompt.accept.number {
+        "Enter number (Nhập giá trị số)"
+    } else if prompt.accept.text {
+        "Enter text (Nhập văn bản hoặc tên tùy chọn)"
+    } else {
+        "Follow command prompt (Xem yêu cầu ở dòng lệnh)"
+    };
+    let mut result=format!("WAITING (Đang chờ): {action}");
+    if !prompt.keywords.is_empty() {
+        let options=prompt.keywords.iter().take(3)
+            .map(|k|bilingual_keyword_caption(k)).collect::<Vec<_>>().join(" / ");
+        result.push_str(&format!(" · Options (Tùy chọn): {options}"));
+    } else if prompt.accept.enter {
+        result.push_str(" · Enter (Mặc định/kết thúc theo bước)");
+    }
+    result.push_str(" · Esc (Hủy)");
+    result
+}
+
 /// Keep the English engine prompt intact and only add a Vietnamese visual
 /// explanation. Interactive keyword values and script parser remain original.
 fn bilingual_prompt_caption(english:&str)->String {
@@ -752,17 +804,10 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui, canvas: Rect) {
     // Explicit command-state help remains visible while the user is in
     // LINE/PLINE/CIRCLE/RECTANG/DIST/ID/DIMLINEAR, not only after clicking.
     if let Some(running)=app.session.running.as_ref() {
-        let guide=active_command_guide(&running.id);
-        let expected=app.session.current_prompt().map(|pr| {
-            let action=if pr.picks_objects() {"Chọn đối tượng bằng chuột hoặc nhập tùy chọn"}
-                else if pr.accept.point && pr.accept.number {"Nhấp chọn điểm hoặc nhập số"}
-                else if pr.accept.point {"Nhấp chọn điểm trên bản vẽ, hoặc nhập X,Y"}
-                else if pr.accept.number {"Nhập giá trị số và nhấn Enter"}
-                else if pr.accept.text {"Nhập tên/tùy chọn bằng bàn phím rồi Enter"}
-                else {"Làm theo chỉ dẫn hiện tại"};
-            if pr.accept.enter {format!("ĐANG CHỜ: {action} · Enter: kết thúc/mặc định · Esc: hủy")}
-            else {format!("ĐANG CHỜ: {action} · Esc: hủy")}
-        }).unwrap_or_else(||"ĐANG THỰC HIỆN LỆNH".to_owned());
+        let guide=registered_active_command_help(&running.id);
+        let expected=app.session.current_prompt()
+            .map(active_prompt_help)
+            .unwrap_or_else(||"ACTIVE (Đang thực hiện lệnh) · Esc (Hủy)".to_owned());
         let y=(bar.top()-46.0-n as f32*16.0
             -if lines.is_empty(){0.0}else{6.0}).max(canvas.top()+3.0);
         let hint=Rect::from_min_size(pos2(bar.left(),y),vec2(w,40.0));
@@ -1258,6 +1303,24 @@ mod autocomplete_tests {
         assert!(!vietnamese_query_continues("lam sach ban ve"));
         assert_eq!(fold_vi("Làm Sạch BẢN VẼ"),"lam sach ban ve");
         assert!(active_command_guide("pline").contains("đỉnh"));
+    }
+
+    #[test]
+    fn every_registered_command_has_english_first_in_app_guide() {
+        let mut checked=0usize;
+        for spec in cadcraft_engine::command_specs() {
+            if spec.id.contains('.') {continue;}
+            checked+=1;
+            let guide=registered_active_command_help(spec.id);
+            assert!(guide.contains(&spec.id.to_ascii_uppercase()),
+                "Missing original command ID in help: {}",spec.id);
+            assert!(!guide.trim().is_empty());
+        }
+        assert!(checked>100);
+        let trim=registered_active_command_help("trim");
+        assert!(trim.contains("TRIM / TR"));
+        let number=active_prompt_help(&cadcraft_engine::Prompt::new("Radius",cadcraft_engine::Accept::NUMBER));
+        assert!(number.contains("Enter number"));
     }
 
     #[test]
