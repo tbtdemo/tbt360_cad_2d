@@ -91,6 +91,19 @@ Các tỷ lệ trên cố ý **không cộng điểm cho build đang Queued**. N
 
 **Chú ý:** GitHub đã nhận workflow V1.026 nhưng các lượt trước có trạng thái `pending` hoặc `cancelled`; phần trăm triển khai phản ánh *code đã commit*, không xác nhận chương trình đã chạy thành công.
 
+## Đợt tiếp theo — 07/11/2026: kiểm thử diện tích phòng và rà phát hành
+
+- [x] Bổ sung `referenceRoomRectsCAD` để so sánh ứng viên đường bao phòng với hình chữ nhật tham chiếu CAD `[xmin,ymin,xmax,ymax]`.
+- [x] Xuất `roomGeometryBenchmark` gồm `referenceRoomCount`, `candidateRoomCount`, `matchedRoomCount`, Precision, Recall, F1 và `toleranceCAD`. Không ghép lặp một ứng viên vào nhiều phòng chuẩn.
+- [x] Kiểm thử phòng có ứng viên giả, phòng thiếu, dữ liệu tham chiếu không hợp lệ; gắn kiểm thử vào cả AI Gate và Windows Release Gate.
+- [x] Kiểm tra API workflow các lượt CI cũ: V1.026 `pending` khi chưa có jobs; các lượt `cancelled` không thể coi là PASS.
+- [ ] Đưa benchmark này chạy trên >=3 bản vẽ kiến trúc thật có ground truth; ghi precision/recall phòng, tường, cửa, cột riêng.
+- [ ] Chạy hết CI Windows trên đúng SHA, lấy log compile/error/RAM/15–36 MP và chứng nhận bộ cài.
+- [ ] Dùng AutoCAD độc lập kiểm tra trao đổi DWG hai chiều; nộp biên bản đối chiếu.
+- [ ] Ghi hình chụp EXE V1.026 cho từng bước bài giảng, thay sơ đồ trong Word trước nghiệm thu phát hành.
+
+**Báo cáo % đợt này:** **Giữ 33% triển khai, 0% nghiệm thu phát hành**. Benchmark QA bổ sung chất lượng nhưng chưa hoàn thành mốc định lượng trên dữ liệu thật; không tăng % thiếu bằng chứng.
+
 ## Định hướng lần nâng cấp tiếp theo (theo thứ tự)
 
 1. **P0 – Gỡ lỗi CI Windows đúng SHA**: fix compile/test, chỉ ghi PASS khi kết quả hiện hữu. Không push liên tục làm nhiễu lượt kiểm thử.
