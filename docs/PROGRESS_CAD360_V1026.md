@@ -113,6 +113,15 @@ Các tỷ lệ trên cố ý **không cộng điểm cho build đang Queued**. N
 - [ ] Kiểm tra in Word 34 bài có ảnh thật và mục lục số trang, không tính sơ đồ thay ảnh chụp EXE đã nghiệm thu.
 - **% kỹ thuật giữ 33%, nghiệm thu phát hành 0%.** Hoàn tất sửa một lỗi làm dừng pipeline không đồng nghĩa đạt các mốc nghiệm thu độc lập.
 
+## CI V1.026 — lỗi Word số 2 và bản sửa có đối chiếu log
+
+- **Windows run #42325024498:** `FixtureValidation=success`, `FullManuals=failure` do `ValueError: Markdown contains table cells but DOCX contains no actual Word tables`. Tình huống phát sinh khi tài liệu AI chứa dấu `|` dùng để ngăn cách lệnh; không phải bảng Markdown.
+- [x] Sửa `docs/user-guide/build_word_guide.py`: chỉ yêu cầu Word table khi nguồn có dòng bảng `| cột 1 | cột 2 |` thực sự; dấu `|` nằm giữa câu lệnh CAD không bị hiểu nhầm.
+- [x] Thêm regression trong workflow V1.026 phát hành: dùng `LINE | CIRCLE` không có bảng Markdown, tạo DOCX phải thành công.
+- **AI Gate #42325024481:** đã bắt đầu công đoạn biên dịch `Compile CAD GUI, MCP and CLI`, chưa công bố PASS.
+- [ ] Windows Setup/Portable mới phải chạy lại qua bước Word, Rust, kiểm thử, tạo bộ cài và lưu/mở DWG; chưa được nghiệm thu.
+- **Tiến độ tổng giữ 33%, nghiệm thu phát hành 0%** vì pipeline chưa vượt hết các cổng.
+
 ## Định hướng lần nâng cấp tiếp theo (theo thứ tự)
 
 1. **P0 – Gỡ lỗi CI Windows đúng SHA**: fix compile/test, chỉ ghi PASS khi kết quả hiện hữu. Không push liên tục làm nhiễu lượt kiểm thử.
