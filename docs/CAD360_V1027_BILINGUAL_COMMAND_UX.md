@@ -241,3 +241,13 @@ Các bài hồi quy đã bổ sung tại `crates/engine/src/snap.rs`:
 Các bài test đã được khai báo là bắt buộc trong `cad360-v1027-command-ux.yml`.
 
 **Giới hạn nghiệm thu:** Đây là kiểm chứng trên **engine + DXF**, không phải kiểm thử nhấp chuột OSNAP trên Windows GUI, không chứng minh định dạng DWG AutoCAD tương thích 100%. Để hoàn tất cần ghi hình/ảnh chụp marker đúng vị trí, chọn bằng chuột, so sánh tọa độ được gửi vào engine, kiểm thử DXF và DWG độc lập với AutoCAD, và Windows CI PASS.
+
+## 21. Kiểm thử Undo/Redo và hồ sơ hình học kiến trúc PLINE khép kín
+
+- [x] `osnap_line_undo_redo_restores_exact_geometry`: lấy tọa độ END/CEN của OSNAP native, dựng LINE bằng engine, xác nhận số lượng đối tượng tăng chính xác, `Undo` trở về như trước và `Redo` phục hồi đoạn thẳng **đúng tọa độ** trong sai số `1e-9`.
+- [x] `native_closed_pline_preserves_editable_vertices_after_dxf_reopen`: chạy `PLINE 0,0 6000,0 6000,4000 0,4000 C` tạo hình học mặt bằng chữ nhật 6000×4000 khép kín, xác nhận `LwPolyline` có bốn đỉnh và cờ `closed`; lưu DXF và mở lại vẫn là thực thể CAD có thể chỉnh sửa, không chuyển thành ảnh.
+- [x] Hai bài test đã được bổ sung vào **Windows Gate V1.027**, cùng các test đang có cho END/CEN, aperture/OFF, LINE → DXF → reopen, point modifiers và keyword parser.
+- [ ] Chưa xác nhận Windows CI của commit cuối; cần chạy test và sửa nếu lỗi, trước khi nghiệm thu.
+- [ ] Cần tiếp tục kiểm thử marker OSNAP với chuột/HiDPI trên EXE, Undo/Redo thực sự qua nút Ribbon và tổ hợp Ctrl+Z/Ctrl+Y, cùng kiểm tra DWG AutoCAD hai chiều thực tế.
+
+**Giới hạn:** Bản vẽ hình học kiểm thử bằng DXF là một phần chuỗi nghiệm thu kỹ thuật, không đủ chứng minh DWG tương thích AutoCAD 2027 hoặc AI hiểu trọn vẹn mặt bằng kiến trúc.
