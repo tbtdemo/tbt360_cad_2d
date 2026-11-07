@@ -200,6 +200,16 @@ Các tỷ lệ trên cố ý **không cộng điểm cho build đang Queued**. N
 
 **Tiến độ tổng vẫn 33% triển khai và 0% nghiệm thu phát hành**: chưa có bằng chứng kiểm thử tích hợp và chưa đạt nhận dạng AI ngữ nghĩa.
 
+## Nâng cấp AI khoảng mở — đối chiếu đúng hướng tường
+
+- [x] `observed_opening_room_contacts` kiểm tra **bốn góc thật của khung khoảng mở** và trục cạnh đúng hướng: tường đứng cần chiều rộng qua tường phù hợp `wallThicknessPixels`; tường ngang cần chiều cao qua tường phù hợp. Tâm gần phòng nhưng hướng cạnh sai không tạo liên kết giả.
+- [x] Test `ai_room_contact_rejects_crosswise_and_skewed_opening_shapes`: từ chối khoảng mở xoay ngang khi tiếp giáp tường đứng; loại bỏ tứ giác xiên, bốn góc không vuông. Không tự sinh cửa hay tạo native CAD.
+- [x] Thêm bài thử vào cả AI Large Image Gate và Windows Release Gate.
+- [ ] Xác nhận Windows CI PASS trên SHA chứa thay đổi; chưa có dữ liệu Precision/Recall cửa thực tế hoặc báo cáo RAM hợp lệ.
+- [ ] Khả năng nhận dạng phòng hình đa giác/phòng hở tường và tương tác AutoCAD độc lập vẫn chưa nghiệm thu.
+
+**Tổng triển khai checklist giữ 33%; nghiệm thu phát hành 0%.** Đây là bộ lọc hình học an toàn, không phải kết quả AI đã hiểu cửa đi.
+
 ## Định hướng lần nâng cấp tiếp theo (theo thứ tự)
 
 1. **P0 – Gỡ lỗi CI Windows đúng SHA**: fix compile/test, chỉ ghi PASS khi kết quả hiện hữu. Không push liên tục làm nhiễu lượt kiểm thử.
