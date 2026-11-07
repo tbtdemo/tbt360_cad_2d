@@ -241,6 +241,15 @@ Các tỷ lệ trên cố ý **không cộng điểm cho build đang Queued**. N
 
 **Giữ 33% triển khai và 0% nghiệm thu phát hành.**
 
+## Sửa lỗi compile Rust thực tế từ Windows CI
+
+- **Bằng chứng từ log:** V1.025 Windows Setup run `42329969121`, job `128274079481`, dừng trong `cargo check`: `error: recursion limit reached while expanding $crate::json_internal!` tại `crates/mcp/src/raster_vector.rs:1755`; bước `Preflight=failure`, không phải lỗi installer hay phân tích AI.
+- [x] Sửa trực tiếp `raster_vector.rs`: chia `geometry=json!({...})` lớn thành ba khối `geometry`, `wall_geometry`, `column_geometry` rồi hợp nhất đối tượng JSON; giữ nguyên khóa dữ liệu ra Preview. Không dùng cách tăng `#![recursion_limit]` để che nguyên nhân.
+- [ ] Đang chờ kết quả **compile lại** trên nhánh V1.026 và các test AI/GUI. Run V1.025 lỗi ở SHA `42f3f9b1` khác nguồn nhánh V1.026; chưa thể kết luận V1.025 đã được sửa.
+- [ ] Tiếp tục đo RAM 15/36 MP, kiểm chứng OSNAP, bản vẽ DWG tương thích AutoCAD và kiểm tra Setup/Portable + tài liệu Word theo một SHA.
+
+**Giữ 33% triển khai và 0% nghiệm thu phát hành**, chưa có phép xác nhận Windows PASS của commit sửa.
+
 ## Định hướng lần nâng cấp tiếp theo (theo thứ tự)
 
 1. **P0 – Gỡ lỗi CI Windows đúng SHA**: fix compile/test, chỉ ghi PASS khi kết quả hiện hữu. Không push liên tục làm nhiễu lượt kiểm thử.
