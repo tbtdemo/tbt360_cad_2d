@@ -397,6 +397,44 @@ mod snap_label_layout_tests {
     }
 
     #[test]
+    fn fast_canvas_intersection_snap_is_exact_and_osnap_off_keeps_raw_input() {
+        use crate::Services;
+        use cadcraft_doc::EntityKind;
+        for disabled in [false, true] {
+            let mut app = CadApp::new(cadcraft_engine::Session::new(), Services::default());
+            app.session.cmdline("LINE 0,0 10,0").unwrap();
+            app.session.cmdline("").unwrap();
+            app.session.cmdline("LINE 5,-5 5,5").unwrap();
+            app.session.cmdline("").unwrap();
+            app.session.settings.osmode =
+                if disabled { cadcraft_engine::snap::mode::INT | cadcraft_engine::snap::mode::END | cadcraft_engine::snap::mode::OFF }
+                else { cadcraft_engine::snap::mode::INT | cadcraft_engine::snap::mode::END };
+            app.session.settings.aperture = 12.0;
+            app.session.cmdline("LINE").unwrap();
+            let ctx = egui::Context::default();
+            let xf = Xf { rect: Rect::from_min_size(Pos2::ZERO,vec2(800.0,600.0)),
+                center: Vec2::new(5.0,0.0), scale: 20.0 };
+            input_earlier_snapped_point(&mut app,Vec2::new(5.1,0.1),&xf,&ctx)
+                .expect("first fast mouse release");
+            input_earlier_snapped_point(&mut app,Vec2::new(0.1,0.1),&xf,&ctx)
+                .expect("second fast mouse release");
+            let actual: Vec<_> = app.session.doc().unwrap().model.iter().filter_map(|e| {
+                if let EntityKind::Line(l) = &e.kind { Some((l.a.xy(),l.b.xy())) } else { None }
+            }).collect();
+            assert_eq!(actual.len(),3);
+            if disabled {
+                assert!(actual.iter().any(|(a,b)| a.near(Vec2::new(5.1,0.1),1e-9)
+                    && b.near(Vec2::new(0.1,0.1),1e-9)),
+                    "OSNAP OFF must not force an intersection or endpoint: {actual:?}");
+            } else {
+                assert!(actual.iter().any(|(a,b)| a.near(Vec2::new(5.0,0.0),1e-9)
+                    && b.near(Vec2::new(0.0,0.0),1e-9)),
+                    "OSNAP INT/END must create an exact native LINE: {actual:?}");
+            }
+        }
+    }
+
+    #[test]
     fn native_snap_names_remain_english_first_with_vietnamese_explanation() {
         for (english,translation) in [
             ("Endpoint","Điểm cuối"),("Midpoint","Trung điểm"),
