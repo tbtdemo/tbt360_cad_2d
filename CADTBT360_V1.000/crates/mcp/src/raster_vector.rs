@@ -1204,6 +1204,22 @@ pub fn preview(args: &Value) -> Result<Value, String> {
         || max_wall_spacing < min_wall_spacing {
         return Err("Wall edge pixel spacing must satisfy 1 <= minimum <= maximum <= 80; no CAD changes made".into());
     }
+    // Several architectural detectors intentionally bound candidate pair search to
+    // 1000 strokes. Never silently return "zero walls/rooms" for a dense floorplan:
+    // make the limitation explicit so an operator can crop or filter first.
+    const SEMANTIC_HINT_KEYS: &[&str] = &[
+        "wallPairHints", "closedRectangles", "columnHatchHints",
+        "openingGapHints", "pairedWallOpeningHints", "wallPanelHints",
+        "createWallCenterlines", "doorLeafHints", "windowSashHints",
+    ];
+    if lines.len() > 1000 && SEMANTIC_HINT_KEYS.iter()
+        .any(|key| args[*key].as_bool().unwrap_or(false))
+    {
+        return Err(format!(
+            "Detected {} strokes; architectural candidate detection is bounded to 1000 strokes. Filter short strokes or process calibrated regions; no CAD changes made",
+            lines.len()
+        ));
+    }
     let wall_hints = if args["wallPairHints"].as_bool().unwrap_or(false) {
         parallel_wall_candidates(&lines, min_wall_spacing, max_wall_spacing)
     } else { Vec::new() };
@@ -1247,11 +1263,6 @@ pub fn preview(args: &Value) -> Result<Value, String> {
         wall_panel_junction_qa(&wall_panels,&paired_openings,&column_candidates)
     } else {Vec::new()};
     let count = lines.len();
-    if count > 1000 && args["wallPairHints"].as_bool().unwrap_or(false) {
-        return Err(format!(
-            "Detected {count} strokes. Wall pairing needs at most 1000 source strokes to avoid expensive ambiguous combinations. Select a region or increase minLengthPixels; no CAD changes made"
-        ));
-    }
     if count > max_lines as usize {
         return Err(format!("Found {count} strokes, exceeding maxLines={max_lines}; increase minLengthPixels or limit the input region, no CAD changes made"));
     }
