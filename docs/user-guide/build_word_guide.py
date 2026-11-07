@@ -169,8 +169,16 @@ def build(source: Path, dest: Path) -> None:
         if bad or not required_parts.issubset(z.namelist()):
             raise ValueError(f"Invalid DOCX output: {bad}")
         document = z.read("word/document.xml")
-        if "|" in markdown and "<w:tbl>" not in document.decode("utf-8"):
-            raise ValueError("Markdown contains table cells but DOCX contains no actual Word tables")
+        # Pipes are also used to separate native AI commands (e.g. LINE | CIRCLE).
+        # Require a native Word table only when Markdown has actual table rows;
+        # do not mistake inline command separators for a table.
+        has_markdown_table = any(
+            line.lstrip().startswith("|") and line.rstrip().endswith("|")
+            and len(line.strip().strip("|").split("|")) >= 2
+            for line in markdown.splitlines()
+        )
+        if has_markdown_table and "<w:tbl>" not in document.decode("utf-8"):
+            raise ValueError("Markdown table rows were not converted into a native Word table")
     if dest.stat().st_size < 2000:
         raise ValueError("Generated DOCX unexpectedly small")
 
