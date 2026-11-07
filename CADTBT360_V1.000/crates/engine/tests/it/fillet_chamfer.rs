@@ -173,3 +173,49 @@ fn architectural_closed_polyline_fillet_bulge_undo_redo_dxf_roundtrip() {
     assert_eq!(imported.vertices.iter().filter(|v| v.bulge.abs() > 1e-9).count(), 4,
         "DXF must preserve native arc bulges without flattening curves");
 }
+
+
+/// A closed architectural perimeter must remain one editable LWPOLYLINE after
+/// the native distance CHAMFER, including the exact cut-back coordinates.
+#[test]
+fn architectural_closed_polyline_chamfer_exact_geometry_and_dxf_reopen() {
+    let mut s = Session::new();
+    s.script("PLINE 0,0 6000,0 6000,4000 0,4000 C\n").unwrap();
+    let handle = s.doc().unwrap().model.iter()
+        .find(|e| matches!(&e.kind, EntityKind::LwPolyline(_)))
+        .expect("native closed PLINE").handle.hex();
+    let result = s.execute("chamfer", &json!({
+        "handle": handle, "polyline": true, "d1": 100.0, "d2": 100.0
+    })).expect("native distance CHAMFER on all corners");
+    assert_eq!(result["chamfered"], 4);
+    let edited = s.doc().unwrap().model.iter().find_map(|e| {
+        if let EntityKind::LwPolyline(p) = &e.kind { Some(p.clone()) } else { None }
+    }).expect("chamfered LWPOLYLINE");
+    assert!(edited.closed);
+    let points: Vec<(f64,f64)> = edited.vertices.iter()
+        .map(|v| (r(v.p.x), r(v.p.y))).collect();
+    assert_eq!(points.len(), 8);
+    for point in [(100.0,0.0), (5900.0,0.0),
+                  (6000.0,100.0), (6000.0,3900.0),
+                  (5900.0,4000.0), (100.0,4000.0),
+                  (0.0,3900.0), (0.0,100.0)] {
+        assert!(points.contains(&point), "missing chamfer endpoint: {point:?}");
+    }
+    assert!(edited.vertices.iter().all(|v| v.bulge.abs() < 1e-9),
+        "Straight chamfers must not accidentally become arcs");
+    s.undo().expect("undo chamfer");
+    let undo = s.doc().unwrap().model.iter().find_map(|e| {
+        if let EntityKind::LwPolyline(p) = &e.kind { Some(p.clone()) } else { None }
+    }).expect("restored perimeter");
+    assert_eq!(undo.vertices.len(), 4);
+    s.redo().expect("redo chamfer");
+    let dxf = cadcraft_io::write_dxf(s.doc().unwrap());
+    let reopened = cadcraft_io::read_dxf(dxf.as_bytes()).expect("chamfer DXF reload");
+    let restored = reopened.model.iter().find_map(|e| {
+        if let EntityKind::LwPolyline(p) = &e.kind { Some(p.clone()) } else { None }
+    }).expect("editable polyline in DXF");
+    assert!(restored.closed);
+    let reopened_points: Vec<(f64,f64)> = restored.vertices.iter()
+        .map(|v| (r(v.p.x), r(v.p.y))).collect();
+    assert_eq!(reopened_points, points, "DXF must preserve each chamfer endpoint");
+}
