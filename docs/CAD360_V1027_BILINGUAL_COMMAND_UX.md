@@ -310,3 +310,15 @@ Các bài test đã được khai báo là bắt buộc trong `cad360-v1027-comm
 - [ ] Chưa nghiệm thu hình học FILLET/CHAMFER nhiều tuyến cong, polyline bulge, các trường hợp không giao nhau, thao tác chuột trong Windows EXE và tương thích DWG hai chiều với AutoCAD.
 
 **Chú ý:** kiểm thử native engine và DXF là điều kiện cần, không thay thế đo tọa độ sau click OSNAP hoặc nghiệm thu tương thích DWG thực tế.
+
+
+## 27. V1.027 — Kiểm chứng tọa độ bo/vát góc và bảo toàn hình học khi lệnh lỗi
+
+- [x] Nâng cấp regression `architectural_fillet_chamfer_native_geometry_undo_redo_and_dxf`: với hai LINE vuông góc gặp nhau tại (10,0), FILLET R=2 phải để lại các LINE chính xác (0,0)–(8,0) và (10,2)–(10,10), đồng thời tạo một ARC native.
+- [x] CHAMFER D1=2, D2=3 với `trim=false` phải giữ nguyên hai LINE nguồn và tạo chính xác đường vát (8,0)–(10,3); tiếp tục kiểm thử Undo/Redo và DXF roundtrip.
+- [x] Thêm regression âm `architectural_parallel_fillet_chamfer_reject_without_geometry_loss`: FILLET và CHAMFER trên hai LINE song song phải từ chối góc không xác định mà không sửa đổi thực thể gốc.
+- [x] Bộ ca mới tự động thuộc `trim_extend_options::` mà Windows V1.027 Gate đang chạy toàn nhóm.
+- [ ] CI Windows vẫn cần kết luận success trên **commit mới cuối cùng**. Chưa suy ra PASS từ việc commit test; các lần chạy trước có thể bị hủy do commit mới.
+- [ ] Chưa nghiệm thu bằng chuột trên EXE, các góc polyline có bulge, cung cong, đa lớp và DXF/DWG hai chiều với AutoCAD.
+
+**Nguyên tắc:** Không thay đổi lệnh nguyên bản; các test bảo vệ semantics của engine, độ chính xác tọa độ và tính chỉnh sửa của thực thể CAD.
