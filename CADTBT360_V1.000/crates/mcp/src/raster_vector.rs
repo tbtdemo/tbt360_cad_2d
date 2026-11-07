@@ -2923,6 +2923,16 @@ mod tests {
     }
 
     #[test]
+    fn ai_wall_sweep_ten_thousand_collinear_strokes_does_not_invent_walls() {
+        let mut lines=Vec::new();
+        for i in 0..10_000 {
+            let x=(i as f64)*3.0;
+            lines.push(Line{x0:x,y0:100.0,x1:x+25.0,y1:100.0});
+        }
+        assert!(parallel_wall_candidates(&lines,8.0,40.0).is_empty());
+    }
+
+    #[test]
     fn raster_vector_detects_one_thick_horizontal_stroke_as_one_line() {
         let mut img = GrayImage::from_pixel(48, 32, image::Luma([255]));
         for y in 10..=12 { for x in 4..=40 { img.put_pixel(x,y,image::Luma([0])); } }
