@@ -379,3 +379,14 @@ Các bài test đã được khai báo là bắt buộc trong `cad360-v1027-comm
 - [ ] Chờ kết quả toàn bộ CI tại HEAD mới nhất để xác nhận build/test. Chưa thay thế nghiệm thu trực tiếp GUI trên Windows/HiDPI nhiều màn hình, góc nhìn xoay, các điểm INT/PER/TAN, DXF/DWG hai chiều hoặc AI dựng mặt bằng.
 
 **Ưu tiên kế tiếp:** nếu CI lỗi thì sửa ngay lỗi có log. Sau đó xác minh zoom/HiDPI, xem marker/cursor/snap và điểm đi vào CAD engine có khớp trong ứng dụng EXE thật.
+
+
+## 33. V1.027 — MID/CEN trên canvas qua nhiều sự kiện nhấp chuột
+
+- [x] Bổ sung `snap_label_layout_tests::fast_click_midpoint_and_circle_center_become_native_line_endpoints` trong `ui-egui/src/canvas/cursor.rs`.
+- [x] Dựng LINE nguồn (0,0)–(10,0) cùng CIRCLE tâm (20,0), bán kính 2. Bật OSMODE MID|CEN, cho lệnh LINE mới nhận hai sự kiện nhấp riêng gần (5.1,0.1) và (20.1,0.1). Kiểm tra đoạn LINE kết quả bắt buộc từ MID chính xác (5,0) tới CEN chính xác (20,0).
+- [x] Regression đi qua chính hàm `input_earlier_snapped_point` của canvas được sử dụng trong nhánh nhiều lần click cùng frame, không thay bằng Input::Point giả định đã snap.
+- [x] Cổng Windows V1.027 đã gọi cả module `snap_label_layout_tests::`, nên test được tự động chạy cùng END, tên nhãn song ngữ và giới hạn vị trí nhãn.
+- [ ] Chưa xác nhận CI cho HEAD mới nhất thành công; run của commit cũ có thể bị hủy bởi concurrency. Chưa nghiệm thu bằng click thật trong EXE, HiDPI nhiều màn hình, PER/TAN deferred, DWG hai chiều.
+
+**Yêu cầu nghiệm thu:** so sánh tọa độ pick gốc, marker OSNAP, `SnapHit.point`, `Session::input_snapped`, và LINE khi lưu/mở lại. Không coi việc commit test là kết quả PASS.
