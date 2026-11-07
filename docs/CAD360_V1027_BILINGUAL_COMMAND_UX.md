@@ -223,3 +223,21 @@ Lưu ý: bảng OPTIONS chỉ hiển thị tùy chọn mà Prompt đang cho phé
 - [ ] Tiếp tục nghiệm thu loại snap END/MID/CEN/INT/PER/TAN với snap settings, nhiều đối tượng, zoom và HiDPI; phải đối chiếu vị trí marker với điểm engine thực nhận, cùng tính chính xác DWG lưu/mở lại.
 
 **Mốc quản lý:** Đợt này chuyển từ thuần kiểm thử UI đến kiểm thử geometry/command engine thật. Không đánh đồng test engine PASS với bộ cài và mọi lệnh AutoCAD 2027 đã hoàn thành.
+
+## 20. V1.027 — Kiểm chứng OSNAP → LINE → DXF lưu và mở lại
+
+Lần nâng cấp này bổ sung **kiểm thử hành vi engine thực tế**; không thay thế OSNAP bằng mô phỏng UI hay quảng cáo tính năng chưa có:
+
+1. Tạo bản vẽ nguồn chứa đường thẳng và đường tròn. Gọi hàm OSNAP native để tìm điểm **END** và **CEN** từ vị trí con trỏ gần cấu kiện.
+2. Khởi động lệnh `LINE` thật qua `Session::start("line")`, truyền hai điểm qua `Input::Point` và kết thúc bằng `Input::Enter`. So sánh tọa độ đầu–cuối với điểm bắt được từ OSNAP.
+3. Xuất bản vẽ có LINE mới qua `cadcraft_io::write_dxf`, đọc lại qua `read_dxf`; xác nhận đối tượng sau khi mở lại **vẫn có kiểu `EntityKind::Line`**, tọa độ hai đầu không sai lệch quá `1e-9`.
+4. Kiểm thử negative: khi `OSMODE::OFF` bật hoặc con trỏ nằm ngoài aperture của END/MID/CEN/INT thì không tự nhận một điểm sai.
+
+Các bài hồi quy đã bổ sung tại `crates/engine/src/snap.rs`:
+- `snapped_endpoint_and_center_become_exact_native_line_geometry`
+- `snapped_native_line_survives_dxf_save_and_reopen_editably`
+- `osnap_never_invents_a_pick_outside_aperture_or_when_disabled`
+
+Các bài test đã được khai báo là bắt buộc trong `cad360-v1027-command-ux.yml`.
+
+**Giới hạn nghiệm thu:** Đây là kiểm chứng trên **engine + DXF**, không phải kiểm thử nhấp chuột OSNAP trên Windows GUI, không chứng minh định dạng DWG AutoCAD tương thích 100%. Để hoàn tất cần ghi hình/ảnh chụp marker đúng vị trí, chọn bằng chuột, so sánh tọa độ được gửi vào engine, kiểm thử DXF và DWG độc lập với AutoCAD, và Windows CI PASS.
