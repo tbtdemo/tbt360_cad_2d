@@ -1013,10 +1013,24 @@ fn visible_lines(app: &CadApp, canvas: Rect, bar: Rect) -> usize {
 /// respected when long Vietnamese command names extend past the input area.
 fn command_input_tail<'a>(text:&'a str,max_width:f32,mut measure:impl FnMut(&str)->f32)->&'a str {
     if measure(text)<=max_width {return text;}
-    for (index,_) in text.char_indices().skip(1) {
-        if measure(&text[index..])<=max_width {return &text[index..];}
+    // Binary search character boundaries (not bytes): O(log n) text layouts,
+    // crucial when users paste large coordinates or Vietnamese command text.
+    let boundaries=text.char_indices().map(|(i,_)|i)
+        .chain(std::iter::once(text.len())).collect::<Vec<_>>();
+    let (mut lo,mut hi)=(0usize,boundaries.len()-1);
+    while lo<hi {
+        let mid=lo+(hi-lo)/2;
+        if measure(&text[boundaries[mid]..])<=max_width {hi=mid;}
+        else {lo=mid+1;}
     }
-    ""
+    // Avoid starting the visible text with a detached Vietnamese accent mark
+    // when the OS IME committed a decomposed Unicode sequence.
+    let mut at=boundaries[lo];
+    while let Some(ch)=text[at..].chars().next() {
+        if !('\u{0300}'..='\u{036f}').contains(&ch) {break;}
+        at+=ch.len_utf8();
+    }
+    &text[at..]
 }
 
 /// Draw the floating command bar and its history over the bottom-centre of `canvas`; the bar is 48 % of the canvas width, clamped to 360–760 points and never wider than the canvas minus 8 points.
@@ -1778,6 +1792,24 @@ mod autocomplete_tests {
         assert_eq!(options[0].1,"Undo (Hoàn tác) · [U]");
         assert_eq!(options[1].1,"Close (Đóng) · [C]");
         assert_eq!(options[3].1,"Width (Bề rộng) · [W]");
+    }
+
+    #[test]
+    fn long_cad_input_binary_scroll_limits_layout_work_and_does_not_split_accents() {
+        let original="1000,2000 ".repeat(2000)+"VẼ ĐƯỜNG THẲNG";
+        let mut layouts=0usize;
+        let tail=command_input_tail(&original,22.0,|s|{
+            layouts+=1;
+            s.chars().count() as f32
+        });
+        assert!(layouts<30,"too many GUI text layouts for a long CAD command: {layouts}");
+        assert!(original.ends_with(tail));
+        assert!(tail.chars().count()<=22);
+        assert!(std::str::from_utf8(tail.as_bytes()).is_ok());
+        let combining="a\u{0303}b\u{0301}c";
+        let tail=command_input_tail(combining,2.0,|s|s.chars().count() as f32);
+        assert!(!tail.starts_with('\u{0301}'));
+        assert!(!tail.starts_with('\u{0303}'));
     }
 
     #[test]
