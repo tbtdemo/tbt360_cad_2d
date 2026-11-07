@@ -1407,7 +1407,11 @@ pub fn preview(args: &Value) -> Result<Value, String> {
         parallel_wall_candidates(&lines, min_wall_spacing, max_wall_spacing)
     } else { Vec::new() };
     let column_hints=args["columnHatchHints"].as_bool().unwrap_or(false);
-    let all_rectangles=if args["closedRectangles"].as_bool().unwrap_or(false) || column_hints {closed_rectangles(&lines)} else {Vec::new()};
+    // Room boundary evidence is part of READ-ONLY Preview, independent from
+    // the user's opt-in to CREATE closed CAD polylines. The former must not
+    // silently return zero merely because "closedRectangles" is disabled.
+    // This never mutates CAD or invents a missing wall.
+    let all_rectangles=closed_rectangles(&lines);
     let mut column_candidates=if column_hints {column_hatch_candidates(&all_rectangles,&lines)} else {Vec::new()};
     // First conservative architectural-space hypothesis from four observed closed
     // boundaries, not inferred gaps. Reject small cross-hatched column rectangles.
@@ -3153,6 +3157,36 @@ mod tests {
                 room.edges[0]==start+index*4 && room.edges[1]==start+index*4+1),
                 "room source-line evidence must trace to original source indices");
         }
+    }
+
+    #[test]
+    fn ai_preview_reports_closed_room_without_opt_in_to_create_rectangle() {
+        let mut img=GrayImage::from_pixel(360,320,image::Luma([255]));
+        for x in 40..=300 {
+            img.put_pixel(x,40,image::Luma([0]));
+            img.put_pixel(x,280,image::Luma([0]));
+        }
+        for y in 40..=280 {
+            img.put_pixel(40,y,image::Luma([0]));
+            img.put_pixel(300,y,image::Luma([0]));
+        }
+        let path=std::env::temp_dir().join(format!(
+            "cad360_room_preview_only_{}.png",std::process::id()));
+        img.save(&path).expect("write source room raster");
+        let result=preview(&json!({
+            "path":path.to_string_lossy(),
+            "preview":true,
+            "closedRectangles":false,
+            "minLengthPixels":15,
+            "includeDiagonals":false,
+            "unitsPerPixel":10.0
+        })).expect("read-only AI preview");
+        let _=std::fs::remove_file(path);
+        assert_eq!(result["roomCandidateCount"],1);
+        assert_eq!(result["roomCandidates"][0]["requiresHumanReview"],true);
+        assert_eq!(result["editableEntitiesCreated"],0);
+        assert_eq!(result["closedPolylines"],json!([]),
+            "Preview room evidence must not create closed CAD polylines");
     }
 
     #[test]
