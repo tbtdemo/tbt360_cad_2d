@@ -61,6 +61,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'V1.026 2500-stroke wall-pair regression failed' }
           cargo test --locked -p cadcraft-mcp --lib ai_large_floorplan_room_detection_keeps_global_entity_indices -- --nocapture
           if ($LASTEXITCODE -ne 0) { throw 'V1.026 2400-stroke room detection regression failed' }
+          cargo test --locked -p cadcraft-mcp --lib ai_room_geometry_benchmark_reports_missing_extra_and_malformed_refs -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'V1.026 supervised geometric precision/recall benchmark failed' }
           cargo test --locked -p cadcraft-mcp --lib ai_three_room_ground_truth_geometry_has_no_extra_closed_rooms -- --nocapture
           if ($LASTEXITCODE -ne 0) { throw 'V1.026 three-room labelled geometry reference regression failed' }
           cargo test --locked -p cadcraft-mcp --lib ai_tile_diagnostics_keep_global_vector_indices_across_seams -- --nocapture
