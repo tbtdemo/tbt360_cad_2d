@@ -93,6 +93,11 @@ jobs:
           $ErrorActionPreference = 'Stop'
           cargo test --locked -p cadcraft-ui-egui --lib dialogs::command_handbook_tests::handbook_filters_never_hide_native_commands_by_default -- --nocapture
           if ($LASTEXITCODE -ne 0) { throw 'V1.027 handbook filters unexpectedly hide native CAD commands' }
+      - name: Verify actual egui Vietnamese IME composition and committed text
+        run: |
+          $ErrorActionPreference = 'Stop'
+          cargo test --locked -p cadcraft-ui-egui --lib cmdline::tests::ime_preedit_is_shown_and_its_commit_is_inserted_once -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'V1.027 Vietnamese IME integration regression failed' }
       - name: Verify bilingual full command handbook covers native registry
         run: |
           $ErrorActionPreference = 'Stop'
