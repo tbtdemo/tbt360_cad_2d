@@ -372,6 +372,23 @@ fn next_command_habits(current:&str, history:&[String])->Vec<String> {
 #[derive(Clone,Copy,Debug,PartialEq,Eq)]
 enum SelectionKind {None,Line,Curve,Polyline,Text,Block,Dimension,Hatch,Mixed,Other}
 
+impl SelectionKind {
+    fn bilingual_caption(self)->&'static str {
+        match self {
+            Self::None=>"NONE (Chưa chọn)",
+            Self::Line=>"LINE (Đường thẳng)",
+            Self::Curve=>"CURVE (Đường cong / Tròn / Cung)",
+            Self::Polyline=>"POLYLINE (Đa đoạn)",
+            Self::Text=>"TEXT (Văn bản)",
+            Self::Block=>"BLOCK (Khối)",
+            Self::Dimension=>"DIMENSION (Kích thước)",
+            Self::Hatch=>"HATCH (Mặt cắt)",
+            Self::Mixed=>"MIXED (Nhiều loại đối tượng)",
+            Self::Other=>"OBJECT (Đối tượng khác)",
+        }
+    }
+}
+
 fn native_selection_kind(kinds:&[&cadcraft_doc::EntityKind])->SelectionKind {
     use cadcraft_doc::EntityKind as E;
     let classify=|kind:&E|match kind {
@@ -998,13 +1015,13 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui, canvas: Rect) {
                     vec2(w,20.0));
                 p.rect_filled(hint,3.0,t.cmd_history);
                 let title=if selected_count>0 {
-                    "SELECTED (Đã chọn) · NEXT (Lệnh): "
+                    format!("{} {} · NEXT (Tiếp): ",selected_count,kind.bilingual_caption())
                 } else {
-                    "NEXT (Lệnh tiếp): "
+                    "NEXT (Lệnh tiếp): ".to_owned()
                 };
                 let tx=hint.left()+7.0;
                 let font=egui::FontId::proportional(10.0);
-                let prefix=p.layout_no_wrap(title.to_owned(),font.clone(),t.text);
+                let prefix=p.layout_no_wrap(title,font.clone(),t.text);
                 let mut x=tx+prefix.size().x;
                 p.galley(pos2(tx,hint.center().y-prefix.size().y/2.0),prefix,t.text);
                 for (i,id) in related.iter().take(3).enumerate() {
@@ -1524,6 +1541,7 @@ mod autocomplete_tests {
         assert_eq!(native_selection_kind(&[&line]),SelectionKind::Line);
         assert_eq!(native_selection_kind(&[&circle]),SelectionKind::Curve);
         assert_eq!(native_selection_kind(&[&line,&circle]),SelectionKind::Mixed);
+        assert!(SelectionKind::Mixed.bilingual_caption().contains("Nhiều loại"));
         let line_commands=selection_kind_next_commands(SelectionKind::Line,None,&[]);
         assert!(line_commands.iter().any(|id|id=="offset"||id=="trim"));
         let circle_commands=selection_kind_next_commands(SelectionKind::Curve,None,&[]);
