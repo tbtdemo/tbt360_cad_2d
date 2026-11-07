@@ -1687,6 +1687,7 @@ pub fn preview(args: &Value) -> Result<Value, String> {
         "windowSashCandidateCount":paired_openings.iter().filter(|v|v["windowSashCandidate"]==true).count()
     });
     let opening_guides_preview=if create_opening_guides {paired_openings.iter().map(|v|v["outlineCAD"].clone()).collect::<Vec<_>>()} else {Vec::new()};
+    let opening_room_contacts=observed_opening_room_contacts(&room_candidates,&paired_openings);
     let architectural=json!({
         "pairedWallOpeningCandidates":paired_openings,
         "doorLeafHintsRequested":args["doorLeafHints"].as_bool().unwrap_or(false),
@@ -1717,7 +1718,6 @@ pub fn preview(args: &Value) -> Result<Value, String> {
     // The graph is only observable shared-stroke evidence. Expose its exact
     // original CAD segment for manual checking/OSNAP inspection; no inferred
     // passage, doorway or new entity is created.
-    let opening_room_contacts=observed_opening_room_contacts(&room_candidates,&paired_openings);
     let mut room_adjacencies=observed_room_adjacencies(&room_world);
     for adjacency in &mut room_adjacencies {
         let Some(index)=adjacency["sourceEdgeIndex"].as_u64()
