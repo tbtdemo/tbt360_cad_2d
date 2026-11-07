@@ -153,6 +153,11 @@ jobs:
           $ErrorActionPreference = 'Stop'
           cargo test --locked -p cadcraft-engine --test it trim_extend_options:: -- --nocapture
           if ($LASTEXITCODE -ne 0) { throw 'CAD TRIM EXTEND exact geometry Undo/Redo or DXF reopen regression failed' }
+      - name: Verify native FILLET CHAMFER Polyline bulges and complete option regressions
+        run: |
+          $ErrorActionPreference = 'Stop'
+          cargo test --locked -p cadcraft-engine --test it fillet_chamfer:: -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'FILLET CHAMFER native options, POLYLINE bulges, Undo/Redo or DXF roundtrip failed' }
       - name: Verify native architectural editing does not regress when engine changes
         run: |
           $ErrorActionPreference = 'Stop'
