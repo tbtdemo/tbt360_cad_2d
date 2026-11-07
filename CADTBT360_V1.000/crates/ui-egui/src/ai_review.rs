@@ -654,6 +654,7 @@ impl AiReview {
     /// Changing the prompt invalidates all earlier previews and approvals.
     pub fn open_with_prompt(&mut self, prompt: &str) {
         self.open=true;
+        self.review_tab=0;
         self.prompt=prompt.trim().to_owned();
         self.preview=None;
         self.message="Lệnh đã được chuyển từ AI Studio. Nhấn 1. Xem trước để kiểm tra trước khi ghi CAD.".into();
@@ -1271,6 +1272,7 @@ mod tests {
         let mut review=AiReview::default();
         review.open_with_prompt("  vẽ phòng rộng 6000 dài 4000 tại 0,0  ");
         assert!(review.open);
+        assert_eq!(review.review_tab,0);
         assert_eq!(review.prompt,"vẽ phòng rộng 6000 dài 4000 tại 0,0");
         assert!(review.preview.is_none());
         assert_eq!(parse_draft(&review.prompt).unwrap().0,"rectang");
