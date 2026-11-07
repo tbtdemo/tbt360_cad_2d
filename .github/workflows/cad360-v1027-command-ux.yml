@@ -56,6 +56,7 @@ jobs:
             'native_alias_space_dispatch_is_never_replaced_by_translation',
             'bilingual_ui_keeps_english_first_and_actual_aliases',
             'original_english_prompts_preserved_with_vietnamese_in_parentheses',
+            'native_prompt_keyword_input_stays_english_when_caption_is_bilingual',
             'next_command_habits_use_only_observed_verified_session_commands',
             'next_command_suggestions_are_registry_backed_and_have_actual_shortcuts',
             'exact_alias_is_first_suggestion_with_alias_display'
