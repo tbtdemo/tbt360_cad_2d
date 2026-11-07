@@ -364,6 +364,39 @@ mod snap_label_layout_tests {
     }
 
     #[test]
+    fn fast_click_midpoint_and_circle_center_become_native_line_endpoints() {
+        use crate::Services;
+        use cadcraft_doc::{Circle, Common, EntityKind, Space};
+        use cadcraft_geom::Vec3;
+        let mut app = CadApp::new(cadcraft_engine::Session::new(), Services::default());
+        app.session.cmdline("LINE 0,0 10,0").unwrap();
+        app.session.cmdline("").unwrap();
+        // A circle centre is not itself a drawn pixel, so this checks the
+        // engine's true CEN snap instead of an approximate nearest selection.
+        app.session.doc_mut().unwrap().add(
+            &Space::Model, Common::default(),
+            EntityKind::Circle(Circle { center: Vec3::new(20.0, 0.0, 0.0), radius: 2.0 })
+        ).unwrap();
+        app.session.settings.osmode =
+            cadcraft_engine::snap::mode::MID | cadcraft_engine::snap::mode::CEN;
+        app.session.settings.aperture = 12.0;
+        app.session.cmdline("LINE").unwrap();
+        let ctx = egui::Context::default();
+        let xf = Xf { rect: Rect::from_min_size(Pos2::ZERO, vec2(800.0,600.0)),
+            center: Vec2::new(10.0,0.0), scale: 20.0 };
+        input_earlier_snapped_point(&mut app, Vec2::new(5.1,0.1), &xf, &ctx)
+            .expect("first release must snap to line MID");
+        input_earlier_snapped_point(&mut app, Vec2::new(20.1,0.1), &xf, &ctx)
+            .expect("second release must snap to circle CEN");
+        let actual: Vec<_> = app.session.doc().unwrap().model.iter().filter_map(|e| {
+            if let EntityKind::Line(l) = &e.kind { Some((l.a.xy(),l.b.xy())) } else { None }
+        }).collect();
+        assert!(actual.iter().any(|(a,b)|
+            a.near(Vec2::new(5.0,0.0),1e-9) && b.near(Vec2::new(20.0,0.0),1e-9)),
+            "canvas must send distinct native MID/CEN snap points, not raw positions: {actual:?}");
+    }
+
+    #[test]
     fn native_snap_names_remain_english_first_with_vietnamese_explanation() {
         for (english,translation) in [
             ("Endpoint","Điểm cuối"),("Midpoint","Trung điểm"),
