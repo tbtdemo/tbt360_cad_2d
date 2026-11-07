@@ -161,8 +161,14 @@ fn arbitrary_angle_strokes(img: &GrayImage, threshold: u8, min_length: u32) -> V
             let mut queue = VecDeque::new();
             queue.push_back((x,y));
             let mut pts: Vec<(f64,f64)> = Vec::new();
+            // A solid hatch/fill can occupy millions of pixels. Still walk
+            // the component to mark every pixel visited, but never retain
+            // more than the PCA fitting budget in memory. An oversized
+            // component is unverified geometry and must be rejected.
             while let Some((cx,cy)) = queue.pop_front() {
-                pts.push((f64::from(cx)+0.5, f64::from(cy)+0.5));
+                if pts.len() <= 200_000 {
+                    pts.push((f64::from(cx)+0.5, f64::from(cy)+0.5));
+                }
                 for dy in -1_i32..=1 {
                     for dx in -1_i32..=1 {
                         if dx == 0 && dy == 0 { continue; }
@@ -2920,6 +2926,16 @@ mod tests {
         let pairs=parallel_wall_candidates(&source,8.0,30.0);
         assert!(pairs.iter().any(|p|p["edges"]==json!([2490,2491])));
         assert!(pairs.len()<=128,"preview output must stay bounded");
+    }
+
+    #[test]
+    fn ai_dense_hatch_component_is_skipped_without_unbounded_pca_points() {
+        let mut img=GrayImage::from_pixel(640,640,image::Luma([0]));
+        // 409,600 connected black pixels would otherwise create hundreds
+        // of thousands of f64 point pairs before checking the threshold.
+        assert!(arbitrary_angle_strokes(&img,160,24).is_empty());
+        img.put_pixel(0,0,image::Luma([255]));
+        assert!(arbitrary_angle_strokes(&img,160,24).is_empty());
     }
 
     #[test]
