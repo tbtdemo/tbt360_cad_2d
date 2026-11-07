@@ -118,12 +118,116 @@ pub struct Suggestion {
     pub label: &'static str,
 }
 
+/// Vietnamese command search uses a small verified dictionary of *real* engine
+/// commands. Suggestions never advertise a nonexistent command or bypass prompts.
+const VI_COMMANDS: &[(&str, &str, &str)] = &[
+    ("lam sach ban ve", "purge", "Làm sạch bản vẽ"),
+    ("don dep ban ve", "purge", "Dọn dẹp bản vẽ"),
+    ("kiem tra loi ban ve", "audit", "Kiểm tra lỗi bản vẽ"),
+    ("ve duong thang", "line", "Vẽ đường thẳng"),
+    ("ve da doan", "pline", "Vẽ đa đoạn"),
+    ("ve duong tron", "circle", "Vẽ đường tròn"),
+    ("ve hinh chu nhat", "rectang", "Vẽ hình chữ nhật"),
+    ("ve cung tron", "arc", "Vẽ cung tròn"),
+    ("do khoang cach", "dist", "Đo khoảng cách"),
+    ("do chieu dai", "dist", "Đo chiều dài giữa hai điểm"),
+    ("do dien tich", "area", "Đo diện tích"),
+    ("tim toa do", "id", "Tìm tọa độ điểm"),
+    ("lay toa do", "id", "Lấy tọa độ điểm"),
+    ("ghi kich thuoc", "dimlinear", "Ghi kích thước thẳng"),
+    ("do kich thuoc", "dimlinear", "Đo và ghi kích thước thẳng"),
+    ("ghi kich thuoc xien", "dimaligned", "Ghi kích thước xiên"),
+    ("sao chep doi tuong", "copy", "Sao chép đối tượng"),
+    ("di chuyen doi tuong", "move", "Di chuyển đối tượng"),
+    ("xoay doi tuong", "rotate", "Xoay đối tượng"),
+    ("xoa doi tuong", "erase", "Xóa đối tượng"),
+    ("cat net", "trim", "Cắt nét"),
+    ("keo dai net", "extend", "Kéo dài nét"),
+    ("thu phong ban ve", "zoom", "Thu phóng bản vẽ"),
+    ("xem toan bo ban ve", "zoom", "Xem toàn bộ bản vẽ"),
+    ("quan ly lop", "layer", "Quản lý lớp"),
+];
+
+fn fold_vi(text: &str) -> String {
+    text.to_lowercase().chars().filter_map(|ch| {
+        let plain = match ch {
+            'à'|'á'|'ả'|'ã'|'ạ'|'ă'|'ằ'|'ắ'|'ẳ'|'ẵ'|'ặ'|'â'|'ầ'|'ấ'|'ẩ'|'ẫ'|'ậ' => 'a',
+            'è'|'é'|'ẻ'|'ẽ'|'ẹ'|'ê'|'ề'|'ế'|'ể'|'ễ'|'ệ' => 'e',
+            'ì'|'í'|'ỉ'|'ĩ'|'ị' => 'i',
+            'ò'|'ó'|'ỏ'|'õ'|'ọ'|'ô'|'ồ'|'ố'|'ổ'|'ỗ'|'ộ'|'ơ'|'ờ'|'ớ'|'ở'|'ỡ'|'ợ' => 'o',
+            'ù'|'ú'|'ủ'|'ũ'|'ụ'|'ư'|'ừ'|'ứ'|'ử'|'ữ'|'ự' => 'u',
+            'ỳ'|'ý'|'ỷ'|'ỹ'|'ỵ' => 'y',
+            'đ' => 'd',
+            '\u{0300}'..='\u{036f}' => return None,
+            _ => ch,
+        };
+        Some(plain)
+    }).collect::<String>().split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+fn vietnamese_matches(text: &str) -> Vec<Suggestion> {
+    let folded = fold_vi(text);
+    if folded.is_empty() {return Vec::new();}
+    let mut seen = HashSet::new();
+    let mut results = Vec::new();
+    for (phrase, command, label) in VI_COMMANDS {
+        if !phrase.starts_with(&folded) {continue;}
+        let Some(spec)=cadcraft_engine::cmd::find_command(command) else {continue};
+        if seen.insert(spec.id) {
+            results.push(Suggestion {
+                id:spec.id.to_ascii_uppercase(),
+                display:format!("{label} · {}",spec.id.to_ascii_uppercase()),
+                label:spec.label
+            });
+        }
+        if results.len()>=8 {break;}
+    }
+    results
+}
+
+fn bilingual_label(command: &str) -> Option<&'static str> {
+    VI_COMMANDS.iter().find(|(_,id,_)|id.eq_ignore_ascii_case(command))
+        .map(|(_,_,label)|*label)
+}
+
+/// A space after a Vietnamese natural-language verb is part of the query.
+/// A normal CAD alias (L, PL, C, REC, DI...) retains its traditional
+/// Space-to-Enter behaviour, and command prompts always preserve text input.
+fn vietnamese_query_continues(buffer:&str)->bool {
+    let normalized=fold_vi(buffer);
+    !normalized.is_empty() && VI_COMMANDS.iter()
+        .any(|(phrase,_,_)|phrase.starts_with(&(normalized.clone()+" ")))
+}
+
+fn active_command_guide(id:&str)->&'static str {
+    match id {
+        "line" => "LINE/L: nhấp điểm đầu → điểm tiếp theo · Enter để kết thúc · Esc để hủy",
+        "pline" => "PLINE/PL: nhấp điểm đầu → các đỉnh · Enter kết thúc · Close để khép kín",
+        "circle" => "CIRCLE/C: chọn tâm → nhập bán kính hoặc nhấp điểm trên đường tròn",
+        "rectang" => "RECTANG/REC: chọn góc thứ nhất → chọn góc đối diện",
+        "dist" => "DIST/DI: chọn điểm đo thứ nhất → điểm thứ hai để xem khoảng cách",
+        "id" => "ID: chọn một điểm để đọc tọa độ X, Y, Z",
+        "dimlinear" => "DIMLINEAR/DLI: chọn hai điểm đo → vị trí đặt đường kích thước",
+        "dimaligned" => "DIMALIGNED/DAL: chọn hai điểm → vị trí ghi kích thước xiên",
+        "purge" => "PURGE: chọn loại dữ liệu không dùng và xác nhận trước khi xóa",
+        "trim" => "TRIM/TR: chọn cạnh cắt → đối tượng cần cắt · Enter/Esc để kết thúc",
+        "extend" => "EXTEND/EX: chọn biên → đối tượng cần kéo dài",
+        "move" => "MOVE/M: chọn đối tượng → điểm gốc → điểm đích",
+        "copy" => "COPY/CO: chọn đối tượng → điểm gốc → điểm sao chép",
+        _ => "Lệnh đang chạy: xem yêu cầu tại dòng lệnh, chọn điểm/đối tượng hoặc nhập giá trị; Esc để hủy",
+    }
+}
+
 /// Matching command names/aliases for AutoComplete.
 fn suggestions(prefix: &str) -> Vec<Suggestion> {
-    if prefix.is_empty() || prefix.contains(' ') {
-        return Vec::new();
-    }
+    if prefix.is_empty() {return Vec::new();}
+    if prefix.chars().any(char::is_whitespace) {return vietnamese_matches(prefix);}
     let p = prefix.to_ascii_lowercase();
+
+    // Vietnamese phrases (with or without diacritics) before English prefix
+    // matches. Only registered commands can ever appear or be executed.
+    let vi = vietnamese_matches(prefix);
+    if !vi.is_empty() {return vi;}
 
     let mut out: Vec<Suggestion> = Vec::new();
     let mut seen_ids: HashSet<&'static str> = HashSet::new();
@@ -339,7 +443,11 @@ pub fn keyboard(app: &mut CadApp, ctx: &egui::Context) {
                 if t == "\t" {
                     tab(app);
                 } else if t == " " && !text_prompt {
-                    submit(app);
+                    if !app.session.prompting() && vietnamese_query_continues(&app.cmd.buffer) {
+                        app.cmd.buffer.push(' ');
+                    } else {
+                        submit(app);
+                    }
                 } else {
                     app.cmd.preedit.clear();
                     app.cmd.buffer.push_str(&t);
@@ -445,6 +553,17 @@ pub fn submit(app: &mut CadApp) {
         }
         return;
     }
+    // Translate only a full, exact Vietnamese command phrase. Partial words
+    // never trigger a command, preserving user review of suggestions.
+    let query=fold_vi(&text);
+    if !app.session.prompting() {
+        if let Some((_,command,_))=VI_COMMANDS.iter().find(|(phrase,_,_)|*phrase==query)
+            && cadcraft_engine::cmd::find_command(command).is_some()
+        {
+            app.cmdline(command);
+            return;
+        }
+    }
     app.cmdline(&text);
 }
 
@@ -471,6 +590,17 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui, canvas: Rect) {
         for (i, l) in lines.iter().enumerate() {
             p.text(pos2(hr.left() + 8.0, hr.top() + 1.0 + lh * i as f32), egui::Align2::LEFT_TOP, l, crate::theme::small(), t.text_dim);
         }
+    }
+    // Explicit command-state help remains visible while the user is in
+    // LINE/PLINE/CIRCLE/RECTANG/DIST/ID/DIMLINEAR, not only after clicking.
+    if let Some(running)=app.session.running.as_ref() {
+        let guide=active_command_guide(running.id);
+        let y=(bar.top()-24.0-f32::from(n as u16)*16.0
+            -if lines.is_empty(){0.0}else{6.0}).max(canvas.top()+3.0);
+        let hint=Rect::from_min_size(pos2(bar.left(),y),vec2(w,20.0));
+        p.rect_filled(hint,3.0,t.cmd_history);
+        p.text(pos2(hint.left()+7.0,hint.center().y),egui::Align2::LEFT_CENTER,
+            guide,egui::FontId::proportional(11.0),t.text);
     }
     p.rect_filled(bar, 3.0, t.cmd_bg);
     p.rect_stroke(bar, 3.0, Stroke::new(1.0, t.cmd_border), egui::StrokeKind::Inside);
@@ -602,7 +732,8 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui, canvas: Rect) {
                 p.text(
                     Pos2::new(r.right() - 8.0, r.center().y),
                     egui::Align2::RIGHT_CENTER,
-                    crate::i18n::t(s.label),
+                    bilingual_label(&s.id).map(|vi|format!("{vi} · {}",crate::i18n::t(s.label)))
+                        .unwrap_or_else(||crate::i18n::t(s.label).to_string()),
                     crate::theme::small(),
                     t.text_faint,
                 );
@@ -882,6 +1013,32 @@ mod delete_key_tests {
 #[cfg(test)]
 mod autocomplete_tests {
     use super::*;
+
+    #[test]
+    fn vietnamese_command_suggestions_accept_accents_and_plain_text() {
+        let accented=suggestions("làm sạch bản vẽ");
+        assert_eq!(accented[0].id,"PURGE");
+        assert!(accented[0].display.contains("Làm sạch bản vẽ"));
+        assert_eq!(suggestions("lam sach ban ve")[0].id,"PURGE");
+        assert_eq!(suggestions("ve duong thang")[0].id,"LINE");
+        assert_eq!(suggestions("đo khoảng cách")[0].id,"DIST");
+        assert_eq!(suggestions("tim toa do")[0].id,"ID");
+        assert_eq!(suggestions("ghi kich thuoc")[0].id,"DIMLINEAR");
+        assert!(suggestions("lam sach xyz").is_empty());
+    }
+
+    #[test]
+    fn space_keeps_vietnamese_phrase_but_not_native_cad_alias() {
+        assert!(vietnamese_query_continues("làm"));
+        assert!(vietnamese_query_continues("lam sach"));
+        assert!(vietnamese_query_continues("vẽ đường"));
+        assert!(!vietnamese_query_continues("l"));
+        assert!(!vietnamese_query_continues("pl"));
+        assert!(!vietnamese_query_continues("rec"));
+        assert!(!vietnamese_query_continues("lam sach ban ve"));
+        assert_eq!(fold_vi("Làm Sạch BẢN VẼ"),"lam sach ban ve");
+        assert!(active_command_guide("pline").contains("đỉnh"));
+    }
 
     #[test]
     fn exact_alias_is_first_suggestion_with_alias_display() {
