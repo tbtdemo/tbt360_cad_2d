@@ -356,3 +356,15 @@ Các bài test đã được khai báo là bắt buộc trong `cad360-v1027-comm
 - [ ] Chờ kết quả Windows CI trên commit chứa bản sửa workflow. Chưa có cơ sở khẳng định OSNAP chuột, DWG hai chiều hoặc AI tự dựng mặt bằng đã đạt.
 
 **Quy tắc phát hành:** phải có kết quả `success` cho đúng HEAD commit, không dùng PASS của commit cũ hoặc của bộ test chưa chạy.
+
+
+## 31. V1.027 — Sửa OSNAP bị bỏ qua khi nhấp nhanh nhiều điểm cùng frame
+
+- [x] Phân tích `ui-egui/src/canvas.rs`: trước đây nhánh `point_releases.split_last()` gửi các release trước bằng `session.input(Input::Point(xf.to_world(pos)))`, bỏ qua OSNAP/ortho/tracking. Release cuối đi qua `effective_point` và `input_snapped`, nên cùng một chuỗi nhấp nhanh có điểm chính xác và điểm sai lệch.
+- [x] Thêm `canvas/cursor.rs::input_earlier_snapped_point`: mỗi release nhận tọa độ riêng, gọi `effective_point`, duy trì `cursor`/`cursor_deferred`, xử lý snap override/Tab như đường đi thường, rồi chuyển `SnapHit` bằng `Session::input_snapped` hoặc `Input::Point` khi thực sự không có snap.
+- [x] `canvas.rs` thay nhánh gửi tọa độ thô bằng hàm xử lý snap riêng cho từng release. Không dùng snap của release cuối để áp lên những cú nhấp trước và không thay đổi command ID/native parser.
+- [x] Thêm regression `snap_label_layout_tests::batched_physical_clicks_each_use_their_own_native_endpoint_snap`: tạo LINE gốc (0,0)–(10,0); trong một batch gửi hai release lệch nhẹ (9.9,0.1) và (0.1,0.1); yêu cầu LINE native mới có tọa độ chính xác (10,0)–(0,0), không dùng điểm chuột thô.
+- [x] Regression nằm trong module `snap_label_layout_tests::` đã được Windows V1.027 workflow chạy.
+- [ ] Chờ CI mới nhất kết luận `success`; test đơn vị xác nhận đường đi nhập liệu nhưng chưa thay thế nghiệm thu trực tiếp bằng chuột, monitor DPI, zoom và DWG/AutoCAD.
+
+**Tác động:** sửa mất OSNAP theo chuỗi click nhanh trong cùng frame; các chế độ bắt điểm gốc vẫn do engine quyết định.
