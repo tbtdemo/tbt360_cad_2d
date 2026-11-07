@@ -28,6 +28,12 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: CADTBT360_V1.000
+      - name: Ensure AI Studio starts in focused image tab with appropriate stroke limit
+        run: cargo test --locked -p cadcraft --bin cadcraft ai_studio_primary_tab_is_image_workflow_and_advanced_settings_are_separate -- --nocapture
+      - name: Ensure AI Studio preview accepts 274-stroke demo below adjustable limit
+        run: cargo test --locked -p cadcraft --bin cadcraft ai_studio_default_handles_274_strokes_without_silent_truncation -- --nocapture
+      - name: Ensure AI Review starts with command tab after handoff
+        run: cargo test --locked -p cadcraft-ui-egui ai_review_starts_with_horizontal_native_command_tab -- --nocapture
       - name: Validate desktop native compilation including Ollama adapter
         run: cargo check --locked -p cadcraft
       - name: Verify actual raster CAD commit rejects source and calibration changes after preview
