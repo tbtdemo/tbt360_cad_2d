@@ -137,6 +137,11 @@ jobs:
           $ErrorActionPreference = 'Stop'
           cargo test --locked -p cadcraft-engine --test it prompt_keywords:: -- --nocapture
           if ($LASTEXITCODE -ne 0) { throw 'Native CAD interactive keyword acceptance failed' }
+      - name: Verify native architectural MOVE COPY OFFSET Undo Redo and DXF persistence
+        run: |
+          $ErrorActionPreference = 'Stop'
+          cargo test --locked -p cadcraft-engine --test it offset_move::architectural_move_copy_offset_undo_redo_and_dxf_reopen -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'CAD geometry fidelity failed: MOVE/COPY/OFFSET/Undo/Redo/DXF roundtrip' }
       - name: Report verification boundary
         run: |
           Write-Host 'PASS here proves compile and command UX unit tests only.'
