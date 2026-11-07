@@ -265,6 +265,10 @@ fn architectural_fillet_chamfer_native_geometry_undo_redo_and_dxf() {
     })).expect("native FILLET on two perpendicular LINEs");
     let filleted = lines(&s);
     assert_ne!(filleted, before, "FILLET must trim original line geometry");
+    assert_eq!(filleted, vec![
+        ((0.0, 0.0), (8.0, 0.0)),
+        ((10.0, 2.0), (10.0, 10.0)),
+    ], "FILLET radius 2 at a perpendicular corner must have exact tangent endpoints");
     assert_eq!(s.doc().unwrap().model.iter()
         .filter(|e| matches!(&e.kind, EntityKind::Arc(_))).count(), 1,
         "FILLET must create a native editable ARC");
@@ -287,6 +291,8 @@ fn architectural_fillet_chamfer_native_geometry_undo_redo_and_dxf() {
         "trim": false
     })).expect("native CHAMFER with No trim");
     assert_eq!(lines(&c).len(), 3, "CHAMFER must produce an editable LINE");
+    assert!(lines(&c).contains(&((8.0,0.0),(10.0,3.0))),
+        "CHAMFER 2 x 3 must create an exact editable diagonal");
     for segment in original.iter() {
         assert!(lines(&c).contains(segment), "No trim must preserve source lines");
     }
@@ -298,4 +304,24 @@ fn architectural_fillet_chamfer_native_geometry_undo_redo_and_dxf() {
     let reloaded = cadcraft_io::read_dxf(dxf.as_bytes()).expect("CHAMFER DXF roundtrip");
     assert_eq!(reloaded.model.iter()
         .filter(|e| matches!(&e.kind, EntityKind::Line(_))).count(), 3);
+}
+
+
+/// Parallel lines cannot form a unique FILLET or CHAMFER corner.
+/// The failure must not destroy native line geometry.
+#[test]
+fn architectural_parallel_fillet_chamfer_reject_without_geometry_loss() {
+    let mut s = session(&["0,0 10,0", "0,5 10,5"]);
+    let handles = s.doc().unwrap().model.iter().map(|e| e.handle.hex()).collect::<Vec<_>>();
+    let original = lines(&s);
+    assert!(s.execute("chamfer", &json!({
+        "h1": handles[0], "h2": handles[1],
+        "p1": [2,0], "p2": [2,5], "d1": 2.0, "d2": 3.0
+    })).is_err(), "Parallel CHAMFER must reject ambiguous corner");
+    assert_eq!(lines(&s), original, "Invalid CHAMFER may not change entities");
+    assert!(s.execute("fillet", &json!({
+        "h1": handles[0], "h2": handles[1],
+        "p1": [2,0], "p2": [2,5], "radius": 2.0
+    })).is_err(), "Parallel FILLET must reject ambiguous corner");
+    assert_eq!(lines(&s), original, "Invalid FILLET may not change entities");
 }
