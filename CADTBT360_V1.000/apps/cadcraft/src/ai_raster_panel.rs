@@ -735,6 +735,42 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
             }
             if state.studio_tab==3 {
             ui.heading("Kết nối AI & Tài liệu");
+            ui.collapsing("BẮT ĐẦU TỪ SỐ 0 — AI ẢNH → CAD", |ui| {
+                ui.label("1. Chỉ dùng ảnh hoặc PDF có MẶT BẰNG, không chụp cả ribbon CAD, bảng Layer, chữ menu; cắt vùng tầng hoặc phân khu nếu nhiều nét.");
+                ui.label("2. Mở tab 01 Ảnh/PDF → Chọn ảnh → đặt tỷ lệ CAD/pixel theo kích thước đã biết → Nhận dạng và xem trước.");
+                ui.label("3. Nếu báo quá 1.000 nét kiến trúc hoặc 10.000 nét hình học: tăng Nét tối thiểu hoặc cắt ảnh, KHÔNG tăng tùy tiện tỷ lệ CAD để né lỗi.");
+                ui.label("4. Đối chiếu các nét, phòng P1/P2, tường, khoảng cửa nghi vấn với ảnh gốc. Khoảng mở chưa được coi là cửa thực tế.");
+                ui.label("5. Chỉ khi đã xem trước và xác nhận, mới cho phép tạo LINE/PLINE/BLOCK; lưu bản vẽ mới và dùng UNDO khi cần.");
+                ui.small("GIỚI HẠN: đây là dò hình học raster; chưa phải AI ngữ nghĩa đọc hoàn chỉnh mặt bằng kiến trúc.");
+            });
+            ui.collapsing("LỆNH TIẾNG VIỆT — VÍ DỤ THỰC HIỆN", |ui| {
+                ui.label("Gõ ở dòng lệnh dưới bản vẽ (có dấu hoặc không dấu), chọn gợi ý hoặc gõ đủ câu rồi Enter:");
+                for (vi,cmd,guide) in [
+                    ("làm sạch bản vẽ","PURGE","Chọn các thành phần không dùng để dọn"),
+                    ("vẽ đường thẳng","LINE / L","Chọn điểm đầu và điểm tiếp theo"),
+                    ("vẽ đa đoạn","PLINE / PL","Chọn các đỉnh, Enter kết thúc"),
+                    ("vẽ hình chữ nhật","RECTANG / REC","Chọn hai góc đối diện"),
+                    ("đo khoảng cách","DIST / DI","Chọn hai điểm để đọc kết quả"),
+                    ("tìm tọa độ","ID","Chọn một điểm đọc X,Y,Z"),
+                    ("ghi kích thước","DIMLINEAR / DLI","Chọn hai điểm và vị trí đặt số đo"),
+                ] {
+                    ui.horizontal_wrapped(|ui| {
+                        ui.strong(vi);ui.small(format!("→ {cmd} · {guide}"));
+                    });
+                }
+                ui.small("ĐANG CHỜ hiển thị loại thao tác lệnh đang đợi. F3 bật OSNAP; Esc hủy; Enter kết thúc hoặc xác nhận tùy lệnh.");
+            });
+            ui.collapsing("AI REVIEW KHÁC AI STUDIO NHƯ THẾ NÀO?", |ui| {
+                ui.label("AI Studio (01) đọc ảnh để tạo bản xem trước nhiều nét. AI Review (02) là trình kiểm duyệt câu lệnh CAD đã mô tả rõ tọa độ.");
+                ui.label("Ví dụ bản nháp AI Review: vẽ phòng rộng 6000 dài 4000 tại 0,0; xem trước RECTANG trước khi xác nhận.");
+                ui.label("Không dùng lời tự do chưa có trong từ điển để trực tiếp tạo hình học; AI Review chưa tự đồng bộ với kết quả nhận dạng ảnh.");
+                ui.label("Nếu cần tường + cửa: chọn ví dụ 'Tường và cửa' trong tab 02 và xem tọa độ, độ dày, hướng mở trước khi ghi.");
+            });
+            ui.collapsing("OSNAP / BẮT ĐIỂM — KHÔNG PHẢI TỌA ĐỘ ƯỚC LƯỢNG", |ui| {
+                ui.label("F3: bật bắt điểm thật trên đối tượng; END: đầu mút LINE; MID: trung điểm LINE; CEN: tâm CIRCLE; INT: giao điểm.");
+                ui.label("Ví dụ: L → nhấp END của tường A → nhấp MID của tường B → Enter. DIST → nhấp lại hai điểm để đo khoảng cách.");
+                ui.label("Mở Options → Drafting → Drafting Settings để xem từng OSNAP có ví dụ. F8 trực giao, F10 dò góc, F12 nhập động.");
+            });
             ui.collapsing("Kết nối trợ lý AI ngoài qua MCP", |ui| {
                 ui.label("CAD 360 có MCP server kết nối với ứng dụng AI hỗ trợ Model Context Protocol.");
                 ui.label("Để AI thao tác trên bản vẽ đang mở, chạy CAD 360 với --control 7979 và kết nối:");
