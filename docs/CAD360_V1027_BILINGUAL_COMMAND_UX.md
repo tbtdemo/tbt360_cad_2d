@@ -333,3 +333,14 @@ Các bài test đã được khai báo là bắt buộc trong `cad360-v1027-comm
 - [ ] Windows CI của commit mới nhất chưa được xác nhận `success`. Kiểm thử GUI bằng chuột/OSNAP và DWG hai chiều với AutoCAD vẫn là mục nghiệm thu riêng.
 
 **Giới hạn:** đã ghi mã hồi quy và cấu hình workflow, chưa coi là PASS cho đến khi GitHub Actions hoàn tất.
+
+
+## 29. V1.027 — CHAMFER POLYLINE khép kín: tọa độ chính xác, Undo/Redo và DXF
+
+- [x] Thêm regression `architectural_closed_polyline_chamfer_exact_geometry_and_dxf_reopen` trong `crates/engine/tests/it/fillet_chamfer.rs`.
+- [x] Từ lệnh gốc `PLINE 0,0 6000,0 6000,4000 0,4000 C`, gọi engine CHAMFER Distance 100×100 và yêu cầu bốn góc được vát. Kiểm tra đối tượng còn là `LwPolyline`, `closed=true`, có 8 tọa độ cắt góc chính xác, mọi `bulge=0` (vát thẳng, không thành cung).
+- [x] Kiểm tra Undo phục hồi 4 đỉnh, Redo phục hồi hình học vát, DXF roundtrip phải giữ nguyên thứ tự/tọa độ các đỉnh và khả năng chỉnh sửa.
+- [x] Nhóm `fillet_chamfer::` đã được gọi trong workflow Windows V1.027 từ mục 28, nên bài test mới được bao gồm tự động.
+- [ ] Chưa xác nhận CI PASS cho commit cuối `04e258a38725fdab6c3dc4fac61cdcfc3cc4da82`; chưa nghiệm thu Windows EXE, chuột OSNAP, DWG/AutoCAD hai chiều.
+
+**Nguyên tắc nghiệm thu:** Việc commit bài kiểm thử chứng minh đã bổ sung tiêu chí kiểm chứng, không có nghĩa kiểm thử đã chạy thành công.
