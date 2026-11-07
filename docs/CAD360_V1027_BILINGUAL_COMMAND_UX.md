@@ -390,3 +390,14 @@ Các bài test đã được khai báo là bắt buộc trong `cad360-v1027-comm
 - [ ] Chưa xác nhận CI cho HEAD mới nhất thành công; run của commit cũ có thể bị hủy bởi concurrency. Chưa nghiệm thu bằng click thật trong EXE, HiDPI nhiều màn hình, PER/TAN deferred, DWG hai chiều.
 
 **Yêu cầu nghiệm thu:** so sánh tọa độ pick gốc, marker OSNAP, `SnapHit.point`, `Session::input_snapped`, và LINE khi lưu/mở lại. Không coi việc commit test là kết quả PASS.
+
+
+## 34. V1.027 — OSNAP INT/END và OFF đi xuyên suốt luồng click canvas
+
+- [x] Bổ sung kiểm thử `fast_canvas_intersection_snap_is_exact_and_osnap_off_keeps_raw_input` ở `ui-egui/src/canvas/cursor.rs`.
+- [x] Hai LINE tham chiếu cắt nhau tại (5,0). Khi OSNAP INT|END đang bật, sự kiện release gần giao điểm (5.1,0.1) phải thành (5,0), release tiếp theo gần đầu mút (0.1,0.1) phải thành (0,0); LINE mới phải đúng hai đầu mút đó.
+- [x] Khi cờ `OSMODE::OFF` được bật cùng với INT|END, chuỗi release tương tự phải giữ tọa độ thô (5.1,0.1) và (0.1,0.1), không tự ý bắt điểm.
+- [x] Kiểm thử thực thi thông qua `input_earlier_snapped_point` (luồng click nhanh được sửa ở mục 31), thay vì chỉ kiểm tra đồ họa marker.
+- [ ] Windows CI phải xác nhận thành công trên commit HEAD trước khi kết luận regression đạt. Chưa nghiệm thu bằng thao tác click EXE thật và các trường hợp PER/TAN deferred, đa viewport, DPI vật lý khác nhau và DWG hai chiều.
+
+**Phạm vi:** bảo vệ lệnh native và chế độ OFF; không chuyển thuật toán CAD sang mô phỏng và không giả định rằng toàn bộ OSNAP đã hoàn thành.
