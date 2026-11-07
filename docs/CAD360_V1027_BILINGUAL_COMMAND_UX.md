@@ -344,3 +344,15 @@ Các bài test đã được khai báo là bắt buộc trong `cad360-v1027-comm
 - [ ] Chưa xác nhận CI PASS cho commit cuối `04e258a38725fdab6c3dc4fac61cdcfc3cc4da82`; chưa nghiệm thu Windows EXE, chuột OSNAP, DWG/AutoCAD hai chiều.
 
 **Nguyên tắc nghiệm thu:** Việc commit bài kiểm thử chứng minh đã bổ sung tiêu chí kiểm chứng, không có nghĩa kiểm thử đã chạy thành công.
+
+
+## 30. V1.027 — Ổn định Windows CI, chống chạy chồng chéo và bỏ sót lỗi
+
+- [x] Cấu hình `cancel-in-progress: true` cho nhánh/PR tương ứng: commit mới sẽ hủy lần kiểm thử cũ đang chạy; chỉ commit mới nhất là mục tiêu nghiệm thu. Không dùng kết quả của run bị `cancelled` để kết luận test PASS/FAIL.
+- [x] Bỏ đường dẫn tài liệu khỏi `push.paths` của Windows native-gate, tránh commit thuần tài liệu làm phát sinh thêm lượt biên dịch nặng. Vẫn chạy khi sửa engine, UI hoặc workflow.
+- [x] Bổ sung `crates/engine/**` vào `pull_request.paths` để không bỏ sót thay đổi hình học trong PR.
+- [x] Sửa bước liệt kê test: kiểm tra `$LASTEXITCODE` ngay sau Cargo, trước pipeline PowerShell. Bắt buộc tìm thấy đủ ba module `trim_extend_options::`, `offset_move::`, `fillet_chamfer::`.
+- [x] Sửa dòng báo cáo để phân biệt rõ Windows engine/UI automated tests và nghiệm thu chuột thật trên EXE.
+- [ ] Chờ kết quả Windows CI trên commit chứa bản sửa workflow. Chưa có cơ sở khẳng định OSNAP chuột, DWG hai chiều hoặc AI tự dựng mặt bằng đã đạt.
+
+**Quy tắc phát hành:** phải có kết quả `success` cho đúng HEAD commit, không dùng PASS của commit cũ hoặc của bộ test chưa chạy.
