@@ -806,7 +806,7 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui, canvas: Rect) {
     if let Some(running)=app.session.running.as_ref() {
         let guide=registered_active_command_help(&running.id);
         let expected=app.session.current_prompt()
-            .map(active_prompt_help)
+            .map(|prompt|active_prompt_help(&prompt))
             .unwrap_or_else(||"ACTIVE (Đang thực hiện lệnh) · Esc (Hủy)".to_owned());
         let y=(bar.top()-46.0-n as f32*16.0
             -if lines.is_empty(){0.0}else{6.0}).max(canvas.top()+3.0);
