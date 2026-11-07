@@ -251,3 +251,14 @@ Các bài test đã được khai báo là bắt buộc trong `cad360-v1027-comm
 - [ ] Cần tiếp tục kiểm thử marker OSNAP với chuột/HiDPI trên EXE, Undo/Redo thực sự qua nút Ribbon và tổ hợp Ctrl+Z/Ctrl+Y, cùng kiểm tra DWG AutoCAD hai chiều thực tế.
 
 **Giới hạn:** Bản vẽ hình học kiểm thử bằng DXF là một phần chuỗi nghiệm thu kỹ thuật, không đủ chứng minh DWG tương thích AutoCAD 2027 hoặc AI hiểu trọn vẹn mặt bằng kiến trúc.
+
+## 22. Kiểm chứng chuỗi chỉnh sửa và nâng cấp nhãn OSNAP gần mép vùng vẽ
+
+- [x] `offset_move::architectural_move_copy_offset_undo_redo_and_dxf_reopen`: lệnh **MOVE** di chuyển LINE từ (0,0)–(10,0) tới (5,2)–(15,2), **COPY** tạo bản sao tại y=6, **OFFSET** tại y=4, sau đó Undo xóa đúng lần offset và Redo khôi phục hình học. DXF lưu/mở lại phải có đúng ba thực thể `EntityKind::Line` với các cặp tọa độ như ban đầu, không bị raster hóa.
+- [x] Bổ sung test integration trên Windows CI cho chuỗi chỉnh sửa, hoàn tác và DXF roundtrip.
+- [x] `canvas/cursor.rs`: sửa **bố cục nhãn OSNAP** theo vùng clip của canvas. Khi điểm snap nằm sát góc/mép phải hoặc mép dưới, nhãn chuyển sang phía còn chỗ và luôn nằm trong canvas; marker vẫn đặt tại tọa độ snap do engine tính toán, **không dịch tọa độ điểm bắt**.
+- [x] Regression `osnap_labels_fit_all_canvas_corners_without_changing_snap_location` kiểm tra bốn góc và tâm vùng vẽ; kiểm thử được gắn vào Windows CI.
+- [ ] Chưa có nghiệm thu EXE Windows cho marker và thao tác chọn đối tượng bằng chuột. Cần đối chiếu vị trí marker hiển thị, `cursor` và tọa độ `Input::Point` engine nhận qua phóng to/thu nhỏ và HiDPI.
+- [ ] Chưa kiểm thử DWG thực sự với AutoCAD. DXF roundtrip chỉ bảo đảm phần hình học trong test; chưa được dùng để tuyên bố tương thích 100% DWG.
+
+**CI:** chỉ công bố đã PASS khi workflow V1.027 của commit cuối kết luận `success`.
