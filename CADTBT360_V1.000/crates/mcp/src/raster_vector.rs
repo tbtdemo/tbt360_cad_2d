@@ -263,7 +263,7 @@ struct RectangleOutline {
 /// Missing walls, gaps or intersections are deliberately not inferred.
 /// Detection is capped to prevent quadratic growth on large drawings.
 fn closed_rectangles(lines: &[Line]) -> Vec<RectangleOutline> {
-    if lines.len() > 256 { return Vec::new(); }
+    if lines.len() > 1000 { return Vec::new(); }
     let mut result = Vec::new();
     let mut used = vec![false; lines.len()];
     let near = |a: f64, b: f64| (a-b).abs() <= 1.5;
@@ -2755,6 +2755,21 @@ mod tests {
         let x0 = points[0][0].as_f64().expect("start x");
         let x1 = points[1][0].as_f64().expect("end x");
         assert!((x1-x0-500.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn ai_architecture_recognizes_closed_room_outline_in_274_line_plan() {
+        let mut lines=Vec::new();
+        for i in 0..274 {
+            let x=i as f64 * 2.0;
+            lines.push(Line{x0:x,y0:900.0,x1:x+1.0,y1:900.0});
+        }
+        lines[270]=Line{x0:50.0,y0:100.0,x1:350.0,y1:100.0};
+        lines[271]=Line{x0:50.0,y0:340.0,x1:350.0,y1:340.0};
+        lines[272]=Line{x0:50.0,y0:100.0,x1:50.0,y1:340.0};
+        lines[273]=Line{x0:350.0,y0:100.0,x1:350.0,y1:340.0};
+        let rooms=closed_rectangles(&lines);
+        assert!(rooms.iter().any(|r|r.edges.contains(&270)&&r.edges.contains(&273)));
     }
 
     #[test]
