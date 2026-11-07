@@ -976,6 +976,47 @@ fn reference_line_benchmark(detected:&[Value],reference:&Value,tolerance:f64)->R
         "warning":"Requires human-labelled reference CAD lines. No guarantee of element classification or two-way AutoCAD acceptance."}))
 }
 
+/// Bounded 1024px region inventory without allocating a second full-size image.
+/// Each vector keeps its original global pixel coordinates. Crossing vectors
+/// are referenced by both regions, never translated or duplicated in the CAD
+/// output. These are *diagnostics*, not semantic room/door recognition.
+fn raster_tile_diagnostics(img: &GrayImage, vectors: &[Line]) -> Vec<Value> {
+    const TILE: u32 = 1024;
+    let (width,height)=img.dimensions();
+    let mut tiles=Vec::new();
+    for top in (0..height).step_by(TILE as usize) {
+        for left in (0..width).step_by(TILE as usize) {
+            let right=(left+TILE).min(width);
+            let bottom=(top+TILE).min(height);
+            let mut dark=0_u64;
+            // Only aggregate source darkness. No per-tile GrayImage allocation.
+            for y in top..bottom {
+                for x in left..right {
+                    if img.get_pixel(x,y)[0]<=160 {dark+=1;}
+                }
+            }
+            let x0=f64::from(left);let x1=f64::from(right);
+            let y0=f64::from(top);let y1=f64::from(bottom);
+            let touching:Vec<usize>=vectors.iter().enumerate().filter(|(_,v)| {
+                let minx=v.x0.min(v.x1);let maxx=v.x0.max(v.x1);
+                let miny=v.y0.min(v.y1);let maxy=v.y0.max(v.y1);
+                maxx>=x0 && minx<x1 && maxy>=y0 && miny<y1
+            }).map(|(index,_)|index).collect();
+            tiles.push(json!({
+                "boundsPixels":[left,top,right,bottom],
+                "darkPixelsAt160":dark,
+                "vectorCount":touching.len(),
+                // Avoid a multi-megabyte preview when the page has thousands
+                // of crossing vectors; indices still refer to global vectors.
+                "vectorIndices":if touching.len()<=256 {json!(touching)} else {Value::Null},
+                "indicesTruncated":touching.len()>256,
+                "classification":"source-region-diagnostic-not-semantic"
+            }));
+        }
+    }
+    tiles
+}
+
 pub fn preview(args: &Value) -> Result<Value, String> {
     let path = args["path"].as_str().filter(|s| !s.trim().is_empty()).ok_or("path is required")?;
     let file = Path::new(path);
@@ -1462,7 +1503,10 @@ pub fn preview(args: &Value) -> Result<Value, String> {
     }
     // Separate small JSON objects avoid serde_json::json! expansion beyond
     // Rust's default macro recursion limit as AI preview fields grow.
+    let region_diagnostics=raster_tile_diagnostics(&gray,&lines);
     let mut result=json!({
+        "rasterTileSizePixels":1024,
+        "rasterTiles":region_diagnostics,
         "preview":true,"recognition":"automatic-raster-line-strokes",
         "model":"deterministic-pixel-vectorization-not-neural-AI",
         "imageSize":[width,height],"strokes":count,"sourceStrokes":source_strokes,
@@ -2949,6 +2993,23 @@ mod tests {
             let Some(b)=seg[1][0].as_f64() else {return false};
             (b-a).abs()>=9000.0
         }),"pixel-space source length must become the calibrated CAD length");
+    }
+
+    #[test]
+    fn ai_tile_diagnostics_keep_global_vector_indices_across_seams() {
+        let mut img=GrayImage::from_pixel(2200,400,image::Luma([255]));
+        for x in 10..2100 {img.put_pixel(x,100,image::Luma([0]));}
+        let lines=strokes(&img,160,50,true);
+        assert_eq!(lines.len(),1);
+        let tiles=raster_tile_diagnostics(&img,&lines);
+        assert_eq!(tiles.len(),3);
+        assert_eq!(tiles[0]["boundsPixels"],json!([0,0,1024,400]));
+        assert_eq!(tiles[1]["boundsPixels"],json!([1024,0,2048,400]));
+        assert_eq!(tiles[2]["boundsPixels"],json!([2048,0,2200,400]));
+        for tile in &tiles {
+            assert_eq!(tile["vectorIndices"],json!([0]),
+                "one global native LINE must not be duplicated at tile seams");
+        }
     }
 
     #[test]
