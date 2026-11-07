@@ -1,5 +1,13 @@
 use super::*;
 
+/// Snap name always starts with the native English name. Vietnamese
+/// translation is an aid, never a change to native OSNAP mode or hit point.
+fn bilingual_snap_label(english:&str)->String {
+    let vietnamese=crate::i18n::tr("vi",english);
+    if vietnamese!=english {format!("{english} ({vietnamese})")}
+    else {english.to_owned()}
+}
+
 /// Keep OSNAP name readable at canvas corners (including HiDPI): marker
 /// remains at the exact engine snap point, only its label is repositioned.
 fn snap_label_rect(at:Pos2,size:egui::Vec2,clip:Rect)->Rect {
@@ -73,7 +81,7 @@ pub(super) fn draw_snap_marker(p: &egui::Painter, at: Pos2, hit: &SnapHit) {
     }
     // Paint the label once, with its background. Drawing bare text first leaves
     // black ghost pixels when the label background is recomputed over the canvas.
-    let galley = p.layout_no_wrap(crate::i18n::t(hit.name).to_string(), crate::theme::small(), Color32::BLACK);
+    let galley = p.layout_no_wrap(bilingual_snap_label(hit.name), crate::theme::small(), Color32::BLACK);
     let r = snap_label_rect(at,galley.size()+vec2(6.0,2.0),p.clip_rect());
     p.rect_filled(r, 2.0, Color32::from_rgb(0xff, 0xff, 0xe1));
     p.galley(r.min + vec2(3.0, 1.0), galley, Color32::BLACK);
@@ -272,6 +280,18 @@ pub(super) fn draw_crosshair(app: &CadApp, p: &egui::Painter, rect: Rect, at: Po
 #[cfg(test)]
 mod snap_label_layout_tests {
     use super::*;
+
+    #[test]
+    fn native_snap_names_remain_english_first_with_vietnamese_explanation() {
+        for (english,translation) in [
+            ("Endpoint","Điểm cuối"),("Midpoint","Trung điểm"),
+            ("Center","Tâm"),("Intersection","Giao điểm"),
+            ("Perpendicular","Vuông góc"),("Tangent","Tiếp tuyến"),
+        ] {
+            assert_eq!(bilingual_snap_label(english),format!("{english} ({translation})"));
+        }
+        assert_eq!(bilingual_snap_label("UnknownNativeSnap"),"UnknownNativeSnap");
+    }
 
     #[test]
     fn osnap_labels_fit_all_canvas_corners_without_changing_snap_location() {
