@@ -1169,10 +1169,14 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui, canvas: Rect) {
     {
         let keywords=native_bilingual_options(&pr);
         let mut chosen:Option<String>=None;
-        let available_w=(bar.width()-10.0).max(180.0);
-        let pos=pos2(bar.left(),
-            (bar.top()-115.0-(n as f32*16.0)
-                -if lines.is_empty(){0.0}else{6.0}).max(canvas.top()+4.0));
+        // The palette may have dozens of keywords. Cap the height and let
+        // the user scroll, instead of extending below the command bar or
+        // disappearing off the top on small displays / HiDPI.
+        let available_w=(bar.width()-10.0).clamp(180.0,760.0);
+        let usable_top=(canvas.top()+6.0).min(bar.top());
+        let max_height=(canvas.height()*0.28).clamp(48.0,180.0)
+            .min((bar.top()-usable_top-8.0).max(30.0));
+        let pos=pos2(bar.left(),(bar.top()-max_height-8.0).max(usable_top));
         egui::Area::new(egui::Id::new("cad360_bilingual_prompt_options"))
             .order(egui::Order::Foreground)
             .fixed_pos(pos)
@@ -1181,17 +1185,22 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui, canvas: Rect) {
                     ui.set_max_width(available_w);
                     ui.label(egui::RichText::new("OPTIONS (Tùy chọn lệnh gốc) · Click or type (Nhấp hoặc nhập)")
                         .small().strong());
-                    ui.horizontal_wrapped(|ui|{
-                        for (index,(keyword,caption)) in keywords.iter().enumerate() {
-                            if ui.push_id(index,|ui|{
-                                ui.small_button(caption)
-                                    .on_hover_text(format!("Send {} to CAD (Gửi nguyên văn {})",keyword,keyword))
-                                    .clicked()
-                            }).inner {
-                                chosen=Some(keyword.clone());
-                            }
-                        }
-                    });
+                    egui::ScrollArea::vertical()
+                        .id_salt("cad360_bilingual_prompt_keywords_scroll")
+                        .max_height((max_height-30.0).max(20.0))
+                        .show(ui,|ui|{
+                            ui.horizontal_wrapped(|ui|{
+                                for (index,(keyword,caption)) in keywords.iter().enumerate() {
+                                    if ui.push_id(index,|ui|{
+                                        ui.small_button(caption)
+                                            .on_hover_text(format!("Native keyword: {keyword} (Lệnh gốc không thay đổi)"))
+                                            .clicked()
+                                    }).inner {
+                                        chosen=Some(keyword.clone());
+                                    }
+                                }
+                            });
+                        });
                 });
             });
         if let Some(keyword)=chosen {
