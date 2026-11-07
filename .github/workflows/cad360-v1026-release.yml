@@ -86,7 +86,9 @@ jobs:
           if ($LASTEXITCODE -ne 0 -or !(Test-Path 'dist/v1026/CADTBT360_V1.026_GIAO_TRINH_TONG_HOP.docx')) { throw 'Cannot build complete CAD 360 Word guide before Rust compile' }
           python scripts/validate_word_guide.py dist/v1026/CADTBT360_V1.026_GIAO_TRINH_TONG_HOP.docx
           if ($LASTEXITCODE -ne 0) { throw 'Full-product manual missing native tables, heading hierarchy or 21 lessons' }
-          python docs/user-guide/build_word_guide.py docs/user-guide/CAD360_V1.026_GIAO_TRINH_NGUOI_MOI_34_BAI.md dist/v1026/CADTBT360_V1.026_GIAO_TRINH_NGUOI_MOI.docx
+          python -m pip install --disable-pip-version-check "python-docx==1.2.0" "Pillow==11.3.0"
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot install pinned libraries for illustrated beginner manual' }
+          python scripts/build_beginner_guide.py docs/user-guide/CAD360_V1.026_GIAO_TRINH_NGUOI_MOI_34_BAI.md dist/v1026/CADTBT360_V1.026_GIAO_TRINH_NGUOI_MOI.docx
           if ($LASTEXITCODE -ne 0 -or !(Test-Path 'dist/v1026/CADTBT360_V1.026_GIAO_TRINH_NGUOI_MOI.docx')) { throw 'Cannot build beginner 34-lesson Word curriculum' }
 
       - name: Prepare Rust
