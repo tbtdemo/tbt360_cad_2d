@@ -1,5 +1,20 @@
 use super::*;
 
+/// Keep OSNAP name readable at canvas corners (including HiDPI): marker
+/// remains at the exact engine snap point, only its label is repositioned.
+fn snap_label_rect(at:Pos2,size:egui::Vec2,clip:Rect)->Rect {
+    let width=size.x.min(clip.width().max(0.0));
+    let height=size.y.min(clip.height().max(0.0));
+    let x=if at.x+10.0+width>clip.right() {at.x-width-10.0}
+        else{at.x+10.0};
+    let y=if at.y+10.0+height>clip.bottom() {at.y-height-10.0}
+        else{at.y+10.0};
+    Rect::from_min_size(pos2(
+        x.clamp(clip.left(),(clip.right()-width).max(clip.left())),
+        y.clamp(clip.top(),(clip.bottom()-height).max(clip.top()))),
+        vec2(width,height))
+}
+
 pub(super) fn draw_snap_marker(p: &egui::Painter, at: Pos2, hit: &SnapHit) {
     let t = Tokens::get();
     let s = crate::theme::snap_marker_half();
@@ -59,7 +74,7 @@ pub(super) fn draw_snap_marker(p: &egui::Painter, at: Pos2, hit: &SnapHit) {
     // Paint the label once, with its background. Drawing bare text first leaves
     // black ghost pixels when the label background is recomputed over the canvas.
     let galley = p.layout_no_wrap(crate::i18n::t(hit.name).to_string(), crate::theme::small(), Color32::BLACK);
-    let r = Rect::from_min_size(at + vec2(10.0, 10.0), galley.size() + vec2(6.0, 2.0));
+    let r = snap_label_rect(at,galley.size()+vec2(6.0,2.0),p.clip_rect());
     p.rect_filled(r, 2.0, Color32::from_rgb(0xff, 0xff, 0xe1));
     p.galley(r.min + vec2(3.0, 1.0), galley, Color32::BLACK);
 }
@@ -251,5 +266,24 @@ pub(super) fn draw_crosshair(app: &CadApp, p: &egui::Painter, rect: Rect, at: Po
     }
     if let Some(pb) = pb {
         p.rect_stroke(Rect::from_center_size(at, vec2(pb * 2.0, pb * 2.0)), 0.0, st, egui::StrokeKind::Middle);
+    }
+}
+
+#[cfg(test)]
+mod snap_label_layout_tests {
+    use super::*;
+
+    #[test]
+    fn osnap_labels_fit_all_canvas_corners_without_changing_snap_location() {
+        let canvas=Rect::from_min_max(pos2(100.0,80.0),pos2(550.0,310.0));
+        for at in [pos2(101.0,81.0),pos2(549.0,81.0),
+                   pos2(101.0,309.0),pos2(549.0,309.0),
+                   pos2(330.0,190.0)] {
+            let before=at;
+            let label=snap_label_rect(at,vec2(118.0,18.0),canvas);
+            assert!(label.left()>=canvas.left()&&label.right()<=canvas.right());
+            assert!(label.top()>=canvas.top()&&label.bottom()<=canvas.bottom());
+            assert_eq!(at,before,"the native OSNAP coordinate must not change");
+        }
     }
 }
