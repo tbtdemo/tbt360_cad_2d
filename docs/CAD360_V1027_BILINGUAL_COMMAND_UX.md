@@ -134,3 +134,13 @@ Thay cửa sổ Command Reference cũ (chỉ danh sách ID, tên, alias) thành 
 - [x] Đã thêm test thống kê bao phủ ngôn ngữ/hướng dẫn.
 - [ ] Windows CI mới phải PASS. Cần ảnh chụp Windows EXE thật, thử gõ tiếng Việt qua bộ gõ IME, mở F1, nhấp/thoát, đối chiếu OSNAP và Undo.
 - [ ] Ma trận tương đương mọi lệnh AutoCAD 2027 chưa đạt; không dùng số lệnh CAD 360 làm chứng cứ tương đương Autodesk.
+
+## 12. Hệ thống lọc và xếp hạng Sổ tay lệnh — V1.027
+
+- [x] Bộ lọc tùy chọn **VI TRANSLATED (Đã dịch)**, **EXAMPLES (Có ví dụ)**, **INTERACTIVE (Tương tác)**. Mặc định không chọn bất kỳ bộ lọc nào để hiển thị **toàn bộ CommandSpec công khai**; khi bật bộ lọc chỉ ẩn trên màn hình, không xóa/khóa lệnh.
+- [x] Hiển thị công khai số lệnh có bản dịch tiếng Việt, có bài hướng dẫn riêng và tổng số lệnh đã đăng ký, thay vì tuyên bố 100% nhưng không chứng minh.
+- [x] Xếp hạng kết quả: alias/mã lệnh **trùng chính xác** đứng trước ID bắt đầu bằng chuỗi tìm kiếm; tiếp đến cụm tiếng Việt tương ứng và nhãn Anh/Việt; tìm kiếm gần đúng cuối cùng. Quy tắc không thay đổi parser, không sửa PGP, không tự thực thi lệnh.
+- [x] Test regression duyệt registry không bị lọc khi dùng mặc định và xác nhận **L→LINE, PL→PLINE, C→CIRCLE, REC→RECTANG, DI→DIST** được ưu tiên hạng nhất, đồng thời bảo toàn tìm `làm sạch bản vẽ` có dấu/không dấu.
+- [ ] Chạy Windows CI trên commit mới nhất. Kiểm thử thực tế UI với tiếng Việt/IME, đánh dấu bộ lọc, mở F1, nhấp RUN và xem prompt. Chưa thể coi là kiểm chứng chức năng 100% AutoCAD 2027.
+
+**Kỷ luật phát hành:** Sổ tay song ngữ chỉ được coi là đạt nghiệm thu khi kiểm thử Windows và thao tác trên EXE thực tế thành công; các kiểm thử unit chứng minh phạm vi hẹp theo đăng ký/metadata.
