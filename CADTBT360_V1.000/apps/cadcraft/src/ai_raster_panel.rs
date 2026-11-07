@@ -649,7 +649,13 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
                 ui.small("Yêu cầu chọn chế độ phân tích. Nhấn Nhận dạng và xem trước để thực thi; kiểm tra kết quả trước khi tạo CAD.");
                 ui.separator();
                 ui.collapsing("AI hội thoại cục bộ — Ollama (không cần API key)",|ui| {
-                    ui.small("Cần cài Ollama và tải mô hình trên máy. AI chỉ dịch yêu cầu thành lệnh; tuyệt đối không thực thi tự động.");
+                    ui.small("Mô hình AI Ollama chạy trên máy riêng; không bắt buộc nếu chỉ dùng CAD hoặc vector hóa ảnh.");
+                    ui.horizontal_wrapped(|ui| {
+                        ui.label("Chưa cài Ollama?");
+                        ui.hyperlink_to("Tải Ollama chính thức","https://ollama.com/download");
+                        ui.label("Sau khi cài, mở Terminal chạy:");
+                        ui.code("ollama pull qwen2.5:7b");
+                    });
                     ui.horizontal(|ui| {
                         ui.label("Mô hình:");
                         if ui.text_edit_singleline(&mut state.local_model).changed() {state.local_command=None;}
