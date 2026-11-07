@@ -668,7 +668,7 @@ jobs:
           if (!(Test-Path $iscc)) { choco install innosetup -y --no-progress }
           if (!(Test-Path $iscc)) { throw 'Inno Setup compiler not installed' }
           New-Item -ItemType Directory -Force dist/v1026 | Out-Null
-          @('Release=CADTBT360_V1.026', "SourceCommit=$env:GITHUB_SHA", 'Architecture=windows-x64', 'NativeBuild=true', 'GUIAcceptance=NOT_VERIFIED') | Set-Content dist/v1026/BUILD_INFO.txt -Encoding utf8
+          @('Release=CADTBT360_V1.026', "SourceCommit=$env:GITHUB_SHA", 'Architecture=windows-x64', 'NativeBuild=true', 'GUIAcceptance=NOT_VERIFIED', 'IndependentAutoCADAcceptance=NOT_VERIFIED', 'ArchitectureSemanticAccuracy=NOT_VERIFIED', 'ManualEXEScreenshots=NOT_VERIFIED') | Set-Content dist/v1026/BUILD_INFO.txt -Encoding utf8
           if (!(Test-Path 'dist/v1026/CADTBT360_V1.026_HUONG_DAN_AI_TU_ANH_THANH_CAD.docx') -or !(Test-Path 'dist/v1026/CADTBT360_V1.026_GIAO_TRINH_TONG_HOP.docx')) { throw 'Preflight-generated Word manuals missing at packaging time' }
           if (!(Test-Path 'dist/v1026/CADTBT360_V1.026_GIAO_TRINH_NGUOI_MOI.docx')) { throw '34-lesson beginner Word book missing before installer' }
 
