@@ -1745,9 +1745,9 @@ mod autocomplete_tests {
             assert!(caption.starts_with(native));
             assert!(!caption.is_empty());
         }
-        assert_eq!(options[0].1,"Undo (Hoàn tác)");
-        assert_eq!(options[1].1,"Close (Đóng)");
-        assert_eq!(options[3].1,"Width (Bề rộng)");
+        assert_eq!(options[0].1,"Undo (Hoàn tác) · [U]");
+        assert_eq!(options[1].1,"Close (Đóng) · [C]");
+        assert_eq!(options[3].1,"Width (Bề rộng) · [W]");
     }
 
     #[test]
