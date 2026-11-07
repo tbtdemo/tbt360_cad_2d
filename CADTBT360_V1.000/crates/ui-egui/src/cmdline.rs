@@ -224,11 +224,6 @@ fn suggestions(prefix: &str) -> Vec<Suggestion> {
     if prefix.chars().any(char::is_whitespace) {return vietnamese_matches(prefix);}
     let p = prefix.to_ascii_lowercase();
 
-    // Vietnamese phrases (with or without diacritics) before English prefix
-    // matches. Only registered commands can ever appear or be executed.
-    let vi = vietnamese_matches(prefix);
-    if !vi.is_empty() {return vi;}
-
     let mut out: Vec<Suggestion> = Vec::new();
     let mut seen_ids: HashSet<&'static str> = HashSet::new();
 
@@ -241,6 +236,13 @@ fn suggestions(prefix: &str) -> Vec<Suggestion> {
             if spec.id == p { spec.id.to_ascii_uppercase() } else { format!("{} ({})", p.to_ascii_uppercase(), spec.id.to_ascii_uppercase()) };
         out.push(Suggestion { id: spec.id.to_ascii_uppercase(), display, label: spec.label });
         seen_ids.insert(spec.id);
+    }
+
+    // Preserve exact native command aliases L/PL/C/REC/DI... as highest
+    // priority. Vietnamese prefix matches take over only if no exact alias.
+    if out.is_empty() {
+        let vi=vietnamese_matches(prefix);
+        if !vi.is_empty() {return vi;}
     }
 
     // 2. Command ID prefix matches (excluding already matched exact command).
@@ -594,8 +596,8 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui, canvas: Rect) {
     // Explicit command-state help remains visible while the user is in
     // LINE/PLINE/CIRCLE/RECTANG/DIST/ID/DIMLINEAR, not only after clicking.
     if let Some(running)=app.session.running.as_ref() {
-        let guide=active_command_guide(running.id);
-        let y=(bar.top()-24.0-f32::from(n as u16)*16.0
+        let guide=active_command_guide(&running.id);
+        let y=(bar.top()-24.0-n as f32*16.0
             -if lines.is_empty(){0.0}else{6.0}).max(canvas.top()+3.0);
         let hint=Rect::from_min_size(pos2(bar.left(),y),vec2(w,20.0));
         p.rect_filled(hint,3.0,t.cmd_history);
