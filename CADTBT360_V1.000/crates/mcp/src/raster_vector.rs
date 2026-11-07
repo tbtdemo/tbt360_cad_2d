@@ -269,27 +269,64 @@ struct RectangleOutline {
 /// Missing walls, gaps or intersections are deliberately not inferred.
 /// Detection is capped to prevent quadratic growth on large drawings.
 fn closed_rectangles(lines: &[Line]) -> Vec<RectangleOutline> {
-    if lines.len() > 1000 { return Vec::new(); }
-    let mut result = Vec::new();
-    let mut used = vec![false; lines.len()];
+    use std::collections::HashMap;
     let near = |a: f64, b: f64| (a-b).abs() <= 1.5;
-    for (top_idx, top) in lines.iter().enumerate() {
-        if used[top_idx] || !near(top.y0, top.y1) || top.x1-top.x0 < 4.0 { continue; }
-        for (bottom_idx, bottom) in lines.iter().enumerate().skip(top_idx+1) {
-            if used[bottom_idx] || !near(bottom.y0, bottom.y1) || bottom.x1-bottom.x0 < 4.0 { continue; }
-            if !near(top.x0,bottom.x0) || !near(top.x1,bottom.x1) || (bottom.y0-top.y0).abs() < 4.0 { continue; }
-            let (lo_y,hi_y) = if top.y0 <= bottom.y0 { (top.y0,bottom.y0) } else { (bottom.y0,top.y0) };
-            let lo_x = (top.x0+bottom.x0)/2.0;
-            let hi_x = (top.x1+bottom.x1)/2.0;
-            let vertical = |x: f64| lines.iter().enumerate().find(|(i,l)| {
-                !used[*i] && *i != top_idx && *i != bottom_idx
-                    && near(l.x0,l.x1) && near(l.x0,x)
-                    && near(l.y0,lo_y) && near(l.y1,hi_y)
-            }).map(|(i,_)|i);
-            let (Some(left_idx),Some(right_idx)) = (vertical(lo_x),vertical(hi_x)) else { continue };
-            if left_idx == right_idx { continue; }
-            used[top_idx] = true; used[bottom_idx] = true;
-            used[left_idx] = true; used[right_idx] = true;
+    // Buckets are for candidate indexing only: final geometric comparisons
+    // always use the original full-precision pixel coordinates.
+    const CELL: f64 = 3.0;
+    let bucket = |v:f64| (v/CELL).floor() as i64;
+    let mut horizontals: HashMap<(i64,i64),Vec<usize>> = HashMap::new();
+    let mut verticals: HashMap<i64,Vec<usize>> = HashMap::new();
+    for (i,l) in lines.iter().enumerate() {
+        if near(l.y0,l.y1) && l.x1-l.x0>=4.0 {
+            horizontals.entry((bucket(l.x0),bucket(l.x1))).or_default().push(i);
+        }
+        if near(l.x0,l.x1) && l.y1-l.y0>=4.0 {
+            verticals.entry(bucket(l.x0)).or_default().push(i);
+        }
+    }
+    let mut result=Vec::new();
+    let mut used=vec![false;lines.len()];
+    for (top_idx,top) in lines.iter().enumerate() {
+        if used[top_idx] || !near(top.y0,top.y1) || top.x1-top.x0<4.0 {continue;}
+        let (ax,bx)=(bucket(top.x0),bucket(top.x1));
+        let mut bottom_indices=Vec::new();
+        for dx in -1..=1 {
+            for dy in -1..=1 {
+                if let Some(indices)=horizontals.get(&(ax+dx,bx+dy)) {
+                    bottom_indices.extend(indices.iter().copied().filter(|i|*i>top_idx));
+                }
+            }
+        }
+        bottom_indices.sort_unstable();
+        bottom_indices.dedup();
+        for bottom_idx in bottom_indices {
+            let bottom=&lines[bottom_idx];
+            if used[bottom_idx] || !near(bottom.y0,bottom.y1)
+                || bottom.x1-bottom.x0<4.0 {continue;}
+            if !near(top.x0,bottom.x0) || !near(top.x1,bottom.x1)
+                || (bottom.y0-top.y0).abs()<4.0 {continue;}
+            let (lo_y,hi_y)=if top.y0<=bottom.y0 {
+                (top.y0,bottom.y0)
+            } else {(bottom.y0,top.y0)};
+            let lo_x=(top.x0+bottom.x0)/2.0;
+            let hi_x=(top.x1+bottom.x1)/2.0;
+            let vertical = |x:f64| -> Option<usize> {
+                let key=bucket(x);
+                (key-1..=key+1)
+                    .flat_map(|bucket|verticals.get(&bucket).into_iter().flatten())
+                    .copied()
+                    .filter(|i|!used[*i] && *i!=top_idx && *i!=bottom_idx)
+                    .filter(|i|{
+                        let l=&lines[*i];
+                        near(l.x0,l.x1) && near(l.x0,x)
+                            && near(l.y0,lo_y) && near(l.y1,hi_y)
+                    }).min()
+            };
+            let (Some(left_idx),Some(right_idx))=(vertical(lo_x),vertical(hi_x)) else {continue};
+            if left_idx==right_idx {continue;}
+            used[top_idx]=true;used[bottom_idx]=true;
+            used[left_idx]=true;used[right_idx]=true;
             result.push(RectangleOutline {
                 edges:[top_idx,bottom_idx,left_idx,right_idx],
                 corners:[[lo_x,lo_y],[hi_x,lo_y],[hi_x,hi_y],[lo_x,hi_y]]
@@ -1240,7 +1277,7 @@ pub fn preview(args: &Value) -> Result<Value, String> {
     // 1000 strokes. Never silently return "zero walls/rooms" for a dense floorplan:
     // make the limitation explicit so an operator can crop or filter first.
     const SEMANTIC_HINT_KEYS: &[&str] = &[
-        "closedRectangles", "columnHatchHints",
+        "columnHatchHints",
         "openingGapHints", "pairedWallOpeningHints", "wallPanelHints",
         "createWallCenterlines", "doorLeafHints", "windowSashHints",
     ];
@@ -2912,6 +2949,22 @@ mod tests {
             let Some(b)=seg[1][0].as_f64() else {return false};
             (b-a).abs()>=9000.0
         }),"pixel-space source length must become the calibrated CAD length");
+    }
+
+    #[test]
+    fn ai_large_floorplan_room_detection_keeps_global_entity_indices() {
+        let mut source=Vec::new();
+        for i in 0..2400 {
+            let x=i as f64*2.0;
+            source.push(Line{x0:x,y0:1000.0,x1:x+1.0,y1:1000.0});
+        }
+        source[2390]=Line{x0:30.0,y0:20.0,x1:830.0,y1:20.0};
+        source[2391]=Line{x0:30.0,y0:420.0,x1:830.0,y1:420.0};
+        source[2392]=Line{x0:30.0,y0:20.0,x1:30.0,y1:420.0};
+        source[2393]=Line{x0:830.0,y0:20.0,x1:830.0,y1:420.0};
+        let rooms=closed_rectangles(&source);
+        assert!(rooms.iter().any(|r| r.edges==[2390,2391,2392,2393]),
+            "spatial indexing must not lose room indices in a dense full drawing");
     }
 
     #[test]
