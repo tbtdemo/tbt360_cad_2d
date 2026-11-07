@@ -599,6 +599,13 @@ fn bilingual_keyword_caption(keyword:&str)->String {
     }
 }
 
+/// Every native prompt option gets a bilingual *display*, but retains its
+/// exact engine keyword for mouse dispatch; no truncation to the first 3.
+fn native_bilingual_options(prompt:&cadcraft_engine::Prompt)->Vec<(String,String)> {
+    prompt.keywords.iter().map(|keyword|
+        (keyword.clone(),bilingual_keyword_caption(keyword))).collect()
+}
+
 /// Matching command names/aliases for AutoComplete.
 fn suggestions(prefix: &str) -> Vec<Suggestion> {
     if prefix.is_empty() {return Vec::new();}
@@ -1160,7 +1167,7 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui, canvas: Rect) {
     if let Some(pr)=app.session.current_prompt()
         && !pr.raw && !pr.keywords.is_empty()
     {
-        let keywords=pr.keywords.clone();
+        let keywords=native_bilingual_options(&pr);
         let mut chosen:Option<String>=None;
         let available_w=(bar.width()-10.0).max(180.0);
         let pos=pos2(bar.left(),
@@ -1175,10 +1182,9 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui, canvas: Rect) {
                     ui.label(egui::RichText::new("OPTIONS (Tùy chọn lệnh gốc) · Click or type (Nhấp hoặc nhập)")
                         .small().strong());
                     ui.horizontal_wrapped(|ui|{
-                        for (index,keyword) in keywords.iter().enumerate() {
-                            let caption=bilingual_keyword_caption(keyword);
+                        for (index,(keyword,caption)) in keywords.iter().enumerate() {
                             if ui.push_id(index,|ui|{
-                                ui.small_button(&caption)
+                                ui.small_button(caption)
                                     .on_hover_text(format!("Send {} to CAD (Gửi nguyên văn {})",keyword,keyword))
                                     .clicked()
                             }).inner {
@@ -1654,6 +1660,23 @@ mod autocomplete_tests {
                 "native CAD command disappeared from search: {}",spec.id);
         }
         assert!(count>100,"engine command registry was unexpectedly empty");
+    }
+
+    #[test]
+    fn full_bilingual_option_palette_keeps_all_original_keywords() {
+        let source=["Undo","Close","Arc","Width","Length","Radius","Multiple","Exit"];
+        let prompt=cadcraft_engine::Prompt::new("Specify next point",cadcraft_engine::Accept::POINT)
+            .kw(&source);
+        let options=native_bilingual_options(&prompt);
+        assert_eq!(options.len(),source.len());
+        for (i,(native,caption)) in options.iter().enumerate() {
+            assert_eq!(native,source[i]);
+            assert!(caption.starts_with(native));
+            assert!(!caption.is_empty());
+        }
+        assert_eq!(options[0].1,"Undo (Hoàn tác)");
+        assert_eq!(options[1].1,"Close (Đóng)");
+        assert_eq!(options[3].1,"Width (Bề rộng)");
     }
 
     #[test]
