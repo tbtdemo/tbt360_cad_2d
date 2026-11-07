@@ -176,7 +176,7 @@ fn vietnamese_matches(text: &str) -> Vec<Suggestion> {
         if seen.insert(spec.id) {
             results.push(Suggestion {
                 id:spec.id.to_ascii_uppercase(),
-                display:format!("{label} · {}",spec.id.to_ascii_uppercase()),
+                display:format!("{} ({label})",spec.id.to_ascii_uppercase()),
                 label:spec.label
             });
         }
@@ -200,12 +200,72 @@ fn translated_command_matches(text:&str)->Vec<Suggestion> {
         if normalized.starts_with(&folded) || normalized.contains(&folded) {
             found.push((!normalized.starts_with(&folded),normalized.len(),spec.id,
                 Suggestion {id:spec.id.to_ascii_uppercase(),
-                    display:format!("{translated} · {}",spec.id.to_ascii_uppercase()),
+                    display:format!("{} ({translated})",spec.id.to_ascii_uppercase()),
                     label:spec.label}));
         }
     }
     found.sort_by_key(|item|(item.0,item.1,item.2));
     found.into_iter().take(8).map(|(_,_,_,suggestion)|suggestion).collect()
+}
+
+/// Read the *registered* command aliases, rather than inventing abbreviations.
+/// A command can have many aliases; shortest is preferred for everyday typing.
+fn shortest_registered_alias(id:&str)->Option<&'static str> {
+    cadcraft_engine::cmd::find_command(&id.to_ascii_lowercase())
+        .and_then(|spec| spec.aliases.iter().copied()
+            .filter(|a| !a.is_empty() && !a.contains('.'))
+            .min_by_key(|a| (a.len(),*a)))
+}
+
+/// English first, then Vietnamese in parentheses. Every suggestion keeps
+/// its original executable ID, label and exact alias resolution.
+fn bilingual_command_caption(s:&Suggestion)->String {
+    let english=s.label;
+    let vietnamese=bilingual_label(&s.id)
+        .or_else(|| {
+            let vi=crate::i18n::tr("vi",s.label);
+            (vi!=s.label).then_some(vi)
+        });
+    let shortcut=shortest_registered_alias(&s.id)
+        .map(|alias|format!(" · {}",alias.to_ascii_uppercase()))
+        .unwrap_or_default();
+    match vietnamese {
+        Some(vi)=>format!("{english} ({vi}){shortcut}"),
+        None=>format!("{english}{shortcut}")
+    }
+}
+
+fn natural_language_command(id:&str)->Option<&'static str> {
+    VI_COMMANDS.iter().find(|(_,cmd,_)|cmd.eq_ignore_ascii_case(id))
+        .map(|(_,_,vi)|*vi)
+}
+
+/// Suggestions are tied to the command just used. Nothing is executed
+/// automatically; they are only displayed after a command finishes.
+fn suggested_next_commands(id:&str)->&'static [&'static str] {
+    match id {
+        "line"|"pline"|"arc"|"rectang" => &["line","dist","dimlinear","offset"],
+        "circle" => &["line","dimdiameter","dist","move"],
+        "trim"|"extend" => &["fillet","dist","dimlinear","line"],
+        "move"|"copy"|"rotate" => &["dist","line","copy","undo"],
+        "dist"|"id"|"area" => &["dimlinear","dimaligned","line","id"],
+        "dimlinear"|"dimaligned" => &["dimcontinue","dist","line","move"],
+        "purge"|"audit" => &["audit","qsave","zoom"],
+        _ => &["line","pline","dist","id"],
+    }
+}
+fn related_command_caption(id:&str)->Option<String> {
+    let spec=cadcraft_engine::cmd::find_command(id)?;
+    let vi=natural_language_command(id)
+        .or_else(|| {
+            let val=crate::i18n::tr("vi",spec.label);
+            (val!=spec.label).then_some(val)
+        });
+    let alias=shortest_registered_alias(id).unwrap_or(id).to_ascii_uppercase();
+    Some(match vi {
+        Some(vi)=>format!("{alias} ({} · {vi})",spec.id.to_ascii_uppercase()),
+        None=>format!("{alias} ({})",spec.id.to_ascii_uppercase()),
+    })
 }
 
 fn bilingual_label(command: &str) -> Option<&'static str> {
@@ -644,6 +704,34 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui, canvas: Rect) {
         p.text(pos2(hint.left()+7.0,hint.top()+21.0),egui::Align2::LEFT_TOP,
             guide,egui::FontId::proportional(11.0),t.text);
     }
+    // Contextual next-command hints appear after the previous command, not
+    // while entering geometry. Existing CAD command input is never hijacked.
+    if !app.session.prompting() && app.cmd.buffer.is_empty() {
+        let previous=app.cmd.history.last().map(|v|fold_vi(v))
+            .and_then(|v| {
+                VI_COMMANDS.iter().find(|(phrase,_,_)|*phrase==v)
+                    .map(|(_,id,_)|(*id).to_owned())
+                    .or_else(||{
+                        let resolved=cadcraft_engine::cmd::resolve_alias(&v);
+                        cadcraft_engine::cmd::find_command(&resolved).map(|spec|spec.id.to_owned())
+                    })
+            });
+        if let Some(last)=previous {
+            let related=suggested_next_commands(&last).iter()
+                .filter_map(|id|related_command_caption(id)).take(3)
+                .collect::<Vec<_>>();
+            if !related.is_empty() {
+                let hint=Rect::from_min_size(
+                    pos2(bar.left(),(bar.top()-23.0-n as f32*16.0
+                        -if lines.is_empty(){0.0}else{6.0}).max(canvas.top()+3.0)),
+                    vec2(w,20.0));
+                p.rect_filled(hint,3.0,t.cmd_history);
+                let text=format!("NEXT (Gợi ý lệnh tiếp): {} · Esc (Hủy)",related.join("  |  "));
+                p.text(pos2(hint.left()+7.0,hint.center().y),egui::Align2::LEFT_CENTER,
+                    text,egui::FontId::proportional(10.0),t.text);
+            }
+        }
+    }
     p.rect_filled(bar, 3.0, t.cmd_bg);
     p.rect_stroke(bar, 3.0, Stroke::new(1.0, t.cmd_border), egui::StrokeKind::Inside);
     // Prompt glyph.
@@ -774,8 +862,7 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui, canvas: Rect) {
                 p.text(
                     Pos2::new(r.right() - 8.0, r.center().y),
                     egui::Align2::RIGHT_CENTER,
-                    bilingual_label(&s.id).map(|vi|format!("{vi} · {}",crate::i18n::t(s.label)))
-                        .unwrap_or_else(||crate::i18n::t(s.label).to_string()),
+                    bilingual_command_caption(s),
                     crate::theme::small(),
                     t.text_faint,
                 );
@@ -1082,6 +1169,23 @@ mod autocomplete_tests {
         assert!(!vietnamese_query_continues("lam sach ban ve"));
         assert_eq!(fold_vi("Làm Sạch BẢN VẼ"),"lam sach ban ve");
         assert!(active_command_guide("pline").contains("đỉnh"));
+    }
+
+    #[test]
+    fn bilingual_ui_keeps_english_first_and_actual_aliases() {
+        let line=suggestions("l");
+        assert_eq!(line[0].id,"LINE");
+        let caption=bilingual_command_caption(&line[0]);
+        assert!(caption.starts_with("Line ("));
+        assert!(caption.contains("L"));
+        assert!(caption.contains("Đường thẳng")||caption.contains("Vẽ đường thẳng"));
+        let purge=suggestions("lam sach ban ve");
+        assert_eq!(purge[0].id,"PURGE");
+        let label=bilingual_command_caption(&purge[0]);
+        assert!(label.starts_with("Purge ("));
+        assert!(suggested_next_commands("line").contains(&"dist"));
+        assert!(related_command_caption("dist").is_some());
+        assert!(related_command_caption("this_command_does_not_exist").is_none());
     }
 
     #[test]
