@@ -58,6 +58,7 @@ jobs:
             'original_english_prompts_preserved_with_vietnamese_in_parentheses',
             'native_prompt_keyword_input_stays_english_when_caption_is_bilingual',
             'native_keyword_catalog_never_changes_when_rendered_bilingually',
+            'full_bilingual_option_palette_keeps_all_original_keywords',
             'next_command_habits_use_only_observed_verified_session_commands',
             'selection_context_prioritizes_only_real_native_edit_commands',
             'native_entity_kind_guides_related_commands_without_inventing_geometry',
