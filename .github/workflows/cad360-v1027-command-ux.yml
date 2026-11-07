@@ -7,6 +7,7 @@ on:
       - feature/CADTBT360_V1.027_BILINGUAL_COMMAND_UX
     paths:
       - 'CADTBT360_V1.000/crates/ui-egui/**'
+      - 'CADTBT360_V1.000/crates/engine/**'
       - '.github/workflows/cad360-v1027-command-ux.yml'
       - 'docs/CAD360_V1027_BILINGUAL_COMMAND_UX.md'
   pull_request:
@@ -145,13 +146,18 @@ jobs:
       - name: Verify native architectural MOVE COPY OFFSET Undo Redo and DXF persistence
         run: |
           $ErrorActionPreference = 'Stop'
-          cargo test --locked -p cadcraft-engine --test it offset_move::architectural_move_copy_offset_undo_redo_and_dxf_reopen -- --nocapture
+          cargo test --locked -p cadcraft-engine --test it offset_move:: -- --nocapture
           if ($LASTEXITCODE -ne 0) { throw 'CAD geometry fidelity failed: MOVE/COPY/OFFSET/Undo/Redo/DXF roundtrip' }
       - name: Verify real architectural TRIM EXTEND endpoints Undo Redo and DXF persistence
         run: |
           $ErrorActionPreference = 'Stop'
-          cargo test --locked -p cadcraft-engine --test it trim_extend_options::architectural_trim_extend_undo_redo_and_dxf_reopen -- --nocapture
+          cargo test --locked -p cadcraft-engine --test it trim_extend_options:: -- --nocapture
           if ($LASTEXITCODE -ne 0) { throw 'CAD TRIM EXTEND exact geometry Undo/Redo or DXF reopen regression failed' }
+      - name: Verify native architectural editing does not regress when engine changes
+        run: |
+          $ErrorActionPreference = 'Stop'
+          cargo test --locked -p cadcraft-engine --test it -- --list | Select-String -Pattern 'trim_extend_options::|offset_move::' | Out-Host
+          if ($LASTEXITCODE -ne 0) { throw 'Could not enumerate the native architectural editing regression suite' }
       - name: Report verification boundary
         run: |
           Write-Host 'PASS here proves compile and command UX unit tests only.'
