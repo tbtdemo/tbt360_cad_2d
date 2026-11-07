@@ -286,29 +286,32 @@ fn closed_rectangles(lines: &[Line]) -> Vec<RectangleOutline> {
         }
     }
     let mut result=Vec::new();
-    // A partition wall can close the right side of one room and the left
-    // side of its neighbour. Consume horizontal top/bottom edges once,
-    // but ALLOW reusing an observed vertical boundary across rooms.
-    let mut used_horizontal=vec![false;lines.len()];
+    // A real partition stroke can bound TWO adjacent rooms, horizontally
+    // or vertically. Do not consume source edges. A candidate's upper/lower
+    // roles are decided by Y coordinates, NOT incoming source index order.
     for (top_idx,top) in lines.iter().enumerate() {
-        if used_horizontal[top_idx] || !near(top.y0,top.y1) || top.x1-top.x0<4.0 {continue;}
+        if !near(top.y0,top.y1) || top.x1-top.x0<4.0 {continue;}
         let (ax,bx)=(bucket(top.x0),bucket(top.x1));
         let mut bottom_indices=Vec::new();
         for dx in -1..=1 {
             for dy in -1..=1 {
                 if let Some(indices)=horizontals.get(&(ax+dx,bx+dy)) {
-                    bottom_indices.extend(indices.iter().copied().filter(|i|*i>top_idx));
+                    bottom_indices.extend(indices.iter().copied().filter(|i|*i!=top_idx));
                 }
             }
         }
         bottom_indices.sort_unstable();
         bottom_indices.dedup();
+        // Nearest complete lower boundary wins; never span through an
+        // already observed smaller closed room to invent a larger one.
+        bottom_indices.retain(|&idx|lines[idx].y0>top.y0+4.0);
+        bottom_indices.sort_by(|&i,&j|lines[i].y0.total_cmp(&lines[j].y0)
+            .then_with(||i.cmp(&j)));
         for bottom_idx in bottom_indices {
             let bottom=&lines[bottom_idx];
-            if used_horizontal[bottom_idx] || !near(bottom.y0,bottom.y1)
-                || bottom.x1-bottom.x0<4.0 {continue;}
+            if !near(bottom.y0,bottom.y1) || bottom.x1-bottom.x0<4.0 {continue;}
             if !near(top.x0,bottom.x0) || !near(top.x1,bottom.x1)
-                || (bottom.y0-top.y0).abs()<4.0 {continue;}
+                || bottom.y0-top.y0<4.0 {continue;}
             let (lo_y,hi_y)=if top.y0<=bottom.y0 {
                 (top.y0,bottom.y0)
             } else {(bottom.y0,top.y0)};
@@ -328,12 +331,11 @@ fn closed_rectangles(lines: &[Line]) -> Vec<RectangleOutline> {
             };
             let (Some(left_idx),Some(right_idx))=(vertical(lo_x),vertical(hi_x)) else {continue};
             if left_idx==right_idx {continue;}
-            used_horizontal[top_idx]=true;
-            used_horizontal[bottom_idx]=true;
             result.push(RectangleOutline {
                 edges:[top_idx,bottom_idx,left_idx,right_idx],
                 corners:[[lo_x,lo_y],[hi_x,lo_y],[hi_x,hi_y],[lo_x,hi_y]]
             });
+            if result.len()>=128 {return result;}
             break;
         }
     }
@@ -3403,6 +3405,27 @@ mod tests {
         // segment or any fabricated door hinge / swing candidate.
         assert!(links[0].get("doorBlockDraft").is_none());
         assert!(links[0].get("opening").is_none());
+    }
+
+    #[test]
+    fn ai_stacked_rooms_share_one_horizontal_source_edge_even_if_lines_are_out_of_order() {
+        // Source index order is deliberately unrelated to top/bottom geometry.
+        // One y=300 stroke bounds BOTH independently observed rooms.
+        let lines=vec![
+            Line{x0:20.0,y0:500.0,x1:320.0,y1:500.0}, // bottom
+            Line{x0:20.0,y0:300.0,x1:320.0,y1:300.0}, // shared partition
+            Line{x0:20.0,y0:100.0,x1:320.0,y1:100.0}, // top
+            Line{x0:20.0,y0:100.0,x1:20.0,y1:300.0},
+            Line{x0:320.0,y0:100.0,x1:320.0,y1:300.0},
+            Line{x0:20.0,y0:300.0,x1:20.0,y1:500.0},
+            Line{x0:320.0,y0:300.0,x1:320.0,y1:500.0},
+        ];
+        let candidates=closed_rectangles(&lines);
+        assert_eq!(candidates.len(),2,
+            "a real shared horizontal source partition must close both stacked rooms");
+        assert!(candidates.iter().all(|room|room.edges.contains(&1)));
+        assert_eq!(candidates[0].corners[0][1],300.0);
+        assert_eq!(candidates[1].corners[0][1],100.0);
     }
 
     #[test]
