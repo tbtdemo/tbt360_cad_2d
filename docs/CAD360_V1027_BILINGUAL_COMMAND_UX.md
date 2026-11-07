@@ -189,3 +189,14 @@ Thay cửa sổ Command Reference cũ (chỉ danh sách ID, tên, alias) thành 
 - [ ] Bộ gợi ý này chưa phải mô hình AI hiểu kiến trúc toàn diện. V1.027 vẫn chưa được nghiệm thu và chưa thể tuyên bố tương đương 100% AutoCAD 2027.
 
 **Ví dụ mong đợi trong lệnh PLINE:** `Undo (Hoàn tác)`, `Close (Đóng)`, `Arc (Cung tròn)`, `Width (Bề rộng)`, `Length (Chiều dài)`; chỉ hiển thị lựa chọn nào thuộc `Prompt.keywords` thực tế ở bước đó. Không bao giờ gợi ý `C` hoặc `A` như tùy chọn đang hoạt động nếu engine chưa cấp keyword đó.
+
+## 17. Nâng cấp V1.027: tối ưu bảng OPTIONS trên màn hình nhỏ và viết tắt keyword có kiểm chứng
+
+- [x] OPTIONS song ngữ tự xuống dòng **và giới hạn chiều cao** theo 28% chiều cao canvas (tối đa 180 điểm), cuộn danh sách nếu nhiều mục. Tránh bảng dài che khuất vùng bản vẽ/dòng lệnh trên laptop hoặc HiDPI; màn hình thật vẫn cần nghiệm thu.
+- [x] Trạng thái lệnh gợi ý **tọa độ tuyệt đối** `1000,2000` khi engine nhận point; gợi ý thêm tọa độ tương đối `@1000,0` chỉ khi `Prompt.base` có điểm gốc. Không gợi ý tọa độ khi prompt yêu cầu chọn đối tượng.
+- [x] Enter được hướng dẫn **dựa trên cờ `Prompt.accept.enter`**; không đánh đồng việc có keyword là có thể Enter kết thúc, hoặc ngược lại.
+- [x] Danh sách keyword hiển thị `English (Tiếng Việt) · [Alias]` nếu alias **thực sự được `Prompt.match_keyword` chấp nhận**. Ví dụ `Undo (Hoàn tác) · [U]`, `Close (Đóng) · [C]`; không sử dụng alias suy đoán từ tiếng Việt và không gửi chuỗi đã dịch vào engine.
+- [x] Test `prompt_guidance_respects_enter_and_real_point_input_context`, `keyword_abbreviation_is_verified_with_native_prompt_parser` và `full_bilingual_option_palette_keeps_all_original_keywords`; đã đưa vào Windows CI.
+- [ ] Windows CI của commit cuối cần PASS; kiểm tra UI thực tế với F1, L/PL/TR, tọa độ, IME tiếng Việt và thu/phóng cửa sổ.
+
+Lưu ý: bảng OPTIONS chỉ hiển thị tùy chọn mà Prompt đang cho phép, không phải quảng cáo thêm lệnh CAD chưa có. Không tuyên bố hoàn thiện 100% AutoCAD 2027 nếu chưa đối chiếu/kiểm thử tất cả.
