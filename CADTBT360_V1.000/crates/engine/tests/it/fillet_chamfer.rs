@@ -121,3 +121,55 @@ fn json_chamfer_angle_and_trim() {
     s.execute("chamfer", &json!({ "h1": hs[0], "p1": [5, 0], "h2": hs[1], "p2": [10, 5], "length": 2, "angle": 45, "trim": false })).unwrap();
     assert_eq!(lines(&s), vec![((0.0, 0.0), (12.0, 0.0)), ((8.0, 0.0), (10.0, 2.0)), ((10.0, -2.0), (10.0, 12.0))]);
 }
+
+
+/// Architectural closed polyline FILLET must stay a native bulged polyline
+/// through Undo, Redo and DXF reload, not four rasterized corner drawings.
+#[test]
+fn architectural_closed_polyline_fillet_bulge_undo_redo_dxf_roundtrip() {
+    let mut s = Session::new();
+    s.script("PLINE 0,0 6000,0 6000,4000 0,4000 C\n").unwrap();
+    let h = s.doc().unwrap().model.iter()
+        .find(|e| matches!(&e.kind, EntityKind::LwPolyline(_)))
+        .expect("native PLINE")
+        .handle.hex();
+    let before = s.doc().unwrap().model.iter().find_map(|e| {
+        if let EntityKind::LwPolyline(p) = &e.kind { Some(p.clone()) } else { None }
+    }).expect("original closed polyline");
+    assert!(before.closed);
+    assert_eq!(before.vertices.len(), 4);
+
+    let result = s.execute("fillet", &json!({
+        "handle": h, "polyline": true, "radius": 100.0
+    })).expect("FILLET all four corners");
+    assert_eq!(result["filleted"], 4, "all four rectangle corners must be filleted");
+    let rounded = s.doc().unwrap().model.iter().find_map(|e| {
+        if let EntityKind::LwPolyline(p) = &e.kind { Some(p.clone()) } else { None }
+    }).expect("rounded native polyline");
+    assert!(rounded.closed, "FILLET must preserve closed status");
+    assert_eq!(rounded.vertices.len(), 8, "four fillets add four polyline vertices");
+    assert_eq!(rounded.vertices.iter().filter(|v| v.bulge.abs() > 1e-9).count(), 4,
+        "FILLET arcs must be represented with editable bulges");
+
+    s.undo().expect("Undo polyline FILLET");
+    let undone = s.doc().unwrap().model.iter().find_map(|e| {
+        if let EntityKind::LwPolyline(p) = &e.kind { Some(p.clone()) } else { None }
+    }).expect("restored polyline");
+    assert_eq!(undone.vertices.len(), 4);
+    assert!(undone.vertices.iter().all(|v| v.bulge.abs() < 1e-9));
+    s.redo().expect("Redo polyline FILLET");
+    let restored = s.doc().unwrap().model.iter().find_map(|e| {
+        if let EntityKind::LwPolyline(p) = &e.kind { Some(p.clone()) } else { None }
+    }).expect("redone polyline");
+    assert_eq!(restored.vertices.len(), 8);
+
+    let dxf = cadcraft_io::write_dxf(s.doc().unwrap());
+    let reopened = cadcraft_io::read_dxf(dxf.as_bytes()).expect("reopen filleted DXF");
+    let imported = reopened.model.iter().find_map(|e| {
+        if let EntityKind::LwPolyline(p) = &e.kind { Some(p.clone()) } else { None }
+    }).expect("DXF must retain editable LWPOLYLINE");
+    assert!(imported.closed);
+    assert_eq!(imported.vertices.len(), 8);
+    assert_eq!(imported.vertices.iter().filter(|v| v.bulge.abs() > 1e-9).count(), 4,
+        "DXF must preserve native arc bulges without flattening curves");
+}
