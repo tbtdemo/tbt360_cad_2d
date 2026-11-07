@@ -1518,8 +1518,8 @@ mod autocomplete_tests {
     #[test]
     fn native_entity_kind_guides_related_commands_without_inventing_geometry() {
         use cadcraft_doc::{EntityKind as E,Line,Circle};
-        let line=E::Line(Line::default());
-        let circle=E::Circle(Circle::default());
+        let line=E::Line(Line{a:cadcraft_geom::Vec3::ZERO,b:cadcraft_geom::Vec3::ZERO});
+        let circle=E::Circle(Circle{center:cadcraft_geom::Vec3::ZERO,radius:1.0});
         assert_eq!(native_selection_kind(&[]),SelectionKind::None);
         assert_eq!(native_selection_kind(&[line.clone()]),SelectionKind::Line);
         assert_eq!(native_selection_kind(&[circle.clone()]),SelectionKind::Curve);
