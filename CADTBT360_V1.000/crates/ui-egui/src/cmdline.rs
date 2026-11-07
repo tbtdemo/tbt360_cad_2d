@@ -304,6 +304,36 @@ fn next_command_habits(current:&str, history:&[String])->Vec<String> {
     choices
 }
 
+/// Offers native editing commands for the actual current selection. These
+/// suggestions are context-specific but intentionally do NOT inspect, mutate
+/// or predict the geometry. They only make existing CAD actions discoverable.
+fn selection_aware_next_commands(selection_count:usize,previous:Option<&str>,history:&[String])->Vec<String> {
+    let mut names=Vec::<String>::new();
+    if selection_count>0 {
+        let candidate_ids: &[&str] = if selection_count==1 {
+            &["move","copy","rotate","list","erase","properties","dimlinear"]
+        } else {
+            &["move","copy","rotate","erase","list","properties","group"]
+        };
+        for id in candidate_ids {
+            if cadcraft_engine::cmd::find_command(id).is_some() {
+                names.push((*id).to_owned());
+            }
+        }
+    }
+    if let Some(previous)=previous {
+        for id in next_command_habits(previous,history) {
+            if !names.contains(&id) {names.push(id);}
+        }
+    } else if selection_count==0 {
+        for id in ["line","pline","circle","rectang","dist","id"] {
+            if cadcraft_engine::cmd::find_command(id).is_some() {names.push(id.to_owned());}
+        }
+    }
+    names.truncate(5);
+    names
+}
+
 fn related_command_caption(id:&str)->Option<String> {
     let spec=cadcraft_engine::cmd::find_command(id)?;
     let vi=natural_language_command(id)
@@ -827,18 +857,23 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui, canvas: Rect) {
     }
     // Contextual next-command hints appear after the previous command, not
     // while entering geometry. Existing CAD command input is never hijacked.
-    if !app.session.prompting() && app.cmd.buffer.is_empty() {
+    if !app.session.prompting() && app.cmd.buffer.is_empty()
+        && app.session.running.is_none() {
         let previous=app.cmd.history.last()
             .and_then(|text|command_from_history(text));
-        if let Some(last)=previous {
-            let related=next_command_habits(&last,&app.cmd.history);
-            if !related.is_empty() {
+        let selected_count=app.session.selection().len();
+        let related=selection_aware_next_commands(selected_count,previous.as_deref(),&app.cmd.history);
+        if !related.is_empty() {
                 let hint=Rect::from_min_size(
                     pos2(bar.left(),(bar.top()-23.0-n as f32*16.0
                         -if lines.is_empty(){0.0}else{6.0}).max(canvas.top()+3.0)),
                     vec2(w,20.0));
                 p.rect_filled(hint,3.0,t.cmd_history);
-                let title="NEXT (Lệnh tiếp): ";
+                let title=if selected_count>0 {
+                    "SELECTED (Đã chọn) · NEXT (Lệnh): "
+                } else {
+                    "NEXT (Lệnh tiếp): "
+                };
                 let tx=hint.left()+7.0;
                 let font=egui::FontId::proportional(10.0);
                 let prefix=p.layout_no_wrap(title.to_owned(),font.clone(),t.text);
@@ -870,7 +905,6 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui, canvas: Rect) {
                     }
                     x+=width+4.0;
                 }
-            }
         }
     }
     p.rect_filled(bar, 3.0, t.cmd_bg);
@@ -1329,6 +1363,19 @@ mod autocomplete_tests {
         assert!(trim.contains("TRIM / TR"));
         let number=active_prompt_help(&cadcraft_engine::Prompt::new("Radius",cadcraft_engine::Accept::NUMBER));
         assert!(number.contains("Enter number"));
+    }
+
+    #[test]
+    fn selection_context_prioritizes_only_real_native_edit_commands() {
+        let history=vec!["l".into(),"di".into()];
+        let selected=selection_aware_next_commands(2,Some("line"),&history);
+        assert_eq!(selected.first().map(String::as_str),Some("move"));
+        assert!(selected.contains(&"copy".to_owned()));
+        assert!(selected.iter().all(|id|cadcraft_engine::cmd::find_command(id).is_some()));
+        let nothing=selection_aware_next_commands(0,None,&[]);
+        assert!(!nothing.is_empty());
+        assert_eq!(nothing.first().map(String::as_str),Some("line"));
+        assert!(!nothing.contains(&"erase".to_owned()));
     }
 
     #[test]
