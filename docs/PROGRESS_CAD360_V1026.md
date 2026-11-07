@@ -250,6 +250,15 @@ Các tỷ lệ trên cố ý **không cộng điểm cho build đang Queued**. N
 
 **Giữ 33% triển khai và 0% nghiệm thu phát hành**, chưa có phép xác nhận Windows PASS của commit sửa.
 
+## Sửa Windows Release Gate — Test discovery DWG không tồn tại
+
+- **Lỗi thực tế:** Windows V1.026 release chạy test discovery `cadcraft-io --test it large_dwg_v1026 -- --list`, exit=0 nhưng `0 tests` do `tests/it/main.rs` chỉ khai báo `mod large_dwg_v1025;`, không có module `large_dwg_v1026`.
+- [x] Chỉnh **cả discovery và release gate** trong `.github/workflows/cad360-v1026-release.yml` sang đúng test hiện hữu `large_dwg_v1025::v1025_medium_dwg_r2018_50000_entities`, kiểm thử ghi/mở lại 50.000 đối tượng R2018. Không bỏ qua điều kiện kiểm tra test discovery.
+- [ ] Phải xác nhận Windows workflow mới tìm thấy ít nhất một test và **chạy PASS**; chưa thể công bố bản phát hành Setup/Portable V1.026.
+- [ ] Cần tiếp tục kiểm chứng AutoCAD độc lập; kiểm thử nội bộ chỉ là kiểm chứng vòng lưu/mở bằng lõi CAD hiện tại.
+
+**Tiến độ tổng vẫn 33% triển khai / 0% nghiệm thu phát hành.** Mục tiêu ưu tiên là cổng CI thực thi thực sự chứ không chấp nhận `0 tests`.
+
 ## Định hướng lần nâng cấp tiếp theo (theo thứ tự)
 
 1. **P0 – Gỡ lỗi CI Windows đúng SHA**: fix compile/test, chỉ ghi PASS khi kết quả hiện hữu. Không push liên tục làm nhiễu lượt kiểm thử.
