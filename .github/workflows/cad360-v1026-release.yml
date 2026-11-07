@@ -525,6 +525,8 @@ jobs:
           & ../scripts/profile_ai_raster.ps1 -TestName 'ai_36_megapixel_png_preview_preserves_full_resolution'
           cargo test --locked -p cadcraft-mcp --lib ai_tile_diagnostics_keep_global_vector_indices_across_seams -- --nocapture
           if ($LASTEXITCODE -ne 0) { throw 'AI global source-vector tile seam test failed' }
+          cargo test --locked -p cadcraft-mcp --lib ai_room_geometry_benchmark_excludes_missing_corner_and_skew_false_positive -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'V1.026 room benchmark accepted malformed or skewed geometry' }
           cargo test --locked -p cadcraft-mcp --lib ai_room_geometry_benchmark_reports_missing_extra_and_malformed_refs -- --nocapture
           if ($LASTEXITCODE -ne 0) { throw 'V1.026 annotated room geometry precision/recall check failed' }
           cargo test --locked -p cadcraft-mcp --lib ai_three_room_ground_truth_geometry_has_no_extra_closed_rooms -- --nocapture
