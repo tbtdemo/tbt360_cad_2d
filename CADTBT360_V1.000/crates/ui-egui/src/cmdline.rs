@@ -1008,6 +1008,17 @@ fn visible_lines(app: &CadApp, canvas: Rect, bar: Rect) -> usize {
     app.ui.history_lines.min(MAX_LINES).min(available)
 }
 
+/// Visual scroll only: the full user input remains untouched and is still
+/// submitted verbatim to the native engine. UTF-8 character boundaries are
+/// respected when long Vietnamese command names extend past the input area.
+fn command_input_tail<'a>(text:&'a str,max_width:f32,mut measure:impl FnMut(&str)->f32)->&'a str {
+    if measure(text)<=max_width {return text;}
+    for (index,_) in text.char_indices().skip(1) {
+        if measure(&text[index..])<=max_width {return &text[index..];}
+    }
+    ""
+}
+
 /// Draw the floating command bar and its history over the bottom-centre of `canvas`; the bar is 48 % of the canvas width, clamped to 360–760 points and never wider than the canvas minus 8 points.
 pub fn show(app: &mut CadApp, ui: &mut egui::Ui, canvas: Rect) {
     let t = Tokens::get();
@@ -1113,19 +1124,23 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui, canvas: Rect) {
     let mut x = bar.left() + 30.0;
     let prompt = app.session.current_prompt();
     let font = crate::theme::body();
+    // Prompt help is clipped to the command bar; reserve 135 logical pixels
+    // for actual user input, so the caret is never pushed offscreen.
+    let prompt_p=p.with_clip_rect(Rect::from_min_max(
+        pos2(bar.left()+30.0,bar.top()),pos2((bar.right()-155.0).max(bar.left()+34.0),bar.bottom())));
     match &prompt {
         Some(pr) => {
             // The grip modes name themselves ("** STRETCH **…").
             let name = app.session.running.as_ref().filter(|r| r.id != "grip").map(|r| r.id.to_ascii_uppercase() + " ").unwrap_or_default();
             let g = p.layout_no_wrap(name, font.clone(), t.text_faint);
             let gw = g.size().x;
-            p.galley(pos2(x, bar.center().y - g.size().y / 2.0), g, t.text_faint);
+            prompt_p.galley(pos2(x, bar.center().y - g.size().y / 2.0), g, t.text_faint);
             x += gw;
             // A LISP `get…` prompt shows as the routine wrote it (no keywords, default or colon added).
             let message = if pr.raw { pr.display() } else { bilingual_prompt_caption(&pr.message) };
             let g = p.layout_no_wrap(message, font.clone(), t.text);
             let gw = g.size().x;
-            p.galley(pos2(x, bar.center().y - g.size().y / 2.0), g, t.text);
+            prompt_p.galley(pos2(x, bar.center().y - g.size().y / 2.0), g, t.text);
             x += gw;
             // Keyword captions can be very long when bilingual. The main
             // command bar must reserve room for typed coordinates and the IME.
@@ -1135,20 +1150,20 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui, canvas: Rect) {
                 let g=p.layout_no_wrap("  [OPTIONS ↓] ".into(),font.clone(),t.cmd_keyword);
                 let gw=g.size().x;
                 if x+gw<bar.right()-90.0 {
-                    p.galley(pos2(x,bar.center().y-g.size().y/2.0),g,t.cmd_keyword);
+                    prompt_p.galley(pos2(x,bar.center().y-g.size().y/2.0),g,t.cmd_keyword);
                     x+=gw;
                 }
             }
             if let Some(d) = pr.default.as_ref().filter(|_| !pr.raw) {
                 let g = p.layout_no_wrap(format!(" <{d}>"), font.clone(), t.text);
                 let gw = g.size().x;
-                p.galley(pos2(x, bar.center().y - g.size().y / 2.0), g, t.text);
+                prompt_p.galley(pos2(x, bar.center().y - g.size().y / 2.0), g, t.text);
                 x += gw;
             }
             if !pr.raw {
                 let g = p.layout_no_wrap(": ".into(), font.clone(), t.text);
                 let gw = g.size().x;
-                p.galley(pos2(x, bar.center().y - g.size().y / 2.0), g, t.text);
+                prompt_p.galley(pos2(x, bar.center().y - g.size().y / 2.0), g, t.text);
                 x += gw;
             } else if !pr.message.ends_with(' ') {
                 x += 4.0;
@@ -1166,15 +1181,25 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui, canvas: Rect) {
             }
         }
     }
-    let g = p.layout_no_wrap(app.cmd.buffer.clone(), font.clone(), t.text);
-    let gw = g.size().x;
-    p.galley(pos2(x, bar.center().y - g.size().y / 2.0), g, t.text);
-    let mut caret_x = x + gw;
+    x=x.min((bar.right()-155.0).max(bar.left()+30.0));
+    // Reserve room for IME composition and the history chevron.
+    let preedit_width=if app.cmd.preedit.is_empty(){0.0}else{
+        p.layout_no_wrap(app.cmd.preedit.clone(),font.clone(),t.text).size().x
+    };
+    let allowed_width=(bar.right()-30.0-x-preedit_width).max(1.0);
+    let visible=command_input_tail(&app.cmd.buffer,allowed_width,|text|
+        p.layout_no_wrap(text.to_owned(),font.clone(),t.text).size().x);
+    let g=p.layout_no_wrap(visible.to_owned(),font.clone(),t.text);
+    let gw=g.size().x;
+    let input_p=p.with_clip_rect(Rect::from_min_max(
+        pos2(x,bar.top()),pos2((bar.right()-28.0).max(x+1.0),bar.bottom())));
+    input_p.galley(pos2(x,bar.center().y-g.size().y/2.0),g,t.text);
+    let mut caret_x=x+gw;
     // The IME's composition text sits after the buffer (underlined) until it is committed.
     if !app.cmd.preedit.is_empty() {
         let pg = p.layout_no_wrap(app.cmd.preedit.clone(), font, t.text);
         let pw = pg.size().x;
-        p.galley(pos2(caret_x, bar.center().y - pg.size().y / 2.0), pg, t.text);
+        input_p.galley(pos2(caret_x, bar.center().y - pg.size().y / 2.0), pg, t.text);
         p.line_segment([pos2(caret_x, bar.bottom() - 7.0), pos2(caret_x + pw, bar.bottom() - 7.0)], Stroke::new(1.0, t.accent));
         caret_x += pw;
     }
@@ -1750,6 +1775,17 @@ mod autocomplete_tests {
         assert_eq!(options[0].1,"Undo (Hoàn tác) · [U]");
         assert_eq!(options[1].1,"Close (Đóng) · [C]");
         assert_eq!(options[3].1,"Width (Bề rộng) · [W]");
+    }
+
+    #[test]
+    fn command_input_scroll_keeps_original_vietnamese_and_coordinates() {
+        let original="Làm sạch bản vẽ 1000,2000 @300,400";
+        let cropped=command_input_tail(original,12.0,|s|s.chars().count() as f32);
+        assert!(original.ends_with(cropped));
+        assert!(cropped.chars().count()<=12);
+        assert_eq!(command_input_tail(original,100.0,|s|s.chars().count() as f32),original);
+        assert_eq!(original,"Làm sạch bản vẽ 1000,2000 @300,400");
+        assert!(std::str::from_utf8(cropped.as_bytes()).is_ok());
     }
 
     #[test]
