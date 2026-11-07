@@ -212,3 +212,14 @@ Lưu ý: bảng OPTIONS chỉ hiển thị tùy chọn mà Prompt đang cho phé
 - [ ] Cổng Windows CI commit cuối phải PASS; chưa có xác nhận chấp nhận toàn bộ AutoCAD 2027 và chưa phát hành bộ cài V1.027.
 
 **Nguyên tắc:** mọi thay đổi chỉ phục vụ render và IME; tên command, native PGP alias, keyword/parser, buffer, Enter/Esc, DWG và Undo/Redo không được thay đổi.
+
+## 19. Đợt nâng cấp kiểm thử CAD engine thực tế và tăng tốc nhập liệu
+
+- [x] Cổng Windows V1.027 được mở rộng để chạy **test hình học OSNAP thực tế** (`cadcraft-engine snap::tests::`), bao gồm endpoint, midpoint, intersection, center, perpendicular/tangent, các tình huống cung và deferred snapping; sử dụng mã engine hiện có chứ không thay bằng kiểm thử giao diện giả.
+- [x] Thêm bài test `pointmod::tests::` cho cú pháp snap override/point modifier; đồng thời chạy integration suite `point_modifiers::` và `prompt_keywords::` của engine để kiểm tra LINE, tọa độ tương đối, FROM/M2P, lọc tọa độ, góc khóa và tương tác keyword gốc.
+- [x] Dòng lệnh nhập dài sử dụng `command_input_tail` đo bề rộng bằng **binary search theo ranh giới ký tự Unicode**, tránh đo hàng nghìn hậu tố trong mỗi frame. Tối ưu phần trình bày; toàn bộ chuỗi lệnh/IME gốc vẫn giữ nguyên để engine xử lý.
+- [x] Thêm kiểm thử `long_cad_input_binary_scroll_limits_layout_work_and_does_not_split_accents`, đảm bảo chuỗi hàng chục nghìn ký tự được hiển thị với số lượt đo chữ nhỏ và không bắt đầu bằng dấu tổ hợp tiếng Việt rời.
+- [ ] Các test trên Windows CI commit cuối phải PASS. Unit/integration OSNAP chưa thay thế thao tác chuột OSNAP thật với chuỗi chọn điểm/đường tham chiếu trong EXE.
+- [ ] Tiếp tục nghiệm thu loại snap END/MID/CEN/INT/PER/TAN với snap settings, nhiều đối tượng, zoom và HiDPI; phải đối chiếu vị trí marker với điểm engine thực nhận, cùng tính chính xác DWG lưu/mở lại.
+
+**Mốc quản lý:** Đợt này chuyển từ thuần kiểm thử UI đến kiểm thử geometry/command engine thật. Không đánh đồng test engine PASS với bộ cài và mọi lệnh AutoCAD 2027 đã hoàn thành.
