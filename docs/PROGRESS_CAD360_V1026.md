@@ -166,6 +166,17 @@ Các tỷ lệ trên cố ý **không cộng điểm cho build đang Queued**. N
 
 **% chung vẫn 33% triển khai, 0% nghiệm thu phát hành**, không tuyên bố đạt AI hiểu hoàn chỉnh mặt bằng.
 
+## Bổ sung topology mặt bằng — cặp phòng cùng tường nguồn
+
+- [x] `raster_vector.rs`: từ những ứng viên phòng đã khép kín, sinh `roomAdjacencies` và `roomAdjacencyCount` khi **hai phòng dùng đúng cùng một `sourceEdgeIndex`**. Không suy diễn cạnh mới, không ghép hai phòng chỉ vì ở gần nhau, không nhận một vách ngăn là cửa đi.
+- [x] `ai_raster_panel.rs`: thể hiện từng cặp vùng tiếp giáp, chỉ số nét gốc làm bằng chứng, thông báo `chưa xác nhận lối thông`. Đây là dữ liệu Preview không thay đổi CAD.
+- [x] Test `ai_room_topology_links_only_real_shared_source_edges_without_inventing_doors`: một cặp dùng chung cạnh phải được báo, vùng thứ ba không liên quan không được nối giả.
+- [x] Thêm bài kiểm thử topology trong AI Gate và Windows Release Gate.
+- [ ] Runner Windows trên SHA mới phải biên dịch và chạy hết kiểm thử, đo RAM 15/36 MP, nghiệm thu Setup/Portable.
+- [ ] Cần dữ liệu thực tế có nhãn tường và cửa để nâng từ topology hình học lên AI ngữ nghĩa.
+
+**% triển khai vẫn 33%; phát hành nghiệm thu 0%.** Sơ đồ kề phòng là chứng cứ hình học, chưa chứng minh AI hiểu toàn bộ mặt bằng.
+
 ## Định hướng lần nâng cấp tiếp theo (theo thứ tự)
 
 1. **P0 – Gỡ lỗi CI Windows đúng SHA**: fix compile/test, chỉ ghi PASS khi kết quả hiện hữu. Không push liên tục làm nhiễu lượt kiểm thử.
