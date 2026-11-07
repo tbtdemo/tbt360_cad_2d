@@ -143,6 +143,19 @@ Các tỷ lệ trên cố ý **không cộng điểm cho build đang Queued**. N
 - [ ] Lượt Windows mới phải PASS bài 15 MP và 36 MP đúng SHA. Chưa có Setup/Portable V1.026 nghiệm thu.
 - **% tổng giữ 33%; phát hành nghiệm thu 0%.** Có bằng chứng PASS một test đơn lẻ trên commit trước, chưa thể áp dụng cho commit mới.
 
+## Đợt tiếp theo — đo RSS đúng tiến trình và nhận dạng phòng chung tường
+
+- [x] Nâng `scripts/profile_ai_raster.ps1`: `cargo test --no-run --message-format=json` để tìm **chính xác EXE thử nghiệm**; chạy trực tiếp EXE đó, đặt mặc định lấy mẫu 10 ms, đo `WorkingSet64` của chính PID đang chạy. Không lấy nhầm Cargo/rustc; không gọi thời gian bao gồm compile là inference.
+- [x] Bắt buộc test phải có tên chính xác trong danh sách `raster_vector::tests::...`; `0 tests` không được coi là PASS.
+- [x] Nếu worker chạy nhanh đến mức không lấy được mẫu, ghi `NOT_CAPTURED`; không tự sinh RAM. Nếu test thành công, xóa mã lỗi PowerShell cũ.
+- [x] Cập nhật `closed_rectangles` để **tường ngăn thật được phép dùng chung** làm hai mép đóng phòng kề nhau, trong khi mỗi cặp top/bottom chỉ dùng một lần. Không thêm nét giả và không nhân đôi chỉ số nguồn.
+- [x] Test `ai_adjacent_rooms_share_true_partition_wall_without_fake_geometry`: 2 phòng dùng chung một cạnh nguồn, có 2 ứng viên đường bao và cùng tham chiếu cạnh đó.
+- [x] Yêu cầu bài test này trong cả AI Large Image Gate và Windows Setup/Portable Gate.
+- [ ] CI Windows theo commit mới cần PASS trước khi coi hai tính năng trên đã nghiệm thu.
+- [ ] Đo RAM có mẫu; lấy benchmark thực trên 15/36 MP; tường/cửa/cột/phòng trong bản vẽ thật; nghiệm thu DWG AutoCAD độc lập.
+
+**Tiến độ triển khai giữ 33%, nghiệm thu phát hành 0%.** Các thay đổi mới là mã nguồn và bài thử đã commit; không phải bộ cài thành công.
+
 ## Định hướng lần nâng cấp tiếp theo (theo thứ tự)
 
 1. **P0 – Gỡ lỗi CI Windows đúng SHA**: fix compile/test, chỉ ghi PASS khi kết quả hiện hữu. Không push liên tục làm nhiễu lượt kiểm thử.
