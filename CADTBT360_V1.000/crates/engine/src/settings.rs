@@ -132,7 +132,8 @@ pub struct Settings {
 impl Default for Settings {
     fn default() -> Self {
         Settings {
-            osmode: 4133,
+            // Default: END + MID + CEN + INT + EXT; F3 still toggles all running snaps.
+            osmode: 4135,
             orthomode: false,
             polarmode: true,
             polarang: std::f64::consts::FRAC_PI_2,
