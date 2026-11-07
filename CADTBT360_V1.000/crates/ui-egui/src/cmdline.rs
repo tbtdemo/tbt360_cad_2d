@@ -305,6 +305,17 @@ fn active_command_guide(id:&str)->&'static str {
     }
 }
 
+/// Keep the English engine prompt intact and only add a Vietnamese visual
+/// explanation. Interactive keyword values and script parser remain original.
+fn bilingual_prompt_caption(english:&str)->String {
+    let vietnamese=crate::i18n::tr("vi",english);
+    if vietnamese!=english {
+        format!("{english} ({vietnamese})")
+    } else {
+        english.to_owned()
+    }
+}
+
 /// Matching command names/aliases for AutoComplete.
 fn suggestions(prefix: &str) -> Vec<Suggestion> {
     if prefix.is_empty() {return Vec::new();}
@@ -752,7 +763,7 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui, canvas: Rect) {
             p.galley(pos2(x, bar.center().y - g.size().y / 2.0), g, t.text_faint);
             x += gw;
             // A LISP `get…` prompt shows as the routine wrote it (no keywords, default or colon added).
-            let message = if pr.raw { pr.display() } else { crate::i18n::t(&pr.message).to_string() };
+            let message = if pr.raw { pr.display() } else { bilingual_prompt_caption(&pr.message) };
             let g = p.layout_no_wrap(message, font.clone(), t.text);
             let gw = g.size().x;
             p.galley(pos2(x, bar.center().y - g.size().y / 2.0), g, t.text);
@@ -1189,6 +1200,14 @@ mod autocomplete_tests {
                 "native CAD command disappeared from search: {}",spec.id);
         }
         assert!(count>100,"engine command registry was unexpectedly empty");
+    }
+
+    #[test]
+    fn original_english_prompts_preserved_with_vietnamese_in_parentheses() {
+        assert_eq!(bilingual_prompt_caption("Specify first point"),
+            "Specify first point (Chọn điểm thứ nhất (nhấp chuột hoặc nhập X,Y))");
+        assert_eq!(bilingual_prompt_caption("No translation registered"),
+            "No translation registered");
     }
 
     #[test]
