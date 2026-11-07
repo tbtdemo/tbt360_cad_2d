@@ -105,3 +105,14 @@ Tab **04 Kết nối & Hướng dẫn** nay có các khối hướng dẫn: bắ
 - [x] Bổ sung regression đảm bảo gợi ý có phím tắt native thật và không chứa lệnh không tồn tại; regression keyword chứng minh hình thức song ngữ không làm đổi keyword engine. Cổng CI V1.027 chạy các test này trên Windows.
 - [ ] **Chưa có Windows PASS** của commit mới nhất chứa gợi ý nhấp/keyword; cần kiểm tra thao tác chuột thật và ảnh EXE, bao gồm Esc/Enter/F3/OSNAP, tránh UI tooltip đè vùng bản vẽ.
 - [ ] Yêu cầu 100% lệnh AutoCAD 2027 chưa được chứng minh; cần ma trận so sánh với danh mục lệnh chính thức, không được đồng nhất `CommandSpec` nội bộ với danh mục Autodesk.
+
+## 10. Mọi lệnh CAD công khai đều có hướng dẫn nền theo metadata thực tế
+
+- [x] Windows V1.027 trên commit `d081e360` PASS: https://github.com/tbtdemo/tbt360_cad_2d/actions/runs/42345051483. Bản mới nhất cần kiểm thử lại.
+- [x] `registered_active_command_help` tra `CommandSpec` của engine để hiện mã đầy đủ, alias ngắn được đăng ký thật, tên lệnh tiếng Anh và chú giải tiếng Việt (nếu có). Những lệnh chưa viết ví dụ riêng vẫn có chỉ dẫn tổng quát thay vì hiện gợi ý trống hoặc đánh lừa là đã hỗ trợ mọi chức năng AutoCAD.
+- [x] `active_prompt_help` suy ra `WAITING (Đang chờ)` từ chính `Prompt.accept`: chọn đối tượng, điểm, số, văn bản, hoặc danh sách keyword; chỉ hiển thị Enter khi prompt thật cho phép. Không sửa dữ liệu lệnh, keyword hay xử lý tọa độ của engine.
+- [x] Thêm test `every_registered_command_has_english_first_in_app_guide`, duyệt tất cả lệnh công khai trong registry và yêu cầu hướng dẫn luôn có mã lệnh gốc, không rỗng. Test nằm trong Windows Gate V1.027.
+- [ ] Chưa đồng nghĩa mọi lệnh đều có bài hướng dẫn có ảnh, dữ liệu mẫu và kết quả thực nghiệm; điều này cần đánh giá từng lệnh.
+- [ ] Phạm vi so sánh Autodesk AutoCAD 2027 vẫn là nhiệm vụ riêng: danh mục lệnh, biến hệ thống, phím tắt và workflow cần kiểm kê, chạy thử rồi báo sai khác theo từng nhóm.
+
+**Chú ý:** Chỉ gọi đây là tầng trợ giúp metadata cho toàn bộ *lệnh CAD 360 có đăng ký*. Không phải khẳng định CAD 360 có hoặc hỗ trợ hoàn chỉnh 100% lệnh AutoCAD 2027.
