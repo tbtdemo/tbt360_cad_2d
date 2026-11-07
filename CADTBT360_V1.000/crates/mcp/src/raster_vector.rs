@@ -356,10 +356,15 @@ fn parallel_wall_candidates(lines: &[Line], min_spacing: f64, max_spacing: f64) 
     for (oriented,is_horizontal) in [(&horizontal,true),(&vertical,false)] {
         for (position,&(coord,i)) in oriented.iter().enumerate() {
             let a=lines[i];
-            for &(other_coord,j) in oriented.iter().skip(position+1) {
+            // Binary-search the minimum spacing. Thousands of independent
+            // lines on exactly the same Y/X coordinate should not cause a
+            // quadratic walk over impossible zero-spacing matches.
+            let remaining=&oriented[position+1..];
+            let first=remaining.partition_point(|(other_coord,_)|
+                *other_coord-coord < min_spacing);
+            for &(other_coord,j) in &remaining[first..] {
                 let spacing=other_coord-coord;
                 if spacing>max_spacing { break; }
-                if spacing<min_spacing { continue; }
                 let b=lines[j];
                 let (a0,a1,b0,b1)=if is_horizontal {
                     (a.x0,a.x1,b.x0,b.x1)
