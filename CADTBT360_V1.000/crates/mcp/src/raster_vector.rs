@@ -286,9 +286,12 @@ fn closed_rectangles(lines: &[Line]) -> Vec<RectangleOutline> {
         }
     }
     let mut result=Vec::new();
-    let mut used=vec![false;lines.len()];
+    // A partition wall can close the right side of one room and the left
+    // side of its neighbour. Consume horizontal top/bottom edges once,
+    // but ALLOW reusing an observed vertical boundary across rooms.
+    let mut used_horizontal=vec![false;lines.len()];
     for (top_idx,top) in lines.iter().enumerate() {
-        if used[top_idx] || !near(top.y0,top.y1) || top.x1-top.x0<4.0 {continue;}
+        if used_horizontal[top_idx] || !near(top.y0,top.y1) || top.x1-top.x0<4.0 {continue;}
         let (ax,bx)=(bucket(top.x0),bucket(top.x1));
         let mut bottom_indices=Vec::new();
         for dx in -1..=1 {
@@ -302,7 +305,7 @@ fn closed_rectangles(lines: &[Line]) -> Vec<RectangleOutline> {
         bottom_indices.dedup();
         for bottom_idx in bottom_indices {
             let bottom=&lines[bottom_idx];
-            if used[bottom_idx] || !near(bottom.y0,bottom.y1)
+            if used_horizontal[bottom_idx] || !near(bottom.y0,bottom.y1)
                 || bottom.x1-bottom.x0<4.0 {continue;}
             if !near(top.x0,bottom.x0) || !near(top.x1,bottom.x1)
                 || (bottom.y0-top.y0).abs()<4.0 {continue;}
@@ -316,7 +319,7 @@ fn closed_rectangles(lines: &[Line]) -> Vec<RectangleOutline> {
                 (key-1..=key+1)
                     .flat_map(|bucket|verticals.get(&bucket).into_iter().flatten())
                     .copied()
-                    .filter(|i|!used[*i] && *i!=top_idx && *i!=bottom_idx)
+                    .filter(|i|*i!=top_idx && *i!=bottom_idx)
                     .filter(|i|{
                         let l=&lines[*i];
                         near(l.x0,l.x1) && near(l.x0,x)
@@ -325,8 +328,8 @@ fn closed_rectangles(lines: &[Line]) -> Vec<RectangleOutline> {
             };
             let (Some(left_idx),Some(right_idx))=(vertical(lo_x),vertical(hi_x)) else {continue};
             if left_idx==right_idx {continue;}
-            used[top_idx]=true;used[bottom_idx]=true;
-            used[left_idx]=true;used[right_idx]=true;
+            used_horizontal[top_idx]=true;
+            used_horizontal[bottom_idx]=true;
             result.push(RectangleOutline {
                 edges:[top_idx,bottom_idx,left_idx,right_idx],
                 corners:[[lo_x,lo_y],[hi_x,lo_y],[hi_x,hi_y],[lo_x,hi_y]]
@@ -3150,6 +3153,28 @@ mod tests {
                 room.edges[0]==start+index*4 && room.edges[1]==start+index*4+1),
                 "room source-line evidence must trace to original source indices");
         }
+    }
+
+    #[test]
+    fn ai_adjacent_rooms_share_true_partition_wall_without_fake_geometry() {
+        // Each 300x300 room has independent top/bottom source strokes and
+        // a shared 300px partition. The shared original index must appear
+        // in both room outlines rather than silently losing the second room.
+        let lines=vec![
+            Line{x0:20.0,y0:40.0,x1:320.0,y1:40.0},   // left top
+            Line{x0:20.0,y0:340.0,x1:320.0,y1:340.0}, // left bottom
+            Line{x0:20.0,y0:40.0,x1:20.0,y1:340.0},   // left exterior
+            Line{x0:320.0,y0:40.0,x1:320.0,y1:340.0}, // shared partition
+            Line{x0:320.0,y0:40.0,x1:620.0,y1:40.0},  // right top
+            Line{x0:320.0,y0:340.0,x1:620.0,y1:340.0},// right bottom
+            Line{x0:620.0,y0:40.0,x1:620.0,y1:340.0}, // right exterior
+        ];
+        let rooms=closed_rectangles(&lines);
+        assert_eq!(rooms.len(),2, "shared interior wall must close both rooms");
+        assert!(rooms.iter().all(|room|room.edges.contains(&3)),
+            "both rooms must keep the same real partition source index");
+        assert_eq!(rooms[0].corners[1][0],320.0);
+        assert_eq!(rooms[1].corners[0][0],320.0);
     }
 
     #[test]
