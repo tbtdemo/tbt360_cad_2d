@@ -963,22 +963,24 @@ impl AiReview {
                 self.review_tab=0;
                 self.message="Lệnh thay đổi. Hãy tạo Preview mới trước khi xác nhận.".into();
             }
-            ui.collapsing("Các lệnh CAD hỗ trợ và ví dụ",|ui| {
-                for example in [
-                    "vẽ phòng rộng 6000 dài 4000 tại 0,0",
-                    "vẽ đường thẳng từ 0,0 đến 100,0",
-                    "vẽ hình chữ nhật từ 0,0 đến 100,50",
-                    "vẽ hình tròn tâm 0,0 bán kính 50",
-                    "vẽ polyline qua 0,0;100,0;100,50",
-                    "vẽ cung tâm 0,0 bán kính 100 từ 0 đến 90",
-                    "vẽ tường từ 0,0 đến 6000,0 dày 200",
-                    "vẽ tường có cửa từ 0,0 đến 6000,0 dày 200 cửa 900 tại 3000 mở trái",
-                ] {
-                    if ui.button(example).clicked() {
-                        self.prompt=example.into();self.preview=None;
-                        self.message="Đã chọn lệnh mẫu; hãy xem Preview.".into();
+            ui.collapsing("Mẫu lệnh CAD - chọn nhanh",|ui|{
+                ui.horizontal_wrapped(|ui|{
+                    for (label,example) in [
+                        ("Phòng","vẽ phòng rộng 6000 dài 4000 tại 0,0"),
+                        ("Đường thẳng","vẽ đường thẳng từ 0,0 đến 100,0"),
+                        ("Chữ nhật","vẽ hình chữ nhật từ 0,0 đến 100,50"),
+                        ("Hình tròn","vẽ hình tròn tâm 0,0 bán kính 50"),
+                        ("Polyline","vẽ polyline qua 0,0;100,0;100,50"),
+                        ("Cung tròn","vẽ cung tâm 0,0 bán kính 100 từ 0 đến 90"),
+                        ("Tường","vẽ tường từ 0,0 đến 6000,0 dày 200"),
+                        ("Tường có cửa","vẽ tường có cửa từ 0,0 đến 6000,0 dày 200 cửa 900 tại 3000 mở trái"),
+                    ] {
+                        if ui.button(label).on_hover_text(example).clicked() {
+                            self.prompt=example.into();self.preview=None;
+                            self.message="Đã chọn lệnh mẫu; nhấn Xem trước.".into();
+                        }
                     }
-                }
+                });
             });
             if ui.button("1. Xem trước").clicked() {
                 self.preview=None;
@@ -1012,7 +1014,7 @@ impl AiReview {
             if ui.button("Đọc ảnh → Xem trước các nét CAD").clicked() {
                 self.preview=None;
                 match preview_raster(session,&self.image_path,&self.image_scale) {
-                    Ok(p)=>{self.message=p.description.clone();self.preview=Some(p);}
+                    Ok(p)=>{self.message=p.description.clone();self.preview=Some(p);self.review_tab=3;}
                     Err(e)=>self.message=format!("Không thể xem trước ảnh: {e}")
                 }
             }
@@ -1100,7 +1102,7 @@ impl AiReview {
                 self.preview=None;
                 match preview_selected_existing_wall(session,&self.existing_door_center,
                     &self.existing_door_width,self.existing_open_right) {
-                    Ok(p)=>{self.preview=Some(p);self.message="Đã xem trước hình học thay thế, chưa cắt/xóa PLINE gốc".into();},
+                    Ok(p)=>{self.preview=Some(p);self.review_tab=3;self.message="Đã xem trước hình học thay thế, chưa cắt/xóa PLINE gốc".into();},
                     Err(e)=>self.message=format!("Không thể Preview tường được chọn: {e}")
                 }
             }
@@ -1113,7 +1115,7 @@ impl AiReview {
                     self.preview=None;
                     if let Some(managed)=&self.managed_wall {
                         match prepare_managed_wall_shift(session,managed,&self.revised_center) {
-                            Ok(p)=>{self.preview=Some(p);self.message="Đã dựng phương án thay thế, chưa xóa hoặc vẽ gì".into();},
+                            Ok(p)=>{self.preview=Some(p);self.review_tab=3;self.message="Đã dựng phương án thay thế, chưa xóa hoặc vẽ gì".into();},
                             Err(e)=>self.message=format!("Không thể điều chỉnh bộ tường/cửa: {e}")
                         }
                     }
@@ -1189,7 +1191,7 @@ impl AiReview {
                         let max_x=xs.fold(f32::NEG_INFINITY,f32::max);
                         let min_y=ys.clone().fold(f32::INFINITY,f32::min);
                         let max_y=ys.fold(f32::NEG_INFINITY,f32::max);
-                        let (response,painter)=ui.allocate_painter(egui::vec2(470.0,240.0),egui::Sense::hover());
+                        let (response,painter)=ui.allocate_painter(egui::vec2(ui.available_width().clamp(360.0,800.0),300.0),egui::Sense::hover());
                         let bounds=response.rect.shrink(12.0);
                         let sx=bounds.width()/(max_x-min_x).max(0.01);
                         let sy=bounds.height()/(max_y-min_y).max(0.01);
