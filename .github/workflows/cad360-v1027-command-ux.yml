@@ -108,7 +108,7 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           cargo test --locked -p cadcraft-ui-egui --lib snap_label_layout_tests:: -- --nocapture
-          if ($LASTEXITCODE -ne 0) { throw 'CAD OSNAP labels may disappear outside the drawing viewport' }
+          if ($LASTEXITCODE -ne 0) { throw 'CAD OSNAP labels may disappear outside the drawing viewport or lose English-first names' }
       - name: Verify real CAD engine object snap modes and geometry
         run: |
           $ErrorActionPreference = 'Stop'
