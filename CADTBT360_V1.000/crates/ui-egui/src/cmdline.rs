@@ -1082,37 +1082,17 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui, canvas: Rect) {
             let gw = g.size().x;
             p.galley(pos2(x, bar.center().y - g.size().y / 2.0), g, t.text);
             x += gw;
+            // Keyword captions can be very long when bilingual. The main
+            // command bar must reserve room for typed coordinates and the IME.
+            // All clickable native keywords are shown in the wrapped overlay
+            // below instead of overflowing the bar off-screen.
             if !pr.raw && !pr.keywords.is_empty() {
-                let g = p.layout_no_wrap(if pr.message.is_empty() { " [".into() } else { crate::tl!(" or [").into() }, font.clone(), t.text);
-                let gw = g.size().x;
-                p.galley(pos2(x, bar.center().y - g.size().y / 2.0), g, t.text);
-                x += gw;
-                let kws = pr.keywords.clone();
-                for (i, k) in kws.iter().enumerate() {
-                    let caption=bilingual_keyword_caption(k);
-                    let g = p.layout_no_wrap(caption, font.clone(), t.cmd_keyword);
-                    let r = Rect::from_min_size(pos2(x, bar.top() + 3.0), vec2(g.size().x, h - 6.0));
-                    let resp = ui.interact(r, ui.scope_id().with(("kw", i)), Sense::click());
-                    if resp.hovered() {
-                        p.rect_filled(r, 2.0, t.cmd_keyword_hover);
-                    }
-                    let gw = g.size().x;
-                    p.galley(pos2(x, bar.center().y - g.size().y / 2.0), g, t.cmd_keyword);
-                    x += gw;
-                    if resp.clicked() {
-                        let _ = app.session.input(Input::Keyword(k.clone()));
-                    }
-                    if i + 1 < kws.len() {
-                        let g = p.layout_no_wrap("/".into(), font.clone(), t.text);
-                        let gw = g.size().x;
-                        p.galley(pos2(x, bar.center().y - g.size().y / 2.0), g, t.text);
-                        x += gw;
-                    }
+                let g=p.layout_no_wrap("  [OPTIONS ↓] ".into(),font.clone(),t.cmd_keyword);
+                let gw=g.size().x;
+                if x+gw<bar.right()-90.0 {
+                    p.galley(pos2(x,bar.center().y-g.size().y/2.0),g,t.cmd_keyword);
+                    x+=gw;
                 }
-                let g = p.layout_no_wrap("]".into(), font.clone(), t.text);
-                let gw = g.size().x;
-                p.galley(pos2(x, bar.center().y - g.size().y / 2.0), g, t.text);
-                x += gw;
             }
             if let Some(d) = pr.default.as_ref().filter(|_| !pr.raw) {
                 let g = p.layout_no_wrap(format!(" <{d}>"), font.clone(), t.text);
@@ -1168,6 +1148,46 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui, canvas: Rect) {
         if app.cmd.expanded { crate::icons::Icon::ChevronDown } else { crate::icons::Icon::ChevronUp },
         false,
     );
+    // Bilingual command keywords must be visible even on narrow windows.
+    // This is a foreground, wrapped presentation of *actual* Prompt.keywords:
+    // never a translated keyword sent to the engine, never a new CAD command.
+    if let Some(pr)=app.session.current_prompt()
+        && !pr.raw && !pr.keywords.is_empty()
+    {
+        let keywords=pr.keywords.clone();
+        let mut chosen:Option<String>=None;
+        let available_w=(bar.width()-10.0).max(180.0);
+        let pos=pos2(bar.left(),
+            (bar.top()-115.0-(n as f32*16.0)
+                -if lines.is_empty(){0.0}else{6.0}).max(canvas.top()+4.0));
+        egui::Area::new(egui::Id::new("cad360_bilingual_prompt_options"))
+            .order(egui::Order::Foreground)
+            .fixed_pos(pos)
+            .show(ui.ctx(),|ui|{
+                egui::Frame::popup(ui.style()).show(ui,|ui|{
+                    ui.set_max_width(available_w);
+                    ui.label(egui::RichText::new("OPTIONS (Tùy chọn lệnh gốc) · Click or type (Nhấp hoặc nhập)")
+                        .small().strong());
+                    ui.horizontal_wrapped(|ui|{
+                        for (index,keyword) in keywords.iter().enumerate() {
+                            let caption=bilingual_keyword_caption(keyword);
+                            if ui.push_id(index,|ui|{
+                                ui.small_button(&caption)
+                                    .on_hover_text(format!("Send {} to CAD (Gửi nguyên văn {})",keyword,keyword))
+                                    .clicked()
+                            }).inner {
+                                chosen=Some(keyword.clone());
+                            }
+                        }
+                    });
+                });
+            });
+        if let Some(keyword)=chosen {
+            if let Err(err)=app.session.input(Input::Keyword(keyword)) {
+                app.session.echo_error(err.to_string());
+            }
+        }
+    }
     // AutoComplete list.
     if !app.session.prompting() {
         let sug = suggestions(&app.cmd.buffer);
@@ -1628,6 +1648,19 @@ mod autocomplete_tests {
                 "native CAD command disappeared from search: {}",spec.id);
         }
         assert!(count>100,"engine command registry was unexpectedly empty");
+    }
+
+    #[test]
+    fn native_keyword_catalog_never_changes_when_rendered_bilingually() {
+        let words=["Undo","Close","Arc","Width","Length"];
+        let before=words.iter().map(ToString::to_string).collect::<Vec<_>>();
+        let captions=before.iter().map(|k|bilingual_keyword_caption(k)).collect::<Vec<_>>();
+        assert_eq!(before[0],"Undo");
+        assert_eq!(before[1],"Close");
+        assert_eq!(captions[0],"Undo (Hoàn tác)");
+        assert_eq!(captions[1],"Close (Đóng)");
+        assert_eq!(before.len(),captions.len());
+        assert!(captions.iter().all(|s|!s.is_empty()));
     }
 
     #[test]
