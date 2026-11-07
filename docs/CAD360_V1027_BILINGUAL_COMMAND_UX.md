@@ -51,3 +51,19 @@
 - Đã có commit cho từ điển lệnh, gợi ý, nhập câu nhiều từ và hiển thị trạng thái tương tác.
 - Chưa có số đo độc lập về tỉ lệ dịch toàn bộ giao diện; không công bố phần trăm thành công thiếu kiểm chứng.
 - Tiếp theo: dữ liệu song ngữ có mô tả, quy trình, ví dụ cho **mọi CommandSpec**; hướng dẫn theo từng trạng thái `Prompt`, trạng thái chạy/đợi/có lỗi; đo bằng bộ UI audit và test qua Windows.
+
+## 6. Bộ trợ giúp OSNAP trong Settings và AI Studio
+
+Bản V1.027 bổ sung chú giải khi rê chuột lên từng tùy chọn **14 chế độ OSNAP** (Endpoint, Midpoint, Center, Geometric Center, Node, Quadrant, Intersection, Extension, Insertion, Perpendicular, Tangent, Nearest, Apparent Intersection, Parallel). Trong hộp **Drafting Settings** có mục mở rộng **HƯỚNG DẪN OSNAP / OBJECT SNAP — VÍ DỤ**, chỉ cụ thể cách bật F3, tạo đường từ END đến MID, dùng DIST/ID kiểm tra số đo và phân biệt F9 (Snap Grid) với F3 (OSNAP).
+
+**Tình huống học:**
+1. Mở bản vẽ có hai đoạn LINE; bật F3 và chọn Endpoint, Midpoint.
+2. Gõ `L` → chọn đầu mút LINE thứ nhất bằng chuột (END) → chọn trung điểm LINE thứ hai (MID) → Enter.
+3. Gõ `DI` → chọn lại hai điểm bằng OSNAP để đọc khoảng cách; gõ `ID` → nhấp điểm để đọc tọa độ.
+4. Nếu không hiển thị/không bắt đúng điểm, kiểm tra chế độ OSNAP, APERTURE, zoom, và loại đối tượng; việc thêm văn bản trợ giúp **không phải** bằng chứng OSNAP đã đạt kiểm thử thực tế.
+
+## 7. Hướng dẫn trực tiếp trong AI Studio
+
+Tab **04 Kết nối & Hướng dẫn** nay có các khối hướng dẫn: bắt đầu từ ảnh mặt bằng không chứa UI/nhiễu, nhập câu tiếng Việt để tìm lệnh CAD, phân biệt AI Studio/AI Review, và thao tác OSNAP. Các hướng dẫn mô tả đúng giới hạn hiện tại (bộ dò raster hiện chưa đọc ngữ nghĩa hoàn chỉnh và nhánh AI Review chưa tự đồng bộ với hình học AI Studio).
+
+**Chưa hoàn tất:** dịch toàn bộ Ribbon/menu/Properties và tất cả lỗi engine; còn cần đo tỷ lệ bao phủ và nghiệm thu ảnh Windows GUI thực tế. Không gọi trạng thái này là V1.027 đã phát hành.
