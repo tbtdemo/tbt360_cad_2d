@@ -114,6 +114,8 @@ jobs:
           $ErrorActionPreference = 'Stop'
           cargo test --locked -p cadcraft-engine --lib snap::tests::snapped_endpoint_and_center_become_exact_native_line_geometry -- --nocapture
           if ($LASTEXITCODE -ne 0) { throw 'OSNAP endpoint/center was not faithfully consumed by native LINE engine' }
+          cargo test --locked -p cadcraft-engine --lib snap::tests::native_closed_pline_preserves_editable_vertices_after_dxf_reopen -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'Architectural closed PLINE lost editable vertices after DXF reopen' }
           cargo test --locked -p cadcraft-engine --lib snap::tests::osnap_line_undo_redo_restores_exact_geometry -- --nocapture
           if ($LASTEXITCODE -ne 0) { throw 'OSNAP native LINE undo/redo geometry regression failed' }
           cargo test --locked -p cadcraft-engine --lib snap::tests::snapped_native_line_survives_dxf_save_and_reopen_editably -- --nocapture
