@@ -3261,6 +3261,23 @@ mod tests {
     }
 
     #[test]
+    fn ai_room_adjacency_shared_source_cannot_auto_create_a_door() {
+        // Topological adjacency alone is never evidence of a passable door.
+        let candidates=vec![
+            json!({"sourceEdgeIndices":[0,1,2,7]}),
+            json!({"sourceEdgeIndices":[3,4,7,6]})
+        ];
+        let links=observed_room_adjacencies(&candidates);
+        assert_eq!(links.len(),1);
+        assert_eq!(links[0]["sourceEdgeIndex"],7);
+        assert_eq!(links[0]["passageConfirmed"],false);
+        // The shared original edge must remain a reference, not a new CAD
+        // segment or any fabricated door hinge / swing candidate.
+        assert!(links[0].get("doorBlockDraft").is_none());
+        assert!(links[0].get("opening").is_none());
+    }
+
+    #[test]
     fn ai_adjacent_rooms_share_true_partition_wall_without_fake_geometry() {
         // Each 300x300 room has independent top/bottom source strokes and
         // a shared 300px partition. The shared original index must appear
