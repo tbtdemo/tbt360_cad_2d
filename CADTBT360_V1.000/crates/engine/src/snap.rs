@@ -1124,6 +1124,28 @@ mod tests {
     }
 
     #[test]
+    fn native_closed_pline_preserves_editable_vertices_after_dxf_reopen() {
+        let mut session=crate::Session::new();
+        session.cmdline("PLINE 0,0 6000,0 6000,4000 0,4000 C")
+            .expect("native closed polyline command");
+        assert!(session.running.is_none(),"PLINE should finish on C");
+        let first=session.doc().unwrap().model.iter()
+            .find_map(|e|if let EntityKind::LwPolyline(p)=&e.kind{
+                Some((p.vertices.len(),p.closed))
+            }else{None})
+            .expect("native editable LWPOLYLINE");
+        assert_eq!(first,(4,true));
+        let dxf=cadcraft_io::write_dxf(session.doc().unwrap());
+        let reopened=cadcraft_io::read_dxf(dxf.as_bytes()).expect("DXF reopen");
+        let restored=reopened.model.iter()
+            .find_map(|e|if let EntityKind::LwPolyline(p)=&e.kind{
+                Some((p.vertices.len(),p.closed))
+            }else{None})
+            .expect("LWPOLYLINE remains editable after reopen");
+        assert_eq!(restored,first);
+    }
+
+    #[test]
     fn osnap_line_undo_redo_restores_exact_geometry() {
         let reference=drawing();
         let first=osnap(&reference,&Space::Model,Vec2::new(9.8,0.1),
