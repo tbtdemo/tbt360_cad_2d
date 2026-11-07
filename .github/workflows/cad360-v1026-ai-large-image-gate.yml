@@ -94,6 +94,12 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'V1.026 10000-line wall-pair performance regression failed' }
           cargo test --locked -p cadcraft-ui-egui --lib trim_and_extend_acknowledge_active_selection_even_without_dynamic_input -- --nocapture
           if ($LASTEXITCODE -ne 0) { throw 'V1.026 TRIM feedback regression failed' }
+          cargo test --locked -p cadcraft-ui-egui --lib cmdline::autocomplete_tests::every_public_native_command_remains_searchable_by_full_id -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'Native CAD command catalog searchability was changed by bilingual UX' }
+          cargo test --locked -p cadcraft-ui-egui --lib cmdline::autocomplete_tests::native_alias_space_dispatch_is_never_replaced_by_translation -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'Native CAD alias semantics were overridden by Vietnamese input' }
+          cargo test --locked -p cadcraft-ui-egui --lib cmdline::autocomplete_tests::bilingual_ui_keeps_english_first_and_actual_aliases -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'English-first bilingual captions or actual aliases failed' }
           cargo test --locked -p cadcraft-ui-egui --lib cmdline::autocomplete_tests::vietnamese_command_suggestions_accept_accents_and_plain_text -- --nocapture
           if ($LASTEXITCODE -ne 0) { throw 'V1.027 Vietnamese bilingual command suggestions failed' }
           cargo test --locked -p cadcraft-ui-egui --lib cmdline::autocomplete_tests::space_keeps_vietnamese_phrase_but_not_native_cad_alias -- --nocapture
