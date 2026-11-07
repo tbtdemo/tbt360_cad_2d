@@ -67,3 +67,32 @@ Bản V1.027 bổ sung chú giải khi rê chuột lên từng tùy chọn **14 
 Tab **04 Kết nối & Hướng dẫn** nay có các khối hướng dẫn: bắt đầu từ ảnh mặt bằng không chứa UI/nhiễu, nhập câu tiếng Việt để tìm lệnh CAD, phân biệt AI Studio/AI Review, và thao tác OSNAP. Các hướng dẫn mô tả đúng giới hạn hiện tại (bộ dò raster hiện chưa đọc ngữ nghĩa hoàn chỉnh và nhánh AI Review chưa tự đồng bộ với hình học AI Studio).
 
 **Chưa hoàn tất:** dịch toàn bộ Ribbon/menu/Properties và tất cả lỗi engine; còn cần đo tỷ lệ bao phủ và nghiệm thu ảnh Windows GUI thực tế. Không gọi trạng thái này là V1.027 đã phát hành.
+
+## 8. Nguyên tắc khóa V1.027 — bảo vệ 100% lệnh CAD nguyên bản
+
+**Không sửa engine CAD để thêm lớp dịch.** Lệnh gốc, alias PGP, cú pháp tọa độ tuyệt đối/tương đối, keyword, Enter, Space, Esc, Undo, script, LISP và các lệnh transparent vẫn qua đường thực thi cũ. Bản Việt hóa chỉ nằm ở giao diện dòng lệnh, gợi ý và thông tin bước đang chờ. Từ điển Việt là tầng phụ trợ, ánh xạ đến ID lệnh đã được `find_command` xác nhận có thật.
+
+- Danh mục tìm kiếm không còn chỉ dựa vào các lệnh mẫu: các lệnh công khai trong `cadcraft_engine::command_specs()` có thể được tìm bằng mã lệnh đầy đủ. Test `every_public_native_command_remains_searchable_by_full_id` duyệt toàn bộ registry động thay vì kiểm 10–20 ví dụ.
+- Alias đã đăng ký có độ dài ngắn nhất được tìm từ **chính `CommandSpec.aliases`**, không tự đặt phím tắt. Cụm `L`, `PL`, `C`, `REC`, `CO`, `DI` không được mất cách dùng Space/Enter ban đầu.
+- Lời nhắc engine và tên lệnh hiển thị theo dạng `English (Tiếng Việt)`; văn bản đầu vào keyword gửi về engine **vẫn nguyên bản**.
+- Khi không còn lệnh chạy, gợi ý lệnh tiếp theo từ các cặp thao tác thực sự đã xuất hiện trong lịch sử **phiên hiện tại**, sau đó mới đến các đề xuất ngữ cảnh có lệnh thật trong registry. Không tự chạy, không truyền dữ liệu ra máy chủ, không tuyên bố đây là mô hình AI học liên tục.
+- Không thêm lệnh không tồn tại vào GUI chỉ để làm đẹp menu. Không xem `CommandSpec` đã đăng ký là bằng chứng thao tác chuột, OSNAP, Undo hay DWG đã chạy đúng.
+
+### Mẫu hiển thị thống nhất
+
+| Trạng thái | Mẫu hướng dẫn |
+|---|---|
+| Tìm lệnh | `L — LINE (Vẽ đường thẳng)`; `PL — PLINE (Vẽ đa đoạn)`; `DI — DIST (Đo khoảng cách)` |
+| Đang vẽ | `LINE / L (Vẽ đường thẳng) — Specify next point (Chọn điểm tiếp theo)` |
+| Chờ thao tác | `ĐANG CHỜ: chọn điểm bằng chuột hoặc nhập X,Y` |
+| Lệnh kết thúc | `NEXT (Lệnh tiếp): DI (DIST · Đo khoảng cách) · L (LINE · Vẽ đường thẳng) · Enter (Lặp lệnh trước)` |
+| Hủy | `ESC (Cancel / Hủy lệnh)` |
+| Đo đạc | `DI / DIST (Đo khoảng cách) → hai điểm`; `ID (Tọa độ điểm) → chọn điểm` |
+| Sửa bản vẽ | `PURGE (Làm sạch bản vẽ)`; người dùng phải xem và xác nhận kết quả |
+
+### Hai phạm vi “100%” phải kiểm toán độc lập
+
+1. **100% lệnh nguyên bản của chính CAD 360:** bảo toàn và kiểm thử toàn bộ lệnh CAD đã đăng ký (không thay đổi engine), aliases, trạng thái tương tác, kết quả ghi và hoàn tác; mã nguồn có test registry, nhưng **Windows CI và thao tác thật chưa đạt nghiệm thu**.
+2. **100% lệnh tương ứng AutoCAD 2027:** đây là mục tiêu riêng; phải đối chiếu từng command và system variable với tài liệu chính thức của Autodesk AutoCAD 2027, phân loại **Có/Đầy đủ**, **Có/Một phần**, **Chưa có**, **Không áp dụng**, cùng test hành vi. Không được công bố 100% tương đương AutoCAD 2027 chỉ nhờ registry nội bộ. Autodesk còn có các lệnh riêng như `GEOMETRYCLEANUPOPEN`, `BDETECT`, `BSEARCH` và `CHECKOUT` cần đánh giá từng khả năng tương đương/giới hạn. Tham chiếu: https://help.autodesk.com/view/ACD/2027/ENU/
+
+**Trạng thái nghiệm thu V1.027: CHƯA ĐẠT**. Phần tìm kiếm song ngữ và gợi ý theo lịch sử mới có mã nguồn, chờ test Windows; không gộp thành tỉ lệ hoàn thiện toàn bộ AutoCAD 2027.
