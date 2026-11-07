@@ -1295,6 +1295,15 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui) {
             dynamic_input(app, &painter, hp, fields);
         }
     }
+    // A command must visibly acknowledge its next action even when Dynamic Input
+    // is disabled. Keep this hint paint-only, so selection and snapping still go
+    // through the existing engine cursor and click dispatch.
+    if inside && !on_menu
+        && !app.session.settings.dynmode
+        && let Some(hp) = hover_pos
+    {
+        paint_cursor_command_hint(app, &painter, rect, hp);
+    }
     // Over the crosshair, so the row under the pointer reads clearly.
     cycle_list(app, &painter);
     // No continuous repaint while hovering: input events repaint by themselves. Repainting every
@@ -1310,6 +1319,31 @@ pub(crate) mod tests;
 mod blockedit;
 /// The COMPARE overlay.
 mod compare;
+
+/// Short prompt at the cursor when F12 is off. The canvas has its own persistent
+/// acknowledgement, but the cursor-local message makes the next TRIM/EXTEND pick
+/// unambiguous without requiring users to look away from the geometry.
+fn paint_cursor_command_hint(app: &CadApp, painter: &egui::Painter, canvas: Rect, hover: Pos2) {
+    let Some(running) = app.session.running.as_ref() else { return };
+    let Some(prompt) = app.session.current_prompt() else { return };
+    // Selection commands need the instruction most; do not add a second tooltip
+    // for every continuously changing LINE/CIRCLE coordinate prompt.
+    if running.id != "trim" && running.id != "extend" { return; }
+    let theme = Tokens::get();
+    let title = running.id.to_ascii_uppercase();
+    let label = format!("{}: {}", title, crate::i18n::t(&prompt.message));
+    let text = painter.layout_no_wrap(label, crate::theme::small(), theme.text);
+    let available = (canvas.width() - 20.0).max(0.0);
+    if available < 80.0 { return; }
+    let size = vec2((text.size().x + 16.0).min(available), text.size().y + 8.0);
+    let x = (hover.x + 22.0).min(canvas.right() - size.x - 8.0).max(canvas.left() + 8.0);
+    let y = (hover.y - size.y - 12.0).max(canvas.top() + 8.0).min(canvas.bottom() - size.y - 8.0);
+    let region = Rect::from_min_size(pos2(x, y), size);
+    let clipped = painter.with_clip_rect(region);
+    clipped.rect_filled(region, 3.0, theme.cmd_bg);
+    clipped.rect_stroke(region, 3.0, Stroke::new(1.0, theme.cmd_border), egui::StrokeKind::Inside);
+    clipped.galley(region.min + vec2(8.0, 4.0), text, theme.text);
+}
 
 /// In-canvas acknowledgement of an active CAD command. This never captures
 /// pointer events, changes the active prompt, or alters OSNAP/pick semantics.
