@@ -1442,9 +1442,11 @@ mod tests {
             _ => String::new(),
         });
         assert_eq!(text.as_deref(), Some("中文"));
-        // Back to selecting objects: the next frame lets the IME go, so it can't swallow ASCII typing.
+        // Back at idle Command:, the IME remains available so Vietnamese
+        // command names can be composed. Point/number/object prompts still
+        // disable it to protect native CAD coordinate keyboard input.
         let out = frame(&mut app, &ctx, Vec::new());
-        assert!(out.platform_output.ime.is_none());
+        assert!(out.platform_output.ime.is_some());
     }
 
     #[test]
