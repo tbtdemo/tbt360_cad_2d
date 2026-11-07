@@ -597,11 +597,23 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui, canvas: Rect) {
     // LINE/PLINE/CIRCLE/RECTANG/DIST/ID/DIMLINEAR, not only after clicking.
     if let Some(running)=app.session.running.as_ref() {
         let guide=active_command_guide(&running.id);
-        let y=(bar.top()-24.0-n as f32*16.0
+        let expected=app.session.current_prompt().map(|pr| {
+            let action=if pr.picks_objects() {"Chọn đối tượng bằng chuột hoặc nhập tùy chọn"}
+                else if pr.accept.point && pr.accept.number {"Nhấp chọn điểm hoặc nhập số"}
+                else if pr.accept.point {"Nhấp chọn điểm trên bản vẽ, hoặc nhập X,Y"}
+                else if pr.accept.number {"Nhập giá trị số và nhấn Enter"}
+                else if pr.accept.text {"Nhập tên/tùy chọn bằng bàn phím rồi Enter"}
+                else {"Làm theo chỉ dẫn hiện tại"};
+            if pr.accept.enter {format!("ĐANG CHỜ: {action} · Enter: kết thúc/mặc định · Esc: hủy")}
+            else {format!("ĐANG CHỜ: {action} · Esc: hủy")}
+        }).unwrap_or_else(||"ĐANG THỰC HIỆN LỆNH".to_owned());
+        let y=(bar.top()-46.0-n as f32*16.0
             -if lines.is_empty(){0.0}else{6.0}).max(canvas.top()+3.0);
-        let hint=Rect::from_min_size(pos2(bar.left(),y),vec2(w,20.0));
+        let hint=Rect::from_min_size(pos2(bar.left(),y),vec2(w,40.0));
         p.rect_filled(hint,3.0,t.cmd_history);
-        p.text(pos2(hint.left()+7.0,hint.center().y),egui::Align2::LEFT_CENTER,
+        p.text(pos2(hint.left()+7.0,hint.top()+4.0),egui::Align2::LEFT_TOP,
+            expected,egui::FontId::proportional(11.0),t.accent);
+        p.text(pos2(hint.left()+7.0,hint.top()+21.0),egui::Align2::LEFT_TOP,
             guide,egui::FontId::proportional(11.0),t.text);
     }
     p.rect_filled(bar, 3.0, t.cmd_bg);
