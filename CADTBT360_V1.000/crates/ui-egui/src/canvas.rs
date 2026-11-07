@@ -25,7 +25,7 @@ mod raster_image;
 mod viewport;
 mod widgets;
 
-use cursor::{draw_crosshair, draw_snap_marker, draw_tracking, effective_point, override_cursor};
+use cursor::{draw_crosshair, draw_snap_marker, draw_tracking, effective_point, input_earlier_snapped_point, override_cursor};
 use cycle::{CycleList, cycle_badge, cycle_click, cycle_list, over_canvas_menu, shift_space_cycle};
 pub(crate) use draw::{Look, draw_highlight, draw_list};
 use draw::draw_list_filtered;
@@ -744,7 +744,7 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui) {
                     break;
                 }
                 let w = xf.to_world(*pos);
-                if let Err(e) = app.session.input(Input::Point(w)) {
+                if let Err(e) = input_earlier_snapped_point(app, w, &xf, ui.ctx()) {
                     app.session.echo(e.to_string());
                 }
                 // Moving from a point prompt to another input type is also an end to
