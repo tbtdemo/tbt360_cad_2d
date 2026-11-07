@@ -1096,6 +1096,44 @@ mod tests {
         d
     }
 
+    /// An actual native engine LINE consumes coordinates returned from
+    /// geometry OSNAP; this verifies the saved geometry, not just a cursor
+    /// marker on the drawing canvas.
+    #[test]
+    fn snapped_endpoint_and_center_become_exact_native_line_geometry() {
+        let d=drawing();
+        let endpoint=osnap(&d,&Space::Model,Vec2::new(9.8,0.1),
+            0.5,mode::END,None,false).expect("endpoint");
+        let center=osnap(&d,&Space::Model,Vec2::new(20.1,0.1),
+            0.5,mode::CEN,None,false).expect("circle center");
+        let mut session=crate::Session::new();
+        session.start("line").expect("start native LINE");
+        session.input(crate::Input::Point(endpoint.point)).expect("first snap");
+        session.input(crate::Input::Point(center.point)).expect("second snap");
+        session.input(crate::Input::Enter).expect("finish LINE");
+        assert!(session.running.is_none());
+        let entities=session.doc().unwrap().model.iter()
+            .filter_map(|e|match &e.kind {
+                EntityKind::Line(line)=>Some((line.a.xy(),line.b.xy())),
+                _=>None,
+            }).collect::<Vec<_>>();
+        assert!(entities.iter().any(|(a,b)|
+            a.near(Vec2::new(10.0,0.0),1e-9)
+                && b.near(Vec2::new(20.0,0.0),1e-9)),
+            "the native drawing must contain the exact OSNAP endpoints: {entities:?}");
+    }
+
+    #[test]
+    fn osnap_never_invents_a_pick_outside_aperture_or_when_disabled() {
+        let d=drawing();
+        for mask in [mode::END,mode::MID,mode::CEN,mode::INT] {
+            assert!(osnap(&d,&Space::Model,Vec2::new(100.0,100.0),
+                0.1,mask,None,false).is_none());
+            assert!(osnap(&d,&Space::Model,Vec2::new(5.0,0.0),
+                1.0,mask|mode::OFF,None,false).is_none());
+        }
+    }
+
     #[test]
     fn endpoint_and_mid() {
         let d = drawing();
