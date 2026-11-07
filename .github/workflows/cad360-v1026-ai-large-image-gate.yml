@@ -48,9 +48,9 @@ jobs:
       - name: Large PNG real decode and calibrated CAD coordinate test
         shell: pwsh
         run: |
-          cargo test --locked -p cadcraft-mcp --lib large_png_5000_by_3000_preserves_original_pixel_to_cad_calibration -- --nocapture
+          & ../scripts/profile_ai_raster.ps1 -TestName 'large_png_5000_by_3000_preserves_original_pixel_to_cad_calibration'
           if ($LASTEXITCODE -ne 0) { throw 'V1.026 15 MP AI image regression failed' }
-          cargo test --locked -p cadcraft-mcp --lib ai_36_megapixel_png_preview_preserves_full_resolution -- --nocapture
+          & ../scripts/profile_ai_raster.ps1 -TestName 'ai_36_megapixel_png_preview_preserves_full_resolution'
           if ($LASTEXITCODE -ne 0) { throw 'V1.026 36 MP AI image regression failed' }
       - name: Image-to-CAD and TRIM GUI regressions
         shell: pwsh
@@ -61,6 +61,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'V1.026 2500-stroke wall-pair regression failed' }
           cargo test --locked -p cadcraft-mcp --lib ai_large_floorplan_room_detection_keeps_global_entity_indices -- --nocapture
           if ($LASTEXITCODE -ne 0) { throw 'V1.026 2400-stroke room detection regression failed' }
+          cargo test --locked -p cadcraft-mcp --lib ai_three_room_ground_truth_geometry_has_no_extra_closed_rooms -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'V1.026 three-room labelled geometry reference regression failed' }
           cargo test --locked -p cadcraft-mcp --lib ai_dense_hatch_component_is_skipped_without_unbounded_pca_points -- --nocapture
           if ($LASTEXITCODE -ne 0) { throw 'V1.026 large dark-fill PCA memory regression failed' }
           cargo test --locked -p cadcraft-mcp --lib ai_wall_sweep_ten_thousand_collinear_strokes_does_not_invent_walls -- --nocapture
