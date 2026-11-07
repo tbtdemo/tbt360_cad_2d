@@ -3408,6 +3408,40 @@ mod tests {
     }
 
     #[test]
+    fn ai_four_room_grid_keeps_shared_walls_and_exact_topology() {
+        // 2 x 2 real room grid: four distinct room outlines, four shared
+        // internal boundaries. No raster edits and no inferred door openings.
+        // Horizontal strokes include both left and right halves at y=300.
+        let mut lines=Vec::new();
+        for &(x0,x1) in &[(20.0,320.0),(320.0,620.0)] {
+            for &y in &[100.0,300.0,500.0] {
+                lines.push(Line{x0,y0:y,x1,y1:y});
+            }
+        }
+        for &x in &[20.0,320.0,620.0] {
+            for &(y0,y1) in &[(100.0,300.0),(300.0,500.0)] {
+                lines.push(Line{x0:x,y0,x1:x,y1});
+            }
+        }
+        // Real source order is not guaranteed to match geometric order.
+        lines.reverse();
+        let rooms=closed_rectangles(&lines);
+        assert_eq!(rooms.len(),4,"2x2 source grid must create 4 room candidates");
+        let room_json:Vec<Value>=rooms.iter().map(|r|
+            json!({"sourceEdgeIndices":r.edges})
+        ).collect();
+        let links=observed_room_adjacencies(&room_json);
+        assert_eq!(links.len(),4,
+            "four actual internal wall segments should give exactly four adjacencies");
+        assert!(links.iter().all(|link|link["passageConfirmed"]==false));
+        let mut locations=rooms.iter().map(|r|
+            (r.corners[0][0] as i32,r.corners[0][1] as i32)
+        ).collect::<Vec<_>>();
+        locations.sort_unstable();
+        assert_eq!(locations,vec![(20,100),(20,300),(320,100),(320,300)]);
+    }
+
+    #[test]
     fn ai_stacked_rooms_share_one_horizontal_source_edge_even_if_lines_are_out_of_order() {
         // Source index order is deliberately unrelated to top/bottom geometry.
         // One y=300 stroke bounds BOTH independently observed rooms.
