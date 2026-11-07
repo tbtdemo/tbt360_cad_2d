@@ -709,7 +709,7 @@ jobs:
           $dirArgument = '/DIR="{0}"' -f $dest
           $proc = Start-Process -FilePath $setup -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', $dirArgument) -Wait -PassThru
           if ($proc.ExitCode -ne 0) { throw "Installer failed with code $($proc.ExitCode)" }
-          foreach ($n in @('CADTBT360.exe', 'CADTBT360_CLI.exe', 'BUILD_INFO.txt', 'Tools/Poppler/bin/pdftoppm.exe', 'HuongDan/HUONG_DAN_AI_TU_ANH_THANH_CAD.md', 'HuongDan/HUONG_DAN_AI_TU_ANH_THANH_CAD.docx', 'HuongDan/GIAO_TRINH_TONG_HOP_CAD360.docx')) {
+          foreach ($n in @('CADTBT360.exe', 'CADTBT360_CLI.exe', 'BUILD_INFO.txt', 'Tools/Poppler/bin/pdftoppm.exe', 'HuongDan/HUONG_DAN_AI_TU_ANH_THANH_CAD.md', 'HuongDan/HUONG_DAN_AI_TU_ANH_THANH_CAD.docx', 'HuongDan/GIAO_TRINH_TONG_HOP_CAD360.docx', 'HuongDan/GIAO_TRINH_CAD_360_CHO_NGUOI_MOI.docx')) {
             if (!(Test-Path (Join-Path $dest $n))) { throw "Installed file missing: $n" }
           }
           python scripts/verify_ai_pdf_renderer.py (Join-Path $dest 'Tools/Poppler/bin/pdftoppm.exe')
@@ -719,6 +719,7 @@ jobs:
           $installedGuides = @(
             @{ Installed='HuongDan/HUONG_DAN_AI_TU_ANH_THANH_CAD.docx'; Source='dist/v1026/CADTBT360_V1.026_HUONG_DAN_AI_TU_ANH_THANH_CAD.docx' },
             @{ Installed='HuongDan/GIAO_TRINH_TONG_HOP_CAD360.docx'; Source='dist/v1026/CADTBT360_V1.026_GIAO_TRINH_TONG_HOP.docx' },
+            @{ Installed='HuongDan/GIAO_TRINH_CAD_360_CHO_NGUOI_MOI.docx'; Source='dist/v1026/CADTBT360_V1.026_GIAO_TRINH_NGUOI_MOI.docx' },
             @{ Installed='HuongDan/HUONG_DAN_AI_TU_ANH_THANH_CAD.md'; Source='docs/user-guide/CAD360_V1.026_AI_LARGE_IMAGE.md' }
           )
           foreach ($guide in $installedGuides) {
@@ -864,9 +865,9 @@ jobs:
         shell: pwsh
         run: |
           $zip = 'dist/v1026/CADTBT360_V1.026_Portable_Windows_x64.zip'
-          $tmp = Join-Path $env:RUNNER_TEMP 'CADTBT360_V1025_PortableTest'
+          $tmp = Join-Path $env:RUNNER_TEMP 'CADTBT360_V1026_PortableTest'
           Expand-Archive $zip -DestinationPath $tmp -Force
-          foreach ($n in @('CADTBT360.exe', 'CADTBT360_CLI.exe', 'BUILD_INFO.txt', 'Tools/Poppler/bin/pdftoppm.exe', 'HUONG_DAN_AI_TU_ANH_THANH_CAD.md', 'HUONG_DAN_AI_TU_ANH_THANH_CAD.docx', 'GIAO_TRINH_TONG_HOP_CAD360.docx')) {
+          foreach ($n in @('CADTBT360.exe', 'CADTBT360_CLI.exe', 'BUILD_INFO.txt', 'Tools/Poppler/bin/pdftoppm.exe', 'HUONG_DAN_AI_TU_ANH_THANH_CAD.md', 'HUONG_DAN_AI_TU_ANH_THANH_CAD.docx', 'GIAO_TRINH_TONG_HOP_CAD360.docx', 'GIAO_TRINH_CAD_360_CHO_NGUOI_MOI.docx')) {
             if (!(Test-Path (Join-Path $tmp $n))) { throw "Portable archive missing $n" }
           }
           python scripts/verify_ai_pdf_renderer.py (Join-Path $tmp 'Tools/Poppler/bin/pdftoppm.exe')
@@ -879,6 +880,9 @@ jobs:
           $fullGuideSource = 'dist/v1026/CADTBT360_V1.026_GIAO_TRINH_TONG_HOP.docx'
           $fullGuidePortable = Join-Path $tmp 'GIAO_TRINH_TONG_HOP_CAD360.docx'
           if ((Get-FileHash $fullGuideSource -Algorithm SHA256).Hash -ne (Get-FileHash $fullGuidePortable -Algorithm SHA256).Hash) { throw 'Full-product user guide in Portable differs from published guide' }
+          $beginnerSource = 'dist/v1026/CADTBT360_V1.026_GIAO_TRINH_NGUOI_MOI.docx'
+          $beginnerPortable = Join-Path $tmp 'GIAO_TRINH_CAD_360_CHO_NGUOI_MOI.docx'
+          if ((Get-FileHash $beginnerSource -Algorithm SHA256).Hash -ne (Get-FileHash $beginnerPortable -Algorithm SHA256).Hash) { throw 'Beginner Word guide in Portable differs from release document' }
           python -c "import sys,zipfile,xml.etree.ElementTree as ET; z=zipfile.ZipFile(sys.argv[1]); assert z.testzip() is None; x=ET.fromstring(z.read('word/document.xml')); assert len(z.read('word/document.xml')) > 8000" $fullGuidePortable
           if ($LASTEXITCODE -ne 0) { throw 'Whole-product Word curriculum is damaged or empty' }
           # Run the same structural and curriculum gate on the extracted Portable document as on Setup.
