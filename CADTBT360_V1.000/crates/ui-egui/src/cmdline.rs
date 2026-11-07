@@ -774,6 +774,13 @@ fn enable_ime(app: &mut CadApp, ctx: &egui::Context) {
     });
 }
 
+/// IME needs to work at idle Command: for Vietnamese natural-language
+/// commands, not only inside TEXT/MTEXT prompts. Do not force an IME during
+/// point/number/object selection because native CAD key handling remains active.
+fn command_line_needs_ime(command_running:bool,text_prompt:bool)->bool {
+    text_prompt || !command_running
+}
+
 /// Handle keyboard input destined for the command line (when no text field has focus).
 pub fn keyboard(app: &mut CadApp, ctx: &egui::Context) {
     if ctx.egui_wants_keyboard_input() {
@@ -786,10 +793,12 @@ pub fn keyboard(app: &mut CadApp, ctx: &egui::Context) {
     app.cmd.watch_selection(&selection);
     let mac = ctx.os() == egui::os::OperatingSystem::Mac;
     let text_prompt = app.session.current_prompt().is_some_and(|p| p.accept.text && !p.accept.point && !p.accept.number);
-    if text_prompt {
+    if command_line_needs_ime(app.session.running.is_some()||app.session.prompting(),text_prompt) {
+        // Enable Vietnamese Telex/VNI composition at idle Command: as well as
+        // native free-text prompts. egui keeps focusless CAD keyboard routing.
         enable_ime(app, ctx);
     } else {
-        // No prompt is collecting text: a composition left over from one cannot belong here.
+        // Numeric/point/selection prompts keep original CAD keyboard semantics.
         app.cmd.preedit.clear();
         app.cmd.ime_on = false;
     }
@@ -1477,6 +1486,14 @@ mod autocomplete_tests {
         assert_eq!(suggestions("duong thang")[0].id,"LINE");
         assert_eq!(suggestions("hinh chu nhat")[0].id,"RECTANG");
         assert!(suggestions("lam sach xyz").is_empty());
+    }
+
+    #[test]
+    fn vietnamese_ime_works_at_idle_command_but_not_inside_numeric_point_prompts() {
+        assert!(command_line_needs_ime(false,false));
+        assert!(command_line_needs_ime(true,true));
+        assert!(!command_line_needs_ime(true,false));
+        assert_eq!(fold_vi("Làm sạch bản vẽ"),"lam sach ban ve");
     }
 
     #[test]
