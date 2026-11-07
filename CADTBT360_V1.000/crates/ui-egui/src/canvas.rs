@@ -1261,6 +1261,9 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui) {
         draw_viewcube(app, ui, rect);
     }
     viewport_label(&painter, rect);
+    // Keep the running command and next action visible even when the command
+    // line or Dynamic Input is hidden (TRIM/EXTEND selection feedback).
+    paint_active_command_feedback(app, &painter, rect);
     // Typing and Escape reach the command line even when its overlay is hidden.
     crate::cmdline::keyboard(app, ui.ctx());
     // Command line overlay.
@@ -1307,6 +1310,32 @@ pub(crate) mod tests;
 mod blockedit;
 /// The COMPARE overlay.
 mod compare;
+
+/// In-canvas acknowledgement of an active CAD command. This never captures
+/// pointer events, changes the active prompt, or alters OSNAP/pick semantics.
+fn paint_active_command_feedback(app: &CadApp, painter: &egui::Painter, canvas: Rect) {
+    let Some(running) = app.session.running.as_ref() else { return };
+    let Some(prompt) = app.session.current_prompt() else { return };
+    let label = format!(
+        "{}  |  {}{}",
+        running.id.to_ascii_uppercase(),
+        crate::i18n::t(&prompt.message),
+        if app.canvas.snap.is_some() { "  |  OSNAP" } else { "" }
+    );
+    let theme = Tokens::get();
+    let text = painter.layout_no_wrap(label, crate::theme::small(), theme.text);
+    let size = text.size() + vec2(20.0, 10.0);
+    let available = canvas.width() - 24.0;
+    if available <= 20.0 { return; }
+    let area = Rect::from_min_size(
+        pos2(canvas.left() + 12.0, canvas.top() + 12.0),
+        vec2(size.x.min(available), size.y),
+    );
+    let clipped = painter.with_clip_rect(area);
+    clipped.rect_filled(area, 4.0, theme.cmd_bg);
+    clipped.rect_stroke(area, 4.0, Stroke::new(1.0, theme.cmd_border), egui::StrokeKind::Inside);
+    clipped.galley(area.min + vec2(10.0, 5.0), text, theme.text);
+}
 
 /// Background rebuilds of the display list for a new view.
 mod rebuild;
