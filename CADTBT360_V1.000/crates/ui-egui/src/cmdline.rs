@@ -288,20 +288,20 @@ fn vietnamese_query_continues(buffer:&str)->bool {
 
 fn active_command_guide(id:&str)->&'static str {
     match id {
-        "line" => "LINE/L: nhấp điểm đầu → điểm tiếp theo · Enter để kết thúc · Esc để hủy",
-        "pline" => "PLINE/PL: nhấp điểm đầu → các đỉnh · Enter kết thúc · Close để khép kín",
-        "circle" => "CIRCLE/C: chọn tâm → nhập bán kính hoặc nhấp điểm trên đường tròn",
-        "rectang" => "RECTANG/REC: chọn góc thứ nhất → chọn góc đối diện",
-        "dist" => "DIST/DI: chọn điểm đo thứ nhất → điểm thứ hai để xem khoảng cách",
-        "id" => "ID: chọn một điểm để đọc tọa độ X, Y, Z",
-        "dimlinear" => "DIMLINEAR/DLI: chọn hai điểm đo → vị trí đặt đường kích thước",
-        "dimaligned" => "DIMALIGNED/DAL: chọn hai điểm → vị trí ghi kích thước xiên",
-        "purge" => "PURGE: chọn loại dữ liệu không dùng và xác nhận trước khi xóa",
-        "trim" => "TRIM/TR: chọn cạnh cắt → đối tượng cần cắt · Enter/Esc để kết thúc",
-        "extend" => "EXTEND/EX: chọn biên → đối tượng cần kéo dài",
-        "move" => "MOVE/M: chọn đối tượng → điểm gốc → điểm đích",
-        "copy" => "COPY/CO: chọn đối tượng → điểm gốc → điểm sao chép",
-        _ => "Lệnh đang chạy: xem yêu cầu tại dòng lệnh, chọn điểm/đối tượng hoặc nhập giá trị; Esc để hủy",
+        "line" => "LINE / L (Vẽ đường thẳng): chọn điểm đầu → điểm tiếp theo; Enter kết thúc · Esc hủy",
+        "pline" => "PLINE / PL (Vẽ đa đoạn): chọn các đỉnh → Enter kết thúc; Close (Khép kín)",
+        "circle" => "CIRCLE / C (Vẽ đường tròn): chọn tâm → nhập bán kính hoặc chọn điểm trên đường tròn",
+        "rectang" => "RECTANG / REC (Vẽ chữ nhật): chọn góc thứ nhất → chọn góc đối diện",
+        "dist" => "DIST / DI (Đo khoảng cách): chọn hai điểm; xem kết quả đo trong lịch sử lệnh",
+        "id" => "ID (Tìm tọa độ): chọn một điểm → xem X, Y, Z",
+        "dimlinear" => "DIMLINEAR / DLI (Ghi kích thước): chọn hai điểm đo → nơi đặt kích thước",
+        "dimaligned" => "DIMALIGNED / DAL (Kích thước xiên): chọn hai điểm → vị trí đặt số đo",
+        "purge" => "PURGE (Làm sạch bản vẽ): chọn nội dung không dùng; kiểm tra rồi xác nhận",
+        "trim" => "TRIM / TR (Cắt nét): chọn cạnh cắt → đối tượng; Enter/Esc tùy bước",
+        "extend" => "EXTEND / EX (Kéo dài nét): chọn biên → đối tượng cần kéo dài",
+        "move" => "MOVE / M (Di chuyển): chọn đối tượng → điểm gốc → điểm đích",
+        "copy" => "COPY / CO (Sao chép): chọn đối tượng → điểm gốc → điểm bản sao",
+        _ => "ACTIVE COMMAND (Đang thực hiện): xem prompt; chọn điểm/đối tượng hoặc nhập giá trị; Esc hủy",
     }
 }
 
@@ -730,7 +730,7 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui, canvas: Rect) {
                         -if lines.is_empty(){0.0}else{6.0}).max(canvas.top()+3.0)),
                     vec2(w,20.0));
                 p.rect_filled(hint,3.0,t.cmd_history);
-                let text=format!("NEXT (Gợi ý lệnh tiếp): {} · Esc (Hủy)",related.join("  |  "));
+                let text=format!("NEXT (Lệnh tiếp): {} · Enter (Lặp lệnh trước) · Esc (Hủy)",related.join(" | "));
                 p.text(pos2(hint.left()+7.0,hint.center().y),egui::Align2::LEFT_CENTER,
                     text,egui::FontId::proportional(10.0),t.text);
             }
