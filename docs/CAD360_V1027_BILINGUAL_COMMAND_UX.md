@@ -177,3 +177,15 @@ Thay cửa sổ Command Reference cũ (chỉ danh sách ID, tên, alias) thành 
 - [ ] Cần nghiệm thu tiếp các thao tác Space-to-Enter với lệnh L/PL/C/REC/DI, gõ cụm “làm sạch bản vẽ” có dấu và không dấu, nhập số/toạ độ vào Prompt, Esc/Enter/Undo.
 
 **CI riêng V1.027 đã từng PASS** trên commit `03851999` ở https://github.com/tbtdemo/tbt360_cad_2d/actions/runs/42348094604. Commit mới nhất chứa sửa IME cần chạy lại; không sử dụng PASS cũ làm nghiệm thu bản mới.
+
+## 16. Khắc phục tràn chữ dòng lệnh và palette tùy chọn song ngữ
+
+- [x] Đã bổ sung **OPTIONS (Tùy chọn lệnh gốc)** dạng `egui::Area` đặt phía trên dòng lệnh, tự xuống dòng khi nhiều tùy chọn. Không tiếp tục nhồi toàn bộ chữ English + (Tiếng Việt) lên một dòng lệnh khiến mất chỗ nhập tọa độ và chữ bị tràn sang bên phải.
+- [x] Đọc `Prompt.keywords` **đầy đủ**; hiển thị từng mục theo `English (Tiếng Việt)` khi có bản dịch. Mỗi mục có thể nhấp và gửi đúng `Input::Keyword(keyword)` với **chuỗi tiếng Anh gốc** của engine, không dịch đầu vào, không thay cú pháp lệnh hoặc alias.
+- [x] Dòng lệnh gốc chỉ hiển thị chỉ dẫn ngắn `[OPTIONS ↓]`; gợi ý trạng thái tương tác cũng tự **wrap** theo chiều rộng bản vẽ, chiều cao tự điều chỉnh thay vì vẽ chuỗi dài vượt khỏi vùng nhập lệnh.
+- [x] Bổ sung 31 mục chưa có trong từ điển tiếng Việt, gồm `Width (Bề rộng)`, `Halfwidth (Nửa bề rộng)`, `Length (Chiều dài)`, `Join (Nối)`, `Previous (Đối tượng trước)`, `Next (Tiếp theo)`, và các lời nhắc chọn điểm/đối tượng.
+- [x] Test mới `full_bilingual_option_palette_keeps_all_original_keywords` xác nhận 8 từ khóa được bảo toàn 100% và hiển thị đầy đủ, kể cả lệnh có nhiều tùy chọn; test `native_keyword_catalog_never_changes_when_rendered_bilingually` bảo vệ lệnh gốc.
+- [ ] Cần Windows CI của commit cuối PASS và nghiệm thu EXE thật trên màn 1366×768, 1920×1080, HiDPI 125–150%; thử gõ, nhấp, OSNAP, Enter, Escape, chuột trên canvas để không bị panel đè.
+- [ ] Bộ gợi ý này chưa phải mô hình AI hiểu kiến trúc toàn diện. V1.027 vẫn chưa được nghiệm thu và chưa thể tuyên bố tương đương 100% AutoCAD 2027.
+
+**Ví dụ mong đợi trong lệnh PLINE:** `Undo (Hoàn tác)`, `Close (Đóng)`, `Arc (Cung tròn)`, `Width (Bề rộng)`, `Length (Chiều dài)`; chỉ hiển thị lựa chọn nào thuộc `Prompt.keywords` thực tế ở bước đó. Không bao giờ gợi ý `C` hoặc `A` như tùy chọn đang hoạt động nếu engine chưa cấp keyword đó.
