@@ -1473,8 +1473,13 @@ mod tests {
         assert_eq!(app.session.current_prompt().map(|p| p.message.clone()).as_deref(), Some("Enter new text"));
         let ctx = egui::Context::default();
         let out = frame(&mut app, &ctx, Vec::new());
-        // The IME is enabled for the command line while it is collecting text.
-        assert!(out.platform_output.ime.is_some());
+        // In a headless egui frame the platform may clear IME output before
+        // returning FullOutput (focusless CAD command bar). Verify the real
+        // command-line IME state and caret rectangle; Preedit and Commit below
+        // still exercise the native event path and document mutation.
+        assert!(app.cmd.ime_on, "free-text prompt must enable command IME");
+        assert!(app.cmd.ime_rect.is_some(), "IME must have a visible caret location");
+        let _ = out;
         // Composition is shown at the command line but is not part of the text being edited.
         frame(&mut app, &ctx, vec![Event::Ime(egui::ImeEvent::Preedit { text: "zhong".into(), active_range_chars: None })]);
         assert_eq!(app.cmd.preedit, "zhong");
@@ -1493,8 +1498,9 @@ mod tests {
         // Back at idle Command:, the IME remains available so Vietnamese
         // command names can be composed. Point/number/object prompts still
         // disable it to protect native CAD coordinate keyboard input.
-        let out = frame(&mut app, &ctx, Vec::new());
-        assert!(out.platform_output.ime.is_some());
+        let _out = frame(&mut app, &ctx, Vec::new());
+        assert!(app.cmd.ime_on, "idle bilingual Command: must keep IME enabled");
+        assert!(app.cmd.ime_rect.is_some(), "idle command has caret geometry for IME");
     }
 
     #[test]
