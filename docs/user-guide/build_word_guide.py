@@ -149,7 +149,12 @@ def build(source: Path, dest: Path) -> None:
     if missing:
         raise ValueError(f"User guide is incomplete: missing {missing}")
     dest.parent.mkdir(parents=True, exist_ok=True)
-    core_title = "CAD 360 Viet Nam V1.025 - " + ("Giao trinh tong hop CAD 2D, QTO, IFC, BIM, AI, MCP" if "GIAO_TRINH" in source.name.upper() else "Huong dan AI tu anh thanh CAD")
+    # Version follows the actual source manual, never a stale hardcoded 1.025.
+    match = re.search(r"V1[.]\\d{3}", source.name.upper())
+    if not match:
+        match = re.search(r"V1[.]\\d{3}", markdown)
+    release = match.group(0) if match else "VERSION_UNVERIFIED"
+    core_title = "CAD 360 Viet Nam " + release + " - " + ("Giao trinh tong hop CAD 2D, QTO, IFC, BIM, AI, MCP" if "GIAO_TRINH" in source.name.upper() else "Huong dan AI tu anh thanh CAD")
     core = CORE.replace("CAD 360 Viet Nam V1.025 - Vietnamese User Guide", escape(core_title))
     with ZipFile(dest, "w", compression=ZIP_DEFLATED) as z:
         z.writestr("[Content_Types].xml", CONTENT_TYPES)
