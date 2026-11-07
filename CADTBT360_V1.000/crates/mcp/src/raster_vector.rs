@@ -371,6 +371,68 @@ fn observed_room_adjacencies(rooms: &[Value]) -> Vec<Value> {
     results
 }
 
+/// Associate an already observed *paired* gap with at most two closed
+/// regions when the opening's midpoint lies on a measured room boundary.
+/// A gap can be scan damage, a window or a door; this is proximity evidence,
+/// never a confirmed route or permission to create a CAD door.
+fn observed_opening_room_contacts(rooms:&[Value], openings:&[Value]) -> Vec<Value> {
+    let mut output=Vec::new();
+    for (opening_index,opening) in openings.iter().enumerate() {
+        let Some(points)=opening["outlinePixels"].as_array() else {continue};
+        if points.len()!=4 {continue;}
+        let coords=points.iter().map(|p|{
+            let a=p.as_array().filter(|a|a.len()==2)?;
+            let x=a[0].as_f64()?;let y=a[1].as_f64()?;
+            (x.is_finite()&&y.is_finite()).then_some([x,y])
+        }).collect::<Option<Vec<_>>>();
+        let Some(coords)=coords else {continue};
+        let mid=[coords.iter().map(|p|p[0]).sum::<f64>()/4.0,
+            coords.iter().map(|p|p[1]).sum::<f64>()/4.0];
+        let Some(thickness)=opening["wallThicknessPixels"].as_f64() else {continue};
+        if !thickness.is_finite()||!(1.0..=80.0).contains(&thickness) {continue;}
+        let tolerance=thickness*0.5+2.0;
+        let mut touching=Vec::new();
+        for (room_index,room) in rooms.iter().enumerate() {
+            let Some(corners)=room["outlinePixels"].as_array() else {continue};
+            if corners.len()!=4 {continue;}
+            let rect=corners.iter().map(|p|{
+                let a=p.as_array().filter(|a|a.len()==2)?;
+                Some([a[0].as_f64()?,a[1].as_f64()?])
+            }).collect::<Option<Vec<_>>>();
+            let Some(rect)=rect else {continue};
+            let x0=rect.iter().map(|p|p[0]).fold(f64::INFINITY,f64::min);
+            let x1=rect.iter().map(|p|p[0]).fold(f64::NEG_INFINITY,f64::max);
+            let y0=rect.iter().map(|p|p[1]).fold(f64::INFINITY,f64::min);
+            let y1=rect.iter().map(|p|p[1]).fold(f64::NEG_INFINITY,f64::max);
+            if !(x0<x1&&y0<y1) {continue;}
+            // The opening must be aligned with a room side AND project into
+            // that side's span. A midpoint close only to a room corner is not
+            // sufficient to assign an entrance.
+            let on_left=(mid[0]-x0).abs()<=tolerance
+                && mid[1]>y0+tolerance && mid[1]<y1-tolerance;
+            let on_right=(mid[0]-x1).abs()<=tolerance
+                && mid[1]>y0+tolerance && mid[1]<y1-tolerance;
+            let on_top=(mid[1]-y0).abs()<=tolerance
+                && mid[0]>x0+tolerance && mid[0]<x1-tolerance;
+            let on_bottom=(mid[1]-y1).abs()<=tolerance
+                && mid[0]>x0+tolerance && mid[0]<x1-tolerance;
+            if on_left||on_right||on_top||on_bottom {touching.push(room_index);}
+            if touching.len()>2 {break;}
+        }
+        if touching.is_empty()||touching.len()>2 {continue;}
+        output.push(json!({
+            "openingIndex":opening_index,
+            "roomIndices":touching,
+            "midpointPixels":mid,
+            "classification":"paired-gap-near-observed-room-edge-unverified",
+            "isDoor":false,"passageConfirmed":false,
+            "requiresHumanReview":true
+        }));
+        if output.len()>=64 {break;}
+    }
+    output
+}
+
 /// A conservative column-like motif: a small near-square closed outline with
 /// two INTERIOR orthogonal hatch strokes crossing one another. Ordinary empty
 /// rectangles, large rooms, wall intersections and ambiguous hatches are not
@@ -1655,6 +1717,7 @@ pub fn preview(args: &Value) -> Result<Value, String> {
     // The graph is only observable shared-stroke evidence. Expose its exact
     // original CAD segment for manual checking/OSNAP inspection; no inferred
     // passage, doorway or new entity is created.
+    let opening_room_contacts=observed_opening_room_contacts(&room_candidates,&paired_openings);
     let mut room_adjacencies=observed_room_adjacencies(&room_world);
     for adjacency in &mut room_adjacencies {
         let Some(index)=adjacency["sourceEdgeIndex"].as_u64()
@@ -1672,6 +1735,8 @@ pub fn preview(args: &Value) -> Result<Value, String> {
         }
     }
     let geometry=json!({
+        "openingRoomContactCount":opening_room_contacts.len(),
+        "openingRoomContacts":opening_room_contacts,
         "roomAdjacencyCount":room_adjacencies.len(),
         "roomAdjacencies":room_adjacencies,
         "roomCandidateCount":room_world.len(),"roomCandidates":room_world,
@@ -3258,6 +3323,31 @@ mod tests {
             json!({"sourceEdgeIndices":[0,1,2,3]}),
             json!({"sourceEdgeIndices":[4,5,6,7]})
         ]).is_empty(),"geometrically nearby rooms must not gain imaginary connections");
+    }
+
+    #[test]
+    fn ai_paired_gap_near_two_room_boundaries_remains_unverified() {
+        let rooms=vec![
+            json!({"outlinePixels":[[0,0],[100,0],[100,100],[0,100]]}),
+            json!({"outlinePixels":[[100,0],[200,0],[200,100],[100,100]]}),
+            json!({"outlinePixels":[[300,0],[400,0],[400,100],[300,100]]}),
+        ];
+        let openings=vec![
+            json!({"outlinePixels":[[95,40],[105,40],[105,60],[95,60]],
+                "wallThicknessPixels":10.0}),
+            json!({"outlinePixels":[[250,40],[260,40],[260,60],[250,60]],
+                "wallThicknessPixels":10.0}),
+        ];
+        let contacts=observed_opening_room_contacts(&rooms,&openings);
+        assert_eq!(contacts.len(),1);
+        assert_eq!(contacts[0]["openingIndex"],0);
+        assert_eq!(contacts[0]["roomIndices"],json!([0,1]));
+        assert_eq!(contacts[0]["isDoor"],false);
+        assert_eq!(contacts[0]["passageConfirmed"],false);
+        assert!(observed_opening_room_contacts(&rooms,&[
+            json!({"outlinePixels":[[95,0],[105,0],[105,6],[95,6]],
+                "wallThicknessPixels":10.0})
+        ]).is_empty(),"corner contact alone is not a confirmed opening");
     }
 
     #[test]
