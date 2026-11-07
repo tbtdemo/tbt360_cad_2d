@@ -56,7 +56,8 @@ pub(super) fn draw_snap_marker(p: &egui::Painter, at: Pos2, hit: &SnapHit) {
             p.line(vec![at + vec2(-s, -s), at + vec2(s, -s), at + vec2(-s, s), at + vec2(s, s), at + vec2(-s, -s)], st);
         }
     }
-    p.text(at + vec2(12.0, 12.0), egui::Align2::LEFT_TOP, crate::i18n::t(hit.name), crate::theme::small(), Color32::BLACK);
+    // Paint the label once, with its background. Drawing bare text first leaves
+    // black ghost pixels when the label background is recomputed over the canvas.
     let galley = p.layout_no_wrap(crate::i18n::t(hit.name).to_string(), crate::theme::small(), Color32::BLACK);
     let r = Rect::from_min_size(at + vec2(10.0, 10.0), galley.size() + vec2(6.0, 2.0));
     p.rect_filled(r, 2.0, Color32::from_rgb(0xff, 0xff, 0xe1));

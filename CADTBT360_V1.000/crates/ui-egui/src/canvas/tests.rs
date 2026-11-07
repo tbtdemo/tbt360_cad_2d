@@ -416,3 +416,31 @@ fn circle_command_accepts_the_first_point_without_second_click() {
     assert!(session.prompting(), "circle must advance after its first center point");
     session.cancel();
 }
+
+#[test]
+fn trim_and_extend_acknowledge_active_selection_even_without_dynamic_input() {
+    for command in ["trim", "extend"] {
+        let mut session = cadcraft_engine::Session::new();
+        session.settings.dynmode = false;
+        session.settings.dynprompt = false;
+        session.cmdline(command).unwrap();
+        let running = session.running.as_ref().map(|r| r.id.as_str());
+        assert_eq!(running, Some(command), "command should remain visibly active");
+        let prompt = session.current_prompt().expect("active trim/extend should give a prompt");
+        assert!(cadcraft_engine::pointmod::accepts(&prompt), "{command} must accept a graphical pick");
+        assert!(!prompt.message.is_empty(), "{command} must describe the next selection");
+        // Showing a prompt cannot modify geometry or end the command.
+        assert!(session.prompting());
+        session.cancel();
+        assert!(session.running.is_none());
+    }
+}
+
+#[test]
+fn trim_quick_mode_starts_with_select_object_guidance() {
+    let mut session = cadcraft_engine::Session::new();
+    session.cmdline("trim").unwrap();
+    let prompt = session.current_prompt().expect("TRIM needs active pick guidance");
+    assert!(prompt.message.contains("Select object to trim"));
+    session.cancel();
+}
