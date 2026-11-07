@@ -2923,6 +2923,34 @@ mod tests {
     }
 
     #[test]
+    fn ai_36_megapixel_png_preview_preserves_full_resolution() {
+        // Exact advertised pixel ceiling: 6000 x 6000 == 36,000,000.
+        // No downsampling or uncalibrated tiling is permitted.
+        let mut img=GrayImage::from_pixel(6000,6000,image::Luma([255]));
+        for x in 300..5700 {
+            img.put_pixel(x,3000,image::Luma([0]));
+        }
+        let stamp=std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let path=std::env::temp_dir().join(format!(
+            "cad360_36mp_{}_{}.png",std::process::id(),stamp));
+        img.save(&path).expect("write 36MP PNG fixture");
+        drop(img);
+        let start=std::time::Instant::now();
+        let args=json!({"path":path.to_string_lossy(),"preview":true,
+            "maxLines":500,"minLengthPixels":200,"includeDiagonals":false,
+            "unitsPerPixel":1.0});
+        let result=preview(&args);
+        let _=std::fs::remove_file(&path);
+        let result=result.expect("36 million source pixels must be supported by the bounded decoder");
+        assert_eq!(result["imageSize"],json!([6000,6000]));
+        assert!(result["strokes"].as_u64().unwrap_or(0)>=1);
+        assert_eq!(result["editableEntitiesCreated"],0);
+        eprintln!("V1.026 36MP raster preview elapsed_ms={}",
+            start.elapsed().as_millis());
+    }
+
+    #[test]
     fn ai_wall_sweep_ten_thousand_collinear_strokes_does_not_invent_walls() {
         let mut lines=Vec::new();
         for i in 0..10_000 {
