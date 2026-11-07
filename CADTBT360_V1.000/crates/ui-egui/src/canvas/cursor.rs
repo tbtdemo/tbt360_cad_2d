@@ -300,6 +300,40 @@ mod snap_label_layout_tests {
     use super::*;
 
     #[test]
+    fn batched_physical_clicks_each_use_their_own_native_endpoint_snap() {
+        use crate::Services;
+        use cadcraft_doc::EntityKind;
+        let mut app = CadApp::new(cadcraft_engine::Session::new(), Services::default());
+        app.session.cmdline("LINE 0,0 10,0").unwrap();
+        app.session.cmdline("").unwrap();
+        app.session.settings.osmode = cadcraft_engine::snap::mode::END;
+        app.session.settings.aperture = 12.0;
+        app.session.cmdline("LINE").unwrap();
+        let ctx = egui::Context::default();
+        let xf = Xf {
+            rect: Rect::from_min_size(pos2(0.0, 0.0), vec2(500.0, 400.0)),
+            center: Vec2::new(5.0, 0.0),
+            scale: 20.0,
+        };
+        // Both releases arrive before a repaint, at distinct endpoint locations.
+        // They must not be raw (9.9, 0.1)/(0.1, 0.1) or the last hover's snap.
+        input_earlier_snapped_point(&mut app, Vec2::new(9.9, 0.1), &xf, &ctx)
+            .expect("first OSNAP click");
+        input_earlier_snapped_point(&mut app, Vec2::new(0.1, 0.1), &xf, &ctx)
+            .expect("second OSNAP click");
+        let lines: Vec<_> = app.session.doc().unwrap().model.iter().filter_map(|e| {
+            if let EntityKind::Line(line) = &e.kind {
+                Some((line.a.xy(), line.b.xy()))
+            } else { None }
+        }).collect();
+        assert_eq!(lines.len(), 2, "native LINE must be added by two snapped clicks");
+        assert!(lines.iter().any(|(a,b)|
+            a.near(Vec2::new(10.0,0.0),1e-9) &&
+            b.near(Vec2::new(0.0,0.0),1e-9)),
+            "each fast physical release must preserve its own exact END snap: {lines:?}");
+    }
+
+    #[test]
     fn native_snap_names_remain_english_first_with_vietnamese_explanation() {
         for (english,translation) in [
             ("Endpoint","Điểm cuối"),("Midpoint","Trung điểm"),
