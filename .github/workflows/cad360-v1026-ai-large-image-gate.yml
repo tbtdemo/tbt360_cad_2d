@@ -59,6 +59,12 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'V1.026 raster vector tests failed' }
           cargo test --locked -p cadcraft-mcp --lib ai_large_drawing_wall_pairs_use_original_indices_after_spatial_sort -- --nocapture
           if ($LASTEXITCODE -ne 0) { throw 'V1.026 2500-stroke wall-pair regression failed' }
+          cargo test --locked -p cadcraft-mcp --lib ai_large_floorplan_room_detection_keeps_global_entity_indices -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'V1.026 2400-stroke room detection regression failed' }
+          cargo test --locked -p cadcraft-mcp --lib ai_dense_hatch_component_is_skipped_without_unbounded_pca_points -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'V1.026 large dark-fill PCA memory regression failed' }
+          cargo test --locked -p cadcraft-mcp --lib ai_wall_sweep_ten_thousand_collinear_strokes_does_not_invent_walls -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'V1.026 10000-line wall-pair performance regression failed' }
           cargo test --locked -p cadcraft-ui-egui --lib trim_and_extend_acknowledge_active_selection_even_without_dynamic_input -- --nocapture
           if ($LASTEXITCODE -ne 0) { throw 'V1.026 TRIM feedback regression failed' }
           cargo test --locked -p cadcraft-ui-egui --lib ai_review_accepts_one_command_per_line_without_partial_mutation -- --nocapture
