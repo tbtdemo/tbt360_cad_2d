@@ -1752,7 +1752,9 @@ pub fn preview(args: &Value) -> Result<Value, String> {
             adjacency["canAutoCreateDoor"]=json!(false);
         }
     }
-    let geometry=json!({
+    // Split JSON macro expansion into small flat blocks. A single growing
+    // json!({...}) hits Rust's default recursion limit on Windows CI.
+    let mut geometry=json!({
         "openingRoomContactCount":opening_room_contacts.len(),
         "openingRoomContacts":opening_room_contacts,
         "roomAdjacencyCount":room_adjacencies.len(),
@@ -1765,7 +1767,9 @@ pub fn preview(args: &Value) -> Result<Value, String> {
         "wallPairCandidateCount":wall_hints.len(),"wallPairHints":wall_hints,
         "minWallSpacingPixels":min_wall_spacing,"maxWallSpacingPixels":max_wall_spacing,
         "wallCenterlinesProposed":axes.len(),"wallCenterlines":world_axes,
-        "wallCenterlineJunctionCount":junctions.len(),"wallCenterlineJunctions":junctions,
+        "wallCenterlineJunctionCount":junctions.len(),"wallCenterlineJunctions":junctions
+    });
+    let wall_geometry=json!({
         "wallPanelCandidateCount":wall_panels.len(),
         "wallPanelCandidates":wall_panels,
         "wallPanelHintsRequested":wall_panel_hints,
@@ -1775,7 +1779,9 @@ pub fn preview(args: &Value) -> Result<Value, String> {
         "wallBlockDraftCount":wall_block_drafts.len(),
         "wallBlockDrafts":wall_block_drafts,
         "wallBlocksRequested":create_wall_blocks,
-        "lines":world,"closedPolylines":world_rectangles,"rectanglesDetected":candidates.len(),
+        "lines":world,"closedPolylines":world_rectangles,"rectanglesDetected":candidates.len()
+    });
+    let column_geometry=json!({
         "columnHatchCandidateCount":column_candidates.len(),
         "columnHatchCandidates":column_candidates,
         "columnHatchHintsRequested":column_hints,
@@ -1789,6 +1795,10 @@ pub fn preview(args: &Value) -> Result<Value, String> {
         "editableEntitiesCreated":0,"source":path,
         "caution":"Review vectors before committing; line recognition is not semantic building interpretation"
     });
+    geometry.as_object_mut().expect("geometry object")
+        .extend(wall_geometry.as_object().expect("wall geometry object").clone());
+    geometry.as_object_mut().expect("geometry object")
+        .extend(column_geometry.as_object().expect("column geometry object").clone());
     // Provide CAD coordinates for selecting junctions in the native Preview.
     // These values are evidence only; they are never submitted as mutation commands.
     for junction in &mut wall_panel_junctions {
