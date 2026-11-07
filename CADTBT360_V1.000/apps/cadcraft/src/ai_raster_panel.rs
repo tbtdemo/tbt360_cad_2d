@@ -1417,6 +1417,30 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
                                 egui::Stroke::new(2.5, egui::Color32::from_rgb(100,190,255)));
                         }
                     }
+                    // Lime room boundaries are READ-ONLY candidates detected
+                    // from four observed original walls. Distinguish these from
+                    // blue closed PLINEs that the operator opted to create.
+                    if let Some(rooms)=proposal["roomCandidates"].as_array() {
+                        for (room_idx,room) in rooms.iter().take(128).enumerate() {
+                            let Some(vertices)=room["outlineCAD"].as_array() else {continue};
+                            if vertices.len()!=4 {continue;}
+                            let Some(points)=vertices.iter().map(|p|{
+                                let x=p[0].as_f64()?;let y=p[1].as_f64()?;
+                                (x.is_finite() && y.is_finite()).then_some(to_screen(x,y))
+                            }).collect::<Option<Vec<_>>>() else {continue};
+                            for i in 0..4 {
+                                painter.line_segment([points[i],points[(i+1)%4]],
+                                    egui::Stroke::new(2.0,egui::Color32::from_rgb(160,230,110)));
+                            }
+                            let center=egui::pos2(
+                                (points[0].x+points[2].x)*0.5,
+                                (points[0].y+points[2].y)*0.5);
+                            painter.text(center,egui::Align2::CENTER_CENTER,
+                                format!("P{}",room_idx+1),
+                                egui::FontId::proportional(12.0),
+                                egui::Color32::from_rgb(190,245,155));
+                        }
+                    }
                     // Orange outlines show paired-wall opening candidates in real CAD
                     // coordinates, including the chosen image origin and scale.
                     if state.paired_wall_opening_hints {
