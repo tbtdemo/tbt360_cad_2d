@@ -167,3 +167,13 @@ Thay cửa sổ Command Reference cũ (chỉ danh sách ID, tên, alias) thành 
 - [ ] Chưa có kiểm chứng 100% mọi lệnh AutoCAD 2027 hoặc tự học AI ngữ nghĩa. Đây là mô hình gợi ý dựa trên các kiểu đối tượng CAD đã có và lịch sử phiên.
 
 **Ví dụ giao diện**: `1 LINE (Đường thẳng) · NEXT (Tiếp): O (OFFSET) | TR (TRIM) | EX (EXTEND)`. Các alias hiển thị thực tế được lấy từ `CommandSpec.aliases`, không gán cứng nếu registry không đăng ký.
+
+## 15. Sửa khả năng nhập tiếng Việt có dấu từ trạng thái Command: (Windows IME)
+
+- [x] Đã tìm và sửa nút thắt thật tại `cmdline::keyboard`: trước đây `enable_ime` chỉ được gọi khi `Prompt.accept.text` (chế độ TEXT/MTEXT). Người dùng nhập câu tiếng Việt khi **chưa có lệnh đang chạy** không được bật bộ gõ IME, nên dễ không nhập được tiếng Việt có dấu.
+- [x] `command_line_needs_ime`: bật IME ở trạng thái rảnh `Command:` và khi engine hỏi nhập văn bản; không ép IME khi engine đang chờ chọn điểm, nhập số hoặc chọn đối tượng. IME chỉ ghi vào buffer sau sự kiện commit, không thay đổi luồng thực thi lệnh.
+- [x] Bổ sung regression `vietnamese_ime_works_at_idle_command_but_not_inside_numeric_point_prompts` và đưa vào Windows Gate V1.027.
+- [ ] Phải thử **Windows IME thật (Telex/VNI)** ở EXE và nhiều chế độ ngôn ngữ; unit test không mô phỏng toàn bộ nhập liệu hệ điều hành.
+- [ ] Cần nghiệm thu tiếp các thao tác Space-to-Enter với lệnh L/PL/C/REC/DI, gõ cụm “làm sạch bản vẽ” có dấu và không dấu, nhập số/toạ độ vào Prompt, Esc/Enter/Undo.
+
+**CI riêng V1.027 đã từng PASS** trên commit `03851999` ở https://github.com/tbtdemo/tbt360_cad_2d/actions/runs/42348094604. Commit mới nhất chứa sửa IME cần chạy lại; không sử dụng PASS cũ làm nghiệm thu bản mới.
