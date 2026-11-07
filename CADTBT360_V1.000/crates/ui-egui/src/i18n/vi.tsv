@@ -376,3 +376,35 @@
 	Annotation	Chú thích
 	Clipboard	Bộ nhớ tạm
 	Rectangle	Hình chữ nhật
+# V1.027: original English command keywords with Vietnamese explanations.
+	Width	Bề rộng
+	Halfwidth	Nửa bề rộng
+	Length	Chiều dài
+	Join	Nối
+	Decurve	Bỏ đường cong
+	Previous	Đối tượng trước
+	Next	Tiếp theo
+	Last	Đối tượng cuối
+	Object	Đối tượng
+	Add	Thêm
+	Remove	Loại bỏ
+	eXit	Thoát
+	Through	Đi qua điểm
+	Rotation	Góc xoay
+	Total	Tổng
+	Partial	Một phần
+	Vertex	Đỉnh
+	Edit vertex	Sửa đỉnh
+	Straighten	Nắn thẳng
+	Direction	Hướng
+	Current	Hiện tại
+	Set	Thiết lập
+	New	Mới
+	Select first object	Chọn đối tượng thứ nhất
+	Select second object	Chọn đối tượng thứ hai
+	Specify base point	Chọn điểm gốc
+	Specify displacement	Nhập độ dịch chuyển
+	Specify distance	Nhập khoảng cách
+	Specify rotation angle	Nhập góc xoay
+	Enter new value	Nhập giá trị mới
+	Enter option	Nhập tùy chọn
