@@ -96,3 +96,12 @@ Tab **04 Kết nối & Hướng dẫn** nay có các khối hướng dẫn: bắ
 2. **100% lệnh tương ứng AutoCAD 2027:** đây là mục tiêu riêng; phải đối chiếu từng command và system variable với tài liệu chính thức của Autodesk AutoCAD 2027, phân loại **Có/Đầy đủ**, **Có/Một phần**, **Chưa có**, **Không áp dụng**, cùng test hành vi. Không được công bố 100% tương đương AutoCAD 2027 chỉ nhờ registry nội bộ. Autodesk còn có các lệnh riêng như `GEOMETRYCLEANUPOPEN`, `BDETECT`, `BSEARCH` và `CHECKOUT` cần đánh giá từng khả năng tương đương/giới hạn. Tham chiếu: https://help.autodesk.com/view/ACD/2027/ENU/
 
 **Trạng thái nghiệm thu V1.027: CHƯA ĐẠT**. Phần tìm kiếm song ngữ và gợi ý theo lịch sử mới có mã nguồn, chờ test Windows; không gộp thành tỉ lệ hoàn thiện toàn bộ AutoCAD 2027.
+
+## 9. Nâng cấp đợt tiếp — gợi ý có thể nhấp và keyword song ngữ
+
+- [x] Windows V1.027 **đã PASS** trên commit `3b9fe408`, bao gồm `cargo check` engine + GUI + desktop, discover named tests và unit tests command/alias; run: https://github.com/tbtdemo/tbt360_cad_2d/actions/runs/42343109856.
+- [x] Sau khi chạy lệnh, dòng `NEXT (Lệnh tiếp)` hiển thị **gợi ý có thể nhấp**. Lệnh đề xuất lấy từ lịch sử chuỗi thao tác trong phiên hiện tại, rồi mới dùng các nhóm lệnh liên quan. Từng gợi ý kiểm tra có `CommandSpec` thật, hiển thị alias ngắn đã đăng ký, và chỉ khởi động khi người dùng chủ động nhấp.
+- [x] Keyword của prompt như `Undo (Hoàn tác)`, `Close (Đóng)` được trình bày song ngữ; giao diện gửi **keyword tiếng Anh nguyên bản** để bảo vệ hành vi của lệnh cũ, không sửa matcher hay parser.
+- [x] Bổ sung regression đảm bảo gợi ý có phím tắt native thật và không chứa lệnh không tồn tại; regression keyword chứng minh hình thức song ngữ không làm đổi keyword engine. Cổng CI V1.027 chạy các test này trên Windows.
+- [ ] **Chưa có Windows PASS** của commit mới nhất chứa gợi ý nhấp/keyword; cần kiểm tra thao tác chuột thật và ảnh EXE, bao gồm Esc/Enter/F3/OSNAP, tránh UI tooltip đè vùng bản vẽ.
+- [ ] Yêu cầu 100% lệnh AutoCAD 2027 chưa được chứng minh; cần ma trận so sánh với danh mục lệnh chính thức, không được đồng nhất `CommandSpec` nội bộ với danh mục Autodesk.
