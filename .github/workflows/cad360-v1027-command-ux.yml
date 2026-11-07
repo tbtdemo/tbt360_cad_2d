@@ -113,6 +113,16 @@ jobs:
           $ErrorActionPreference = 'Stop'
           cargo test --locked -p cadcraft-engine --lib pointmod::tests:: -- --nocapture
           if ($LASTEXITCODE -ne 0) { throw 'Native CAD point modifier and snap override regression failed' }
+      - name: Verify real interactive LINE coordinates and point modifiers
+        run: |
+          $ErrorActionPreference = 'Stop'
+          cargo test --locked -p cadcraft-engine --test it point_modifiers:: -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'Native LINE points, relative coordinates and point overrides failed' }
+      - name: Verify real CAD command keyword workflows
+        run: |
+          $ErrorActionPreference = 'Stop'
+          cargo test --locked -p cadcraft-engine --test it prompt_keywords:: -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'Native CAD interactive keyword acceptance failed' }
       - name: Report verification boundary
         run: |
           Write-Host 'PASS here proves compile and command UX unit tests only.'
