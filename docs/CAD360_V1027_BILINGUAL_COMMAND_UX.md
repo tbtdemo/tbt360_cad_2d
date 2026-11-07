@@ -1,0 +1,53 @@
+# CAD 360 Việt Nam V1.027 — Lệnh song ngữ và hướng dẫn thao tác tức thời
+
+## 1. Phạm vi bản đầu
+
+Đã triển khai trong nhánh V1.027, chưa đồng nghĩa đã biên dịch và nghiệm thu:
+- Nhập câu lệnh tiếng Việt **có dấu hoặc không dấu**, khớp chính xác từ điển lệnh nội bộ đã ánh xạ đến engine. Không phải chatbot hiểu mọi câu tự nhiên.
+- Tìm lệnh theo gõ dở câu tiếng Việt, gợi ý hiển thị nhãn Việt + mã lệnh CAD, nhấn chọn để chạy. Alias AutoCAD thông dụng **L, PL, C, REC, DI...** phải được ưu tiên và không thay đổi.
+- Khi chạy lệnh tương tác, dòng lệnh hiển thị **ĐANG CHỜ** nhập điểm, số, văn bản hoặc chọn đối tượng từ chính metadata `Prompt.accept`, cùng ví dụ riêng cho các lệnh hay dùng.
+- Esc hủy lệnh, Enter chấp nhận mặc định/kết thúc theo giai đoạn, Undo/Redo vẫn do engine quản lý. Không tự ghi bản vẽ từ một gợi ý tìm kiếm.
+
+## 2. Hướng dẫn thao tác thử trên CAD 360
+
+| Gõ vào dòng lệnh | Lệnh engine | Người mới cần làm gì tiếp |
+|---|---|---|
+| làm sạch bản vẽ / lam sach ban ve | PURGE | Xem các mục không dùng, chọn loại cần dọn và xác nhận trong lệnh |
+| vẽ đường thẳng / ve duong thang | LINE / L | Nhấp điểm đầu, nhấp điểm cuối, Enter để kết thúc |
+| vẽ đa đoạn / ve da doan | PLINE / PL | Chọn các đỉnh liên tiếp, Enter để kết thúc |
+| vẽ đường tròn / ve duong tron | CIRCLE / C | Chọn tâm, nhập bán kính và Enter |
+| vẽ hình chữ nhật / ve hinh chu nhat | RECTANG / REC | Chọn góc thứ nhất, góc đối diện |
+| đo khoảng cách / do khoang cach | DIST / DI | Chọn điểm đầu và điểm thứ hai, xem kết quả trong lịch sử lệnh |
+| tìm tọa độ / tim toa do | ID | Nhấp một điểm, đọc tọa độ kết quả |
+| đo diện tích / do dien tich | AREA | Chọn hình hoặc lần lượt chọn các đỉnh theo prompt |
+| ghi kích thước / ghi kich thuoc | DIMLINEAR | Chọn hai điểm đo và vị trí đặt đường kích thước |
+| ghi kích thước xiên / ghi kich thuoc xien | DIMALIGNED / DAL | Chọn hai điểm và vị trí đặt kích thước |
+| di chuyển đối tượng | MOVE / M | Chọn đối tượng, điểm gốc, điểm đích |
+| sao chép đối tượng | COPY / CO | Chọn đối tượng, điểm gốc, điểm bản sao |
+| cắt nét | TRIM / TR | Chọn cạnh cắt và nét cần cắt theo hướng dẫn |
+| kéo dài nét | EXTEND / EX | Chọn biên và đối tượng cần kéo dài |
+| kiểm tra lỗi bản vẽ | AUDIT | Thực hiện rà soát bản vẽ theo các xác nhận trong engine |
+
+**Cách sử dụng:** Nhập đúng cụm tiếng Việt, có thể không dấu. Khi gõ tới một phần cụm như `lam sach`, các gợi ý tương ứng được hiển thị. Sau khi nhập **đầy đủ** cụm, nhấn Enter để chạy lệnh tương ứng. Nhấp một dòng gợi ý thì chạy mã lệnh CAD đã được xác nhận có tồn tại.
+
+## 3. Cần kiểm tra trong Windows CI / EXE thật
+
+- [ ] Biên dịch `cadcraft-ui-egui` và GUI Windows; không chỉ xác nhận nguồn tĩnh.
+- [ ] Alias `L, PL, C, REC, DI` nhận đúng khi Space/Enter.
+- [ ] Nhập tiếng Việt có dấu qua IME Windows, gõ không dấu và chọn gợi ý bằng chuột hoặc Tab.
+- [ ] Lệnh tương tác hiện gợi ý **ĐANG CHỜ**, không biến mất giữa chừng khi nhấn chuột.
+- [ ] Kiểm tra OSNAP End/Mid/Center/Intersection, bắt điểm thực tế cho đường vẽ và kích thước.
+- [ ] Kiểm tra trường hợp lệnh có bước chọn tập đối tượng, số, điểm, tọa độ tương đối.
+- [ ] Nghiệm thu UI tiếng Việt ở Ribbon, menu, Properties, Settings, OSNAP và toàn bộ danh mục lệnh, không chỉ nhóm ví dụ.
+- [ ] Chụp ảnh EXE thật và bổ sung vào tài liệu hướng dẫn đi kèm.
+- [ ] Tích hợp bảng trợ giúp AI Review và AI Studio thành hướng dẫn thống nhất; phần này chưa hoàn tất.
+
+## 4. Giới hạn cần nêu rõ
+
+Đợt này là nền tảng **tìm/nhập lệnh song ngữ + hướng dẫn trạng thái** chứ chưa phải hoàn thiện AI hiểu mọi câu tiếng Việt, tự xử lý mọi bản vẽ kiến trúc hoặc đã dịch 100% UI. Không được coi V1.027 là sẵn sàng phát hành trước CI và kiểm thử thao tác trên Windows.
+
+## 5. Tiến độ và định hướng
+
+- Đã có commit cho từ điển lệnh, gợi ý, nhập câu nhiều từ và hiển thị trạng thái tương tác.
+- Chưa có số đo độc lập về tỉ lệ dịch toàn bộ giao diện; không công bố phần trăm thành công thiếu kiểm chứng.
+- Tiếp theo: dữ liệu song ngữ có mô tả, quy trình, ví dụ cho **mọi CommandSpec**; hướng dẫn theo từng trạng thái `Prompt`, trạng thái chạy/đợi/có lỗi; đo bằng bộ UI audit và test qua Windows.
