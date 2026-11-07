@@ -134,6 +134,19 @@ pub(super) fn effective_point(app: &mut CadApp, raw: Vec2, xf: &Xf, ctx: &egui::
     if !wants_point || app.session.pending_window.is_some() {
         if !wants_point {
             app.session.tracking.clear();
+            // Show actual object-snap candidates while hovering, even before a draw command.
+            // Do not silently move the click cursor or alter idle selection: snap is only
+            // applied to input points while the engine explicitly requests a point.
+            if app.session.pending_window.is_none() {
+                let osmode=app.session.settings.osmode;
+                if osmode!=0 && osmode & snap::mode::OFF==0 {
+                    let aperture=app.session.settings.aperture / xf.scale;
+                    if let Ok(st)=app.session.state() {
+                        let hit=snap::osnap(&st.doc,&st.edit_space(),raw,aperture,osmode,None,false);
+                        app.canvas.snap=hit;
+                    }
+                }
+            }
         }
         return raw;
     }
