@@ -547,6 +547,29 @@ mod command_handbook_tests {
         assert!(count>100,"expected real CAD registry");
     }
     #[test]
+    fn audit_native_cad_command_handbook_coverage() {
+        let public=cadcraft_engine::command_specs().iter()
+            .filter(|spec|!spec.id.contains('.')).collect::<Vec<_>>();
+        let translated=public.iter().filter(|spec|
+            crate::i18n::tr("vi",spec.label)!=spec.label).count();
+        let illustrated=public.iter().filter(|spec|
+            command_ref_example(spec.id).is_some()).count();
+        let with_alias=public.iter().filter(|spec|!spec.aliases.is_empty()).count();
+        let with_menu=public.iter().filter(|spec|!spec.menu.is_empty()).count();
+        let interactive=public.iter().filter(|spec|spec.interactive.is_some()).count();
+        assert!(public.len()>100);
+        assert!(translated<=public.len()&&illustrated<=public.len());
+        println!("CAD360_V1027_COMMAND_COVERAGE registered={} vi_translated={} with_alias={} with_menu={} interactive={} hand_illustrated={} without_example={}",
+            public.len(),translated,with_alias,with_menu,interactive,illustrated,
+            public.len()-illustrated);
+        // Searchability applies to all native commands. Full written lessons
+        // and AutoCAD 2027 parity are deliberately *not* asserted.
+        for spec in public {
+            assert!(command_ref_matches(spec,spec.id));
+        }
+    }
+
+    #[test]
     fn vietnamese_search_and_examples_keep_native_identifiers() {
         let line=cadcraft_engine::cmd::find_command("line").unwrap();
         assert!(command_ref_matches(line,"vẽ đường thẳng")||command_ref_matches(line,"đường thẳng"));
