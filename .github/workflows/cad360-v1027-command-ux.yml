@@ -20,7 +20,7 @@ permissions:
 
 concurrency:
   group: cad360-v1027-commands-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   command-ux:
