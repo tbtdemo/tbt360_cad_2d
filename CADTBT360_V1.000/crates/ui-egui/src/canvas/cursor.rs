@@ -414,9 +414,35 @@ mod snap_label_layout_tests {
             let ctx = egui::Context::default();
             let xf = Xf { rect: Rect::from_min_size(Pos2::ZERO,vec2(800.0,600.0)),
                 center: Vec2::new(5.0,0.0), scale: 20.0 };
-            input_earlier_snapped_point(&mut app,Vec2::new(5.1,0.1),&xf,&ctx)
+            let raw_first = Vec2::new(5.1,0.1);
+            let raw_second = Vec2::new(0.1,0.1);
+            // The same canvas path decides both the marker location and
+            // the geometry sent to the native CAD command. An OSNAP OFF
+            // marker must never pretend a snap occurred.
+            let shown_first = effective_point(&mut app, raw_first, &xf, &ctx);
+            if disabled {
+                assert!(app.canvas.snap.is_none(), "OSNAP OFF must suppress marker");
+                assert!(shown_first.near(raw_first, 1e-9));
+            } else {
+                let hit = app.canvas.snap.expect("INT marker for first click");
+                assert_eq!(hit.mode,cadcraft_engine::snap::mode::INT);
+                assert!(hit.point.near(Vec2::new(5.0,0.0),1e-9));
+                assert!(shown_first.near(hit.point,1e-9),
+                    "marker and effective cursor must share one engine point");
+            }
+            input_earlier_snapped_point(&mut app,raw_first,&xf,&ctx)
                 .expect("first fast mouse release");
-            input_earlier_snapped_point(&mut app,Vec2::new(0.1,0.1),&xf,&ctx)
+            let shown_second = effective_point(&mut app,raw_second,&xf,&ctx);
+            if disabled {
+                assert!(app.canvas.snap.is_none());
+                assert!(shown_second.near(raw_second,1e-9));
+            } else {
+                let hit = app.canvas.snap.expect("END marker for second click");
+                assert_eq!(hit.mode,cadcraft_engine::snap::mode::END);
+                assert!(hit.point.near(Vec2::new(0.0,0.0),1e-9));
+                assert!(shown_second.near(hit.point,1e-9));
+            }
+            input_earlier_snapped_point(&mut app,raw_second,&xf,&ctx)
                 .expect("second fast mouse release");
             let actual: Vec<_> = app.session.doc().unwrap().model.iter().filter_map(|e| {
                 if let EntityKind::Line(l) = &e.kind { Some((l.a.xy(),l.b.xy())) } else { None }
