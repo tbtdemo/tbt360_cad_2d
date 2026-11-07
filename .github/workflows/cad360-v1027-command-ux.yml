@@ -74,6 +74,11 @@ jobs:
           $ErrorActionPreference = 'Stop'
           cargo test --locked -p cadcraft-ui-egui --lib cmdline::autocomplete_tests:: -- --nocapture
           if ($LASTEXITCODE -ne 0) { throw 'CAD V1.027 bilingual/native command UX tests failed' }
+      - name: Verify full command handbook filters preserve complete native registry
+        run: |
+          $ErrorActionPreference = 'Stop'
+          cargo test --locked -p cadcraft-ui-egui --lib dialogs::command_handbook_tests::handbook_filters_never_hide_native_commands_by_default -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'V1.027 handbook filters unexpectedly hide native CAD commands' }
       - name: Verify bilingual full command handbook covers native registry
         run: |
           $ErrorActionPreference = 'Stop'
