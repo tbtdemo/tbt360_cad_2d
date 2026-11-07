@@ -94,6 +94,10 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'V1.026 10000-line wall-pair performance regression failed' }
           cargo test --locked -p cadcraft-ui-egui --lib trim_and_extend_acknowledge_active_selection_even_without_dynamic_input -- --nocapture
           if ($LASTEXITCODE -ne 0) { throw 'V1.026 TRIM feedback regression failed' }
+          cargo test --locked -p cadcraft-ui-egui --lib cmdline::autocomplete_tests::vietnamese_command_suggestions_accept_accents_and_plain_text -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'V1.027 Vietnamese bilingual command suggestions failed' }
+          cargo test --locked -p cadcraft-ui-egui --lib cmdline::autocomplete_tests::space_keeps_vietnamese_phrase_but_not_native_cad_alias -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'V1.027 native command aliases or Vietnamese space input regression failed' }
           cargo test --locked -p cadcraft-ui-egui --lib ai_review_accepts_one_command_per_line_without_partial_mutation -- --nocapture
           if ($LASTEXITCODE -ne 0) { throw 'V1.026 AI review parser regression failed' }
       - name: Prepare Python and stage V1.026 docs / exact-source archive
