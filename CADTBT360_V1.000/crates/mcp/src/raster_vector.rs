@@ -976,6 +976,67 @@ fn reference_line_benchmark(detected:&[Value],reference:&Value,tolerance:f64)->R
         "warning":"Requires human-labelled reference CAD lines. No guarantee of element classification or two-way AutoCAD acceptance."}))
 }
 
+/// One-to-one supervised benchmark of closed room *geometry*. No semantic
+/// building-element accuracy is claimed: both reference and candidate must have
+/// all four observed boundaries. Explicit CAD-space rectangles [xmin,ymin,xmax,ymax].
+fn reference_room_geometry_benchmark(detected:&[Value], references:&Value, tolerance:f64)
+    -> Result<Value,String> {
+    let refs=references.as_array()
+        .ok_or("referenceRoomRectsCAD must be an array of [xmin,ymin,xmax,ymax]")?;
+    if refs.is_empty() || refs.len()>512 {
+        return Err("referenceRoomRectsCAD requires 1..512 annotated rectangles".into());
+    }
+    if !tolerance.is_finite() || tolerance<=0.0 || tolerance>1.0e9 {
+        return Err("referenceRoomToleranceCAD must be finite and >0, <=1e9".into());
+    }
+    let parse_rect=|v:&Value|->Result<[f64;4],String> {
+        let arr=v.as_array().ok_or("reference room must be four CAD coordinates")?;
+        if arr.len()!=4 {return Err("reference room needs exactly four CAD coordinates".into());}
+        let vals=arr.iter().map(|x|x.as_f64()).collect::<Option<Vec<_>>>()
+            .ok_or("reference room has non-numeric values")?;
+        if vals.iter().any(|x|!x.is_finite()||x.abs()>1.0e12) ||
+            vals[0]>=vals[2] || vals[1]>=vals[3] {
+            return Err("reference room has inverted/unsafe CAD bounds".into());
+        }
+        Ok([vals[0],vals[1],vals[2],vals[3]])
+    };
+    let target=refs.iter().map(&parse_rect).collect::<Result<Vec<_>,_>>()?;
+    let mut found=Vec::new();
+    for item in detected {
+        let Some(corners)=item["outlineCAD"].as_array() else {continue};
+        if corners.len()!=4 {continue;}
+        let mut lowx=f64::INFINITY;let mut lowy=f64::INFINITY;
+        let mut highx=f64::NEG_INFINITY;let mut highy=f64::NEG_INFINITY;
+        for p in corners {
+            let (Some(x),Some(y))=(p[0].as_f64(),p[1].as_f64()) else {continue};
+            lowx=lowx.min(x);lowy=lowy.min(y);highx=highx.max(x);highy=highy.max(y);
+        }
+        if lowx.is_finite() && lowy.is_finite() && lowx<highx && lowy<highy {
+            found.push([lowx,lowy,highx,highy]);
+        }
+    }
+    let mut matched=0usize;
+    let mut used=vec![false;found.len()];
+    for reference in &target {
+        let candidate=found.iter().enumerate().filter(|(i,_)|!used[*i])
+            .map(|(i,rect)|{
+                let error=(0..4).map(|d| (rect[d]-reference[d]).abs())
+                    .fold(0.0_f64,f64::max);
+                (i,error)
+            }).filter(|(_,error)|*error<=tolerance)
+            .min_by(|a,b|a.1.total_cmp(&b.1));
+        if let Some((i,_))=candidate { used[i]=true;matched+=1; }
+    }
+    let precision=if found.is_empty(){0.0}else{matched as f64/found.len() as f64};
+    let recall=matched as f64/target.len() as f64;
+    let f1=if precision+recall>0.0 {2.0*precision*recall/(precision+recall)} else {0.0};
+    Ok(json!({"method":"supervised-closed-rectangle-geometry-only",
+        "referenceRoomCount":target.len(),"candidateRoomCount":found.len(),
+        "matchedRoomCount":matched,"precision":precision,"recall":recall,
+        "f1":f1,"toleranceCAD":tolerance,
+        "warning":"NOT semantic room recognition: only complete four-edge geometric rectangles are compared to human-labelled CAD bounds"}))
+}
+
 /// Bounded 1024px region inventory without allocating a second full-size image.
 /// Each vector keeps its original global pixel coordinates. Crossing vectors
 /// are referenced by both regions, never translated or duplicated in the CAD
@@ -1613,6 +1674,12 @@ pub fn preview(args: &Value) -> Result<Value, String> {
     for extra in [architectural,geometry,topology] {
         let Value::Object(fields)=extra else {unreachable!("preview JSON section is an object")};
         dst.extend(fields);
+    }
+    if !args["referenceRoomRectsCAD"].is_null() {
+        let tolerance=args["referenceRoomToleranceCAD"].as_f64().unwrap_or(10.0);
+        result["roomGeometryBenchmark"]=reference_room_geometry_benchmark(
+            result["roomCandidates"].as_array().ok_or("Room candidates missing")?,
+            &args["referenceRoomRectsCAD"],tolerance)?;
     }
     if !args["referenceLinesCAD"].is_null() {
         let tolerance=args["referenceToleranceCAD"].as_f64().unwrap_or(10.0);
@@ -3010,6 +3077,23 @@ mod tests {
             assert_eq!(tile["vectorIndices"],json!([0]),
                 "one global native LINE must not be duplicated at tile seams");
         }
+    }
+
+    #[test]
+    fn ai_room_geometry_benchmark_reports_missing_extra_and_malformed_refs() {
+        let candidates=vec![
+            json!({"outlineCAD":[[0,0],[100,0],[100,80],[0,80]]}),
+            json!({"outlineCAD":[[200,0],[300,0],[300,80],[200,80]]}),
+        ];
+        let truth=json!([[0,0,100,80],[400,0,500,80]]);
+        let result=reference_room_geometry_benchmark(&candidates,&truth,1.0).unwrap();
+        assert_eq!(result["referenceRoomCount"],2);
+        assert_eq!(result["candidateRoomCount"],2);
+        assert_eq!(result["matchedRoomCount"],1);
+        assert_eq!(result["precision"],0.5);
+        assert_eq!(result["recall"],0.5);
+        assert!(reference_room_geometry_benchmark(&candidates,&json!([[0,0,0,5]]),1.0).is_err());
+        assert!(reference_room_geometry_benchmark(&candidates,&truth,-1.0).is_err());
     }
 
     #[test]
