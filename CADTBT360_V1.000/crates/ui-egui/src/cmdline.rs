@@ -165,6 +165,14 @@ pub(crate) fn fold_vi(text: &str) -> String {
     }).collect::<String>().split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
+/// Reuse verified native-command Vietnamese phrases in F1 Command Handbook.
+/// No new alias or executable command is registered by this search metadata.
+pub(crate) fn matches_vietnamese_command_phrase(id:&str,query:&str)->bool {
+    let term=fold_vi(query);
+    !term.is_empty() && VI_COMMANDS.iter().any(|(phrase,command,_)|
+        command.eq_ignore_ascii_case(id) && phrase.contains(&term))
+}
+
 fn vietnamese_matches(text: &str) -> Vec<Suggestion> {
     let folded = fold_vi(text);
     if folded.is_empty() {return Vec::new();}
