@@ -427,6 +427,13 @@ fn poll_pdf_render(state: &mut State, ctx: &egui::Context) {
 }
 
 /// Applies a safe, deterministic AI workflow preset. A text instruction never writes CAD directly.
+/// Conservative one-click recovery when a large screenshot produces too
+/// many short raster strokes. This only changes detection thresholds; it
+/// NEVER accepts a result, issues a CAD command or alters the source image.
+fn next_dense_image_filter_min_length(current:u32)->u32 {
+    current.max(16).saturating_mul(4).min(4096)
+}
+
 fn apply_ai_instruction(state: &mut State, instruction: &str) -> Result<&'static str, &'static str> {
     let q=instruction.trim().to_lowercase();
     if q.is_empty() { return Err("Hãy nhập yêu cầu, ví dụ: nhận dạng toàn bộ mặt bằng, tường, cửa, cột hoặc nét."); }
@@ -1134,15 +1141,30 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
             if state.preview_task.is_some() {
                 ui.horizontal(|ui| {ui.spinner();ui.label("AI đang phân tích ảnh và dựng bản nháp CAD. Bạn vẫn có thể thao tác trên giao diện.");});
             }
-            if let Some(error)=&state.error {
-                ui.colored_label(egui::Color32::RED,error);
-                if error.contains("exceeding maxLines") {
-                    ui.label("Ảnh đang có nhiều nét hơn ngưỡng đã chọn. Có thể tăng giới hạn nét hình học (tối đa 10.000); phân tích ngữ nghĩa khác hiện còn giới hạn 1.000 nét, tăng 'Nét tối thiểu' để bỏ nét nhiễu, hoặc cắt bớt vùng ảnh.");
-                    if ui.button("Tăng giới hạn thêm 500 nét và thử lại").clicked() {
-                        state.max_lines=state.max_lines.saturating_add(500).min(10_000);
-                        state.reset_wall_junction_review();
-                        start_image_preview(state,cad,ctx);
-                    }
+            if let Some(error)=state.error.clone() {
+                ui.colored_label(egui::Color32::RED,&error);
+                let dense_architecture=error.contains("architectural candidate detection is bounded to 1000 strokes");
+                let dense_geometry=error.contains("exceeding maxLines");
+                if dense_architecture || dense_geometry {
+                    ui.label("Ảnh quá nhiều nét cho bộ phân tích hiện tại. Đây KHÔNG phải kết quả AI đã vẽ hoặc hiểu mặt bằng; Preview chưa được tạo.");
+                    ui.small("Ảnh chụp cả phần mềm CAD (ribbon, bảng Layer, chữ, icon) tạo rất nhiều nét nhiễu. Hãy dùng ảnh/PDF chỉ chứa vùng mặt bằng, không chụp cả giao diện. Tốt nhất cắt vùng từng tầng hoặc từng khu có đúng tỷ lệ.");
+                    ui.small("Để thử giảm nhiễu, có thể tăng độ dài nét tối thiểu. Các chi tiết cửa, tường ngắn có thể bị mất; phải kiểm duyệt lại, không tự ghi CAD.");
+                    ui.horizontal_wrapped(|ui| {
+                        if ui.add_enabled(state.min_length<4096 && state.preview_task.is_none(),
+                            egui::Button::new("Lọc mạnh nét ngắn (x4) và thử lại")).clicked() {
+                            state.min_length=next_dense_image_filter_min_length(state.min_length);
+                            state.max_lines=10_000;
+                            state.reset_wall_junction_review();
+                            start_image_preview(state,cad,ctx);
+                        }
+                        if dense_geometry && state.max_lines<10_000
+                            && ui.button("Tăng giới hạn nét hình học đến 10.000").clicked() {
+                            state.max_lines=10_000;
+                            state.reset_wall_junction_review();
+                            start_image_preview(state,cad,ctx);
+                        }
+                    });
+                    ui.small(format!("Đang thiết lập: nét tối thiểu {} px; giới hạn hiển thị {} nét. Phân tích kiến trúc vẫn giới hạn 1.000 nét và chưa có mô hình AI ngữ nghĩa.",state.min_length,state.max_lines));
                 }
             }
             let Some(proposal) = &state.preview else { return; };
@@ -2331,6 +2353,15 @@ mod tests {
         assert_eq!(original.0,modified.0);
         assert_ne!(original.1,modified.1,"same-length changed image must invalidate approval");
         let _=std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn ai_dense_image_filter_increases_only_detection_threshold_and_stays_bounded() {
+        assert_eq!(next_dense_image_filter_min_length(16),64);
+        assert_eq!(next_dense_image_filter_min_length(64),256);
+        assert_eq!(next_dense_image_filter_min_length(500),2000);
+        assert_eq!(next_dense_image_filter_min_length(4096),4096);
+        assert_eq!(next_dense_image_filter_min_length(u32::MAX),4096);
     }
 
     #[test]
