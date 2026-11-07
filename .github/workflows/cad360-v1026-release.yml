@@ -80,6 +80,10 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           New-Item -ItemType Directory -Force 'dist/v1026' | Out-Null
+          # Regression for V1.026 Word builder: AI command separators are not
+          # Markdown tables. Validate this before compiling native code.
+          python -c "import pathlib; import runpy; import tempfile; p=runpy.run_path('docs/user-guide/build_word_guide.py'); t='# Guide' + chr(10) + 'Bước 1 Bước 2 Bước 3 Preview UNDO DXF' + chr(10) + ('hello ' * 200) + chr(10) + 'LINE | CIRCLE'; d=pathlib.Path(tempfile.gettempdir())/'cad360-word-pipe-test.docx'; src=d.with_suffix('.md'); src.write_text(t,encoding='utf-8'); p['build'](src,d); assert d.exists(); d.unlink(); src.unlink()"
+          if ($LASTEXITCODE -ne 0) { throw 'Word builder mistook AI command pipes for markdown tables' }
           python docs/user-guide/build_word_guide.py docs/user-guide/CAD360_V1.026_AI_LARGE_IMAGE.md dist/v1026/CADTBT360_V1.026_HUONG_DAN_AI_TU_ANH_THANH_CAD.docx
           if ($LASTEXITCODE -ne 0 -or !(Test-Path 'dist/v1026/CADTBT360_V1.026_HUONG_DAN_AI_TU_ANH_THANH_CAD.docx')) { throw 'Cannot build AI Word supplement before Rust compile' }
           python docs/user-guide/build_word_guide.py docs/user-guide/CADTBT360_V1.025_GIAO_TRINH_TONG_HOP_TAT_CA_TINH_NANG.md dist/v1026/CADTBT360_V1.026_GIAO_TRINH_TONG_HOP.docx
