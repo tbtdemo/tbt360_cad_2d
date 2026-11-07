@@ -1200,9 +1200,12 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui, canvas: Rect) {
         let pg = p.layout_no_wrap(app.cmd.preedit.clone(), font, t.text);
         let pw = pg.size().x;
         input_p.galley(pos2(caret_x, bar.center().y - pg.size().y / 2.0), pg, t.text);
-        p.line_segment([pos2(caret_x, bar.bottom() - 7.0), pos2(caret_x + pw, bar.bottom() - 7.0)], Stroke::new(1.0, t.accent));
+        input_p.line_segment([pos2(caret_x, bar.bottom() - 7.0), pos2(caret_x + pw, bar.bottom() - 7.0)], Stroke::new(1.0, t.accent));
         caret_x += pw;
     }
+    // Do not push the native IME composition window or blinking cursor into
+    // the history chevron, no matter how long the committed/preedit text is.
+    caret_x=caret_x.min(bar.right()-29.0);
     // Caret.
     let blink = (ui.input(|i| i.time) * 2.0).floor() as i64 % 2 == 0;
     if blink {
