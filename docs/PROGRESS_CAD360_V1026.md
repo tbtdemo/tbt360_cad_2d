@@ -156,6 +156,16 @@ Các tỷ lệ trên cố ý **không cộng điểm cho build đang Queued**. N
 
 **Tiến độ triển khai giữ 33%, nghiệm thu phát hành 0%.** Các thay đổi mới là mã nguồn và bài thử đã commit; không phải bộ cài thành công.
 
+## AI Studio V1.026 — phát hiện phòng trong Preview không phụ thuộc lệnh vẽ
+
+- [x] Sửa `raster_vector.rs`: phân tích `closed_rectangles(&lines)` cho **bằng chứng phòng khép kín** ngay cả khi `closedRectangles=false`. Tách rõ **phát hiện tham khảo** khỏi **tạo PLINE/native CAD**; không tự thêm đường tường hoặc suy đoán công năng phòng.
+- [x] Test PNG phòng khép kín thực tế với `closedRectangles=false`: yêu cầu `roomCandidateCount=1`, ứng viên cần duyệt `requiresHumanReview=true`, `editableEntitiesCreated=0`, `closedPolylines=[]`.
+- [x] Đưa test vào AI Windows Gate và Windows Release Gate.
+- [ ] Windows CI phải PASS trên SHA chứa mã mới; chưa được coi là nghiệm thu.
+- [ ] Trên bản vẽ nhiễu, hở tường, phòng méo/không vuông góc hoặc có nhiều ngõ mở phải thực nghiệm và đo sai số độc lập; chức năng hiện chỉ phát hiện đường bao chữ nhật đủ bốn cạnh.
+
+**% chung vẫn 33% triển khai, 0% nghiệm thu phát hành**, không tuyên bố đạt AI hiểu hoàn chỉnh mặt bằng.
+
 ## Định hướng lần nâng cấp tiếp theo (theo thứ tự)
 
 1. **P0 – Gỡ lỗi CI Windows đúng SHA**: fix compile/test, chỉ ghi PASS khi kết quả hiện hữu. Không push liên tục làm nhiễu lượt kiểm thử.
