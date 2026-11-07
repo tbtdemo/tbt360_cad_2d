@@ -110,7 +110,25 @@ fn dsettings(app: &mut CadApp, ctx: &egui::Context, open: &mut bool) {
         egui::Grid::new("osnap_grid").num_columns(2).show(ui, |ui| {
             for (i, (bit, name)) in cadcraft_engine::snap::mode::ALL.iter().enumerate() {
                 let mut v = s.osmode & bit != 0;
-                if ui.checkbox(&mut v, crate::i18n::t(name)).changed() {
+                let description=match *name {
+                    "Endpoint" => "Endpoint / Điểm cuối: khi LINE chạm gần đầu mút một cạnh tường, bắt đúng tọa độ đầu mút.",
+                    "Midpoint" => "Midpoint / Trung điểm: bắt chính giữa đoạn LINE, ví dụ tâm cửa trên tường dài 4000.",
+                    "Center" => "Center / Tâm: bắt tâm CIRCLE hoặc ARC để dựng đường tròn đồng tâm.",
+                    "Geometric Center" => "Geometric Center / Trọng tâm hình: bắt tâm hình khép kín được hỗ trợ.",
+                    "Intersection" => "Intersection / Giao điểm: bắt vị trí hai nét cắt nhau, ví dụ hai trục cột.",
+                    "Perpendicular" => "Perpendicular / Vuông góc: hạ đường vuông góc xuống nét hiện có.",
+                    "Tangent" => "Tangent / Tiếp tuyến: nối nét tới đường tròn hoặc cung theo tiếp xúc.",
+                    "Nearest" => "Nearest / Gần nhất: bắt điểm gần con trỏ trên cạnh, không nhất thiết là điểm cuối.",
+                    "Quadrant" => "Quadrant / Điểm góc phần tư: bắt đỉnh 0, 90, 180, 270 độ của đường tròn.",
+                    "Node" => "Node / Điểm nút: bắt đối tượng điểm đã tồn tại trên bản vẽ.",
+                    "Insertion" => "Insertion / Điểm chèn: bắt điểm gốc chèn BLOCK hoặc đối tượng tương thích.",
+                    "Extension" => "Extension / Kéo dài: dò hướng nối dài nét gốc để canh điểm.",
+                    "Apparent Intersection" => "Apparent Intersection / Giao điểm biểu kiến: tham chiếu giao tuyến kéo dài.",
+                    "Parallel" => "Parallel / Song song: canh hướng nét mới song song nét tham chiếu.",
+                    _ => "Chọn chế độ bắt điểm để vẽ chính xác; các ví dụ phía dưới.",
+                };
+                if ui.checkbox(&mut v, crate::i18n::t(name))
+                    .on_hover_text(description).changed() {
                     if v {
                         s.osmode |= bit;
                     } else {
@@ -121,6 +139,14 @@ fn dsettings(app: &mut CadApp, ctx: &egui::Context, open: &mut bool) {
                     ui.end_row();
                 }
             }
+        });
+        ui.collapsing("HƯỚNG DẪN OSNAP / OBJECT SNAP — VÍ DỤ", |ui| {
+            ui.small("1. Nhấn F3 để bật bắt điểm đối tượng; chọn Endpoint (Điểm cuối) và Midpoint (Trung điểm).");
+            ui.small("2. Gõ L hoặc 'vẽ đường thẳng', Enter → đưa chuột đến đầu mút của đoạn tường → nhấp khi thấy điểm bắt.");
+            ui.small("3. Di chuyển tới giữa một cạnh khác → nhấp điểm Midpoint → Enter kết thúc lệnh. Hai đầu của LINE dùng tọa độ bắt điểm thật.");
+            ui.small("4. DIST/DI: chọn hai điểm END/MID để đọc khoảng cách. ID: chọn một điểm để đọc tọa độ X,Y,Z.");
+            ui.small("5. F8 bật vẽ thẳng ngang/dọc; F10 dò góc; F12 hiển thị nhập tọa độ/chiều dài gần con trỏ.");
+            ui.small("Nếu không bắt đúng: kiểm tra F3, loại OSNAP đã bật, mức thu phóng và ô APERTURE; không nhầm Snap Grid (F9) với OSNAP (F3).");
         });
         ui.separator();
         ui.checkbox(&mut s.dynmode, crate::tl!("Enable Dynamic Input (F12)"));
