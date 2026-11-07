@@ -980,7 +980,7 @@ fn reference_line_benchmark(detected:&[Value],reference:&Value,tolerance:f64)->R
 /// Each vector keeps its original global pixel coordinates. Crossing vectors
 /// are referenced by both regions, never translated or duplicated in the CAD
 /// output. These are *diagnostics*, not semantic room/door recognition.
-fn raster_tile_diagnostics(img: &GrayImage, vectors: &[Line]) -> Vec<Value> {
+fn raster_tile_diagnostics(img: &GrayImage, vectors: &[Line], threshold: u8) -> Vec<Value> {
     const TILE: u32 = 1024;
     let (width,height)=img.dimensions();
     let mut tiles=Vec::new();
@@ -992,7 +992,7 @@ fn raster_tile_diagnostics(img: &GrayImage, vectors: &[Line]) -> Vec<Value> {
             // Only aggregate source darkness. No per-tile GrayImage allocation.
             for y in top..bottom {
                 for x in left..right {
-                    if img.get_pixel(x,y)[0]<=160 {dark+=1;}
+                    if img.get_pixel(x,y)[0]<=threshold {dark+=1;}
                 }
             }
             let x0=f64::from(left);let x1=f64::from(right);
@@ -1004,7 +1004,7 @@ fn raster_tile_diagnostics(img: &GrayImage, vectors: &[Line]) -> Vec<Value> {
             }).map(|(index,_)|index).collect();
             tiles.push(json!({
                 "boundsPixels":[left,top,right,bottom],
-                "darkPixelsAt160":dark,
+                "darkPixels":dark,"threshold":threshold,
                 "vectorCount":touching.len(),
                 // Avoid a multi-megabyte preview when the page has thousands
                 // of crossing vectors; indices still refer to global vectors.
@@ -1503,7 +1503,7 @@ pub fn preview(args: &Value) -> Result<Value, String> {
     }
     // Separate small JSON objects avoid serde_json::json! expansion beyond
     // Rust's default macro recursion limit as AI preview fields grow.
-    let region_diagnostics=raster_tile_diagnostics(&gray,&lines);
+    let region_diagnostics=raster_tile_diagnostics(&gray,&lines,threshold);
     let mut result=json!({
         "rasterTileSizePixels":1024,
         "rasterTiles":region_diagnostics,
@@ -3001,7 +3001,7 @@ mod tests {
         for x in 10..2100 {img.put_pixel(x,100,image::Luma([0]));}
         let lines=strokes(&img,160,50,true);
         assert_eq!(lines.len(),1);
-        let tiles=raster_tile_diagnostics(&img,&lines);
+        let tiles=raster_tile_diagnostics(&img,&lines,160);
         assert_eq!(tiles.len(),3);
         assert_eq!(tiles[0]["boundsPixels"],json!([0,0,1024,400]));
         assert_eq!(tiles[1]["boundsPixels"],json!([1024,0,2048,400]));
