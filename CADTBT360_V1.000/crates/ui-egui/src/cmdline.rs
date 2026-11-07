@@ -278,6 +278,10 @@ fn bilingual_label(command: &str) -> Option<&'static str> {
 /// Space-to-Enter behaviour, and command prompts always preserve text input.
 fn vietnamese_query_continues(buffer:&str)->bool {
     let normalized=fold_vi(buffer);
+    // Native exact names and PGP aliases take precedence even if one happens
+    // to spell the beginning of a Vietnamese word.
+    let native=cadcraft_engine::cmd::resolve_alias(&normalized);
+    if cadcraft_engine::cmd::find_command(&native).is_some() {return false;}
     !normalized.is_empty() && VI_COMMANDS.iter()
         .any(|(phrase,_,_)|phrase.starts_with(&(normalized.clone()+" ")))
 }
@@ -1169,6 +1173,35 @@ mod autocomplete_tests {
         assert!(!vietnamese_query_continues("lam sach ban ve"));
         assert_eq!(fold_vi("Làm Sạch BẢN VẼ"),"lam sach ban ve");
         assert!(active_command_guide("pline").contains("đỉnh"));
+    }
+
+    #[test]
+    fn every_public_native_command_remains_searchable_by_full_id() {
+        // This covers the engine's entire public registered command catalog,
+        // not an arbitrary handpicked list. Internal dotted RPCs are excluded.
+        let mut count=0usize;
+        for spec in cadcraft_engine::command_specs() {
+            if spec.id.contains('.') {continue;}
+            count+=1;
+            let matched=suggestions(spec.id);
+            assert!(matched.iter().any(|suggestion|
+                suggestion.id.eq_ignore_ascii_case(spec.id)),
+                "native CAD command disappeared from search: {}",spec.id);
+        }
+        assert!(count>100,"engine command registry was unexpectedly empty");
+    }
+
+    #[test]
+    fn native_alias_space_dispatch_is_never_replaced_by_translation() {
+        for alias in ["l","pl","c","rec","co","di"] {
+            assert!(!vietnamese_query_continues(alias),
+                "must preserve native space-to-enter alias: {alias}");
+            assert!(!suggestions(alias).is_empty(),
+                "native alias must remain searchable: {alias}");
+        }
+        assert_eq!(suggestions("pl")[0].id,"PLINE");
+        assert_eq!(suggestions("rec")[0].id,"RECTANG");
+        assert_eq!(suggestions("di")[0].id,"DIST");
     }
 
     #[test]
