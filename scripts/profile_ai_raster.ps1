@@ -6,6 +6,10 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 if ($PollMilliseconds -lt 50 -or $PollMilliseconds -gt 2000) { throw 'Invalid poll interval' }
+# Compile OUTSIDE the timing window. Cargo compilation can take several
+# minutes on a cold runner and must never be reported as AI inference time.
+& cargo test --locked -p cadcraft-mcp --lib --no-run
+if ($LASTEXITCODE -ne 0) { throw "AI test precompile failed: exit code $LASTEXITCODE" }
 $timer = [System.Diagnostics.Stopwatch]::StartNew()
 $peakWorkingSet = [long]0
 $samples = 0
@@ -32,11 +36,15 @@ try {
     $elapsedMs=[math]::Round($timer.Elapsed.TotalMilliseconds,0)
     if ($samples -gt 0) {
         $peakMiB=[math]::Round($peakWorkingSet / 1MB,2)
-        Write-Host "AI_BENCHMARK test=$TestName elapsed_ms=$elapsedMs sampled_worker_peak_rss_mib=$peakMiB samples=$samples"
+        Write-Host "AI_BENCHMARK test=$TestName cargo_test_wall_ms_after_precompile=$elapsedMs sampled_worker_peak_rss_mib=$peakMiB samples=$samples"
     } else {
-        Write-Warning "AI_BENCHMARK test=$TestName elapsed_ms=$elapsedMs peak_rss=NOT_CAPTURED (worker completed between samples)"
+        Write-Warning "AI_BENCHMARK test=$TestName cargo_test_wall_ms_after_precompile=$elapsedMs peak_rss=NOT_CAPTURED (worker completed between samples)"
     }
     if ($proc.ExitCode -ne 0) { throw "AI test $TestName failed with exit code $($proc.ExitCode)" }
+    # Start-Process does not set LASTEXITCODE. Without this, the caller sees
+    # the cargo --no-run exit code or an older native command's stale status.
+    # The previous Windows gate reported FAIL despite the 15 MP test passing.
+    $global:LASTEXITCODE = 0
 } finally {
     if (-not $proc.HasExited) {
         Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
