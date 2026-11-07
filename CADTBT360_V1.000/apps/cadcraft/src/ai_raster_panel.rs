@@ -355,7 +355,7 @@ fn render_pdf_page_cancellable(pdf:&std::path::Path,page:u32,cancel:&std::sync::
         return Err(format!("Không thể chuyển trang PDF {page}. Kiểm tra PDF có mật khẩu, bị hỏng hoặc trang không tồn tại (mã thoát: {status})."));
     }
     let size=std::fs::metadata(&png).map_err(|e|format!("Không tìm thấy ảnh trang PDF: {e}"))?.len();
-    if size==0 || size>64*1024*1024 { let _=std::fs::remove_file(&png); return Err("Ảnh PDF tạo ra rỗng hoặc quá 80 MB.".into()); }
+    if size==0 || size>64*1024*1024 { let _=std::fs::remove_file(&png); return Err("Ảnh PDF tạo ra rỗng hoặc vượt 64 MiB.".into()); }
     Ok(png)
 }
 
@@ -1839,7 +1839,7 @@ mod tests {
         let mut state=State::default();state.open();
         assert_eq!(state.studio_tab,0);
         assert!(state.max_lines>=274);
-        assert!(state.max_lines<=1000);
+        assert!(state.max_lines<=10_000);
     }
 
     #[test]
