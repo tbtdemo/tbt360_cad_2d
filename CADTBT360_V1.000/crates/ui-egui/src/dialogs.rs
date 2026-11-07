@@ -429,6 +429,23 @@ fn command_ref_in_view(spec:&cadcraft_engine::CommandSpec,filter:&str,
         && (!interactive_only || spec.interactive.is_some())
 }
 
+/// Rank only the visual search result order: exact original alias/command
+/// first, then ID prefixes, Vietnamese phrases and finally loose matches.
+/// No command is removed, renamed or executed by this ranking.
+fn command_ref_rank(spec:&cadcraft_engine::CommandSpec,filter:&str)->u8 {
+    let term=crate::cmdline::fold_vi(filter);
+    if term.is_empty(){return 5;}
+    if crate::cmdline::fold_vi(spec.id)==term
+        || spec.aliases.iter().any(|alias|crate::cmdline::fold_vi(alias)==term) {return 0;}
+    if crate::cmdline::fold_vi(spec.id).starts_with(&term)
+        || spec.aliases.iter().any(|alias|crate::cmdline::fold_vi(alias).starts_with(&term)) {return 1;}
+    if crate::cmdline::matches_vietnamese_command_phrase(spec.id,&term) {return 2;}
+    let vi=crate::i18n::tr("vi",spec.label);
+    if crate::cmdline::fold_vi(spec.label).starts_with(&term)
+        || crate::cmdline::fold_vi(vi).starts_with(&term) {return 3;}
+    4
+}
+
 /// Full command handbook: original aliases remain executable from native
 /// command specs. Selecting a row only changes HELP selection; executing
 /// still calls the original CadApp::start path.
@@ -463,9 +480,12 @@ fn commands(app: &mut CadApp, ctx: &egui::Context, open: &mut bool) {
             });
             let public=cadcraft_engine::command_specs().iter()
                 .filter(|spec|!spec.id.contains('.')).collect::<Vec<_>>();
-            let visible=public.iter().copied()
+            let mut visible=public.iter().copied()
                 .filter(|spec|command_ref_in_view(spec,&filter,show_vi,examples_only,interactive_only))
                 .collect::<Vec<_>>();
+            if !filter.trim().is_empty() {
+                visible.sort_by_key(|spec|(command_ref_rank(spec,&filter),spec.id));
+            }
             let vi_count=public.iter().filter(|spec|crate::i18n::tr("vi",spec.label)!=spec.label).count();
             let example_count=public.iter().filter(|spec|command_ref_example(spec.id).is_some()).count();
             ui.label(format!("{} / {} COMMANDS (Lệnh) · VI {} / {} · LESSONS {} / {} (Bài hướng dẫn)",
@@ -575,6 +595,22 @@ mod command_handbook_tests {
         }
         assert!(count>100,"expected real CAD registry");
     }
+    #[test]
+    fn handbook_exact_native_aliases_rank_ahead_of_similar_matches() {
+        let specs=cadcraft_engine::command_specs();
+        for (input,id) in [("l","line"),("pl","pline"),("c","circle"),("rec","rectang"),("di","dist")] {
+            let matches=specs.iter().filter(|spec|!spec.id.contains('.')
+                && command_ref_matches(spec,input)).collect::<Vec<_>>();
+            let top=matches.into_iter().min_by_key(|spec|(command_ref_rank(spec,input),spec.id))
+                .expect("native CAD alias missing");
+            assert_eq!(top.id,id,"native alias ranking changed for {input}");
+            assert_eq!(command_ref_rank(top,input),0);
+        }
+        let purge=cadcraft_engine::cmd::find_command("purge").unwrap();
+        assert!(command_ref_rank(purge,"làm sạch bản vẽ")<=2);
+        assert!(command_ref_rank(purge,"lam sach ban ve")<=2);
+    }
+
     #[test]
     fn handbook_filters_never_hide_native_commands_by_default() {
         let public=cadcraft_engine::command_specs().iter()
