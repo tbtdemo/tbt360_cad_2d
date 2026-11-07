@@ -1652,7 +1652,25 @@ pub fn preview(args: &Value) -> Result<Value, String> {
             "areaCAD2":room["areaPixels2"].as_f64().unwrap_or(0.0)*scale*scale,
             "classification":room["classification"],"requiresHumanReview":true})
     }).collect();
-    let room_adjacencies=observed_room_adjacencies(&room_world);
+    // The graph is only observable shared-stroke evidence. Expose its exact
+    // original CAD segment for manual checking/OSNAP inspection; no inferred
+    // passage, doorway or new entity is created.
+    let mut room_adjacencies=observed_room_adjacencies(&room_world);
+    for adjacency in &mut room_adjacencies {
+        let Some(index)=adjacency["sourceEdgeIndex"].as_u64()
+            .and_then(|i|usize::try_from(i).ok()) else {continue};
+        let Some(line)=lines.get(index) else {continue};
+        let to_cad=|x:f64,y:f64| [ox+x*scale,oy+(f64::from(height)-y)*scale];
+        let a=to_cad(line.x0,line.y0);
+        let b=to_cad(line.x1,line.y1);
+        let length=(a[0]-b[0]).hypot(a[1]-b[1]);
+        if a.iter().chain(b.iter()).all(|v|v.is_finite()&&v.abs()<=1e12)
+            && length.is_finite() && length>0.0 && length<=1e12 {
+            adjacency["sharedWallCAD"]=json!([a,b]);
+            adjacency["sharedWallLengthCAD"]=json!(length);
+            adjacency["canAutoCreateDoor"]=json!(false);
+        }
+    }
     let geometry=json!({
         "roomAdjacencyCount":room_adjacencies.len(),
         "roomAdjacencies":room_adjacencies,
