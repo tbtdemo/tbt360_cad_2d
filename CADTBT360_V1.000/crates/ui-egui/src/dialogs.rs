@@ -420,6 +420,15 @@ fn command_ref_example(id:&str)->Option<&'static str> {
     }
 }
 
+/// Strictly a display filter: never alters the engine command registry.
+fn command_ref_in_view(spec:&cadcraft_engine::CommandSpec,filter:&str,
+    require_vietnamese:bool,require_example:bool,interactive_only:bool)->bool {
+    command_ref_matches(spec,filter)
+        && (!require_vietnamese || crate::i18n::tr("vi",spec.label)!=spec.label)
+        && (!require_example || command_ref_example(spec.id).is_some())
+        && (!interactive_only || spec.interactive.is_some())
+}
+
 /// Full command handbook: original aliases remain executable from native
 /// command specs. Selecting a row only changes HELP selection; executing
 /// still calls the original CadApp::start path.
@@ -441,11 +450,31 @@ fn commands(app: &mut CadApp, ctx: &egui::Context, open: &mut bool) {
                 if ui.small_button("CLEAR (Xóa lọc)").clicked(){filter.clear();}
             });
             ui.small("Search by English, Vietnamese with/without accents, native ID, aliases or menu path (Tìm theo Anh/Việt có dấu/không dấu, mã lệnh, phím tắt, menu).");
+            let show_vi_id=ui.scope_id().with("cmd_show_vi_only");
+            let examples_id=ui.scope_id().with("cmd_examples_only");
+            let interactive_id=ui.scope_id().with("cmd_interactive_only");
+            let mut show_vi=ui.data_mut(|d|d.get_temp::<bool>(show_vi_id)).unwrap_or(false);
+            let mut examples_only=ui.data_mut(|d|d.get_temp::<bool>(examples_id)).unwrap_or(false);
+            let mut interactive_only=ui.data_mut(|d|d.get_temp::<bool>(interactive_id)).unwrap_or(false);
+            ui.horizontal_wrapped(|ui|{
+                ui.checkbox(&mut show_vi,"VI TRANSLATED (Đã dịch)");
+                ui.checkbox(&mut examples_only,"EXAMPLES (Có ví dụ)");
+                ui.checkbox(&mut interactive_only,"INTERACTIVE (Cần chọn điểm/đối tượng)");
+            });
             let public=cadcraft_engine::command_specs().iter()
                 .filter(|spec|!spec.id.contains('.')).collect::<Vec<_>>();
-            let visible=public.iter().copied().filter(|spec|command_ref_matches(spec,&filter))
+            let visible=public.iter().copied()
+                .filter(|spec|command_ref_in_view(spec,&filter,show_vi,examples_only,interactive_only))
                 .collect::<Vec<_>>();
-            ui.label(format!("{} / {} COMMANDS (lệnh trong CAD 360) · CLICK (nhấp chọn để xem) · RUN (thực hiện)",visible.len(),public.len()));
+            let vi_count=public.iter().filter(|spec|crate::i18n::tr("vi",spec.label)!=spec.label).count();
+            let example_count=public.iter().filter(|spec|command_ref_example(spec.id).is_some()).count();
+            ui.label(format!("{} / {} COMMANDS (Lệnh) · VI {} / {} · LESSONS {} / {} (Bài hướng dẫn)",
+                visible.len(),public.len(),vi_count,public.len(),example_count,public.len()));
+            ui.data_mut(|d|{
+                d.insert_temp(show_vi_id,show_vi);
+                d.insert_temp(examples_id,examples_only);
+                d.insert_temp(interactive_id,interactive_only);
+            });
             ui.separator();
             ui.columns(2,|cols|{
                 let [left,right]=cols else{return};
@@ -546,6 +575,24 @@ mod command_handbook_tests {
         }
         assert!(count>100,"expected real CAD registry");
     }
+    #[test]
+    fn handbook_filters_never_hide_native_commands_by_default() {
+        let public=cadcraft_engine::command_specs().iter()
+            .filter(|spec|!spec.id.contains('.')).collect::<Vec<_>>();
+        for spec in public {
+            assert!(command_ref_in_view(spec,"",false,false,false),
+                "default handbook must include command {}",spec.id);
+            if command_ref_example(spec.id).is_some() {
+                assert!(command_ref_in_view(spec,"",false,true,false));
+            } else {
+                assert!(!command_ref_in_view(spec,"",false,true,false));
+            }
+            if spec.interactive.is_some() {
+                assert!(command_ref_in_view(spec,"",false,false,true));
+            }
+        }
+    }
+
     #[test]
     fn audit_native_cad_command_handbook_coverage() {
         let public=cadcraft_engine::command_specs().iter()
