@@ -64,6 +64,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'V1.026 2500-stroke wall-pair regression failed' }
           cargo test --locked -p cadcraft-mcp --lib ai_preview_reports_closed_room_without_opt_in_to_create_rectangle -- --nocapture
           if ($LASTEXITCODE -ne 0) { throw 'V1.026 AI Preview suppressed valid room when closedRectangles was disabled' }
+          cargo test --locked -p cadcraft-mcp --lib ai_paired_gap_near_two_room_boundaries_remains_unverified -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'V1.026 opening-room contact caused an unverified or fabricated doorway' }
           cargo test --locked -p cadcraft-mcp --lib ai_room_adjacency_shared_source_cannot_auto_create_a_door -- --nocapture
           if ($LASTEXITCODE -ne 0) { throw 'V1.026 room adjacency must not infer doorway from shared source wall' }
           cargo test --locked -p cadcraft-mcp --lib ai_room_topology_links_only_real_shared_source_edges_without_inventing_doors -- --nocapture
