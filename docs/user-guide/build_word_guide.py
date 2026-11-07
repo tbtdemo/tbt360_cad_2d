@@ -150,7 +150,7 @@ def build(source: Path, dest: Path) -> None:
         raise ValueError(f"User guide is incomplete: missing {missing}")
     dest.parent.mkdir(parents=True, exist_ok=True)
     # Version follows the actual source manual, never a stale hardcoded 1.025.
-    match = re.search(r"V1[.]\d{3}", source.name.upper())
+    match = re.search(r"V1[.]\d{3}", dest.name.upper())
     if not match:
         match = re.search(r"V1[.]\d{3}", markdown)
     release = match.group(0) if match else "VERSION_UNVERIFIED"
