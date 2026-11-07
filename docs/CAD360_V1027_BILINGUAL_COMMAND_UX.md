@@ -200,3 +200,15 @@ Thay cửa sổ Command Reference cũ (chỉ danh sách ID, tên, alias) thành 
 - [ ] Windows CI của commit cuối cần PASS; kiểm tra UI thực tế với F1, L/PL/TR, tọa độ, IME tiếng Việt và thu/phóng cửa sổ.
 
 Lưu ý: bảng OPTIONS chỉ hiển thị tùy chọn mà Prompt đang cho phép, không phải quảng cáo thêm lệnh CAD chưa có. Không tuyên bố hoàn thiện 100% AutoCAD 2027 nếu chưa đối chiếu/kiểm thử tất cả.
+
+## 18. V1.027: Dòng lệnh Unicode an toàn và kiểm thử IME thực tế (egui)
+
+- [x] Đã sửa sai lệch ở test tích hợp IME cũ: khi hoàn thành lệnh TEXT/MTEXT, trạng thái `Command:` hiện phải **vẫn cho phép** IME để gõ tiếng Việt tự nhiên; chỉ điểm/số/đối tượng mới tắt IME. Trước đây test cũ còn yêu cầu IME tắt ở trạng thái rảnh.
+- [x] `command_input_tail` cuộn **phần hiển thị** tới cuối input, trên ranh giới ký tự UTF-8 an toàn; `app.cmd.buffer` gốc không bị cắt, không thay đổi dữ liệu gửi tới CAD.
+- [x] Khi prompt song ngữ dài, khu vực hiển thị lời nhắc được cắt theo chiều rộng và **dành riêng không gian bên phải** cho nhập tọa độ, nhập lệnh và caret; dòng IME preedit được cắt trong vùng nhập.
+- [x] Giữ con trỏ và vị trí cửa sổ IME không lấn lên mũi tên lịch sử lệnh khi chuỗi dài.
+- [x] Test `command_input_scroll_keeps_original_vietnamese_and_coordinates` bảo đảm không làm mất dữ liệu, Unicode hợp lệ; thêm cổng Windows chạy `cmdline::tests::ime_preedit_is_shown_and_its_commit_is_inserted_once` để kiểm tra IME preedit/commit trong egui thật (dạng test).
+- [ ] Chưa thể coi test egui là kiểm thử Telex/VNI ngoài Windows thật. Cần chạy EXE trên Win10/11, gõ dấu, chuyển focus, mở bảng OPTIONS, gõ tọa độ rất dài, Zoom/OSNAP và thử cửa sổ 1366×768/HiDPI.
+- [ ] Cổng Windows CI commit cuối phải PASS; chưa có xác nhận chấp nhận toàn bộ AutoCAD 2027 và chưa phát hành bộ cài V1.027.
+
+**Nguyên tắc:** mọi thay đổi chỉ phục vụ render và IME; tên command, native PGP alias, keyword/parser, buffer, Enter/Esc, DWG và Undo/Redo không được thay đổi.
