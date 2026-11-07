@@ -113,12 +113,36 @@ jobs:
           $zip = 'dist/v1027/reference/CADTBT360_V1.025_Portable_Windows_x64.zip'
           $hash = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant()
           if ($hash -ne '9eedc1e568f4a739948716e87c794778102cae9fb3c97a419d07ccf3a63e1737') { throw "Previous renderer archive SHA mismatch: $hash" }
-          Expand-Archive $zip -DestinationPath dist/v1027/reference/unpacked -Force
-          $src = 'dist/v1027/reference/unpacked/Tools/Poppler'
-          if (!(Test-Path "$src/bin/pdftoppm.exe")) { throw 'Verified PDF renderer missing' }
-          Copy-Item $src dist/v1027/pdf-tools -Recurse -Force
-          & 'dist/v1027/pdf-tools/bin/pdftoppm.exe' -v
+          $unpack = 'dist/v1027/reference/unpacked'
+          Expand-Archive $zip -DestinationPath $unpack -Force
+          # Earlier Portable releases can wrap Tools/Poppler in a top-level folder.
+          # Search for the verified executable, then normalize its sibling DLLs
+          # into the exact layout expected by both Inno Setup and Portable.
+          $candidates = @(Get-ChildItem -Path $unpack -Recurse -File -Filter 'pdftoppm.exe' |
+            Where-Object { $_.Directory.Name -ieq 'bin' } |
+            Sort-Object FullName)
+          if ($candidates.Count -eq 0) {
+            Get-ChildItem -Path $unpack -Directory | Select-Object -ExpandProperty FullName | Out-Host
+            throw 'Verified PDF renderer missing from reference archive at every nested path'
+          }
+          $renderer = $candidates[0]
+          Write-Host "Bundling verified PDF renderer from $($renderer.FullName)"
+          $destBin = 'dist/v1027/pdf-tools/bin'
+          $destLic = 'dist/v1027/pdf-tools/licenses'
+          New-Item -ItemType Directory -Force $destBin, $destLic | Out-Null
+          Copy-Item -Path (Join-Path $renderer.Directory.FullName '*') -Destination $destBin -Recurse -Force
+          # Include the Poppler licenses when present in the verified archive.
+          $popplerRoot = Split-Path $renderer.Directory.FullName -Parent
+          $sourceLic = Join-Path $popplerRoot 'licenses'
+          if (Test-Path $sourceLic) {
+            Copy-Item -Path (Join-Path $sourceLic '*') -Destination $destLic -Recurse -Force
+          }
+          $bundled = Join-Path $destBin 'pdftoppm.exe'
+          if (!(Test-Path $bundled)) { throw 'Normalized renderer folder has no pdftoppm.exe' }
+          & (Resolve-Path $bundled).Path -v
           if ($LASTEXITCODE -ne 0) { throw 'Bundled PDF renderer cannot start' }
+          python scripts/verify_ai_pdf_renderer.py $bundled
+          if ($LASTEXITCODE -ne 0) { throw 'Bundled PDF renderer did not convert sample PDF' }
       - name: Build Inno Setup and Portable ZIP
         shell: pwsh
         run: |
