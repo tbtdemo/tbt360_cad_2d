@@ -55,6 +55,11 @@ pub struct State {
     error: Option<String>,
     min_length: u32,
     max_lines: u32,
+    roi_enabled: bool,
+    roi_x: u32,
+    roi_y: u32,
+    roi_width: u32,
+    roi_height: u32,
     studio_tab: usize,
     advanced_tab: usize,
     scale: f64,
@@ -239,6 +244,9 @@ impl State {
             "doorHingeFlips":if self.create_door_blocks && !self.door_hinge_flips.is_empty() {Some(&self.door_hinge_flips)} else {None},
             "doorSwingFlips":if self.create_door_blocks && !self.door_swing_flips.is_empty() {Some(&self.door_swing_flips)} else {None},
             "expectedDoorSourceKeys":if self.create_door_blocks && self.has_individual_door_review() {Some(&self.last_door_source_keys)} else {None}});
+        if self.roi_enabled {
+            params["regionPixels"]=json!([self.roi_x,self.roi_y,self.roi_width,self.roi_height]);
+        }
         let group5=json!({"createOpeningGuidePolylines":self.create_opening_guides,
             "confirmOpeningGuides":self.confirm_opening_guides,
             "minOpeningGapPixels":self.min_opening_gap,
@@ -856,8 +864,44 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
                 ui.label("Đơn vị CAD/pixel");
                 if ui.add(egui::DragValue::new(&mut state.scale).speed(0.01).range(0.000001..=1_000_000.0)).changed() { state.preview = None; }
             });
+            ui.group(|ui| {
+                ui.horizontal_wrapped(|ui| {
+                    ui.strong("Vùng bản vẽ cần phân tích (ROI)");
+                    if ui.checkbox(&mut state.roi_enabled,"Chỉ phân tích vùng chọn").changed() {state.preview=None;}
+                    if ui.button("Toàn ảnh").clicked() {state.roi_enabled=false;state.preview=None;}
+                });
+                ui.small("Chọn 1/4 ảnh để loại bỏ ribbon, bảng Layer, chữ và nét ngoài mặt bằng. Tọa độ CAD giữ theo ảnh gốc; Preview vẫn phải được duyệt.");
+                if !state.path.is_empty() {
+                    if let Ok((w,h))=image::image_dimensions(&state.path) {
+                        ui.small(format!("Kích thước ảnh gốc: {w} × {h} px"));
+                        ui.horizontal_wrapped(|ui| {
+                            for (label,x,y,cw,ch) in [
+                                ("1/4 trên trái",0,0,w/2,h/2),
+                                ("1/4 trên phải",w/2,0,w-w/2,h/2),
+                                ("1/4 dưới trái",0,h/2,w/2,h-h/2),
+                                ("1/4 dưới phải",w/2,h/2,w-w/2,h-h/2)
+                            ] {
+                                if ui.button(label).clicked() {
+                                    state.roi_enabled=true;state.roi_x=x;state.roi_y=y;
+                                    state.roi_width=cw;state.roi_height=ch;
+                                    state.preview=None;
+                                }
+                            }
+                        });
+                    }
+                }
+                if state.roi_enabled {
+                    ui.horizontal_wrapped(|ui| {
+                        ui.label("X");if ui.add(egui::DragValue::new(&mut state.roi_x).range(0..=8192)).changed() {state.preview=None;}
+                        ui.label("Y");if ui.add(egui::DragValue::new(&mut state.roi_y).range(0..=8192)).changed() {state.preview=None;}
+                        ui.label("Rộng");if ui.add(egui::DragValue::new(&mut state.roi_width).range(1..=8192)).changed() {state.preview=None;}
+                        ui.label("Cao");if ui.add(egui::DragValue::new(&mut state.roi_height).range(1..=8192)).changed() {state.preview=None;}
+                    });
+                    ui.small("ROI dùng tọa độ pixel, gốc (0,0) ở góc trên trái ảnh. Chỉ các nét bên trong vùng này được nhận dạng.");
+                }
+            });
             if state.max_lines > 1000 {
-                ui.small("Chế độ dữ liệu lớn: hỗ trợ tối đa 10.000 nét hình học; một số chức năng nhận dạng phòng/cửa/cột vẫn phải phân vùng để tránh sai và treo máy.");
+                ui.small("Chế độ dữ liệu lớn: 10.000 nét hình học; phân tích kiến trúc tối đa 1.000 nét trong ROI. Hãy chọn từng khu vực, không tự bỏ giới hạn để suy đoán cấu kiện.");
             }
             }
             if state.studio_tab==2 {
