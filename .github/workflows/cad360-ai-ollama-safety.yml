@@ -60,6 +60,14 @@ jobs:
         run: cargo test --locked -p cadcraft --bin cadcraft local_model_request_is_bounded_and_not_executed -- --nocapture
       - name: Confirm model proposed command cannot skip native CAD review
         run: cargo test --locked -p cadcraft --bin cadcraft ai_local_llm_is_optional_and_does_not_commit_native_cad_on_open -- --nocapture
+      - name: Verify AI-generated geometry supports endpoint midpoint and center OSNAP
+        run: cargo test --locked -p cadcraft-ui-egui ai_generated_native_cad_objects_are_real_endpoint_midpoint_and_center_snap_targets -- --nocapture
+      - name: Verify 274-stroke plan still recognizes paired wall panels
+        run: cargo test --locked -p cadcraft-mcp ai_architecture_wall_pair_recognition_keeps_candidates_above_256_strokes -- --nocapture
+      - name: Verify enclosed-room geometry above the legacy 256-line limit
+        run: cargo test --locked -p cadcraft-mcp ai_architecture_recognizes_closed_room_outline_in_274_line_plan -- --nocapture
+      - name: Verify real PNG yields review-only architectural room evidence
+        run: cargo test --locked -p cadcraft-mcp ai_architecture_room_candidate_is_only_evidence_and_never_auto_commits -- --nocapture
       - name: Verify AI-built native CAD survives standard R2018 DWG save and reopen
         run: cargo test --locked -p cadcraft-ui-egui ai_review_native_three_object_plan_roundtrips_as_standard_r2018_dwg -- --nocapture
       - name: Validate actual multi-object commit with one Undo and Redo
