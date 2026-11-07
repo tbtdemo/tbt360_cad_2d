@@ -385,10 +385,11 @@ fn command_ref_matches(spec:&cadcraft_engine::CommandSpec,filter:&str)->bool {
     let term=crate::cmdline::fold_vi(filter);
     if term.is_empty() {return true;}
     let vi=crate::i18n::tr("vi",spec.label);
-    [spec.id,spec.label,vi].into_iter()
-        .chain(spec.aliases.iter().copied())
-        .chain(spec.menu.iter().copied())
-        .any(|part|crate::cmdline::fold_vi(part).contains(&term))
+    crate::cmdline::matches_vietnamese_command_phrase(spec.id,&term)
+        || [spec.id,spec.label,vi].into_iter()
+            .chain(spec.aliases.iter().copied())
+            .chain(spec.menu.iter().copied())
+            .any(|part|crate::cmdline::fold_vi(part).contains(&term))
 }
 
 /// Precise examples for common operations, not a claim that all CAD commands
@@ -551,6 +552,11 @@ mod command_handbook_tests {
         assert!(command_ref_matches(line,"vẽ đường thẳng")||command_ref_matches(line,"đường thẳng"));
         let dist=cadcraft_engine::cmd::find_command("dist").unwrap();
         assert!(command_ref_matches(dist,"khoảng cách"));
+        assert!(command_ref_matches(line,"vẽ đường thẳng"));
+        assert!(command_ref_matches(line,"ve duong thang"));
+        let purge=cadcraft_engine::cmd::find_command("purge").unwrap();
+        assert!(command_ref_matches(purge,"làm sạch bản vẽ"));
+        assert!(command_ref_matches(purge,"lam sach ban ve"));
         assert!(command_ref_example("line").unwrap().contains("L (LINE)"));
         assert!(command_ref_example("dist").unwrap().contains("DI (DIST)"));
         assert!(command_ref_example("not_a_cad_command").is_none());
