@@ -122,6 +122,16 @@ Các tỷ lệ trên cố ý **không cộng điểm cho build đang Queued**. N
 - [ ] Windows Setup/Portable mới phải chạy lại qua bước Word, Rust, kiểm thử, tạo bộ cài và lưu/mở DWG; chưa được nghiệm thu.
 - **Tiến độ tổng giữ 33%, nghiệm thu phát hành 0%** vì pipeline chưa vượt hết các cổng.
 
+## Đợt hiện tại — kiểm chứng tính trung thực của benchmark phòng
+
+- [x] Siết `reference_room_geometry_benchmark`: phải có đủ **bốn đỉnh hợp lệ**, số hữu hạn trong giới hạn CAD và tạo thành hình chữ nhật song song trục. Không cho phép chỉ ba đỉnh hợp lệ hoặc góc bị xiên được tính là một phòng đúng.
+- [x] Thêm test `ai_room_geometry_benchmark_excludes_missing_corner_and_skew_false_positive` cho hai ứng viên sai và một hình đúng. Yêu cầu Precision, Recall không tăng giả từ dữ liệu lỗi.
+- [x] Thêm test này vào `cad360-v1026-ai-large-image-gate.yml` và `cad360-v1026-release.yml`.
+- [ ] CI Windows trên đúng SHA có PASS hay không vẫn phải kiểm tra; các workflow trước có `pending` chưa khởi chạy job.
+- [ ] Kết quả kiểm nghiệm tường/cửa/cột/phòng bằng dữ liệu thực tế vẫn còn thiếu.
+
+**Tiến độ:** giữ **33% theo checklist code** và **0% nghiệm thu phát hành**. Kiểm thử benchmark là bảo đảm chất lượng số liệu, không là bằng chứng thêm về AI semantic.
+
 ## Định hướng lần nâng cấp tiếp theo (theo thứ tự)
 
 1. **P0 – Gỡ lỗi CI Windows đúng SHA**: fix compile/test, chỉ ghi PASS khi kết quả hiện hữu. Không push liên tục làm nhiễu lượt kiểm thử.
