@@ -1124,6 +1124,36 @@ mod tests {
     }
 
     #[test]
+    fn osnap_line_undo_redo_restores_exact_geometry() {
+        let reference=drawing();
+        let first=osnap(&reference,&Space::Model,Vec2::new(9.8,0.1),
+            0.5,mode::END,None,false).unwrap().point;
+        let second=osnap(&reference,&Space::Model,Vec2::new(20.1,0.1),
+            0.5,mode::CEN,None,false).unwrap().point;
+        let mut session=crate::Session::new();
+        let count_lines=|session:&crate::Session|session.doc().unwrap().model.iter()
+            .filter(|e|matches!(&e.kind,EntityKind::Line(_))).count();
+        let before=count_lines(&session);
+        session.start("line").unwrap();
+        session.input(crate::Input::Point(first)).unwrap();
+        session.input(crate::Input::Point(second)).unwrap();
+        session.input(crate::Input::Enter).unwrap();
+        assert_eq!(count_lines(&session),before+1);
+        session.undo().expect("undo native snapped LINE");
+        assert_eq!(count_lines(&session),before,"undo must restore the original drawing");
+        session.redo().expect("redo native snapped LINE");
+        assert_eq!(count_lines(&session),before+1);
+        let restored=session.doc().unwrap().model.iter()
+            .filter_map(|e|match &e.kind {
+                EntityKind::Line(line)=>Some((line.a.xy(),line.b.xy())),
+                _=>None,
+            }).collect::<Vec<_>>();
+        assert!(restored.iter().any(|(a,b)|
+            a.near(first,1e-9)&&b.near(second,1e-9)),
+            "redo must keep the original OSNAP points: {restored:?}");
+    }
+
+    #[test]
     fn snapped_native_line_survives_dxf_save_and_reopen_editably() {
         let source=drawing();
         let start=osnap(&source,&Space::Model,Vec2::new(0.1,0.1),
