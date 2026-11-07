@@ -259,6 +259,17 @@ Các tỷ lệ trên cố ý **không cộng điểm cho build đang Queued**. N
 
 **Tiến độ tổng vẫn 33% triển khai / 0% nghiệm thu phát hành.** Mục tiêu ưu tiên là cổng CI thực thi thực sự chứ không chấp nhận `0 tests`.
 
+## Khắc phục thông báo không có kết quả AI trên ảnh 33.426 nét
+
+- **Ảnh lỗi người dùng gửi:** AI Studio nạp ảnh tên `Giao diện CAD 360 Việt Nam.png`, thông báo `Detected 33426 strokes; architectural candidate detection is bounded to 1000 strokes`; tham số GUI đang `maxLines=500`, `minLengthPixels=16`. Đây là lỗi giới hạn khối lượng dữ liệu, **không phải AI đã nhận dạng thành công mà giấu kết quả**.
+- [x] `ai_raster_panel.rs`: hiện giải thích rõ chỉ dùng ảnh mặt bằng không lẫn ribbon/menu/layer; hiển thị giới hạn 1.000 nét nhóm phân tích kiến trúc và 10.000 nét hình học.
+- [x] Bổ sung nút `Lọc mạnh nét ngắn (x4) và thử lại` khi lỗi ảnh quá nhiều nét: tăng `minLengthPixels` có giới hạn đến 4096, đặt `maxLines` hình học 10.000, chạy lại Preview bất đồng bộ, không tự ghi vào CAD; cảnh báo mất chi tiết ngắn.
+- [x] Unit test `ai_dense_image_filter_increases_only_detection_threshold_and_stays_bounded`, gắn CI Windows release gate.
+- [ ] Chưa có kết quả Windows CI cho bản thay đổi mới. Lọc ngưỡng không phải AI nhận dạng ngữ nghĩa và có thể không đủ cho ảnh chụp cả giao diện; cần workflow ROI/ảnh tầng sạch hoặc kiến trúc phân vùng xử lý lớn chính thức.
+- [ ] AI Review và AI Studio hiện là hai luồng khác nhau; kết quả Preview không tự đồng bộ sang Review. Cần thống nhất điều hướng/quy trình trong các lần nâng cấp sau.
+
+**Tiến độ tổng giữ 33% triển khai / 0% nghiệm thu phát hành.**
+
 ## Định hướng lần nâng cấp tiếp theo (theo thứ tự)
 
 1. **P0 – Gỡ lỗi CI Windows đúng SHA**: fix compile/test, chỉ ghi PASS khi kết quả hiện hữu. Không push liên tục làm nhiễu lượt kiểm thử.
