@@ -188,6 +188,18 @@ Các tỷ lệ trên cố ý **không cộng điểm cho build đang Queued**. N
 
 **Tổng tiến độ kỹ thuật giữ 33%, nghiệm thu phát hành 0%**. Không biến một cạnh dùng chung thành cửa nếu chưa có bằng chứng.
 
+## V1.026 — liên kết khoảng mở hai mép tường với phòng đã đo
+
+- [x] Lõi `raster_vector.rs`: xây `observed_opening_room_contacts`, chỉ xét **paired opening** có hai mép tường quan sát được; dựa vào tọa độ tâm vùng mở và khoảng cách có giới hạn theo bề dày tường. Tối đa hai vùng có biên phù hợp; bỏ qua khoảng mở xa phòng, nằm ở góc hoặc dữ liệu thiếu.
+- [x] Preview JSON thêm `openingRoomContactCount` và `openingRoomContacts` với `openingIndex`, `roomIndices`, `midpointPixels`, `isDoor=false`, `passageConfirmed=false`, `requiresHumanReview=true`.
+- [x] AI Studio hiển thị khoảng mở gần phòng số mấy; nhấn mạnh không đồng nghĩa xác nhận cửa, không sinh hình học native.
+- [x] Test `ai_paired_gap_near_two_room_boundaries_remains_unverified`: một khoảng mở nằm giữa hai phòng phải liên hệ được, một khoảng mở ở xa và gần góc không được nhận nhầm.
+- [x] Thêm test vào AI Gate + Release Gate. **Chưa có Windows PASS cho commit mới.**
+- [ ] Cần bản vẽ thực tế có tường gián đoạn, cửa gắn với đúng hai vùng phòng và mẫu không vuông góc để đánh giá Precision/Recall; cơ chế hiện tại mới đối chiếu vị trí hình học theo ngưỡng.
+- [ ] Kiểm thử CI Windows / RAM 15–36MP / DWG độc lập / Setup–Portable–Source–Word theo đúng SHA.
+
+**Tiến độ tổng vẫn 33% triển khai và 0% nghiệm thu phát hành**: chưa có bằng chứng kiểm thử tích hợp và chưa đạt nhận dạng AI ngữ nghĩa.
+
 ## Định hướng lần nâng cấp tiếp theo (theo thứ tự)
 
 1. **P0 – Gỡ lỗi CI Windows đúng SHA**: fix compile/test, chỉ ghi PASS khi kết quả hiện hữu. Không push liên tục làm nhiễu lượt kiểm thử.
