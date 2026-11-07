@@ -372,7 +372,7 @@ fn next_command_habits(current:&str, history:&[String])->Vec<String> {
 #[derive(Clone,Copy,Debug,PartialEq,Eq)]
 enum SelectionKind {None,Line,Curve,Polyline,Text,Block,Dimension,Hatch,Mixed,Other}
 
-fn native_selection_kind(kinds:&[cadcraft_doc::EntityKind])->SelectionKind {
+fn native_selection_kind(kinds:&[&cadcraft_doc::EntityKind])->SelectionKind {
     use cadcraft_doc::EntityKind as E;
     let classify=|kind:&E|match kind {
         E::Line(_) | E::Ray(_) | E::XLine(_)=>SelectionKind::Line,
@@ -394,7 +394,7 @@ fn selected_native_context(app:&CadApp)->SelectionKind {
     if handles.is_empty(){return SelectionKind::None;}
     let Ok(st)=app.session.state() else {return SelectionKind::Other};
     let kinds=handles.iter().filter_map(|handle|
-        st.doc.entity(*handle).map(|entity|entity.kind.clone())).collect::<Vec<_>>();
+        st.doc.entity(*handle).map(|entity|&entity.kind)).collect::<Vec<_>>();
     if kinds.len()!=handles.len() {return SelectionKind::Other;}
     native_selection_kind(&kinds)
 }
@@ -1521,9 +1521,9 @@ mod autocomplete_tests {
         let line=E::Line(Line{a:cadcraft_geom::Vec3::ZERO,b:cadcraft_geom::Vec3::ZERO});
         let circle=E::Circle(Circle{center:cadcraft_geom::Vec3::ZERO,radius:1.0});
         assert_eq!(native_selection_kind(&[]),SelectionKind::None);
-        assert_eq!(native_selection_kind(&[line.clone()]),SelectionKind::Line);
-        assert_eq!(native_selection_kind(&[circle.clone()]),SelectionKind::Curve);
-        assert_eq!(native_selection_kind(&[line,circle]),SelectionKind::Mixed);
+        assert_eq!(native_selection_kind(&[&line]),SelectionKind::Line);
+        assert_eq!(native_selection_kind(&[&circle]),SelectionKind::Curve);
+        assert_eq!(native_selection_kind(&[&line,&circle]),SelectionKind::Mixed);
         let line_commands=selection_kind_next_commands(SelectionKind::Line,None,&[]);
         assert!(line_commands.iter().any(|id|id=="offset"||id=="trim"));
         let circle_commands=selection_kind_next_commands(SelectionKind::Curve,None,&[]);
