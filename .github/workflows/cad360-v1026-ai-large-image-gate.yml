@@ -1,0 +1,66 @@
+name: CAD 360 V1.026 - AI Large Image Gate
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [feature/CADTBT360_V1.026_AI_LARGE_IMAGE]
+    paths:
+      - 'CADTBT360_V1.000/crates/mcp/**'
+      - 'CADTBT360_V1.000/crates/ui-egui/**'
+      - '.github/workflows/cad360-v1026-ai-large-image-gate.yml'
+      - 'docs/user-guide/CAD360_V1.026_AI_LARGE_IMAGE.md'
+  pull_request:
+    paths:
+      - 'CADTBT360_V1.000/crates/mcp/**'
+      - '.github/workflows/cad360-v1026-ai-large-image-gate.yml'
+
+permissions:
+  contents: read
+concurrency:
+  group: v1026-large-image-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  ai-raster:
+    name: Check Windows image-to-CAD and large-raster regression
+    runs-on: windows-latest
+    timeout-minutes: 80
+    defaults:
+      run:
+        working-directory: CADTBT360_V1.000
+    steps:
+      - name: Exact source checkout
+        uses: actions/checkout@v4
+      - name: Rust stable
+        uses: dtolnay/rust-toolchain@stable
+      - name: Cargo cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: CADTBT360_V1.000
+          key: v1026-ai-large-raster
+      - name: Compile CAD GUI, MCP and CLI
+        shell: pwsh
+        run: |
+          cargo check --locked -p cadcraft --bin cadcraft
+          if ($LASTEXITCODE -ne 0) { throw 'V1.026 GUI compilation failed' }
+          cargo check --locked -p cadcraft-mcp -p cadcraft-cli
+          if ($LASTEXITCODE -ne 0) { throw 'V1.026 MCP/CLI compilation failed' }
+      - name: Large PNG real decode and calibrated CAD coordinate test
+        shell: pwsh
+        run: |
+          cargo test --locked -p cadcraft-mcp --lib large_png_5000_by_3000_preserves_original_pixel_to_cad_calibration -- --exact --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'V1.026 15 MP AI image regression failed' }
+      - name: Image-to-CAD and TRIM GUI regressions
+        shell: pwsh
+        run: |
+          cargo test --locked -p cadcraft-mcp --lib raster_vector -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'V1.026 raster vector tests failed' }
+          cargo test --locked -p cadcraft-ui-egui --lib trim_and_extend_acknowledge_active_selection_even_without_dynamic_input -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'V1.026 TRIM feedback regression failed' }
+          cargo test --locked -p cadcraft-ui-egui --lib ai_review_accepts_one_command_per_line_without_partial_mutation -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'V1.026 AI review parser regression failed' }
+      - name: Report commit and stage (not a release)
+        shell: pwsh
+        run: |
+          Write-Host "V1.026 large image pre-release verification: $env:GITHUB_SHA"
+          Write-Host 'This gate does not claim native GUI acceptance, AI semantic accuracy, Setup/Portable packaging or production release.'
