@@ -11,7 +11,7 @@
 
 `% triển khai = số mốc kỹ thuật có bằng chứng commit / tổng số mốc kỹ thuật theo danh mục bên dưới × 100`. Mốc PASS Windows/AutoCAD chỉ được tính khi có log của **đúng commit**. Dấu [x] ở đầu việc 'đã viết code/test' **không** tương đương bài test PASS. Các nhóm có trọng số bằng nhau để tránh che lấp nhóm AI chưa đạt.
 
-**% triển khai tổng hợp hiện tại: 30%** (làm tròn trung bình của 6 nhóm: 40%, 67%, 13%, 13%, 33%, 13%). **% nghiệm thu phát hành V1.026 = 0%** cho đến khi toàn bộ cổng phát hành bắt buộc PASS. Đây là thang mốc kỹ thuật do nhóm phát triển đặt ra, **không phải độ chính xác AI**.
+**% triển khai tổng hợp hiện tại: 33%** (làm tròn trung bình của 6 nhóm: 40%, 67%, 13%, 13%, 50%, 13%). **% nghiệm thu phát hành V1.026 = 0%** cho đến khi toàn bộ cổng phát hành bắt buộc PASS. Đây là thang mốc kỹ thuật do nhóm phát triển đặt ra, **không phải độ chính xác AI**.
 
 | Nhóm bắt buộc | Mốc mã nguồn | % triển khai | Bằng chứng hiện có | Chưa đạt / bước tiếp theo |
 |---|---:|---:|---|---|
@@ -19,7 +19,7 @@
 | 2. 36 MP / nhiều nghìn nét | 4/6 | **67%** | 64 MiB/8192 px/36 MP, quét cặp tường 2500 nét, đường bao phòng 2400 nét, vùng 1024 px có chỉ số vector toàn cục | Test 36 MP, đo thời gian/RAM Windows chưa PASS; phân vùng suy luận/ghép cấu kiện semantic chưa hoàn chỉnh |
 | 3. Hiểu tường/cửa/cột/phòng phức tạp | 1/8 | **13%** | Hiện có bộ tạo ứng viên hình học, không phải model semantic | Bộ ground truth, kiểm thử mở tường/cửa, phòng không kín, độ chính xác Precision/Recall, phát hiện chữ/kích thước, nhiều tầng/vùng |
 | 4. Tự dựng mặt bằng chuẩn xác | 1/8 | **13%** | Các lệnh native và Preview+Approve đã có | Plan tổng thể, kết nối đối tượng, gán layer/block và kích thước, Undo nhóm, sai số/vòng đời CAD, AutoCAD đối chiếu |
-| 5. Setup/Portable/ZIP nguồn/Word V1.026 | 2/6 | **33%** | Tách nhánh và gate tạo ZIP nguồn đúng SHA + 2 tài liệu Word sau PASS | GUI/installer đổi phiên bản, phát hành Setup/Portable, đầy đủ tài liệu hình ảnh, metadata/tags/hash, kiểm thử cài-gỡ |
+| 5. Setup/Portable/ZIP nguồn/Word V1.026 | 3/6 | **50%** | GUI đổi nhãn V1.026, installer Inno Setup riêng, Windows release workflow tự kiểm tra Setup/Portable/Source SHA + 3 Word sau PASS | CI chưa PASS, chưa có EXE tải về; Word chỉ là sơ đồ, chưa có screenshot EXE; AutoCAD độc lập chưa nghiệm thu |
 | 6. DWG hai chiều với AutoCAD | 1/8 | **13%** | CI lịch sử có DWG roundtrip nội bộ, chưa tính là nghiệm thu V1.026 | Bộ mẫu thật, độc lập AutoCAD, chỉnh sửa/lưu lại từ AutoCAD, compare hình học/layer/Xref, scan tương thích, báo cáo sai số |
 
 Các tỷ lệ trên cố ý **không cộng điểm cho build đang Queued**. Nếu CI FAIL thì giữ mốc code, tuyệt đối không chuyển trạng thái nghiệm thu sang PASS.
@@ -61,7 +61,7 @@ Các tỷ lệ trên cố ý **không cộng điểm cho build đang Queued**. N
 - [x] Lưu khung giáo trình chi tiết tại `docs/user-guide/CAD360_V1.026_GIAO_TRINH_NGUOI_MOI_34_BAI.md`.
 - [ ] Hình chụp thật từng thao tác từ Windows EXE theo đúng SourceCommit; bản hiện tại dùng sơ đồ kỹ thuật giảng dạy, không giả làm screenshot.
 - [ ] Gắn nguồn Word và hình vào workflow đóng gói Setup/Portable V1.026, nghiệm thu hash trước phát hành.
-- **Tài liệu không làm tăng điểm AI lõi/nhận dạng. Mốc chung hiện 30% nhờ các nâng cấp kỹ thuật ảnh lớn và vùng; nghiệm thu phát hành vẫn 0%.**
+- **Tài liệu không làm tăng điểm AI lõi/nhận dạng. Mốc chung hiện 33% nhờ hạ tầng ảnh lớn và workflow phát hành; nghiệm thu phát hành vẫn 0%.**
 
 ## Đợt hiện tại — nhận dạng ảnh nhiều nét và đo tải thực tế
 
@@ -74,7 +74,22 @@ Các tỷ lệ trên cố ý **không cộng điểm cho build đang Queued**. N
 - [ ] Kiểm thử V1.026 đúng SHA trên GitHub Actions: các lượt trước có trạng thái `cancelled` hoặc `pending` mà chưa cung cấp số liệu.
 - [ ] Đo ngưỡng tài nguyên thực, chạy benchmark đa tập bản vẽ, so sánh precision/recall có ground truth từ dự án thật, và tích hợp Setup/Portable V1.026.
 
-**Thay đổi % so với báo cáo trước:** 27% → 30% (**+3 điểm phần trăm**) theo checklist mã nguồn: nhóm ảnh lớn 3/6 → 4/6. Năng lực AI tự hiểu kiến trúc vẫn 13% theo checklist; phát hành nghiệm thu vẫn 0%.
+**Thay đổi % trong đợt hiện tại:** 27% → 33% (**+6 điểm phần trăm**) theo checklist mã nguồn: nhóm ảnh lớn 3/6 → 4/6 và nhóm chuẩn bị gói phát hành 2/6 → 3/6.  Năng lực AI tự hiểu kiến trúc vẫn 13% theo checklist; phát hành nghiệm thu vẫn 0%.
+
+## V1.026 — Chuẩn bị phát hành có thể tái tạo
+
+- [x] Đồng bộ nhãn GUI/badge sang V1.026 trong `CADTBT360_V1.000/apps/cadcraft/src/main.rs`.
+- [x] Inno Setup riêng: `installer/CADTBT360_V1.026_Windows.iss`.
+- [x] Release workflow riêng: `.github/workflows/cad360-v1026-release.yml`, dùng đúng nhánh `feature/CADTBT360_V1.026_AI_LARGE_IMAGE`, gồm biên dịch, kiểm thử AI 15/36MP, đóng Setup/Portable/Source, kiểm tra cài–gỡ và SHA.
+- [x] Bộ tạo Word người mới 34 bài với **34 sơ đồ thực**, bìa, mục lục và bảng lệnh tắt tại `scripts/build_beginner_guide.py`; phụ thuộc `python-docx==1.2.0` và `Pillow==11.3.0` được pin trong CI.
+- [x] Setup/Portable phải chứa ba giáo trình Word (AI, tổng hợp, người mới) và cùng hash từng tệp.
+- [x] `BUILD_INFO.txt` ghi rõ các mục chưa được xác minh: GUI thủ công, AutoCAD độc lập, độ chính xác nhận dạng kiến trúc, ảnh chụp EXE.
+- [ ] V1.026 Windows AI Gate và Windows Release CI PASS trên đúng commit.
+- [ ] Kiểm định Word in thật và thay sơ đồ bằng ảnh EXE thật theo từng thao tác.
+- [ ] Đối chiếu DWG hai chiều bằng AutoCAD thật; kiểm tra không sai Layer/Block/Xref/scale.
+- [ ] Xuất và xác nhận bộ cài thực tế, Word/ZIP mã nguồn và release tag trên GitHub.
+
+**Chú ý:** GitHub đã nhận workflow V1.026 nhưng các lượt trước có trạng thái `pending` hoặc `cancelled`; phần trăm triển khai phản ánh *code đã commit*, không xác nhận chương trình đã chạy thành công.
 
 ## Định hướng lần nâng cấp tiếp theo (theo thứ tự)
 
