@@ -15,7 +15,7 @@ on:
       - 'docs/user-guide/**'
   push:
     branches:
-      - feature/CADTBT360_V1.026_xref-regression
+      - feature/CADTBT360_V1.026_AI_LARGE_IMAGE
     paths:
       - 'CADTBT360_V1.000/**'
       - 'installer/CADTBT360_V1.026_Windows.iss'
@@ -50,8 +50,8 @@ jobs:
         if: ${{ github.event_name == 'workflow_dispatch' }}
         shell: pwsh
         run: |
-          if ($env:GITHUB_REF -ne 'refs/heads/feature/CADTBT360_V1.026_xref-regression') {
-            throw "CAD 360 V1.026 release must use feature/CADTBT360_V1.026_xref-regression, not $env:GITHUB_REF. In Run workflow, select the feature branch before starting."
+          if ($env:GITHUB_REF -ne 'refs/heads/feature/CADTBT360_V1.026_AI_LARGE_IMAGE') {
+            throw "CAD 360 V1.026 release must use feature/CADTBT360_V1.026_AI_LARGE_IMAGE, not $env:GITHUB_REF. In Run workflow, select the feature branch before starting."
           }
 
       - name: Checkout exact commit
@@ -961,7 +961,7 @@ jobs:
           retention-days: 30
 
       - name: Publish verified Setup and Portable to GitHub prereleases
-        if: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/feature/CADTBT360_V1.026_xref-regression' }}
+        if: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/feature/CADTBT360_V1.026_AI_LARGE_IMAGE' }}
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
