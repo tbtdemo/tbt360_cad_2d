@@ -210,6 +210,18 @@ Các tỷ lệ trên cố ý **không cộng điểm cho build đang Queued**. N
 
 **Tổng triển khai checklist giữ 33%; nghiệm thu phát hành 0%.** Đây là bộ lọc hình học an toàn, không phải kết quả AI đã hiểu cửa đi.
 
+## Nhận dạng phòng xếp tầng với tường ngăn ngang — V1.026
+
+- [x] Sửa `closed_rectangles` để **hai phòng trên/dưới có cùng một nét tường ngang gốc** đều được nhận diện, không bị loại do `used_horizontal`. Chiều trên/dưới dựa vào tọa độ Y, không phụ thuộc thứ tự chỉ số nét từ ảnh.
+- [x] Sắp xếp các biên dưới theo tọa độ gần nhất, chỉ ghép khi có đủ hai cạnh đứng thực tế, tránh bỏ qua một phòng nhỏ để dựng giả một phòng lớn.
+- [x] Giữ nguyên các chỉ số `sourceEdgeIndices`, không nhân đôi tường hoặc sửa bản vẽ trong Preview; tối đa 128 khung phòng.
+- [x] Thêm regression `ai_stacked_rooms_share_one_horizontal_source_edge_even_if_lines_are_out_of_order` với 2 phòng và 7 nét nguồn không theo thứ tự không gian.
+- [x] Đưa regression vào AI Large Image Gate và Windows Release Gate.
+- [ ] CI Windows trên commit chứa thay đổi phải PASS; chưa có chứng nhận ảnh thực tế / DWG hai chiều / Setup Portable.
+- [ ] Ứng viên này là **phòng chữ nhật quan sát đủ 4 cạnh**, chưa nhận dạng được phòng có cửa phá vỡ biên hoặc phòng đa giác.
+
+**Tiến độ tổng vẫn 33% triển khai, 0% nghiệm thu phát hành.** Không tăng tỷ lệ khi Windows chưa qua đầy đủ phép thử.
+
 ## Định hướng lần nâng cấp tiếp theo (theo thứ tự)
 
 1. **P0 – Gỡ lỗi CI Windows đúng SHA**: fix compile/test, chỉ ghi PASS khi kết quả hiện hữu. Không push liên tục làm nhiễu lượt kiểm thử.
