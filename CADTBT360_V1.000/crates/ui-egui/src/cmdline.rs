@@ -358,6 +358,17 @@ fn bilingual_prompt_caption(english:&str)->String {
     }
 }
 
+/// UI-only bilingual keyword caption. The original English keyword is
+/// still submitted to Prompt::match_keyword / Input::Keyword unchanged.
+fn bilingual_keyword_caption(keyword:&str)->String {
+    let vietnamese=crate::i18n::tr("vi",keyword);
+    if vietnamese!=keyword {
+        format!("{keyword} ({vietnamese})")
+    } else {
+        keyword.to_owned()
+    }
+}
+
 /// Matching command names/aliases for AutoComplete.
 fn suggestions(prefix: &str) -> Vec<Suggestion> {
     if prefix.is_empty() {return Vec::new();}
@@ -837,7 +848,8 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui, canvas: Rect) {
                 x += gw;
                 let kws = pr.keywords.clone();
                 for (i, k) in kws.iter().enumerate() {
-                    let g = p.layout_no_wrap(k.clone(), font.clone(), t.cmd_keyword);
+                    let caption=bilingual_keyword_caption(k);
+                    let g = p.layout_no_wrap(caption, font.clone(), t.cmd_keyword);
                     let r = Rect::from_min_size(pos2(x, bar.top() + 3.0), vec2(g.size().x, h - 6.0));
                     let resp = ui.interact(r, ui.scope_id().with(("kw", i)), Sense::click());
                     if resp.hovered() {
@@ -1289,6 +1301,13 @@ mod autocomplete_tests {
                 "native CAD command disappeared from search: {}",spec.id);
         }
         assert!(count>100,"engine command registry was unexpectedly empty");
+    }
+
+    #[test]
+    fn native_prompt_keyword_input_stays_english_when_caption_is_bilingual() {
+        assert_eq!(bilingual_keyword_caption("Undo"),"Undo (Hoàn tác)");
+        assert_eq!(bilingual_keyword_caption("Close"),"Close (Đóng)");
+        assert_eq!(bilingual_keyword_caption("UnknownKeyword"),"UnknownKeyword");
     }
 
     #[test]
