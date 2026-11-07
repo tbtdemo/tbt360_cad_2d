@@ -262,3 +262,14 @@ Các bài test đã được khai báo là bắt buộc trong `cad360-v1027-comm
 - [ ] Chưa kiểm thử DWG thực sự với AutoCAD. DXF roundtrip chỉ bảo đảm phần hình học trong test; chưa được dùng để tuyên bố tương thích 100% DWG.
 
 **CI:** chỉ công bố đã PASS khi workflow V1.027 của commit cuối kết luận `success`.
+
+## 23. OSNAP English-first (Tiếng Việt) và chuỗi chỉnh sửa hình học nghiệm thu
+
+- [x] Snap marker tooltip đọc nhãn OSNAP **English (Tiếng Việt)** thay vì chỉ dịch/chỉ tiếng Anh. Các nhãn đã kiểm thử gồm `Endpoint (Điểm cuối)`, `Midpoint (Trung điểm)`, `Center (Tâm)`, `Intersection (Giao điểm)`, `Perpendicular (Vuông góc)`, `Tangent (Tiếp tuyến)`. Giữ nguyên `SnapHit.mode` và `SnapHit.point`.
+- [x] Các nhãn được đặt trong vùng clip canvas tại bốn góc và tâm; không sửa hình học CAD để chiều theo hiển thị.
+- [x] Integration test `architectural_move_copy_offset_undo_redo_and_dxf_reopen`: LINE (0,0)→(10,0), MOVE (+5,+2), COPY (+0,+4), OFFSET +2 theo phía chọn; kết quả chính xác tại y=2,4,6. Undo xóa bản offset vừa tạo, Redo khôi phục; DXF lưu/mở lại vẫn là các đường LINE CAD.
+- [x] Bổ sung các test của mục này vào Windows CI V1.027 và cập nhật thông báo lỗi workflow.
+- [ ] Xác minh Windows CI mới nhất PASS, chạy trực tiếp EXE thử chuột OSNAP, click marker, chọn điểm, Undo/Redo, so sánh tọa độ engine thực nhận.
+- [ ] Đối chiếu DWG hai chiều với AutoCAD độc lập; DXF regression không phải bằng chứng tương đương DWG hoặc AutoCAD 2027 hoàn chỉnh.
+
+**Trạng thái:** đã commit mã nguồn, yêu cầu kiểm thử Windows và thao tác thực tế vẫn là cổng nghiệm thu bắt buộc.
