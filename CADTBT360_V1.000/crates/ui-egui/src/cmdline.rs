@@ -1547,7 +1547,7 @@ mod tests {
         app.ui.show_command_line=true;
         app.cmd.buffer="đường".into();
         let canvas=Rect::from_min_size(Pos2::ZERO,vec2(1200.0,800.0));
-        assert!(overlay_hit(&app,canvas,pos2(600.0,765.0)),
+        assert!(overlay_hit(&app,canvas,pos2(600.0,775.0)),
             "command text bar is interactive");
         assert!(!overlay_hit(&app,canvas,pos2(600.0,400.0)),
             "middle of drawing must remain available for snapping and dragging");
