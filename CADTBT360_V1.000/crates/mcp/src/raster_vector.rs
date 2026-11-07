@@ -340,6 +340,37 @@ fn closed_rectangles(lines: &[Line]) -> Vec<RectangleOutline> {
     result
 }
 
+/// Read-only topology: two independently closed regions are adjacent only
+/// when they use the SAME observed original boundary stroke. Never infer
+/// adjacency from image proximity or bridge doorway gaps. Room indices are
+/// indices into the filtered roomCandidates array, not closedRectangles.
+fn observed_room_adjacencies(rooms: &[Value]) -> Vec<Value> {
+    use std::collections::BTreeMap;
+    let mut by_edge: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
+    for (room_idx, room) in rooms.iter().enumerate() {
+        let Some(edges)=room["sourceEdgeIndices"].as_array() else {continue};
+        if edges.len()!=4 {continue;}
+        let Some(indices)=edges.iter().map(|v|v.as_u64().and_then(|n|usize::try_from(n).ok()))
+            .collect::<Option<Vec<_>>>() else {continue};
+        for edge in indices {
+            by_edge.entry(edge).or_default().push(room_idx);
+        }
+    }
+    let mut results=Vec::new();
+    for (source_edge,room_indices) in by_edge {
+        if room_indices.len()!=2 || room_indices[0]==room_indices[1] {continue;}
+        results.push(json!({
+            "roomIndices":room_indices,
+            "sourceEdgeIndex":source_edge,
+            "kind":"observed-shared-complete-boundary",
+            "passageConfirmed":false,
+            "requiresHumanReview":true
+        }));
+        if results.len()>=256 {break;}
+    }
+    results
+}
+
 /// A conservative column-like motif: a small near-square closed outline with
 /// two INTERIOR orthogonal hatch strokes crossing one another. Ordinary empty
 /// rectangles, large rooms, wall intersections and ambiguous hatches are not
@@ -1621,7 +1652,10 @@ pub fn preview(args: &Value) -> Result<Value, String> {
             "areaCAD2":room["areaPixels2"].as_f64().unwrap_or(0.0)*scale*scale,
             "classification":room["classification"],"requiresHumanReview":true})
     }).collect();
+    let room_adjacencies=observed_room_adjacencies(&room_world);
     let geometry=json!({
+        "roomAdjacencyCount":room_adjacencies.len(),
+        "roomAdjacencies":room_adjacencies,
         "roomCandidateCount":room_world.len(),"roomCandidates":room_world,
         "roomRecognitionStatus":"observed-closed-boundaries-only-needs-human-confirmation",
         "openingGuidePolylines":opening_guides_preview,
@@ -3187,6 +3221,25 @@ mod tests {
         assert_eq!(result["editableEntitiesCreated"],0);
         assert_eq!(result["closedPolylines"],json!([]),
             "Preview room evidence must not create closed CAD polylines");
+    }
+
+    #[test]
+    fn ai_room_topology_links_only_real_shared_source_edges_without_inventing_doors() {
+        let candidates=vec![
+            json!({"sourceEdgeIndices":[0,1,2,3]}),
+            json!({"sourceEdgeIndices":[4,5,3,6]}),
+            json!({"sourceEdgeIndices":[7,8,9,10]}),
+        ];
+        let links=observed_room_adjacencies(&candidates);
+        assert_eq!(links.len(),1);
+        assert_eq!(links[0]["roomIndices"],json!([0,1]));
+        assert_eq!(links[0]["sourceEdgeIndex"],3);
+        assert_eq!(links[0]["passageConfirmed"],false);
+        assert_eq!(links[0]["requiresHumanReview"],true);
+        assert!(observed_room_adjacencies(&[
+            json!({"sourceEdgeIndices":[0,1,2,3]}),
+            json!({"sourceEdgeIndices":[4,5,6,7]})
+        ]).is_empty(),"geometrically nearby rooms must not gain imaginary connections");
     }
 
     #[test]
