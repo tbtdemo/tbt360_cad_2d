@@ -3166,6 +3166,30 @@ mod tests {
     }
 
     #[test]
+    fn raster_region_preview_excludes_ui_strokes_without_changing_original_cad_coordinates() {
+        let path=std::env::temp_dir().join(format!("cad360_roi_test_{}.png",std::process::id()));
+        let mut img=image::RgbImage::from_pixel(240,120,image::Rgb([255,255,255]));
+        // A dense artificial ribbon on the left, and one architectural line
+        // on the right, in the original source coordinate system.
+        for y in (5..110).step_by(5) {
+            for x in 5..=100 { img.put_pixel(x,y,image::Rgb([0,0,0])); }
+        }
+        for x in 130..=220 {img.put_pixel(x,55,image::Rgb([0,0,0]));}
+        img.save(&path).unwrap();
+        let args=json!({"path":path.to_string_lossy(),"preview":true,
+            "minLengthPixels":12,"includeDiagonals":false,"maxLines":500,
+            "unitsPerPixel":10.0,"regionPixels":[120,20,110,80]});
+        let result=preview(&args).expect("ROI preview should ignore off-region ribbon");
+        assert_eq!(result["imageSize"],json!([240,120]));
+        assert_eq!(result["strokes"],1);
+        assert_eq!(result["lines"],json!([[[1305.0,655.0],[2205.0,655.0]]]));
+        assert_eq!(result["editableEntitiesCreated"],0);
+        let bad=preview(&json!({"path":path.to_string_lossy(),"regionPixels":[200,20,100,80]}));
+        assert!(bad.unwrap_err().contains("regionPixels"));
+        let _=std::fs::remove_file(path);
+    }
+
+    #[test]
     fn ai_architecture_room_candidate_is_only_evidence_and_never_auto_commits() {
         let path=std::env::temp_dir().join(format!("cad360_arch_room_{}.png",std::process::id()));
         let mut img=image::RgbImage::from_pixel(180,140,image::Rgb([255,255,255]));
