@@ -1,49 +1,69 @@
-# Windows AI large-image test profiler. Run from CADTBT360_V1.000 workspace.
-# Only observed test-worker RSS is reported; no synthetic "PASS" on missing samples.
+# Windows AI raster benchmark. Invoke from CADTBT360_V1.000.
+# Compile is EXCLUDED from timing. Peak WorkingSet64 is only an observed sample.
 param(
     [Parameter(Mandatory=$true)][string]$TestName,
-    [int]$PollMilliseconds = 200
+    [ValidateRange(5,2000)][int]$PollMilliseconds = 10
 )
 $ErrorActionPreference = 'Stop'
-if ($PollMilliseconds -lt 50 -or $PollMilliseconds -gt 2000) { throw 'Invalid poll interval' }
-# Compile OUTSIDE the timing window. Cargo compilation can take several
-# minutes on a cold runner and must never be reported as AI inference time.
-& cargo test --locked -p cadcraft-mcp --lib --no-run
-if ($LASTEXITCODE -ne 0) { throw "AI test precompile failed: exit code $LASTEXITCODE" }
+
+# Cargo JSON identifies the exact unit-test EXE that belongs to this checkout.
+# Never run a newest-file wildcard; it could measure a stale build.
+$messages = @(& cargo test --locked -p cadcraft-mcp --lib --no-run --message-format=json)
+if ($LASTEXITCODE -ne 0) { throw "AI test compilation failed: cargo code $LASTEXITCODE" }
+$executables = @($messages | ForEach-Object {
+    $line = [string]$_
+    if ($line.StartsWith('{')) {
+        try {
+            $entry = $line | ConvertFrom-Json
+            if ($entry.reason -eq 'compiler-artifact' -and
+                $entry.target.name -eq 'cadcraft_mcp' -and
+                $entry.profile.test -eq $true -and
+                $entry.executable -and
+                [string]$entry.executable -like '*.exe') {
+                [string]$entry.executable
+            }
+        } catch {
+            # Non-JSON cargo diagnostic; only compiler-artifact entries are used.
+        }
+    }
+} | Select-Object -Unique)
+if ($executables.Count -ne 1 -or !(Test-Path -LiteralPath $executables[0] -PathType Leaf)) {
+    throw "Expected one compiled cadcraft_mcp test EXE from Cargo JSON; got $($executables.Count)"
+}
+$exe = [string]$executables[0]
 $timer = [System.Diagnostics.Stopwatch]::StartNew()
 $peakWorkingSet = [long]0
 $samples = 0
-$proc = Start-Process -FilePath 'cargo' -ArgumentList @('test','--locked','-p','cadcraft-mcp','--lib',$TestName,'--','--nocapture') -PassThru -NoNewWindow
+$proc = Start-Process -FilePath $exe -ArgumentList @($TestName,'--nocapture') -PassThru -NoNewWindow
 try {
     do {
-        # cargo uses a hashed exe name such as cadcraft_mcp-<hash>.exe.
-        # Count only the test worker, not rustc or the cargo compilation phase.
-        foreach ($worker in @(Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.ProcessName -match '^cadcraft_mcp' })) {
-            try {
-                $worker.Refresh()
-                $rss = [long]$worker.WorkingSet64
+        try {
+            $proc.Refresh()
+            if (-not $proc.HasExited) {
+                $rss = [long]$proc.WorkingSet64
                 if ($rss -gt $peakWorkingSet) { $peakWorkingSet = $rss }
                 $samples++
-            } catch {
-                # The test process may exit between enumeration and sampling.
             }
+        } catch {
+            # Process can terminate between Refresh and WorkingSet64 sampling.
         }
-        Start-Sleep -Milliseconds $PollMilliseconds
-        $proc.Refresh()
+        if (-not $proc.HasExited) {
+            Start-Sleep -Milliseconds $PollMilliseconds
+        }
     } while (-not $proc.HasExited)
     $proc.WaitForExit()
     $timer.Stop()
-    $elapsedMs=[math]::Round($timer.Elapsed.TotalMilliseconds,0)
+    $wallMs=[math]::Round($timer.Elapsed.TotalMilliseconds,1)
     if ($samples -gt 0) {
         $peakMiB=[math]::Round($peakWorkingSet / 1MB,2)
-        Write-Host "AI_BENCHMARK test=$TestName cargo_test_wall_ms_after_precompile=$elapsedMs sampled_worker_peak_rss_mib=$peakMiB samples=$samples"
+        Write-Host "AI_BENCHMARK test=$TestName test_exe_wall_ms=$wallMs sampled_test_peak_rss_mib=$peakMiB samples=$samples poll_ms=$PollMilliseconds"
     } else {
-        Write-Warning "AI_BENCHMARK test=$TestName cargo_test_wall_ms_after_precompile=$elapsedMs peak_rss=NOT_CAPTURED (worker completed between samples)"
+        Write-Warning "AI_BENCHMARK test=$TestName test_exe_wall_ms=$wallMs sampled_test_peak_rss_mib=NOT_CAPTURED samples=0"
     }
-    if ($proc.ExitCode -ne 0) { throw "AI test $TestName failed with exit code $($proc.ExitCode)" }
-    # Start-Process does not set LASTEXITCODE. Without this, the caller sees
-    # the cargo --no-run exit code or an older native command's stale status.
-    # The previous Windows gate reported FAIL despite the 15 MP test passing.
+    if ($proc.ExitCode -ne 0) {
+        throw "AI test $TestName failed with exit code $($proc.ExitCode)"
+    }
+    # Start-Process does not update LASTEXITCODE for its caller.
     $global:LASTEXITCODE = 0
 } finally {
     if (-not $proc.HasExited) {
