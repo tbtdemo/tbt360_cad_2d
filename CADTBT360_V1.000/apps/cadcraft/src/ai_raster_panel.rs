@@ -1119,7 +1119,8 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
             if ui.add_enabled(state.pdf_pending.is_none() && state.preview_task.is_none() && !state.path.is_empty(),
                 egui::Button::new("PHÂN TÍCH MẶT BẰNG KIẾN TRÚC - Tường / Cửa / Cột / Phòng")).clicked() {
                 let _=apply_ai_instruction(state,"nhận dạng toàn bộ mặt bằng");
-                state.max_lines=state.max_lines.saturating_add(500).min(10_000);
+                // Architectural candidates still have a stricter bounded workload.
+                state.max_lines=state.max_lines.max(500);
                 state.reset_wall_junction_review();
                 start_image_preview(state,cad,ctx);
             }
