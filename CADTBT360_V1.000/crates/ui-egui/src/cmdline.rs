@@ -254,6 +254,48 @@ fn suggested_next_commands(id:&str)->&'static [&'static str] {
         _ => &["line","pline","dist","id"],
     }
 }
+/// Resolve only known native CAD commands. Session history may contain
+/// Vietnamese phrases or literal CAD aliases; never turn arbitrary user text
+/// into executable advice or silently create missing command aliases.
+fn command_from_history(text:&str)->Option<String> {
+    let query=fold_vi(text);
+    if let Some((_,command,_))=VI_COMMANDS.iter().find(|(phrase,_,_)|*phrase==query)
+        && cadcraft_engine::cmd::find_command(command).is_some() {
+        return Some((*command).to_owned());
+    }
+    let command=cadcraft_engine::cmd::resolve_alias(&query);
+    cadcraft_engine::cmd::find_command(&command).map(|spec|spec.id.to_owned())
+}
+
+/// A small session-only next-step model: frequently repeated command
+/// transitions are ranked higher, then safe context defaults. This does
+/// not change engine state, store private history or auto-dispatch actions.
+fn next_command_habits(current:&str, history:&[String])->Vec<String> {
+    let mut choices=Vec::new();
+    let mut scored=Vec::<(String,usize)>::new();
+    let tail=history.iter().rev().take(80).rev()
+        .filter_map(|command|command_from_history(command)).collect::<Vec<_>>();
+    for pair in tail.windows(2) {
+        if pair[0]!=current || pair[1]==current {continue;}
+        if let Some((_,count))=scored.iter_mut().find(|(name,_)|name==&pair[1]) {
+            *count+=1;
+        } else {
+            scored.push((pair[1].clone(),1));
+        }
+    }
+    scored.sort_by(|a,b|b.1.cmp(&a.1).then_with(||a.0.cmp(&b.0)));
+    for (cmd,_) in scored.into_iter().take(3) { choices.push(cmd); }
+    for cmd in suggested_next_commands(current) {
+        if cadcraft_engine::cmd::find_command(cmd).is_some()
+            && !choices.iter().any(|used|used==cmd) {
+            choices.push((*cmd).to_owned());
+        }
+        if choices.len()>=4 {break;}
+    }
+    choices.truncate(4);
+    choices
+}
+
 fn related_command_caption(id:&str)->Option<String> {
     let spec=cadcraft_engine::cmd::find_command(id)?;
     let vi=natural_language_command(id)
@@ -722,17 +764,10 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui, canvas: Rect) {
     // Contextual next-command hints appear after the previous command, not
     // while entering geometry. Existing CAD command input is never hijacked.
     if !app.session.prompting() && app.cmd.buffer.is_empty() {
-        let previous=app.cmd.history.last().map(|v|fold_vi(v))
-            .and_then(|v| {
-                VI_COMMANDS.iter().find(|(phrase,_,_)|*phrase==v)
-                    .map(|(_,id,_)|(*id).to_owned())
-                    .or_else(||{
-                        let resolved=cadcraft_engine::cmd::resolve_alias(&v);
-                        cadcraft_engine::cmd::find_command(&resolved).map(|spec|spec.id.to_owned())
-                    })
-            });
+        let previous=app.cmd.history.last()
+            .and_then(|text|command_from_history(text));
         if let Some(last)=previous {
-            let related=suggested_next_commands(&last).iter()
+            let related=next_command_habits(&last,&app.cmd.history).iter()
                 .filter_map(|id|related_command_caption(id)).take(3)
                 .collect::<Vec<_>>();
             if !related.is_empty() {
@@ -1184,6 +1219,19 @@ mod autocomplete_tests {
         assert!(!vietnamese_query_continues("lam sach ban ve"));
         assert_eq!(fold_vi("Làm Sạch BẢN VẼ"),"lam sach ban ve");
         assert!(active_command_guide("pline").contains("đỉnh"));
+    }
+
+    #[test]
+    fn next_command_habits_use_only_observed_verified_session_commands() {
+        let session=vec!["l","di","l","di","l","pl","l"].into_iter()
+            .map(String::from).collect::<Vec<_>>();
+        let suggested=next_command_habits("line",&session);
+        assert_eq!(suggested[0],"dist");
+        assert_eq!(suggested[1],"pline");
+        assert_eq!(command_from_history("làm sạch bản vẽ"),Some("purge".into()));
+        assert_eq!(command_from_history("lam sach ban ve"),Some("purge".into()));
+        assert!(command_from_history("invented_ai_command").is_none());
+        assert!(suggested.iter().all(|id|cadcraft_engine::cmd::find_command(id).is_some()));
     }
 
     #[test]
