@@ -2858,9 +2858,10 @@ mod tests {
         for x in 120..=4880 {
             img.put_pixel(x, 1400, image::Luma([0]));
         }
+        let stamp=std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
         let path=std::env::temp_dir().join(format!(
-            "cad360_large_{}_{}.png", std::process::id(),
-            std::thread::current().name().unwrap_or("regression").replace(' ', "_")
+            "cad360_large_{}_{}.png", std::process::id(), stamp
         ));
         img.save(&path).expect("write large PNG fixture");
         drop(img);
