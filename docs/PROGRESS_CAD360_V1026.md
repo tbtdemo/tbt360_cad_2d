@@ -53,6 +53,16 @@ Các tỷ lệ trên cố ý **không cộng điểm cho build đang Queued**. N
 - Gói pre-release thành công: GitHub Actions → workflow **CAD 360 V1.026 - AI Large Image Gate** → Artifacts `CADTBT360_V1.026_AI_Gate_<SHA>`, gồm ZIP nguồn, Word AI, Word tổng hợp nền, BUILD_INFO và SHA256SUMS.
 - Chưa có **Setup/Portable V1.026** trong gói pre-release; không được giới thiệu đây là bản cài phát hành.
 
+## Hướng dẫn cho người mới — đợt nâng cấp tài liệu 07/11/2026
+
+- [x] Tạo giáo trình Word **34 bài / 39 trang A4**, thiết kế bìa, mục lục có số trang, bảng lệnh tắt trước bài 01, header/footer và số trang.
+- [x] Mỗi bài có 6 bước hướng dẫn, mục tiêu, công cụ/lệnh, 1 sơ đồ minh họa có caption, tự kiểm tra và xử lý lỗi.
+- [x] Render toàn bộ Word thành PNG, kiểm tra bố cục tổng thể và không tràn trang.
+- [x] Lưu khung giáo trình chi tiết tại `docs/user-guide/CAD360_V1.026_GIAO_TRINH_NGUOI_MOI_34_BAI.md`.
+- [ ] Hình chụp thật từng thao tác từ Windows EXE theo đúng SourceCommit; bản hiện tại dùng sơ đồ kỹ thuật giảng dạy, không giả làm screenshot.
+- [ ] Gắn nguồn Word và hình vào workflow đóng gói Setup/Portable V1.026, nghiệm thu hash trước phát hành.
+- **Không thay đổi % AI lõi/nhận dạng chỉ vì đã tạo tài liệu; giữ % kỹ thuật tổng 27%, nghiệm thu phát hành 0%.**
+
 ## Định hướng lần nâng cấp tiếp theo (theo thứ tự)
 
 1. **P0 – Gỡ lỗi CI Windows đúng SHA**: fix compile/test, chỉ ghi PASS khi kết quả hiện hữu. Không push liên tục làm nhiễu lượt kiểm thử.
