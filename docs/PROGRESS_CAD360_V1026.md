@@ -16,7 +16,7 @@
 | Nhóm bắt buộc | Mốc mã nguồn | % triển khai | Bằng chứng hiện có | Chưa đạt / bước tiếp theo |
 |---|---:|---:|---|---|
 | 1. PNG 15 MP trên Windows | 2/5 | **40%** | Test thật 5000×3000 + workflow Windows riêng | Chưa có PASS đúng SHA, log CPU/RAM, UI Preview |
-| 2. 36 MP / nhiều nghìn nét | 3/6 | **50%** | 64 MiB/8192 px/36 MP guard, 10k stroke input, quét cặp tường 2500 nét | Test 36 MP, đo thời gian/RAM, pipeline phân vùng/ghép semantic |
+| 2. 36 MP / nhiều nghìn nét | 3/6 | **50%** | 64 MiB/8192 px/36 MP guard, 10k stroke input, quét cặp tường 2500 nét | Đã viết test PNG 36 MP và log thời gian; còn chờ PASS Windows, đo peak RAM, pipeline phân vùng/ghép semantic |
 | 3. Hiểu tường/cửa/cột/phòng phức tạp | 1/8 | **13%** | Hiện có bộ tạo ứng viên hình học, không phải model semantic | Bộ ground truth, kiểm thử mở tường/cửa, phòng không kín, độ chính xác Precision/Recall, phát hiện chữ/kích thước, nhiều tầng/vùng |
 | 4. Tự dựng mặt bằng chuẩn xác | 1/8 | **13%** | Các lệnh native và Preview+Approve đã có | Plan tổng thể, kết nối đối tượng, gán layer/block và kích thước, Undo nhóm, sai số/vòng đời CAD, AutoCAD đối chiếu |
 | 5. Setup/Portable/ZIP nguồn/Word V1.026 | 2/6 | **33%** | Tách nhánh và gate tạo ZIP nguồn đúng SHA + 2 tài liệu Word sau PASS | GUI/installer đổi phiên bản, phát hành Setup/Portable, đầy đủ tài liệu hình ảnh, metadata/tags/hash, kiểm thử cài-gỡ |
@@ -36,7 +36,7 @@ Các tỷ lệ trên cố ý **không cộng điểm cho build đang Queued**. N
 - [x] Đưa các bộ suy luận kiến trúc còn giới hạn vào luồng báo lỗi rõ ràng thay vì trả ứng viên rỗng.
 - [x] Thêm Windows gate độc lập và điều kiện lưu nguồn + Word + SHA256 khi PASS.
 - [ ] Windows gate đúng commit đã PASS.
-- [ ] Benchmark 36 MP đa trang và dữ liệu >10.000 nét có giới hạn RAM rõ ràng.
+- [x] Viết test ảnh thật 36 MP, log thời gian và kiểm tra giữ nguyên kích thước nguồn (chưa PASS).\n- [ ] Benchmark 36 MP nhiều trang và dữ liệu >10.000 nét có giới hạn RAM rõ ràng.
 - [ ] Nhận dạng phòng mở/tường đứt/cửa+cột trên dữ liệu ground truth.
 - [ ] Dựng mặt bằng hoàn chỉnh, sai số kích thước được thống kê.
 - [ ] V1.026 Setup/Portable/ZIP nguồn/HDSD Word mới đồng nhất version.
