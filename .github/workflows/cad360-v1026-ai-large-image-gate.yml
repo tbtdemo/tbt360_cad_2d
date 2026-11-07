@@ -1,0 +1,145 @@
+name: CAD 360 V1.026 - AI Large Image Gate
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [feature/CADTBT360_V1.026_AI_LARGE_IMAGE]
+    paths:
+      - 'CADTBT360_V1.000/crates/mcp/**'
+      - 'CADTBT360_V1.000/crates/ui-egui/**'
+      - '.github/workflows/cad360-v1026-ai-large-image-gate.yml'
+      - 'docs/user-guide/CAD360_V1.026_AI_LARGE_IMAGE.md'
+  pull_request:
+    paths:
+      - 'CADTBT360_V1.000/crates/mcp/**'
+      - '.github/workflows/cad360-v1026-ai-large-image-gate.yml'
+
+permissions:
+  contents: read
+concurrency:
+  group: v1026-large-image-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  ai-raster:
+    name: Check Windows image-to-CAD and large-raster regression
+    runs-on: windows-latest
+    timeout-minutes: 80
+    defaults:
+      run:
+        working-directory: CADTBT360_V1.000
+    steps:
+      - name: Exact source checkout
+        uses: actions/checkout@v4
+      - name: Rust stable
+        uses: dtolnay/rust-toolchain@stable
+      - name: Cargo cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: CADTBT360_V1.000
+          key: v1026-ai-large-raster
+      - name: Compile CAD GUI, MCP and CLI
+        shell: pwsh
+        run: |
+          cargo check --locked -p cadcraft --bin cadcraft
+          if ($LASTEXITCODE -ne 0) { throw 'V1.026 GUI compilation failed' }
+          cargo check --locked -p cadcraft-mcp -p cadcraft-cli
+          if ($LASTEXITCODE -ne 0) { throw 'V1.026 MCP/CLI compilation failed' }
+      - name: Large PNG real decode and calibrated CAD coordinate test
+        shell: pwsh
+        run: |
+          # Simulate a stale failure from a previous native command. An actual
+          # passing benchmark script must clear LASTEXITCODE for its caller.
+          $global:LASTEXITCODE = 77
+          & ../scripts/profile_ai_raster.ps1 -TestName 'large_png_5000_by_3000_preserves_original_pixel_to_cad_calibration'
+          if ($LASTEXITCODE -ne 0) { throw 'V1.026 15 MP AI image regression failed' }
+          & ../scripts/profile_ai_raster.ps1 -TestName 'ai_36_megapixel_png_preview_preserves_full_resolution'
+          if ($LASTEXITCODE -ne 0) { throw 'V1.026 36 MP AI image regression failed' }
+      - name: Image-to-CAD and TRIM GUI regressions
+        shell: pwsh
+        run: |
+          cargo test --locked -p cadcraft-mcp --lib raster_vector -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'V1.026 raster vector tests failed' }
+          cargo test --locked -p cadcraft-mcp --lib ai_large_drawing_wall_pairs_use_original_indices_after_spatial_sort -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'V1.026 2500-stroke wall-pair regression failed' }
+          cargo test --locked -p cadcraft-mcp --lib ai_preview_reports_closed_room_without_opt_in_to_create_rectangle -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'V1.026 AI Preview suppressed valid room when closedRectangles was disabled' }
+          cargo test --locked -p cadcraft-mcp --lib ai_room_contact_rejects_crosswise_and_skewed_opening_shapes -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'AI room-opening matching must reject crosswise/skewed polygon candidates' }
+          cargo test --locked -p cadcraft-mcp --lib ai_paired_gap_near_two_room_boundaries_remains_unverified -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'V1.026 opening-room contact caused an unverified or fabricated doorway' }
+          cargo test --locked -p cadcraft-mcp --lib ai_room_adjacency_shared_source_cannot_auto_create_a_door -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'V1.026 room adjacency must not infer doorway from shared source wall' }
+          cargo test --locked -p cadcraft-mcp --lib ai_room_topology_links_only_real_shared_source_edges_without_inventing_doors -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'V1.026 AI room adjacency graph shared-source evidence regression failed' }
+          cargo test --locked -p cadcraft-mcp --lib ai_four_room_grid_keeps_shared_walls_and_exact_topology -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'V1.026 2x2 floorplan rooms and four shared-wall contacts failed' }
+          cargo test --locked -p cadcraft-mcp --lib ai_stacked_rooms_share_one_horizontal_source_edge_even_if_lines_are_out_of_order -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'V1.026 stacked rooms with a shared horizontal source partition failed' }
+          cargo test --locked -p cadcraft-mcp --lib ai_adjacent_rooms_share_true_partition_wall_without_fake_geometry -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'AI shared interior-wall two-room geometry regression failed' }
+          cargo test --locked -p cadcraft-mcp --lib ai_large_floorplan_room_detection_keeps_global_entity_indices -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'V1.026 2400-stroke room detection regression failed' }
+          cargo test --locked -p cadcraft-mcp --lib ai_room_geometry_benchmark_excludes_missing_corner_and_skew_false_positive -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'V1.026 room benchmark accepted malformed or skewed geometry' }
+          cargo test --locked -p cadcraft-mcp --lib ai_room_geometry_benchmark_reports_missing_extra_and_malformed_refs -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'V1.026 supervised geometric precision/recall benchmark failed' }
+          cargo test --locked -p cadcraft-mcp --lib ai_three_room_ground_truth_geometry_has_no_extra_closed_rooms -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'V1.026 three-room labelled geometry reference regression failed' }
+          cargo test --locked -p cadcraft-mcp --lib ai_tile_diagnostics_keep_global_vector_indices_across_seams -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'V1.026 tiled global vector seam regression failed' }
+          cargo test --locked -p cadcraft-mcp --lib ai_dense_hatch_component_is_skipped_without_unbounded_pca_points -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'V1.026 large dark-fill PCA memory regression failed' }
+          cargo test --locked -p cadcraft-mcp --lib ai_wall_sweep_ten_thousand_collinear_strokes_does_not_invent_walls -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'V1.026 10000-line wall-pair performance regression failed' }
+          cargo test --locked -p cadcraft-ui-egui --lib trim_and_extend_acknowledge_active_selection_even_without_dynamic_input -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'V1.026 TRIM feedback regression failed' }
+          cargo test --locked -p cadcraft-ui-egui --lib ai_review_accepts_one_command_per_line_without_partial_mutation -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'V1.026 AI review parser regression failed' }
+      - name: Prepare Python and stage V1.026 docs / exact-source archive
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Package exact-commit source and editable AI guide (pre-release only)
+        shell: pwsh
+        working-directory: .
+        run: |
+          New-Item -ItemType Directory -Force dist/v1026 | Out-Null
+          python docs/user-guide/build_word_guide.py docs/user-guide/CAD360_V1.026_AI_LARGE_IMAGE.md dist/v1026/CAD360_V1.026_AI_LARGE_IMAGE_GUIDE.docx
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot build V1.026 Word AI guide' }
+          python scripts/validate_full_user_guide.py docs/user-guide/CADTBT360_V1.025_GIAO_TRINH_TONG_HOP_TAT_CA_TINH_NANG.md
+          if ($LASTEXITCODE -ne 0) { throw 'Full-product user guide source validation failed' }
+          python docs/user-guide/build_word_guide.py docs/user-guide/CADTBT360_V1.025_GIAO_TRINH_TONG_HOP_TAT_CA_TINH_NANG.md dist/v1026/CAD360_FULL_PRODUCT_GUIDE_BASE_V1025.docx
+          if ($LASTEXITCODE -ne 0) { throw 'Full-product Word guide generation failed' }
+          python scripts/validate_word_guide.py dist/v1026/CAD360_FULL_PRODUCT_GUIDE_BASE_V1025.docx
+          if ($LASTEXITCODE -ne 0) { throw 'Full-product Word guide is invalid or incomplete' }
+          python -m pip install --disable-pip-version-check "python-docx==1.2.0" "Pillow==11.3.0"
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot set up illustrated Word curriculum toolchain' }
+          python scripts/build_beginner_guide.py docs/user-guide/CAD360_V1.026_GIAO_TRINH_NGUOI_MOI_34_BAI.md dist/v1026/CADTBT360_V1.026_GIAO_TRINH_NGUOI_MOI.docx
+          if ($LASTEXITCODE -ne 0) { throw 'Beginner 34-lesson illustrated Word guide failed' }
+          python scripts/verify_source_bundle.py --build dist/v1026/CADTBT360_V1.026_Full_Source.zip
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot build exact-source bundle' }
+          python scripts/verify_source_bundle.py dist/v1026/CADTBT360_V1.026_Full_Source.zip
+          if ($LASTEXITCODE -ne 0) { throw 'Source ZIP differs from commit SHA' }
+          @("ReleaseCandidate=CADTBT360_V1.026", "SourceCommit=$env:GITHUB_SHA", 'Status=PRE_RELEASE_AI_TEST_ONLY') | Set-Content dist/v1026/BUILD_INFO.txt -Encoding utf8
+          Get-ChildItem dist/v1026 -File | ForEach-Object {
+            "$($_.Name) $((Get-FileHash $_.FullName -Algorithm SHA256).Hash)"
+          } | Set-Content dist/v1026/SHA256SUMS.txt -Encoding utf8
+      - name: Archive source + Word guide for each passing AI gate
+        uses: actions/upload-artifact@v4
+        with:
+          name: CADTBT360_V1.026_AI_Gate_${{ github.sha }}
+          path: |
+            dist/v1026/CADTBT360_V1.026_Full_Source.zip
+            dist/v1026/CAD360_V1.026_AI_LARGE_IMAGE_GUIDE.docx
+            dist/v1026/CAD360_FULL_PRODUCT_GUIDE_BASE_V1025.docx
+            dist/v1026/CADTBT360_V1.026_GIAO_TRINH_NGUOI_MOI.docx
+            dist/v1026/BUILD_INFO.txt
+            dist/v1026/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 90
+      - name: Report commit and stage (not a release)
+        shell: pwsh
+        run: |
+          Write-Host "V1.026 large image pre-release verification: $env:GITHUB_SHA"
+          Write-Host 'This gate does not claim native GUI acceptance, AI semantic accuracy, Setup/Portable packaging or production release.'

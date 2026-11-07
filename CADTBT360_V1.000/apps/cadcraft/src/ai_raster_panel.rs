@@ -355,7 +355,7 @@ fn render_pdf_page_cancellable(pdf:&std::path::Path,page:u32,cancel:&std::sync::
         return Err(format!("Không thể chuyển trang PDF {page}. Kiểm tra PDF có mật khẩu, bị hỏng hoặc trang không tồn tại (mã thoát: {status})."));
     }
     let size=std::fs::metadata(&png).map_err(|e|format!("Không tìm thấy ảnh trang PDF: {e}"))?.len();
-    if size==0 || size>80*1024*1024 { let _=std::fs::remove_file(&png); return Err("Ảnh PDF tạo ra rỗng hoặc quá 80 MB.".into()); }
+    if size==0 || size>64*1024*1024 { let _=std::fs::remove_file(&png); return Err("Ảnh PDF tạo ra rỗng hoặc vượt 64 MiB.".into()); }
     Ok(png)
 }
 
@@ -427,6 +427,13 @@ fn poll_pdf_render(state: &mut State, ctx: &egui::Context) {
 }
 
 /// Applies a safe, deterministic AI workflow preset. A text instruction never writes CAD directly.
+/// Conservative one-click recovery when a large screenshot produces too
+/// many short raster strokes. This only changes detection thresholds; it
+/// NEVER accepts a result, issues a CAD command or alters the source image.
+fn next_dense_image_filter_min_length(current:u32)->u32 {
+    current.max(16).saturating_mul(4).min(4096)
+}
+
 fn apply_ai_instruction(state: &mut State, instruction: &str) -> Result<&'static str, &'static str> {
     let q=instruction.trim().to_lowercase();
     if q.is_empty() { return Err("Hãy nhập yêu cầu, ví dụ: nhận dạng toàn bộ mặt bằng, tường, cửa, cột hoặc nét."); }
@@ -465,7 +472,7 @@ fn fingerprint_image(path:&str)->Result<(u64,u64),String> {
     use std::io::Read;
     let file=std::fs::File::open(path).map_err(|e|format!("Không đọc được ảnh nguồn AI: {e}"))?;
     let size=file.metadata().map_err(|e|e.to_string())?.len();
-    if size==0 || size>80*1024*1024 {return Err("Ảnh nguồn AI phải từ 1 byte đến 80 MB.".into());}
+    if size==0 || size>64*1024*1024 {return Err("Ảnh nguồn AI phải từ 1 byte đến 64 MiB.".into());}
     let mut reader=std::io::BufReader::new(file);
     let mut hasher=std::collections::hash_map::DefaultHasher::new();
     let mut total=0u64;
@@ -474,7 +481,7 @@ fn fingerprint_image(path:&str)->Result<(u64,u64),String> {
         let n=reader.read(&mut buffer).map_err(|e|format!("Lỗi đọc ảnh nguồn AI: {e}"))?;
         if n==0 {break;}
         total+=n as u64;
-        if total>80*1024*1024 {return Err("Ảnh nguồn AI vượt giới hạn 80 MB.".into());}
+        if total>64*1024*1024 {return Err("Ảnh nguồn AI vượt giới hạn 64 MiB.".into());}
         buffer[..n].hash(&mut hasher);
     }
     Ok((total,hasher.finish()))
@@ -807,12 +814,15 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
             }
             ui.horizontal(|ui| {
                 ui.label("Giới hạn nét tối đa");
-                if ui.add(egui::DragValue::new(&mut state.max_lines).speed(10).range(50..=1000)).changed() { state.preview=None; }
+                if ui.add(egui::DragValue::new(&mut state.max_lines).speed(10).range(50..=10_000)).changed() { state.preview=None; }
                 ui.label("Nét tối thiểu (px)");
                 if ui.add(egui::DragValue::new(&mut state.min_length).range(2..=4096)).changed() { state.preview = None; }
                 ui.label("Đơn vị CAD/pixel");
                 if ui.add(egui::DragValue::new(&mut state.scale).speed(0.01).range(0.000001..=1_000_000.0)).changed() { state.preview = None; }
             });
+            if state.max_lines > 1000 {
+                ui.small("Chế độ dữ liệu lớn: hỗ trợ tối đa 10.000 nét hình học; một số chức năng nhận dạng phòng/cửa/cột vẫn phải phân vùng để tránh sai và treo máy.");
+            }
             }
             if state.studio_tab==2 {
             ui.heading("Thiết lập nhận dạng nâng cao");
@@ -1116,6 +1126,7 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
             if ui.add_enabled(state.pdf_pending.is_none() && state.preview_task.is_none() && !state.path.is_empty(),
                 egui::Button::new("PHÂN TÍCH MẶT BẰNG KIẾN TRÚC - Tường / Cửa / Cột / Phòng")).clicked() {
                 let _=apply_ai_instruction(state,"nhận dạng toàn bộ mặt bằng");
+                // Architectural candidates still have a stricter bounded workload.
                 state.max_lines=state.max_lines.max(500);
                 state.reset_wall_junction_review();
                 start_image_preview(state,cad,ctx);
@@ -1130,15 +1141,30 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
             if state.preview_task.is_some() {
                 ui.horizontal(|ui| {ui.spinner();ui.label("AI đang phân tích ảnh và dựng bản nháp CAD. Bạn vẫn có thể thao tác trên giao diện.");});
             }
-            if let Some(error)=&state.error {
-                ui.colored_label(egui::Color32::RED,error);
-                if error.contains("exceeding maxLines") {
-                    ui.label("Ảnh đang có nhiều nét hơn ngưỡng đã chọn. Có thể tăng giới hạn (tối đa 1000), tăng 'Nét tối thiểu' để bỏ nét nhiễu, hoặc cắt bớt vùng ảnh.");
-                    if ui.button("Tăng ngưỡng lên 500 nét và xem trước lại").clicked() {
-                        state.max_lines=state.max_lines.max(500);
-                        state.reset_wall_junction_review();
-                        start_image_preview(state,cad,ctx);
-                    }
+            if let Some(error)=state.error.clone() {
+                ui.colored_label(egui::Color32::RED,&error);
+                let dense_architecture=error.contains("architectural candidate detection is bounded to 1000 strokes");
+                let dense_geometry=error.contains("exceeding maxLines");
+                if dense_architecture || dense_geometry {
+                    ui.label("Ảnh quá nhiều nét cho bộ phân tích hiện tại. Đây KHÔNG phải kết quả AI đã vẽ hoặc hiểu mặt bằng; Preview chưa được tạo.");
+                    ui.small("Ảnh chụp cả phần mềm CAD (ribbon, bảng Layer, chữ, icon) tạo rất nhiều nét nhiễu. Hãy dùng ảnh/PDF chỉ chứa vùng mặt bằng, không chụp cả giao diện. Tốt nhất cắt vùng từng tầng hoặc từng khu có đúng tỷ lệ.");
+                    ui.small("Để thử giảm nhiễu, có thể tăng độ dài nét tối thiểu. Các chi tiết cửa, tường ngắn có thể bị mất; phải kiểm duyệt lại, không tự ghi CAD.");
+                    ui.horizontal_wrapped(|ui| {
+                        if ui.add_enabled(state.min_length<4096 && state.preview_task.is_none(),
+                            egui::Button::new("Lọc mạnh nét ngắn (x4) và thử lại")).clicked() {
+                            state.min_length=next_dense_image_filter_min_length(state.min_length);
+                            state.max_lines=10_000;
+                            state.reset_wall_junction_review();
+                            start_image_preview(state,cad,ctx);
+                        }
+                        if dense_geometry && state.max_lines<10_000
+                            && ui.button("Tăng giới hạn nét hình học đến 10.000").clicked() {
+                            state.max_lines=10_000;
+                            state.reset_wall_junction_review();
+                            start_image_preview(state,cad,ctx);
+                        }
+                    });
+                    ui.small(format!("Đang thiết lập: nét tối thiểu {} px; giới hạn hiển thị {} nét. Phân tích kiến trúc vẫn giới hạn 1.000 nét và chưa có mô hình AI ngữ nghĩa.",state.min_length,state.max_lines));
                 }
             }
             let Some(proposal) = &state.preview else { return; };
@@ -1162,8 +1188,43 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
             let door_blocks_count = proposal["doorBlockDraftCount"].as_u64().unwrap_or(0);
             ui.label(format!("Đã nhận dạng: {count} nét nguồn, {rectangle_count} PLINE kín, {wall_pairs} cặp nét song song nghi là mép tường."));
             ui.strong(format!("PHÂN TÍCH MẶT BẰNG: {room_count} vùng khép kín nghi là phòng · {wall_panel_count} dải tường · {paired_opening_count} khoảng mở · {column_hint_count} ứng viên cột"));
+            if let Some(tiles)=proposal["rasterTiles"].as_array() {
+                let populated=tiles.iter().filter(|tile|
+                    tile["vectorCount"].as_u64().unwrap_or(0)>0).count();
+                let overfull=tiles.iter().filter(|tile|
+                    tile["indicesTruncated"]==true).count();
+                ui.small(format!("Phân vùng ảnh 1024 px: {} vùng, {} vùng có nét · tọa độ toàn cục giữ nguyên",
+                    tiles.len(),populated));
+                if overfull>0 {
+                    ui.colored_label(egui::Color32::YELLOW,
+                        format!("{overfull} vùng có >256 nét giao biên; danh sách chỉ số chi tiết bị giới hạn để tránh nặng giao diện."));
+                }
+                ui.small("Phân vùng là số liệu kiểm soát nguồn; CHƯA chứng minh AI đã hiểu cửa, cột và phòng phức tạp.");
+            }
             if room_count>0 {
                 ui.small("Phòng chỉ là giả thuyết từ 4 cạnh khép kín quan sát được; chưa tự xác định tên phòng hoặc công năng.");
+                let adjacent=proposal["roomAdjacencyCount"].as_u64().unwrap_or(0);
+                ui.small(format!("Có {adjacent} cặp vùng chung cạnh tường NGUỒN thực tế; không suy diễn cửa ra vào hoặc lối thông."));
+                let contact_count=proposal["openingRoomContactCount"].as_u64().unwrap_or(0);
+                ui.small(format!("{contact_count} khoảng mở có hai mép tường gần biên phòng: chỉ là ứng viên cần duyệt, KHÔNG phải cửa đi đã xác nhận."));
+                if let Some(contacts)=proposal["openingRoomContacts"].as_array() {
+                    for contact in contacts.iter().take(12) {
+                        let rooms=contact["roomIndices"].as_array()
+                            .map(|v|v.iter().filter_map(Value::as_u64)
+                                .map(|i|(i+1).to_string()).collect::<Vec<_>>().join(", "))
+                            .unwrap_or_default();
+                        let opening=contact["openingIndex"].as_u64().unwrap_or(0)+1;
+                        ui.small(format!("Khoảng mở #{opening} gần vùng [{rooms}] · chưa xác nhận loại cửa/lối thông"));
+                    }
+                }
+                if let Some(links)=proposal["roomAdjacencies"].as_array() {
+                    for link in links.iter().take(12) {
+                        let a=link["roomIndices"][0].as_u64().unwrap_or(0)+1;
+                        let b=link["roomIndices"][1].as_u64().unwrap_or(0)+1;
+                        let edge=link["sourceEdgeIndex"].as_u64().unwrap_or(0);
+                        ui.small(format!("Vùng {a} ↔ {b}: cùng nét nguồn #{edge} · chưa xác nhận lối thông"));
+                    }
+                }
                 if let Some(rooms)=proposal["roomCandidates"].as_array() {
                     for (index,room) in rooms.iter().take(12).enumerate() {
                         let w=room["widthCAD"].as_f64().unwrap_or(0.0);
@@ -1376,6 +1437,30 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
                                 (a[0].as_f64(),a[1].as_f64(),b[0].as_f64(),b[1].as_f64()) else { continue };
                             painter.line_segment([to_screen(x0,y0),to_screen(x1,y1)],
                                 egui::Stroke::new(2.5, egui::Color32::from_rgb(100,190,255)));
+                        }
+                    }
+                    // Lime room boundaries are READ-ONLY candidates detected
+                    // from four observed original walls. Distinguish these from
+                    // blue closed PLINEs that the operator opted to create.
+                    if let Some(rooms)=proposal["roomCandidates"].as_array() {
+                        for (room_idx,room) in rooms.iter().take(128).enumerate() {
+                            let Some(vertices)=room["outlineCAD"].as_array() else {continue};
+                            if vertices.len()!=4 {continue;}
+                            let Some(points)=vertices.iter().map(|p|{
+                                let x=p[0].as_f64()?;let y=p[1].as_f64()?;
+                                (x.is_finite() && y.is_finite()).then_some(to_screen(x,y))
+                            }).collect::<Option<Vec<_>>>() else {continue};
+                            for i in 0..4 {
+                                painter.line_segment([points[i],points[(i+1)%4]],
+                                    egui::Stroke::new(2.0,egui::Color32::from_rgb(160,230,110)));
+                            }
+                            let center=egui::pos2(
+                                (points[0].x+points[2].x)*0.5,
+                                (points[0].y+points[2].y)*0.5);
+                            painter.text(center,egui::Align2::CENTER_CENTER,
+                                format!("P{}",room_idx+1),
+                                egui::FontId::proportional(12.0),
+                                egui::Color32::from_rgb(190,245,155));
                         }
                     }
                     // Orange outlines show paired-wall opening candidates in real CAD
@@ -1835,7 +1920,7 @@ mod tests {
         let mut state=State::default();state.open();
         assert_eq!(state.studio_tab,0);
         assert!(state.max_lines>=274);
-        assert!(state.max_lines<=1000);
+        assert!(state.max_lines<=10_000);
     }
 
     #[test]
@@ -2268,6 +2353,15 @@ mod tests {
         assert_eq!(original.0,modified.0);
         assert_ne!(original.1,modified.1,"same-length changed image must invalidate approval");
         let _=std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn ai_dense_image_filter_increases_only_detection_threshold_and_stays_bounded() {
+        assert_eq!(next_dense_image_filter_min_length(16),64);
+        assert_eq!(next_dense_image_filter_min_length(64),256);
+        assert_eq!(next_dense_image_filter_min_length(500),2000);
+        assert_eq!(next_dense_image_filter_min_length(4096),4096);
+        assert_eq!(next_dense_image_filter_min_length(u32::MAX),4096);
     }
 
     #[test]

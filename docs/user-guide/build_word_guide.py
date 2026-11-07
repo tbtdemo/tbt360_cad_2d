@@ -149,7 +149,12 @@ def build(source: Path, dest: Path) -> None:
     if missing:
         raise ValueError(f"User guide is incomplete: missing {missing}")
     dest.parent.mkdir(parents=True, exist_ok=True)
-    core_title = "CAD 360 Viet Nam V1.025 - " + ("Giao trinh tong hop CAD 2D, QTO, IFC, BIM, AI, MCP" if "GIAO_TRINH" in source.name.upper() else "Huong dan AI tu anh thanh CAD")
+    # Version follows the actual source manual, never a stale hardcoded 1.025.
+    match = re.search(r"V1[.]\d{3}", dest.name.upper())
+    if not match:
+        match = re.search(r"V1[.]\d{3}", markdown)
+    release = match.group(0) if match else "VERSION_UNVERIFIED"
+    core_title = "CAD 360 Viet Nam " + release + " - " + ("Giao trinh tong hop CAD 2D, QTO, IFC, BIM, AI, MCP" if "GIAO_TRINH" in source.name.upper() else "Huong dan AI tu anh thanh CAD")
     core = CORE.replace("CAD 360 Viet Nam V1.025 - Vietnamese User Guide", escape(core_title))
     with ZipFile(dest, "w", compression=ZIP_DEFLATED) as z:
         z.writestr("[Content_Types].xml", CONTENT_TYPES)
@@ -164,8 +169,16 @@ def build(source: Path, dest: Path) -> None:
         if bad or not required_parts.issubset(z.namelist()):
             raise ValueError(f"Invalid DOCX output: {bad}")
         document = z.read("word/document.xml")
-        if "|" in markdown and "<w:tbl>" not in document.decode("utf-8"):
-            raise ValueError("Markdown contains table cells but DOCX contains no actual Word tables")
+        # Pipes are also used to separate native AI commands (e.g. LINE | CIRCLE).
+        # Require a native Word table only when Markdown has actual table rows;
+        # do not mistake inline command separators for a table.
+        has_markdown_table = any(
+            line.lstrip().startswith("|") and line.rstrip().endswith("|")
+            and len(line.strip().strip("|").split("|")) >= 2
+            for line in markdown.splitlines()
+        )
+        if has_markdown_table and "<w:tbl>" not in document.decode("utf-8"):
+            raise ValueError("Markdown table rows were not converted into a native Word table")
     if dest.stat().st_size < 2000:
         raise ValueError("Generated DOCX unexpectedly small")
 

@@ -1,0 +1,1077 @@
+name: CAD 360 V1.026 - Windows Setup Portable
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'installer/CADTBT360_V1.026_Windows.iss'
+      - '.github/workflows/cad360-v1026-release.yml'
+      - 'CADTBT360_V1.000/**'
+      - 'scripts/verify_mcp_executable.ps1'
+      - 'scripts/validate_mcp_smoke_fixture.py'
+      - 'scripts/verify_source_bundle.py'
+      - 'scripts/validate_full_user_guide.py'
+      - 'scripts/validate_word_guide.py'
+      - 'docs/user-guide/**'
+  push:
+    branches:
+      - feature/CADTBT360_V1.026_AI_LARGE_IMAGE
+    paths:
+      - 'CADTBT360_V1.000/**'
+      - 'installer/CADTBT360_V1.026_Windows.iss'
+      - '.github/workflows/cad360-v1026-release.yml'
+      - '.github/workflows/cad360-v1026-desktop-reliability.yml'
+      - 'scripts/verify_mcp_executable.ps1'
+      - 'scripts/validate_mcp_smoke_fixture.py'
+      - 'scripts/verify_source_bundle.py'
+      - 'scripts/validate_full_user_guide.py'
+      - 'scripts/validate_word_guide.py'
+      - 'docs/user-guide/**'
+
+permissions:
+  contents: write  # only for publishing verified prerelease binaries; checkout persists no credentials
+
+concurrency:
+  # Windows release builds take long enough that cancelling the running compile
+  # on every push can starve Setup/Portable production indefinitely. GitHub
+  # automatically replaces an older PENDING run with the newest queued push,
+  # while the single RUNNING build is allowed to complete.
+  # Keep manual dispatches separate from automatic push builds.
+  group: cad360-v1026-release-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: false
+
+jobs:
+  windows-package:
+    name: Build, install, verify and package V1.026 x64
+    runs-on: windows-latest
+    timeout-minutes: 120
+    steps:
+      - name: Require V1.026 feature branch for manual Windows release
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        shell: pwsh
+        run: |
+          if ($env:GITHUB_REF -ne 'refs/heads/feature/CADTBT360_V1.026_AI_LARGE_IMAGE') {
+            throw "CAD 360 V1.026 release must use feature/CADTBT360_V1.026_AI_LARGE_IMAGE, not $env:GITHUB_REF. In Run workflow, select the feature branch before starting."
+          }
+
+      - name: Checkout exact commit
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Prepare Python for offline reproducible Word user manual and fixture checks
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Validate embedded image fixture before Rust compilation
+        id: validate_fixture
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python scripts/validate_mcp_smoke_fixture.py scripts/verify_mcp_executable.ps1
+          if ($LASTEXITCODE -ne 0) { throw 'PNG fixture invalid; stop before expensive Rust compilation' }
+          python scripts/validate_full_user_guide.py docs/user-guide/CADTBT360_V1.025_GIAO_TRINH_TONG_HOP_TAT_CA_TINH_NANG.md
+          if ($LASTEXITCODE -ne 0) { throw 'Full CAD 360 user guide incomplete; do not ship an AI-only manual' }
+
+      - name: Build and validate both Word manuals before Rust compile
+        id: manuals
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force 'dist/v1026' | Out-Null
+          # Regression for V1.026 Word builder: AI command separators are not
+          # Markdown tables. Validate this before compiling native code.
+          python -c "import pathlib; import runpy; import tempfile; p=runpy.run_path('docs/user-guide/build_word_guide.py'); t='# Guide' + chr(10) + 'Bước 1 Bước 2 Bước 3 Preview UNDO DXF' + chr(10) + ('hello ' * 200) + chr(10) + 'LINE | CIRCLE'; d=pathlib.Path(tempfile.gettempdir())/'cad360-word-pipe-test.docx'; src=d.with_suffix('.md'); src.write_text(t,encoding='utf-8'); p['build'](src,d); assert d.exists(); d.unlink(); src.unlink()"
+          if ($LASTEXITCODE -ne 0) { throw 'Word builder mistook AI command pipes for markdown tables' }
+          python docs/user-guide/build_word_guide.py docs/user-guide/CAD360_V1.026_AI_LARGE_IMAGE.md dist/v1026/CADTBT360_V1.026_HUONG_DAN_AI_TU_ANH_THANH_CAD.docx
+          if ($LASTEXITCODE -ne 0 -or !(Test-Path 'dist/v1026/CADTBT360_V1.026_HUONG_DAN_AI_TU_ANH_THANH_CAD.docx')) { throw 'Cannot build AI Word supplement before Rust compile' }
+          python docs/user-guide/build_word_guide.py docs/user-guide/CADTBT360_V1.025_GIAO_TRINH_TONG_HOP_TAT_CA_TINH_NANG.md dist/v1026/CADTBT360_V1.026_GIAO_TRINH_TONG_HOP.docx
+          if ($LASTEXITCODE -ne 0 -or !(Test-Path 'dist/v1026/CADTBT360_V1.026_GIAO_TRINH_TONG_HOP.docx')) { throw 'Cannot build complete CAD 360 Word guide before Rust compile' }
+          python scripts/validate_word_guide.py dist/v1026/CADTBT360_V1.026_GIAO_TRINH_TONG_HOP.docx
+          if ($LASTEXITCODE -ne 0) { throw 'Full-product manual missing native tables, heading hierarchy or 21 lessons' }
+          python -m pip install --disable-pip-version-check "python-docx==1.2.0" "Pillow==11.3.0"
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot install pinned libraries for illustrated beginner manual' }
+          python scripts/build_beginner_guide.py docs/user-guide/CAD360_V1.026_GIAO_TRINH_NGUOI_MOI_34_BAI.md dist/v1026/CADTBT360_V1.026_GIAO_TRINH_NGUOI_MOI.docx
+          if ($LASTEXITCODE -ne 0 -or !(Test-Path 'dist/v1026/CADTBT360_V1.026_GIAO_TRINH_NGUOI_MOI.docx')) { throw 'Cannot build beginner 34-lesson Word curriculum' }
+
+      - name: Prepare Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: CADTBT360_V1.000
+          key: cad360-v1026-release
+
+      - name: Preflight Windows GUI and CLI compilation before expensive tests
+        id: preflight
+        shell: pwsh
+        working-directory: CADTBT360_V1.000
+        run: |
+          $ErrorActionPreference = 'Continue'
+          New-Item -ItemType Directory -Force '../dist/v1026/diagnostics' | Out-Null
+          # Tee stderr as text and preserve the actual Cargo exit code. These logs are
+          # uploaded with CI_FAILURE.txt if the expensive Rust build fails or is cancelled.
+          cargo check --locked -p cadcraft --bin cadcraft 2>&1 | Out-String -Stream | Tee-Object -FilePath '../dist/v1026/diagnostics/CARGO_CHECK_GUI.log' | Out-Host
+          if ($LASTEXITCODE -ne 0) { throw 'V1.026 GUI binary compile failed; inspect CARGO_CHECK_GUI.log' }
+          # A normal GUI check does not compile #[cfg(test)] modules. Stage 197 failed with E0425 only in a test module.
+          # Compile test targets during preflight so missing imports are caught before full test discovery and release packaging.
+          cargo check --locked -p cadcraft --tests 2>&1 | Out-String -Stream | Tee-Object -FilePath '../dist/v1026/diagnostics/CARGO_CHECK_GUI_TESTS.log' | Out-Host
+          if ($LASTEXITCODE -ne 0) { throw 'V1.026 GUI test targets do not compile; inspect CARGO_CHECK_GUI_TESTS.log' }
+          # Xref regression is an integration test target, so GUI --tests does not compile it.
+          # Catch EntityStore/Vec API mismatches before the full AI and release test sequence.
+          cargo check --locked -p cadcraft-engine --test xref 2>&1 | Out-String -Stream | Tee-Object -FilePath '../dist/v1026/diagnostics/CARGO_CHECK_XREF_TEST.log' | Out-Host
+          if ($LASTEXITCODE -ne 0) { throw 'V1.026 Xref integration test does not compile; inspect CARGO_CHECK_XREF_TEST.log' }
+          # The Xref test can compile yet fail because source BIM revision was reset on reference import.
+          # Run the precise data-integrity regression early, keeping the complete Xref suite later.
+          cargo test --locked -p cadcraft-engine --test xref xref_reload_preserves_bim_xdata_repairs_member_identity_and_invalidates_root_revision -- --test-threads=1 --nocapture 2>&1 | Out-String -Stream | Tee-Object -FilePath '../dist/v1026/diagnostics/XREF_BIM_REVISION_PREFLIGHT.log' | Out-Host
+          if ($LASTEXITCODE -ne 0) { throw 'Xref BIM revision integrity failed; inspect XREF_BIM_REVISION_PREFLIGHT.log' }
+          cargo check --locked -p cadcraft-cli 2>&1 | Out-String -Stream | Tee-Object -FilePath '../dist/v1026/diagnostics/CARGO_CHECK_CLI.log' | Out-Host
+          if ($LASTEXITCODE -ne 0) { throw 'V1.026 CLI compile failed; inspect CARGO_CHECK_CLI.log' }
+          cargo check --locked -p cadcraft-mcp 2>&1 | Out-String -Stream | Tee-Object -FilePath '../dist/v1026/diagnostics/CARGO_CHECK_MCP.log' | Out-Host
+          if ($LASTEXITCODE -ne 0) { throw 'V1.026 MCP compile failed; inspect CARGO_CHECK_MCP.log' }
+
+      - name: Verify required named regression tests exist before running them
+        id: discover
+        shell: pwsh
+        working-directory: CADTBT360_V1.000
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $discoveryLogDir = '../dist/v1026/diagnostics'
+          New-Item -ItemType Directory -Force $discoveryLogDir | Out-Null
+          $required = @(
+            @{ Package='cadcraft-cli'; Target='bin'; Test='image_trace_entity_json_matches_windows_installer_smoke_contract' },
+            @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_vietnamese_adjacent_rooms_generate_one_envelope_and_shared_boundary' },
+            @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_vietnamese_adjacent_rooms_centered_door_keeps_real_opening' },
+            @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_vietnamese_door_hinge_right_and_left_create_native_leaf_arc' },
+            @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_vietnamese_door_block_uses_final_line_and_arc_in_one_plan' },
+            @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_vietnamese_block_rejects_unrelated_plan_and_previews_without_mutation' },
+            @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_vietnamese_block_transaction_commits_native_insert_and_one_undo_group' },
+            @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_vietnamese_stage237_headless_native_door_layer_and_undo' },
+            @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_vietnamese_stage238_native_dwg_save_reopen_preserves_door_layers' },
+            @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_vietnamese_stage239_native_dxf_save_reopen_preserves_editable_door_layers' },
+            @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_cad_capabilities_external_host_read_only_and_no_secret_requirement' },
+            @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_cad_preflight_is_read_only_and_denies_unsafe_external_agent_actions' },
+            @{ Package='cadcraft-mcp'; Target='lib'; Test='stage244_policy_profiles_enforce_read_only_and_reviewed_write_without_backend_calls' },
+            @{ Package='cadcraft-mcp'; Target='lib'; Test='stage244_server_denies_unapproved_mcp_calls_before_backend_dispatch' },
+            @{ Package='cadcraft-mcp'; Target='lib'; Test='stage252_reference_benchmark_matches_reversed_line_and_reports_error' },
+            @{ Package='cadcraft-mcp'; Target='lib'; Test='stage252_reference_benchmark_rejects_malformed_and_reports_missing_lines' },
+            @{ Package='cadcraft-mcp'; Target='lib'; Test='stage249_oidc_host_rejects_inverted_token_lifetime_and_future_not_before' },
+            @{ Package='cadcraft-mcp'; Target='lib'; Test='stage248_oidc_host_rejects_wrong_audience_issuer_expiry_and_invalid_role' },
+            @{ Package='cadcraft-mcp'; Target='lib'; Test='stage248_oidc_host_never_accepts_unverified_provider_or_unsafe_issuer' },
+            @{ Package='cadcraft-mcp'; Target='lib'; Test='stage248_mcp_oidc_verified_host_session_can_read_but_cannot_escalate' },
+            @{ Package='cadcraft-mcp'; Target='lib'; Test='stage247_scoped_resource_permissions_match_tool_grants' },
+            @{ Package='cadcraft-mcp'; Target='lib'; Test='stage247_mcp_resource_discovery_and_reads_match_host_grants' },
+            @{ Package='cadcraft-mcp'; Target='lib'; Test='stage246_host_scope_expires_and_restricts_tools_without_role_escalation' },
+            @{ Package='cadcraft-mcp'; Target='lib'; Test='stage246_tool_discovery_only_advertises_host_approved_tools' },
+            @{ Package='cadcraft-mcp'; Target='lib'; Test='stage246_readonly_server_hides_mutating_commands_from_discovery' },
+            @{ Package='cadcraft-mcp'; Target='lib'; Test='stage245_scoped_host_enforces_tenant_user_role_and_drawing_uid' },
+            @{ Package='cadcraft-mcp'; Target='lib'; Test='stage245_scoped_mcp_server_rejects_wrong_document_and_viewer_write' },
+            @{ Package='cadcraft'; Target='gui'; Test='cad360_help_has_expected_hierarchy_and_offline_full_manual' },
+            @{ Package='cadcraft'; Target='gui'; Test='hierarchical_help_is_a_first_class_desktop_tab' },
+            @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_vietnamese_stage241_native_stale_preview_rejected_before_mutation' },
+            @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_vietnamese_stage241_native_intervening_edit_invalidates_preview' },
+            @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_vietnamese_apply_layers_native_commands_and_undo_group' },
+            @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_vietnamese_apply_layers_preview_does_not_touch_canvas' },
+            @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_vietnamese_block_failure_rolls_back_owned_document_once' },
+            @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_vietnamese_room_wall_plan_produces_closed_native_outlines' },
+            @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_vietnamese_plan_parses_four_native_commands' },
+            @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_vietnamese_plan_is_atomic_on_parser_validation' },
+            @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_vietnamese_draft_parses_native_line_and_circle' },
+            @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_vietnamese_draft_rejects_missing_or_unsafe_coordinates' },
+            @{ Package='cadcraft-mcp'; Target='lib'; Test='agent_traces_an_image_into_editable_cad_via_mcp' },
+            @{ Package='cadcraft-mcp'; Target='lib'; Test='agent_projects_tilted_photo_into_editable_cad_without_warping_image' },
+            @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_perspective_trace_remains_editable_after_dxf_save_reopen' },
+            @{ Package='cadcraft-ui-egui'; Target='lib'; Test='canvas::raster_image::tests' },
+            @{ Package='cadcraft-render'; Target='lib'; Test='raster_image_reference_draws_only_outer_frame_without_obscuring_draft' },
+            @{ Package='cadcraft-render'; Target='lib'; Test='raster_imageclip_frame_matches_rectangle_and_concave_pixel_boundary' },
+            @{ Package='cadcraft-render'; Target='lib'; Test='raster_image_display_off_omits_entire_frame' },
+            @{ Package='cadcraft-io'; Target='it'; Test='xref_roundtrip' },
+            @{ Package='cadcraft-io'; Target='it'; Test='large_dwg_v1025::v1025_medium_dwg_r2018_50000_entities' },
+            @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_automatic_raster_to_cad_lines_from_real_png' },
+            @{ Package='cadcraft-mcp'; Target='lib'; Test='raster_vector_preview_real_png_has_exact_scaled_world_coordinates' },
+            @{ Package='cadcraft-mcp'; Target='lib'; Test='raster_rectangular_png_preview_and_headless_commit_create_one_closed_polyline' },
+            @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_mcp_rectangle_png_creates_closed_polyline_and_single_undo' },
+            @{ Package='cadcraft-mcp'; Target='lib'; Test='raster_rectangular_png_with_open_side_does_not_invent_wall' },
+            @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_parallel_wall_candidate_hints_find_two_near_equal_parallel_lines' },
+            @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_wall_centerline_is_only_created_for_unique_parallel_pair' },
+            @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_wall_spacing_range_filters_pairs_without_rescaling_source_geometry' },
+            @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_wall_spacing_validation_refuses_impossible_values_before_preview' },
+            @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_wall_junction_preview_finds_t_and_cross_candidates_without_drawing' },
+            @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_wall_junction_refuses_disjoint_and_tip_only_lines' },
+            @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_opening_gap_hints_preserve_unjoined_wall_segments' },
+            @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_opening_gap_real_png_refuses_to_bridge_possible_door' },
+            @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_real_png_paired_wall_opening_preview_and_editable_guide' },
+            @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_window_sash_needs_two_inner_parallel_rails_and_no_competing_door_leaf' },
+            @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_real_png_window_sash_hint_is_preview_only_and_preserves_source_geometry' },
+            @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_window_guide_requires_confirmation_before_native_closed_pline' },
+            @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_real_png_confirmed_window_block_draft_preserves_source_lines_and_rejects_mcp_commit' },
+            @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_column_hatch_requires_closed_near_square_with_two_crossing_interior_strokes' },
+            @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_column_hatch_png_preview_requires_confirmation_and_keeps_source_strokes' },
+            @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_column_block_png_is_reviewed_not_semantic_and_rejects_remote_commit' },
+            @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_wall_panels_preserve_door_gap_and_reject_column_overlap_or_ambiguous_edges' },
+            @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_real_png_wall_panels_require_confirmation_before_native_cad_plines' },
+            @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_wall_blocks_from_real_png_preserve_openings_and_require_confirmed_desktop_commit' },
+            @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_wall_panel_contact_qa_reports_both_sides_of_opening_without_joining_wall_geometry' },
+            @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_real_png_wall_opening_contact_qa_is_preview_only' },
+            @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_wall_panel_junction_qa_detects_t_and_cross_and_ignores_opening_or_column' },
+            @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_real_png_door_leaf_hint_is_preview_only_and_preserves_native_geometry' },
+            @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_confirmed_door_swing_arc_is_editable_and_refuses_missing_confirmation' },
+            @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_real_png_door_arc_commit_creates_native_arc_after_confirmation' },
+            @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_door_block_drafts_require_review_and_keep_traced_lines_separate' },
+            @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_reviewed_door_width_changes_only_new_block_leaf_and_arc_not_image_strokes' },
+            @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_two_png_doors_have_independent_widths_and_validate_stale_review' },
+            @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_single_png_door_hinge_and_swing_flips_are_explicit_and_preserve_source' },
+            @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_stale_per_door_review_keys_must_not_retarget_a_different_candidate' },
+            @{ Package='cadcraft'; Target='gui'; Test='ai_door_swing_arc_gui_requires_explicit_two_step_confirmation' },
+            @{ Package='cadcraft'; Target='gui'; Test='ai_native_door_draft_block_contains_line_and_arc_and_can_undo_as_one_step' },
+            @{ Package='cadcraft'; Target='gui'; Test='ai_door_width_override_gui_requires_block_opt_in_and_defaults_to_unmodified_draft' },
+            @{ Package='cadcraft'; Target='gui'; Test='ai_individual_door_width_override_gui_serializes_selected_indices_only' },
+            @{ Package='cadcraft'; Target='gui'; Test='ai_door_hinge_swing_gui_requires_door_block_and_preserves_selected_indices' },
+            @{ Package='cadcraft'; Target='gui'; Test='ai_preview_door_click_selects_nearest_door_and_refuses_ambiguous_click' },
+            @{ Package='cadcraft'; Target='gui'; Test='ai_window_sash_gui_requires_separate_hint_and_confirmed_guide_opt_in' },
+            @{ Package='cadcraft'; Target='gui'; Test='ai_native_window_block_contains_one_frame_and_two_rails_and_undoes' },
+            @{ Package='cadcraft'; Target='gui'; Test='ai_window_block_gui_requires_separate_human_confirmation' },
+            @{ Package='cadcraft'; Target='gui'; Test='ai_column_hatch_gui_defaults_to_preview_and_separate_confirmation' },
+            @{ Package='cadcraft'; Target='gui'; Test='ai_column_block_gui_is_opt_in_and_preserves_preview_mode' },
+            @{ Package='cadcraft'; Target='gui'; Test='ai_wall_panel_gui_defaults_to_preview_with_separate_confirmation' },
+            @{ Package='cadcraft'; Target='gui'; Test='ai_wall_block_gui_is_opt_in_and_requires_separate_review' },
+            @{ Package='cadcraft'; Target='gui'; Test='ai_wall_junction_preview_is_never_a_mutating_request' },
+            @{ Package='cadcraft'; Target='gui'; Test='ai_wall_block_native_insert_contains_one_closed_panel_and_undoes' },
+            @{ Package='cadcraft'; Target='gui'; Test='ai_column_block_engine_convert_has_one_insert_and_one_undo' },
+            @{ Package='cadcraft'; Target='gui'; Test='ai_individual_door_review_must_include_expected_source_keys_on_preview' },
+            @{ Package='cadcraft'; Target='gui'; Test='ai_new_source_requires_review_of_per_door_candidate_indices_again' },
+            @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_door_leaf_evidence_requires_a_perpendicular_outward_stroke_at_opening_corner' },
+            @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_two_aligned_wall_edge_gaps_propose_one_opening_outline' },
+            @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_single_or_ambiguous_opening_gap_must_not_invent_a_door' },
+            @{ Package='cadcraft-mcp'; Target='lib'; Test='raster_vector_rejects_malformed_gap_bridging_options_before_cad_creation' },
+            @{ Package='cadcraft-mcp'; Target='lib'; Test='raster_vector_rejects_invalid_explicit_cad_scale_before_geometry' },
+            @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_opening_gap_bounds_and_world_width_are_calibrated' },
+            @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_opening_gap_refuses_crossing_wall_or_third_fragment' },
+            @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_opening_gap_duplicate_raster_strokes_do_not_duplicate_one_gap' },
+            @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_opening_gap_different_openings_are_not_deduplicated' },
+            @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_opening_gap_vertical_crossing_is_not_a_clear_doorway' },
+            @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_opening_gap_hints_ignore_parallel_separated_and_touching_lines' },
+            @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_wall_centerline_real_png_keeps_both_edges_and_adds_editable_centerline' },
+            @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_wall_centerline_rejects_creation_without_hint_review' },
+            @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_parallel_wall_hints_refuse_disjoint_or_crossed_lines' },
+            @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_auto_raster_to_cad_dxf_roundtrip_preserves_editable_lines' },
+            @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_auto_raster_mcp_failed_second_line_rolls_back_first_line' },
+            @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_auto_raster_mcp_document_switch_must_not_undo_unrelated_new_drawing' },
+            @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_auto_raster_mcp_rejects_existing_undo_group_without_changes' },
+            @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_image_mcp_inspect_exposes_revision_and_undo_safety_state' },
+            @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_auto_raster_diagonal_png_creates_editable_line' },
+            @{ Package='cadcraft-mcp'; Target='lib'; Test='ai_arbitrary_angle_raster_to_cad_png_creates_editable_line' },
+            @{ Package='cadcraft'; Target='gui'; Test='ai_raster_panel_defaults_to_preview' },
+            @{ Package='cadcraft'; Target='gui'; Test='ai_raster_help_is_accessible_offline_without_external_links' },
+            @{ Package='cadcraft'; Target='gui'; Test='complete_user_manual_is_found_in_setup_and_portable_paths' },
+            @{ Package='cadcraft'; Target='gui'; Test='ai_raster_undo_rolls_back_partial_batch' },
+            @{ Package='cadcraft'; Target='gui'; Test='ai_raster_preview_never_commits_to_another_open_drawing' },
+            @{ Package='cadcraft'; Target='gui'; Test='ai_raster_preview_refuses_switch_away_and_back_with_unchanged_revision' },
+            @{ Package='cadcraft'; Target='gui'; Test='ai_raster_calibration_uses_known_length_and_pixel_distance' },
+            @{ Package='cadcraft'; Target='gui'; Test='ai_raster_closed_rectangle_mode_is_opt_in_and_preserves_preview_safety' },
+            @{ Package='cadcraft'; Target='gui'; Test='ai_raster_wall_pair_hints_are_opt_in_and_non_mutating' },
+            @{ Package='cadcraft'; Target='gui'; Test='ai_opening_gap_hints_are_disabled_by_default_and_preview_only' },
+            @{ Package='cadcraft'; Target='gui'; Test='ai_paired_wall_opening_guides_require_explicit_preview_and_confirmation' },
+            @{ Package='cadcraft'; Target='gui'; Test='ai_opening_gap_thresholds_are_editable_and_preview_only' },
+            @{ Package='cadcraft'; Target='gui'; Test='ai_raster_wall_centerline_creation_requires_explicit_user_opt_in' },
+            @{ Package='cadcraft'; Target='gui'; Test='ai_raster_wall_spacing_can_be_set_by_user_without_mutating_drawing' },
+            @{ Package='cadcraft'; Target='gui'; Test='ai_raster_calibration_rejects_zero_nan_and_oversize_ratio' }
+          )
+          foreach ($case in $required) {
+            if ($case.Target -eq 'lib') { $listing = @(cargo test --locked -p $case.Package --lib $case.Test -- --list 2>&1) }
+            elseif ($case.Target -eq 'bin') { $listing = @(cargo test --locked -p $case.Package --bin cadcraft-cli $case.Test -- --list 2>&1) }
+            elseif ($case.Target -eq 'gui') { $listing = @(cargo test --locked -p $case.Package --bin cadcraft $case.Test -- --list 2>&1) }
+            else { $listing = @(cargo test --locked -p $case.Package --test it $case.Test -- --list 2>&1) }
+            $discoveryExitCode = $LASTEXITCODE
+            $matched = @($listing | Where-Object { $_ -like '*: test' })
+            if ($discoveryExitCode -ne 0 -or $matched.Count -eq 0) {
+              $safeName = ($case.Package + '_' + $case.Target + '_' + $case.Test) -replace '[^a-zA-Z0-9_-]', '_'
+              $discoveryLog = Join-Path $discoveryLogDir ("DISCOVERY_" + $safeName + ".log")
+              $listing | Out-File -FilePath $discoveryLog -Encoding utf8
+              $listing | Out-Host
+              throw "Test discovery failed for $($case.Package): $($case.Test), exit=$discoveryExitCode, matches=$($matched.Count); see $discoveryLog"
+            }
+            Write-Host "Verified $($matched.Count) regression tests in $($case.Package): $($case.Test)"
+          }
+
+      - name: Validate installed CLI image-trace JSON contract at source
+        id: cli_contract
+        shell: pwsh
+        working-directory: CADTBT360_V1.000
+        run: |
+          cargo test --locked -p cadcraft-cli --bin cadcraft-cli image_trace_entity_json_matches_windows_installer_smoke_contract -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'V1.026 CLI entity JSON contract regression failed; abort Windows packaging' }
+
+      - name: Verify OIDC JWT bearer host sample compiles
+        id: oidc_host_build
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          dotnet restore integrations/oidc-host-dotnet/Cad360OidcHost.csproj
+          if ($LASTEXITCODE -ne 0) { throw 'Stage249 OIDC .NET host restore failed' }
+          dotnet build integrations/oidc-host-dotnet/Cad360OidcHost.csproj --configuration Release --no-restore
+          if ($LASTEXITCODE -ne 0) { throw 'Stage249 OIDC .NET host compilation failed' }
+          dotnet run --project integrations/oidc-host-dotnet/Cad360OidcHost.csproj --configuration Release --no-build -- --self-test
+          if ($LASTEXITCODE -ne 0) { throw 'Stage250 OIDC host tenant, role and loopback policy tests failed' }
+          $previewSource = Get-Content 'integrations/oidc-host-dotnet/McpPreviewClient.cs' -Raw
+          if (-not $previewSource.Contains('name="ai_draw_plan_vietnamese"') -or -not $previewSource.Contains('preview=true,confirm=false')) { throw 'Stage251 AI host preview must use fixed tool with preview=true,confirm=false' }
+          $hostSource = Get-Content 'integrations/oidc-host-dotnet/Program.cs' -Raw
+          if (-not $hostSource.Contains('HostGrantPolicy.MayPreview') -or -not $hostSource.Contains('app.MapPost("/api/cad360/mcp/ai-preview"')) { throw 'Stage251 AI host preview must check tenant and role at endpoint' }
+
+      - name: Require image-to-CAD and native raster regression before release packaging
+        id: ai_tests
+        shell: pwsh
+        working-directory: CADTBT360_V1.000
+        run: |
+          $imageTests = @(cargo test --locked -p cadcraft-engine --lib image -- --list 2>&1)
+          if ($LASTEXITCODE -ne 0) { $imageTests | Out-Host; throw 'V1.026 image test discovery failed' }
+          $namedTests = @($imageTests | Where-Object { $_ -match ': test$' })
+          if ($namedTests.Count -lt 4) { $imageTests | Out-Host; throw "V1.026 image test discovery unexpectedly found only $($namedTests.Count) tests" }
+          cargo test --locked -p cadcraft-engine --lib image -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'V1.026 IMAGE engine regression failed' }
+          cargo test --locked -p cadcraft-mcp --lib ai_vietnamese_stage237_headless_native_door_layer_and_undo -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'Stage237 native Block Layer Undo regression failed' }
+          cargo test --locked -p cadcraft-mcp --lib ai_vietnamese_stage238_native_dwg_save_reopen_preserves_door_layers -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'Stage238 native DWG 2018 save-reopen test failed' }
+          cargo test --locked -p cadcraft-mcp --lib stage252_ -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'Stage252 labelled raster-to-CAD precision and recall benchmark regression failed' }
+          cargo test --locked -p cadcraft-mcp --lib stage249_ -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'Stage249 OIDC time validity regression failed' }
+          cargo test --locked -p cadcraft-mcp --lib stage248_ -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'Stage248 OIDC host claim binding and MCP access regressions failed' }
+          cargo test --locked -p cadcraft-mcp --lib stage247_ -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'Stage247 scoped MCP resources bypassed host permissions' }
+          cargo test --locked -p cadcraft-mcp --lib stage246_ -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'Stage246 expiry, per-tool grant and secure MCP discovery tests failed' }
+          cargo test --locked -p cadcraft-mcp --lib stage245_ -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'Stage245 scoped MCP host identity and document access regression failed' }
+          cargo test --locked -p cadcraft-mcp --lib stage244_ -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'Stage244 server MCP access policy regression failed' }
+          cargo test --locked -p cadcraft-mcp --lib ai_cad_preflight_is_read_only_and_denies_unsafe_external_agent_actions -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'Stage243 MCP read-only external agent preflight security test failed' }
+          cargo test --locked -p cadcraft-mcp --lib ai_cad_capabilities_external_host_read_only_and_no_secret_requirement -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'AI provider-neutral MCP capabilities test failed' }
+          cargo test --locked -p cadcraft --bin cadcraft cad360_help_has_expected_hierarchy_and_offline_full_manual -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'CAD 360 embedded full help tree regression failed' }
+          cargo test --locked -p cadcraft --bin cadcraft hierarchical_help_is_a_first_class_desktop_tab -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'CAD 360 user-guide tab regression failed' }
+          cargo test --locked -p cadcraft-mcp --lib ai_vietnamese_stage241_native_ -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'Stage241 native stale-preview security and concurrency regression failed' }
+          cargo test --locked -p cadcraft-mcp --lib ai_vietnamese_stage239_native_dxf_save_reopen_preserves_editable_door_layers -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'Stage239 native DXF editable door BLOCK and Layer roundtrip failed' }
+          cargo test --locked -p cadcraft-mcp --lib ai_vietnamese_apply_layers_ -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'Stage236 AI native Layer opt-in and Preview regressions failed' }
+          cargo test --locked -p cadcraft-mcp --lib ai_vietnamese_block_ -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'Stage 235 AI Block transaction/rollback regression failed' }
+          cargo test --locked -p cadcraft-mcp --lib ai_vietnamese_door_block_uses_final_line_and_arc_in_one_plan -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'AI confirmed door BLOCK preview source regression failed' }
+          cargo test --locked -p cadcraft-mcp --lib ai_vietnamese_door_hinge_right_and_left_create_native_leaf_arc -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'AI Vietnamese door hinge and swing geometry regression failed' }
+          cargo test --locked -p cadcraft-mcp --lib ai_vietnamese_adjacent_rooms_centered_door_keeps_real_opening -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'AI two-room shared wall opening regression failed' }
+          cargo test --locked -p cadcraft-mcp --lib ai_vietnamese_plan_ -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'AI Vietnamese multi-command plan regression failed' }
+          cargo test --locked -p cadcraft-mcp --lib ai_vietnamese_draft_ -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'AI Vietnamese natural-language drafting regression failed' }
+          cargo test --locked -p cadcraft-mcp --lib raster_vector_rejects_malformed_gap_bridging_options_before_cad_creation -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'AI raster gap-bridging option validation regression failed' }
+          cargo test --locked -p cadcraft-mcp --lib raster_vector_rejects_invalid_explicit_cad_scale_before_geometry -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'AI raster CAD calibration validation regression failed' }
+          cargo test --locked -p cadcraft-mcp --lib ai_real_png_paired_wall_opening_preview_and_editable_guide -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'AI paired-wall opening editable CAD guide regression failed' }
+          cargo test --locked -p cadcraft-mcp --lib ai_real_png_window_sash_hint_is_preview_only_and_preserves_source_geometry -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'AI raster sash evidence test failed' }
+          cargo test --locked -p cadcraft-mcp --lib ai_window_sash_needs_two_inner_parallel_rails_and_no_competing_door_leaf -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'AI window-vs-door ambiguity guard failed' }
+          cargo test --locked -p cadcraft-mcp --lib ai_window_guide_requires_confirmation_before_native_closed_pline -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'AI confirmed editable window guide regression failed' }
+          cargo test --locked -p cadcraft-mcp --lib ai_real_png_confirmed_window_block_draft_preserves_source_lines_and_rejects_mcp_commit -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'AI reviewed window BLOCK proposal or MCP safety regression failed' }
+          cargo test --locked -p cadcraft-mcp --lib ai_column_hatch_requires_closed_near_square_with_two_crossing_interior_strokes -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'AI column evidence must reject plain or ambiguous rectangles' }
+          cargo test --locked -p cadcraft-mcp --lib ai_column_hatch_png_preview_requires_confirmation_and_keeps_source_strokes -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'AI column PNG to confirmed native CAD guide regression failed' }
+          cargo test --locked -p cadcraft-mcp --lib ai_column_block_png_is_reviewed_not_semantic_and_rejects_remote_commit -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'AI PNG column Block source preservation or MCP guard failed' }
+          cargo test --locked -p cadcraft-mcp --lib ai_wall_panels_preserve_door_gap_and_reject_column_overlap_or_ambiguous_edges -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'AI wall panels bridged an opening or overlapped a reviewed column' }
+          cargo test --locked -p cadcraft-mcp --lib ai_real_png_wall_panels_require_confirmation_before_native_cad_plines -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'AI confirmed wall panel raster-to-native-PLINE regression failed' }
+          cargo test --locked -p cadcraft-mcp --lib ai_wall_blocks_from_real_png_preserve_openings_and_require_confirmed_desktop_commit -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'AI wall Block PNG preview and source preservation failed' }
+          cargo test --locked -p cadcraft-mcp --lib ai_wall_panel_contact_qa_reports_both_sides_of_opening_without_joining_wall_geometry -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'AI wall contact QA joined or retargeted opening/column geometry' }
+          cargo test --locked -p cadcraft-mcp --lib ai_real_png_wall_opening_contact_qa_is_preview_only -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'AI real PNG wall-to-opening preview topology test failed' }
+          cargo test --locked -p cadcraft-mcp --lib ai_wall_panel_junction_qa_detects_t_and_cross_and_ignores_opening_or_column -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'AI T/X junction detection or protected opening/column exclusion failed' }
+          cargo test --locked -p cadcraft --bin cadcraft ai_wall_junction_preview_is_never_a_mutating_request -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'AI non-mutating wall junction GUI regression failed' }
+          cargo test --locked -p cadcraft --bin cadcraft ai_wall_block_gui_is_opt_in_and_requires_separate_review -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'AI wall Block confirmation GUI failed' }
+          cargo test --locked -p cadcraft --bin cadcraft ai_wall_block_native_insert_contains_one_closed_panel_and_undoes -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'AI native wall Block INSERT and Undo failed' }
+          cargo test --locked -p cadcraft --bin cadcraft ai_wall_panel_gui_defaults_to_preview_with_separate_confirmation -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'AI wall panel Preview/confirm GUI regression failed' }
+          cargo test --locked -p cadcraft --bin cadcraft ai_column_block_engine_convert_has_one_insert_and_one_undo -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'AI column native Block INSERT Undo regression failed' }
+          cargo test --locked -p cadcraft --bin cadcraft ai_column_block_gui_is_opt_in_and_preserves_preview_mode -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'AI column Block GUI opt-in regression failed' }
+          cargo test --locked -p cadcraft --bin cadcraft ai_column_hatch_gui_defaults_to_preview_and_separate_confirmation -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'AI column GUI confirmation safety regression failed' }
+          cargo test --locked -p cadcraft --bin cadcraft ai_native_window_block_contains_one_frame_and_two_rails_and_undoes -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'AI native CAD window BLOCK INSERT and Undo regression failed' }
+          cargo test --locked -p cadcraft --bin cadcraft ai_window_block_gui_requires_separate_human_confirmation -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'AI window BLOCK GUI confirmation regression failed' }
+          cargo test --locked -p cadcraft --bin cadcraft ai_window_sash_gui_requires_separate_hint_and_confirmed_guide_opt_in -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'AI window hint GUI opt-in regression failed' }
+          cargo test --locked -p cadcraft-mcp --lib ai_real_png_door_leaf_hint_is_preview_only_and_preserves_native_geometry -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'AI door-leaf raster evidence preview regression failed' }
+          cargo test --locked -p cadcraft-mcp --lib ai_real_png_door_arc_commit_creates_native_arc_after_confirmation -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'AI PNG-to-native-ARC commit regression failed' }
+          cargo test --locked -p cadcraft-mcp --lib ai_door_block_drafts_require_review_and_keep_traced_lines_separate -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'AI native door block proposal safety regression failed' }
+          cargo test --locked -p cadcraft-mcp --lib ai_reviewed_door_width_changes_only_new_block_leaf_and_arc_not_image_strokes -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'AI reviewed door width regression failed' }
+          cargo test --locked -p cadcraft-mcp --lib ai_two_png_doors_have_independent_widths_and_validate_stale_review -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'AI per-door PNG independent width regression failed' }
+          cargo test --locked -p cadcraft-mcp --lib ai_single_png_door_hinge_and_swing_flips_are_explicit_and_preserve_source -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'AI per-door hinge/swing source-preservation regression failed' }
+          cargo test --locked -p cadcraft-mcp --lib ai_stale_per_door_review_keys_must_not_retarget_a_different_candidate -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'AI stale door-source fingerprint was not rejected' }
+          cargo test --locked -p cadcraft --bin cadcraft ai_preview_door_click_selects_nearest_door_and_refuses_ambiguous_click -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'AI preview door hit-test ambiguity regression failed' }
+          cargo test --locked -p cadcraft --bin cadcraft ai_individual_door_review_must_include_expected_source_keys_on_preview -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'AI door review source key was not checked' }
+          cargo test --locked -p cadcraft --bin cadcraft ai_door_hinge_swing_gui_requires_door_block_and_preserves_selected_indices -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'AI door hinge/swing desktop GUI state regression failed' }
+          cargo test --locked -p cadcraft --bin cadcraft ai_new_source_requires_review_of_per_door_candidate_indices_again -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'AI source-switch stale door candidate regression failed' }
+          cargo test --locked -p cadcraft --bin cadcraft ai_door_width_override_gui_requires_block_opt_in_and_defaults_to_unmodified_draft -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'AI door width GUI regression failed' }
+          cargo test --locked -p cadcraft --bin cadcraft ai_native_door_draft_block_contains_line_and_arc_and_can_undo_as_one_step -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'AI native CAD door BLOCK/INSERT regression failed' }
+          cargo test --locked -p cadcraft-mcp --lib ai_confirmed_door_swing_arc_is_editable_and_refuses_missing_confirmation -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'AI door swing arc geometry regression failed' }
+          cargo test --locked -p cadcraft-mcp --lib ai_door_leaf_evidence_requires_a_perpendicular_outward_stroke_at_opening_corner -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'AI door-leaf detector incorrectly accepted a jamb or ambiguous candidate' }
+          cargo test --locked -p cadcraft-mcp --lib ai_single_or_ambiguous_opening_gap_must_not_invent_a_door -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'AI opening detector invented geometry on ambiguous input' }
+          cargo test --locked -p cadcraft-mcp --lib agent_traces_an_image_into_editable_cad_via_mcp -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'V1.026 AI image MCP trace failed' }
+          cargo test --locked -p cadcraft-mcp --lib agent_projects_tilted_photo_into_editable_cad_without_warping_image -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'V1.026 AI perspective tracing failed' }
+          cargo test --locked -p cadcraft-mcp --lib ai_perspective_trace_remains_editable_after_dxf_save_reopen -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'V1.026 AI DXF persistence failed' }
+          cargo test --locked -p cadcraft-mcp --lib ai_mcp_rectangle_png_creates_closed_polyline_and_single_undo -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'V1.026 MCP Agent failed to create/Undo editable closed rectangle polyline' }
+          cargo test --locked -p cadcraft-mcp --lib ai_opening_gap_duplicate_raster_strokes_do_not_duplicate_one_gap -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'AI opening gap duplicates from repeated raster strokes' }
+          cargo test --locked -p cadcraft-mcp --lib ai_opening_gap_different_openings_are_not_deduplicated -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'AI opening gap dedup removed real distinct openings' }
+          cargo test --locked -p cadcraft-mcp --lib ai_opening_gap_refuses_crossing_wall_or_third_fragment -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'AI opening-gap false positives at wall intersections or third fragments' }
+          cargo test --locked -p cadcraft-mcp --lib ai_opening_gap_vertical_crossing_is_not_a_clear_doorway -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'AI vertical opening-gap wrongly intersects cross-wall geometry' }
+          cargo test --locked -p cadcraft-mcp --lib ai_opening_gap_bounds_and_world_width_are_calibrated -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'AI opening gap width must convert to CAD units with valid min/max filters' }
+          cargo test --locked -p cadcraft-mcp --lib ai_opening_gap_real_png_refuses_to_bridge_possible_door -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'AI cannot preserve opening when gap bridging is simultaneously enabled' }
+          cargo test --locked -p cadcraft-mcp --lib ai_opening_gap_hints_ -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'AI opening gap must stay non-destructive and exclude unrelated geometry' }
+          cargo test --locked -p cadcraft-mcp --lib ai_wall_junction_ -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'AI wall junction preview regression failed' }
+          cargo test --locked -p cadcraft-mcp --lib ai_wall_spacing_ -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'AI wall spacing scale and input validation regression failed' }
+          cargo test --locked -p cadcraft-mcp --lib ai_wall_centerline_ -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'AI wall centerline real-PNG, opt-in or Undo regression failed' }
+          cargo test --locked -p cadcraft-mcp --lib ai_parallel_wall_ -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'AI parallel edge preview safety regression failed' }
+          cargo test --locked -p cadcraft-mcp --lib raster_rectangular_png -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'AI rectangle PLINE or open-wall safety regression failed' }
+          cargo test --locked -p cadcraft-mcp --lib raster_vector_preview_real_png_has_exact_scaled_world_coordinates -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'V1.026 real PNG raster centerline coordinates or unit conversion regressed' }
+          cargo test --locked -p cadcraft-mcp --lib ai_trace_quality_gate -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'V1.026 AI vector trace geometry quality gate failed' }
+          cargo test --locked -p cadcraft-mcp --lib ai_trace_quality_large_survey_coordinates -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'V1.026 AI large-coordinate geometry regression failed' }
+          cargo test --locked -p cadcraft-mcp --lib ai_trace_quality_large_2048_point_image_trace -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'V1.026 AI 2048-point broad-phase regression failed' }
+          cargo test --locked -p cadcraft-mcp --lib ai_trace_quality_broad_phase_preserves_nonadjacent_crossings -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'V1.026 AI broad-phase missed a real crossing' }
+          cargo test --locked -p cadcraft-mcp --lib ai_validated_image_trace -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'V1.026 validated IMAGE AI trace MCP test failed' }
+          cargo test --locked -p cadcraft-mcp --lib ai_validated_perspective_trace -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'V1.026 validated perspective AI trace MCP test failed' }
+          cargo test --locked -p cadcraft-mcp --lib ai_world_projection_gate -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'V1.026 AI world-coordinate projection validation failed' }
+          cargo test --locked -p cadcraft-mcp --lib ai_automatic_raster_to_cad_lines_from_real_png -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'V1.026 automatic raster-to-editable-CAD image recognition failed' }
+          cargo test --locked -p cadcraft-mcp --lib ai_auto_raster_to_cad_dxf_roundtrip_preserves_editable_lines -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'V1.026 AI PNG-to-CAD DXF persistence regression failed' }
+          cargo test --locked -p cadcraft-mcp --lib ai_auto_raster_mcp_failed_second_line_rolls_back_first_line -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'V1.026 MCP automatic image import failed to rollback partial edits' }
+          cargo test --locked -p cadcraft-mcp --lib ai_auto_raster_mcp_document_switch_must_not_undo_unrelated_new_drawing -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'V1.026 MCP image import attempted to undo unrelated drawing after switch' }
+          cargo test --locked -p cadcraft-mcp --lib ai_auto_raster_mcp_rejects_existing_undo_group_without_changes -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'V1.026 MCP image import unexpectedly closed caller Undo group' }
+          cargo test --locked -p cadcraft-mcp --lib ai_image_mcp_inspect_exposes_revision_and_undo_safety_state -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'V1.026 MCP inspect safety fields / revision tracking failed' }
+          cargo test --locked -p cadcraft-mcp --lib ai_auto_raster_to_cad_refuses_missing_file -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'V1.026 raster AI source validation failed' }
+          & ../scripts/profile_ai_raster.ps1 -TestName 'large_png_5000_by_3000_preserves_original_pixel_to_cad_calibration'
+          & ../scripts/profile_ai_raster.ps1 -TestName 'ai_36_megapixel_png_preview_preserves_full_resolution'
+          cargo test --locked -p cadcraft-mcp --lib ai_tile_diagnostics_keep_global_vector_indices_across_seams -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'AI global source-vector tile seam test failed' }
+          cargo test --locked -p cadcraft-mcp --lib ai_room_geometry_benchmark_excludes_missing_corner_and_skew_false_positive -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'V1.026 room benchmark accepted malformed or skewed geometry' }
+          cargo test --locked -p cadcraft-mcp --lib ai_room_geometry_benchmark_reports_missing_extra_and_malformed_refs -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'V1.026 annotated room geometry precision/recall check failed' }
+          cargo test --locked -p cadcraft-mcp --lib ai_preview_reports_closed_room_without_opt_in_to_create_rectangle -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'V1.026 AI Preview suppressed valid room when closedRectangles was disabled' }
+          cargo test --locked -p cadcraft --bin cadcraft ai_dense_image_filter_increases_only_detection_threshold_and_stays_bounded -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'Dense-image UI retry threshold regression failed' }
+          cargo test --locked -p cadcraft-mcp --lib ai_room_contact_rejects_crosswise_and_skewed_opening_shapes -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'AI room-opening matching must reject crosswise/skewed polygon candidates' }
+          cargo test --locked -p cadcraft-mcp --lib ai_paired_gap_near_two_room_boundaries_remains_unverified -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'V1.026 opening-room contact caused an unverified or fabricated doorway' }
+          cargo test --locked -p cadcraft-mcp --lib ai_room_adjacency_shared_source_cannot_auto_create_a_door -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'V1.026 room adjacency must not infer doorway from shared source wall' }
+          cargo test --locked -p cadcraft-mcp --lib ai_room_topology_links_only_real_shared_source_edges_without_inventing_doors -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'V1.026 AI room adjacency graph shared-source evidence regression failed' }
+          cargo test --locked -p cadcraft-mcp --lib ai_four_room_grid_keeps_shared_walls_and_exact_topology -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'V1.026 2x2 floorplan rooms and four shared-wall contacts failed' }
+          cargo test --locked -p cadcraft-mcp --lib ai_stacked_rooms_share_one_horizontal_source_edge_even_if_lines_are_out_of_order -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'V1.026 stacked rooms with a shared horizontal source partition failed' }
+          cargo test --locked -p cadcraft-mcp --lib ai_adjacent_rooms_share_true_partition_wall_without_fake_geometry -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'AI shared partition-room recognition regression failed' }
+          cargo test --locked -p cadcraft-mcp --lib ai_three_room_ground_truth_geometry_has_no_extra_closed_rooms -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'AI labelled three-room geometry regression failed' }
+          cargo test --locked -p cadcraft-mcp --lib raster_vector_detects_ -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'V1.026 raster horizontal/vertical/diagonal detection regressions failed' }
+          cargo test --locked -p cadcraft-mcp --lib ai_auto_raster_diagonal_png_creates_editable_line -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'V1.026 diagonal raster-to-editable-CAD MCP regression failed' }
+          cargo test --locked -p cadcraft-mcp --lib raster_vector_detects_thirty_degree_line_with_pca -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'V1.026 arbitrary-angle isolated raster line detection failed' }
+          cargo test --locked -p cadcraft-mcp --lib raster_vector_does_not_misclassify_solid_rectangle -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'V1.026 PCA raster false-positive rejection failed' }
+          cargo test --locked -p cadcraft-mcp --lib ai_arbitrary_angle_raster_to_cad_png_creates_editable_line -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'V1.026 arbitrary-angle PNG to editable CAD regression failed' }
+          cargo test --locked -p cadcraft --bin cadcraft ai_raster_panel -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'V1.026 native image-to-CAD GUI preview regression failed' }
+          cargo test --locked -p cadcraft --bin cadcraft complete_user_manual_is_found_in_setup_and_portable_paths -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'Complete product user guide Setup/Portable path discovery failed' }
+          cargo test --locked -p cadcraft --bin cadcraft ai_raster_help_is_accessible_offline_without_external_links -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'V1.026 offline Vietnamese AI user guide integration failed' }
+          cargo test --locked -p cadcraft --bin cadcraft ai_raster_wall_spacing_can_be_set_by_user_without_mutating_drawing -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'AI wall spacing desktop UI regression failed' }
+          cargo test --locked -p cadcraft --bin cadcraft ai_raster_wall_centerline_creation_requires_explicit_user_opt_in -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'AI wall centerline GUI opt-in safety regression failed' }
+          cargo test --locked -p cadcraft --bin cadcraft ai_opening_gap_thresholds_are_editable_and_preview_only -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'Opening gap GUI threshold setting or Preview-only contract failed' }
+          cargo test --locked -p cadcraft --bin cadcraft ai_opening_gap_hints_are_disabled_by_default_and_preview_only -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'AI opening hints must be explicitly enabled in GUI' }
+          cargo test --locked -p cadcraft --bin cadcraft ai_raster_wall_pair_hints_are_opt_in_and_non_mutating -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'AI wall pair hint preview safety regression failed' }
+          cargo test --locked -p cadcraft --bin cadcraft ai_raster_closed_rectangle_mode_is_opt_in_and_preserves_preview_safety -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'V1.026 AI GUI rectangle opt-in or Preview gate failed' }
+          cargo test --locked -p cadcraft --bin cadcraft ai_raster_calibration -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'V1.026 AI raster measurement calibration validation regressed' }
+          cargo test --locked -p cadcraft --bin cadcraft ai_raster_preview_refuses_switch_away_and_back_with_unchanged_revision -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'V1.026 AI GUI preview allowed stale drawing after document switch-away-and-back' }
+          cargo test --locked -p cadcraft-ui-egui --lib canvas::raster_image::tests -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'V1.026 native PNG/JPG raster overlay failed' }
+          cargo test --locked -p cadcraft-render --lib raster_image_reference_draws_only_outer_frame_without_obscuring_draft -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'V1.026 IMAGE renderer frame failed' }
+          cargo test --locked -p cadcraft-render --lib raster_imageclip_frame_matches_rectangle_and_concave_pixel_boundary -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'V1.026 IMAGECLIP frame mismatch failed' }
+          cargo test --locked -p cadcraft-render --lib raster_image_display_off_omits_entire_frame -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'V1.026 IMAGE visibility regression failed' }
+
+      - name: Verify Xref, DWG, and Windows BIM workspace safety before Setup
+        id: cad_tests
+        shell: pwsh
+        working-directory: CADTBT360_V1.000
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $logDir = '../dist/v1026/diagnostics'
+          New-Item -ItemType Directory -Force $logDir | Out-Null
+          # Capture output from each historic Windows regression individually.
+          # Xref tests share filesystem/IO hooks: one thread avoids races
+          # that can make a valid binary appear broken in a Windows CI run.
+          function Invoke-ReleaseGate([string]$name, [string[]]$testArgs) {
+            $logFile = Join-Path $logDir "$name.log"
+            Write-Host "Checking $name; diagnostic log: $logFile"
+            & cargo @testArgs 2>&1 | Out-String -Stream | Tee-Object -FilePath $logFile | Out-Host
+            $code = $LASTEXITCODE
+            if ($code -ne 0) {
+              throw "$name failed with exit code $code; inspect $logFile in CADTBT360_V1.026_Windows_x64_Failure_Diagnostics"
+            }
+          }
+          Invoke-ReleaseGate 'XREF_ENGINE_WINDOWS' @('test','--locked','-p','cadcraft-engine','--test','xref','--','--test-threads=1','--nocapture')
+          Invoke-ReleaseGate 'XREF_IO_ROUNDTRIP' @('test','--locked','-p','cadcraft-io','--test','it','xref_roundtrip','--','--nocapture')
+          Invoke-ReleaseGate 'DWG_LARGE_V1025' @('test','--locked','-p','cadcraft-io','--test','it','large_dwg_v1025::v1025_medium_dwg_r2018_50000_entities','--','--nocapture')
+          # Historical run 41608879566 had five Windows Access Denied errors;
+          # check each exact regression after the writable-backup sync fix.
+          $bimCases = @(
+            'safe_workspace_save_preserves_previous_file_as_backup',
+            'corrupted_workspace_recovers_previous_valid_backup',
+            'repeated_workspace_saves_replace_existing_main_and_backup',
+            'save_after_corrupted_main_does_not_destroy_last_valid_backup',
+            'workspace_recovery_does_not_discard_unsynced_in_memory_changes'
+          )
+          foreach ($case in $bimCases) {
+            Invoke-ReleaseGate "BIM_$case" @('test','--locked','-p','cadcraft','--bin','cadcraft',"bim_collab::tests::$case",'--','--nocapture')
+          }
+          'XREF/DWG/BIM persisted-storage gates: all passed on Windows' | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+
+      - name: Build native Windows GUI and CLI (not copied from old release)
+        id: release_build
+        shell: pwsh
+        working-directory: CADTBT360_V1.000
+        run: |
+          $ErrorActionPreference = 'Continue'
+          New-Item -ItemType Directory -Force '../dist/v1026/diagnostics' | Out-Null
+          # Embed the exact GitHub commit in the desktop GUI build badge and
+          # version output; otherwise the released GUI silently displays DEV.
+          $env:CAD360_BUILD_SHA = $env:GITHUB_SHA
+          $env:CADCRAFT_BUILD_SHA = $env:GITHUB_SHA
+          if ($env:CAD360_BUILD_SHA -notmatch '^[0-9a-fA-F]{40}$') { throw 'Missing full GITHUB_SHA for GUI build identity' }
+          $desktopSource = Get-Content 'apps/cadcraft/src/main.rs' -Raw
+          if ($desktopSource -notmatch 'CADTBT360_V1[.]026' -or $desktopSource -match 'CAD TBT 360 — V1[.]000') { throw 'Desktop GUI source does not display the requested V1.026 release identity' }
+          # Check and release builds differ: capture compiler/linker output from the
+          # actual Windows x64 EXE build rather than only saving preflight logs.
+          cargo build --release --locked -p cadcraft -p cadcraft-cli 2>&1 | Out-String -Stream | Tee-Object -FilePath '../dist/v1026/diagnostics/CARGO_RELEASE_BUILD.log' | Out-Host
+          if ($LASTEXITCODE -ne 0) { throw 'Windows release build failed; inspect CARGO_RELEASE_BUILD.log in failure diagnostics' }
+          foreach ($exe in @('target/release/cadcraft.exe', 'target/release/cadcraft-cli.exe')) {
+            if (!(Test-Path $exe)) { throw "Missing freshly built binary: $exe" }
+          }
+          # Verify the bytes of the freshly compiled GUI, not only the Rust source.
+          # The desktop displays a full embedded SHA in its build-info tooltip and
+          # CADTBT360_V1.026 in the workspace header. A stale/cached EXE must fail.
+          $nativeGui = 'target/release/cadcraft.exe'
+          $nativeGuiText = [System.Text.Encoding]::ASCII.GetString([System.IO.File]::ReadAllBytes((Resolve-Path $nativeGui).Path))
+          if (-not $nativeGuiText.Contains('CADTBT360_V1.026')) { throw 'Compiled Windows GUI EXE lacks the V1.026 version indicator' }
+          if (-not $nativeGuiText.Contains($env:GITHUB_SHA)) { throw "Compiled Windows GUI EXE lacks exact embedded source commit $env:GITHUB_SHA" }
+          Remove-Variable nativeGuiText
+          Write-Host "Verified native Windows GUI embeds V1.026 and full source commit $env:GITHUB_SHA"
+
+      - name: Prepare verified embedded PDF renderer for AI Studio
+        id: pdf_renderer
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          # Pinned verified Windows build; no untrusted shell or unverified archive.
+          $url = 'https://github.com/oschwartz10612/poppler-windows/releases/download/v26.07.0-0/Release-26.07.0-0.zip'
+          $sha = 'A711B0563B06EDC488583D28198B6734C5A494AFBBD1B9D87D3D2866062FB7E2'
+          $zip = Join-Path $env:RUNNER_TEMP 'cad360-poppler-26.07.zip'
+          $unpacked = Join-Path $env:RUNNER_TEMP 'cad360-poppler-26.07'
+          Invoke-WebRequest -Uri $url -OutFile $zip -MaximumRedirection 5
+          if ((Get-FileHash $zip -Algorithm SHA256).Hash -ne $sha) { throw 'Poppler SHA256 mismatch' }
+          Expand-Archive $zip -DestinationPath $unpacked -Force
+          $candidate = Get-ChildItem $unpacked -Filter pdftoppm.exe -File -Recurse | Select-Object -First 1
+          if ($null -eq $candidate) { throw 'Verified archive lacks pdftoppm.exe' }
+          $destBin = 'dist/v1026/pdf-tools/bin'
+          New-Item -ItemType Directory -Force $destBin | Out-Null
+          Copy-Item (Join-Path $candidate.Directory.FullName '*') $destBin -Recurse -Force
+          if (!(Test-Path (Join-Path $destBin 'pdftoppm.exe'))) { throw 'Missing renderer after copy' }
+          & (Resolve-Path (Join-Path $destBin 'pdftoppm.exe')) -v
+          if ($LASTEXITCODE -ne 0) { throw 'Bundled Poppler cannot run on Windows' }
+          python scripts/verify_ai_pdf_renderer.py (Join-Path $destBin 'pdftoppm.exe')
+          if ($LASTEXITCODE -ne 0) { throw 'Bundled AI PDF to PNG actual image smoke failed' }
+          New-Item -ItemType Directory -Force 'dist/v1026/pdf-tools/licenses' | Out-Null
+          Get-ChildItem $unpacked -Recurse -File | Where-Object { $_.Name -match '^(COPYING|LICENSE)([.]txt)?$' } | ForEach-Object {
+            Copy-Item $_.FullName (Join-Path 'dist/v1026/pdf-tools/licenses' $_.Name) -Force
+          }
+
+      - name: Install Inno Setup and create version metadata
+        id: prepare_installer
+        shell: pwsh
+        run: |
+          $iscc = 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe'
+          if (!(Test-Path $iscc)) { choco install innosetup -y --no-progress }
+          if (!(Test-Path $iscc)) { throw 'Inno Setup compiler not installed' }
+          New-Item -ItemType Directory -Force dist/v1026 | Out-Null
+          @('Release=CADTBT360_V1.026', "SourceCommit=$env:GITHUB_SHA", 'Architecture=windows-x64', 'NativeBuild=true', 'GUIAcceptance=NOT_VERIFIED', 'IndependentAutoCADAcceptance=NOT_VERIFIED', 'ArchitectureSemanticAccuracy=NOT_VERIFIED', 'ManualEXEScreenshots=NOT_VERIFIED') | Set-Content dist/v1026/BUILD_INFO.txt -Encoding utf8
+          if (!(Test-Path 'dist/v1026/CADTBT360_V1.026_HUONG_DAN_AI_TU_ANH_THANH_CAD.docx') -or !(Test-Path 'dist/v1026/CADTBT360_V1.026_GIAO_TRINH_TONG_HOP.docx')) { throw 'Preflight-generated Word manuals missing at packaging time' }
+          if (!(Test-Path 'dist/v1026/CADTBT360_V1.026_GIAO_TRINH_NGUOI_MOI.docx')) { throw '34-lesson beginner Word book missing before installer' }
+
+      - name: Package new Setup and Portable
+        id: package
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Continue'
+          New-Item -ItemType Directory -Force dist/v1026/diagnostics | Out-Null
+          & 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe' /Qp installer/CADTBT360_V1.026_Windows.iss 2>&1 | Out-String -Stream | Tee-Object -FilePath dist/v1026/diagnostics/INNO_SETUP_BUILD.log | Out-Host
+          if ($LASTEXITCODE -ne 0) { throw 'V1.026 Inno Setup failed; inspect INNO_SETUP_BUILD.log in failure diagnostics' }
+          $setup = 'dist/v1026/CADTBT360_V1.026_Setup_Windows_x64.exe'
+          if (!(Test-Path $setup)) { throw 'V1.026 Setup output missing' }
+          New-Item -ItemType Directory -Force dist/v1026/portable | Out-Null
+          Copy-Item CADTBT360_V1.000/target/release/cadcraft.exe dist/v1026/portable/CADTBT360.exe
+          Copy-Item CADTBT360_V1.000/target/release/cadcraft-cli.exe dist/v1026/portable/CADTBT360_CLI.exe
+          Copy-Item dist/v1026/BUILD_INFO.txt dist/v1026/portable/BUILD_INFO.txt
+          New-Item -ItemType Directory -Force dist/v1026/portable/Tools/Poppler/bin | Out-Null
+          Copy-Item dist/v1026/pdf-tools/bin/* dist/v1026/portable/Tools/Poppler/bin/ -Recurse -Force
+          New-Item -ItemType Directory -Force dist/v1026/portable/Tools/Poppler/licenses | Out-Null
+          Copy-Item dist/v1026/pdf-tools/licenses/* dist/v1026/portable/Tools/Poppler/licenses/ -Recurse -Force -ErrorAction SilentlyContinue
+          if (!(Test-Path dist/v1026/portable/Tools/Poppler/bin/pdftoppm.exe)) { throw 'Portable renderer missing' }
+          $guide = 'docs/user-guide/CAD360_V1.026_AI_LARGE_IMAGE.md'
+          if (!(Test-Path $guide)) { throw "Missing required Vietnamese user guide: $guide" }
+          Copy-Item $guide dist/v1026/portable/HUONG_DAN_AI_TU_ANH_THANH_CAD.md
+          Copy-Item $guide dist/v1026/HUONG_DAN_AI_TU_ANH_THANH_CAD.md
+          Copy-Item dist/v1026/CADTBT360_V1.026_HUONG_DAN_AI_TU_ANH_THANH_CAD.docx dist/v1026/portable/HUONG_DAN_AI_TU_ANH_THANH_CAD.docx
+          Copy-Item dist/v1026/CADTBT360_V1.026_GIAO_TRINH_TONG_HOP.docx dist/v1026/portable/GIAO_TRINH_TONG_HOP_CAD360.docx
+          Copy-Item dist/v1026/CADTBT360_V1.026_GIAO_TRINH_NGUOI_MOI.docx dist/v1026/portable/GIAO_TRINH_CAD_360_CHO_NGUOI_MOI.docx
+          Compress-Archive -Path dist/v1026/portable/* -DestinationPath dist/v1026/CADTBT360_V1.026_Portable_Windows_x64.zip -Force
+
+      - name: Smoke test installed application, uninstall and binary identity
+        id: installed_smoke
+        shell: pwsh
+        run: |
+          $setup = (Resolve-Path 'dist/v1026/CADTBT360_V1.026_Setup_Windows_x64.exe').Path
+          # Test a genuine Windows install path with spaces. Start-Process joins its
+          # ArgumentList into a command line, so Inno Setup's /DIR value must be quoted.
+          $dest = Join-Path $env:RUNNER_TEMP 'CADTBT360 V1025 Install Test'
+          $dirArgument = '/DIR="{0}"' -f $dest
+          $proc = Start-Process -FilePath $setup -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', $dirArgument) -Wait -PassThru
+          if ($proc.ExitCode -ne 0) { throw "Installer failed with code $($proc.ExitCode)" }
+          foreach ($n in @('CADTBT360.exe', 'CADTBT360_CLI.exe', 'BUILD_INFO.txt', 'Tools/Poppler/bin/pdftoppm.exe', 'HuongDan/HUONG_DAN_AI_TU_ANH_THANH_CAD.md', 'HuongDan/HUONG_DAN_AI_TU_ANH_THANH_CAD.docx', 'HuongDan/GIAO_TRINH_TONG_HOP_CAD360.docx', 'HuongDan/GIAO_TRINH_CAD_360_CHO_NGUOI_MOI.docx')) {
+            if (!(Test-Path (Join-Path $dest $n))) { throw "Installed file missing: $n" }
+          }
+          python scripts/verify_ai_pdf_renderer.py (Join-Path $dest 'Tools/Poppler/bin/pdftoppm.exe')
+          if ($LASTEXITCODE -ne 0) { throw 'Installed AI PDF renderer cannot convert a real PDF to PNG' }
+          # Verify that both user manuals installed by Inno Setup match the freshly generated release documents.
+          # Existence-only checks can pass even if the installer bundles an outdated or damaged manual.
+          $installedGuides = @(
+            @{ Installed='HuongDan/HUONG_DAN_AI_TU_ANH_THANH_CAD.docx'; Source='dist/v1026/CADTBT360_V1.026_HUONG_DAN_AI_TU_ANH_THANH_CAD.docx' },
+            @{ Installed='HuongDan/GIAO_TRINH_TONG_HOP_CAD360.docx'; Source='dist/v1026/CADTBT360_V1.026_GIAO_TRINH_TONG_HOP.docx' },
+            @{ Installed='HuongDan/GIAO_TRINH_CAD_360_CHO_NGUOI_MOI.docx'; Source='dist/v1026/CADTBT360_V1.026_GIAO_TRINH_NGUOI_MOI.docx' },
+            @{ Installed='HuongDan/HUONG_DAN_AI_TU_ANH_THANH_CAD.md'; Source='docs/user-guide/CAD360_V1.026_AI_LARGE_IMAGE.md' }
+          )
+          foreach ($guide in $installedGuides) {
+            $installedPath = Join-Path $dest $guide.Installed
+            $expectedHash = (Get-FileHash $guide.Source -Algorithm SHA256).Hash
+            $actualHash = (Get-FileHash $installedPath -Algorithm SHA256).Hash
+            if ($actualHash -ne $expectedHash) { throw "Installed manual does not match this release: $($guide.Installed)" }
+          }
+          python scripts/validate_word_guide.py (Join-Path $dest 'HuongDan/GIAO_TRINH_TONG_HOP_CAD360.docx')
+          if ($LASTEXITCODE -ne 0) { throw 'Installed full-product Word manual failed curriculum validation' }
+          $srcGui = (Get-FileHash 'CADTBT360_V1.000/target/release/cadcraft.exe' -Algorithm SHA256).Hash
+          $srcCli = (Get-FileHash 'CADTBT360_V1.000/target/release/cadcraft-cli.exe' -Algorithm SHA256).Hash
+          $instGui = (Get-FileHash (Join-Path $dest 'CADTBT360.exe') -Algorithm SHA256).Hash
+          $instCli = (Get-FileHash (Join-Path $dest 'CADTBT360_CLI.exe') -Algorithm SHA256).Hash
+          if ($srcGui -ne $instGui -or $srcCli -ne $instCli) { throw 'Installed binaries do not match current source build' }
+          & ./scripts/verify_mcp_executable.ps1 -Exe (Join-Path $dest 'CADTBT360_CLI.exe')
+          if ($LASTEXITCODE -ne 0) { throw 'Installed MCP stdio smoke failed' }
+          # SHA identity alone cannot detect a package built for the wrong CPU or a
+          # GUI shipped as a console executable. Inspect PE headers in the actual
+          # installed EXEs; portable files are independently hash-matched to these.
+          function Assert-WindowsPE([string]$path, [int]$expectedSubsystem) {
+            $data = [System.IO.File]::ReadAllBytes($path)
+            if ($data.Length -lt 512 -or $data[0] -ne 77 -or $data[1] -ne 90) { throw "Invalid Windows MZ executable: $path" }
+            $offset = [System.BitConverter]::ToInt32($data, 60)
+            if ($offset -lt 64 -or $offset + 94 -gt $data.Length) { throw "Invalid Windows PE header offset: $path" }
+            if ([System.Text.Encoding]::ASCII.GetString($data, $offset, 4) -ne "PE`0`0") { throw "Missing Windows PE signature: $path" }
+            $machine = [System.BitConverter]::ToUInt16($data, $offset + 4)
+            $magic = [System.BitConverter]::ToUInt16($data, $offset + 24)
+            $subsystem = [System.BitConverter]::ToUInt16($data, $offset + 92)
+            if ($machine -ne 0x8664 -or $magic -ne 0x20b) { throw "Expected native x64 PE32+ executable: $path (machine=$machine, magic=$magic)" }
+            if ($subsystem -ne $expectedSubsystem) { throw "Wrong Windows subsystem in $path : expected $expectedSubsystem, got $subsystem" }
+          }
+          Assert-WindowsPE (Join-Path $dest 'CADTBT360.exe') 2
+          Assert-WindowsPE (Join-Path $dest 'CADTBT360_CLI.exe') 3
+          $installedCli = Join-Path $dest 'CADTBT360_CLI.exe'
+          $cliVersion = & $installedCli --version
+          if ($LASTEXITCODE -ne 0 -or $cliVersion -notmatch '^cadcraft-cli [0-9]+[.][0-9]+[.][0-9]+') { throw "Installed CLI smoke test failed: $cliVersion" }
+          $imageCommands = & $installedCli commands image
+          if ($LASTEXITCODE -ne 0 -or ($imageCommands -join [char]10) -notmatch 'imageattach') { throw 'Installed CLI does not expose IMAGEATTACH command' }
+          $roundTripFile = Join-Path $env:RUNNER_TEMP 'CADTBT360_V1025_Installed_Smoke.dxf'
+          & $installedCli sample floorplan $roundTripFile | Out-Host
+          if ($LASTEXITCODE -ne 0 -or !(Test-Path $roundTripFile)) { throw 'Installed CLI cannot create an editable DXF drawing' }
+          $roundTripInfo = & $installedCli info $roundTripFile
+          if ($LASTEXITCODE -ne 0) { throw 'Installed CLI cannot reopen generated DXF drawing' }
+          $drawingInfo = ($roundTripInfo -join [char]10) | ConvertFrom-Json
+          if ($null -eq $drawingInfo.entityCount -or $drawingInfo.entityCount -le 0) { throw 'Installed CLI reopened DXF without CAD entities' }
+          $dwgFile = Join-Path $env:RUNNER_TEMP 'CADTBT360_V1025_Installed_Interop.dwg'
+          & $installedCli run --metric --cmd 'line {"points":[[0,0],[12,3],[25,8]]}' --save $dwgFile | Out-Host
+          if ($LASTEXITCODE -ne 0 -or !(Test-Path $dwgFile)) { throw 'Installed CLI cannot write an editable DWG drawing' }
+          $dwgBytes = [System.IO.File]::ReadAllBytes($dwgFile)
+          if ($dwgBytes.Length -lt 64 -or [System.Text.Encoding]::ASCII.GetString($dwgBytes, 0, 6) -ne 'AC1032') { throw 'Installed CLI did not produce an R2018 DWG (AC1032)' }
+          $dwgInfoLines = & $installedCli info $dwgFile
+          if ($LASTEXITCODE -ne 0) { throw 'Installed CLI cannot reopen exported DWG' }
+          $dwgInfo = ($dwgInfoLines -join [char]10) | ConvertFrom-Json
+          if ($dwgInfo.counts.Line -ne 2) { throw "DWG roundtrip lost CAD geometry: $($dwgInfoLines -join [char]10)" }
+
+          # Use a real PNG source. A fabricated 'reference.png' string would only test
+          # IMAGE metadata, not the installed application's ability to link an image file.
+          Add-Type -AssemblyName System.Drawing
+          $referenceFile = Join-Path $env:RUNNER_TEMP 'CADTBT360_V1025_TraceReference.png'
+          $bitmap = [System.Drawing.Bitmap]::new(200, 100)
+          try {
+            $bitmap.SetPixel(0, 0, [System.Drawing.Color]::Red)
+            $bitmap.SetPixel(199, 99, [System.Drawing.Color]::Blue)
+            $bitmap.Save($referenceFile, [System.Drawing.Imaging.ImageFormat]::Png)
+          } finally { $bitmap.Dispose() }
+          if (!(Test-Path $referenceFile) -or (Get-Item $referenceFile).Length -le 0) { throw 'Cannot generate real PNG fixture for IMAGE trace smoke' }
+          $referencePath = $referenceFile.Replace([char]92, [char]47)
+          $attachJson = @{ path = $referencePath; pixels = @(200, 100); width = 20; height = 10 } | ConvertTo-Json -Compress
+          $traceFile = Join-Path $env:RUNNER_TEMP 'CADTBT360_V1025_AI_ImageTrace_Smoke.dxf'
+          & $installedCli run --metric --cmd "imageattach $attachJson" --cmd 'imagetrace {"handle":"{last}","points":[[0,100],[200,100],[200,0]]}' --save $traceFile | Out-Host
+          if ($LASTEXITCODE -ne 0 -or !(Test-Path $traceFile)) { throw 'Installed CLI cannot produce AI-traced DXF with IMAGE and LWPOLYLINE' }
+          $traceInfo = & $installedCli info $traceFile
+          if ($LASTEXITCODE -ne 0) { throw 'Installed CLI cannot reopen AI-traced DXF' }
+          $traceDrawing = ($traceInfo -join [char]10) | ConvertFrom-Json
+          if ($traceDrawing.entityCount -ne 2 -or $traceDrawing.counts.'Raster Image' -ne 1 -or $traceDrawing.counts.Polyline -ne 1) {
+            throw "AI image-trace DXF must contain exactly one Raster Image and one editable Polyline, found: $($traceInfo -join [char]10)"
+          }
+          # Check the linked PNG path after DXF save/reopen. EntityKind uses
+          # #[serde(tag = "type", rename_all = "camelCase")]: the IMAGE's path is
+          # directly under geometry, not geometry.Image.path.
+          $imageOutput = & $installedCli run $traceFile --cmd 'entities {"type":"IMAGE"}'
+          if ($LASTEXITCODE -ne 0) { throw 'Installed CLI cannot query saved IMAGE reference' }
+          $imageQuery = ($imageOutput -join [char]10) | ConvertFrom-Json
+          if ($imageQuery.count -ne 1 -or @($imageQuery.entities).Count -ne 1) { throw 'DXF reopened with missing or duplicated IMAGE reference' }
+          $savedImage = $imageQuery.entities[0].geometry
+          if ($null -eq $savedImage -or $savedImage.type -ne 'image' -or [string]::IsNullOrWhiteSpace($savedImage.path)) { throw 'DXF lost internally tagged IMAGE geometry or its source path' }
+          $savedImagePath = ([string]$savedImage.path).Replace([char]92, [char]47)
+          if ($savedImagePath -ne $referencePath) { throw "DXF IMAGE path changed: expected $referencePath, found $savedImagePath" }
+          if (!(Test-Path $savedImagePath)) { throw "Reopened DXF references a missing PNG: $savedImagePath" }
+          $openedImage = [System.Drawing.Image]::FromFile($savedImagePath)
+          try {
+            if ($openedImage.Width -ne 200 -or $openedImage.Height -ne 100) { throw 'Reopened DXF source PNG has incorrect dimensions' }
+          } finally { $openedImage.Dispose() }
+          $geometryOutput = & $installedCli run $traceFile --cmd 'entities {"type":"LWPOLYLINE"}'
+          if ($LASTEXITCODE -ne 0) { throw 'Installed CLI cannot query persisted editable LWPOLYLINE' }
+          $geometry = ($geometryOutput -join [char]10) | ConvertFrom-Json
+          if ($geometry.count -ne 1 -or $geometry.entities.Count -ne 1) { throw 'Saved AI trace does not contain exactly one queryable Polyline' }
+          # EntityKind is internally tagged: geometry.type = 'lwPolyline' and
+          # editable vertices live directly under geometry.vertices.
+          $polylineEntity = $geometry.entities[0]
+          $polyline = $polylineEntity.geometry
+          if ($polylineEntity.type -ne 'Polyline' -or $null -eq $polyline -or $polyline.type -ne 'lwPolyline') {
+            throw "Saved AI trace returned the wrong entity kind: $($polylineEntity | ConvertTo-Json -Depth 8 -Compress)"
+          }
+          $vertices = @($polyline.vertices)
+          if ($vertices.Count -ne 3 -or $polyline.closed -ne $false) {
+            throw "Saved AI trace must be one open editable three-vertex LWPOLYLINE, got $($polyline | ConvertTo-Json -Depth 8 -Compress)"
+          }
+          $expected = @(
+            [pscustomobject]@{ x = 0.0; y = 0.0 },
+            [pscustomobject]@{ x = 20.0; y = 0.0 },
+            [pscustomobject]@{ x = 20.0; y = 10.0 }
+          )
+          for ($i = 0; $i -lt $expected.Count; $i++) {
+            $point = $vertices[$i].p
+            if ($null -eq $point -or [math]::Abs([double]$point.x - $expected[$i].x) -gt 1e-7 -or [math]::Abs([double]$point.y - $expected[$i].y) -gt 1e-7) {
+              throw "Saved AI trace vertex $i mismatch: actual=$($point | ConvertTo-Json -Compress), expected=($($expected[$i].x),$($expected[$i].y))"
+            }
+          }
+          $installedBuildInfo = Get-Content (Join-Path $dest 'BUILD_INFO.txt')
+          if ($installedBuildInfo -notcontains 'Release=CADTBT360_V1.026' -or $installedBuildInfo -notcontains "SourceCommit=$env:GITHUB_SHA" -or $installedBuildInfo -notcontains 'NativeBuild=true') {
+            throw "Installed build metadata does not identify this native release commit: $($installedBuildInfo -join '; ')"
+          }
+          $installedGeneralGuide = Join-Path $dest 'HuongDan/GIAO_TRINH_TONG_HOP_CAD360.docx'
+          if ((Get-FileHash $installedGeneralGuide -Algorithm SHA256).Hash -ne (Get-FileHash 'dist/v1026/CADTBT360_V1.026_GIAO_TRINH_TONG_HOP.docx' -Algorithm SHA256).Hash) { throw 'Installed full-product curriculum differs from release manual' }
+          $installedDocx = Join-Path $dest 'HuongDan/HUONG_DAN_AI_TU_ANH_THANH_CAD.docx'
+          $sourceDocx = 'dist/v1026/CADTBT360_V1.026_HUONG_DAN_AI_TU_ANH_THANH_CAD.docx'
+          if ((Get-FileHash $installedDocx -Algorithm SHA256).Hash -ne (Get-FileHash $sourceDocx -Algorithm SHA256).Hash) {
+            throw 'Installed Word guide does not match release document'
+          }
+          $packagedBuildInfoHash = (Get-FileHash 'dist/v1026/BUILD_INFO.txt' -Algorithm SHA256).Hash
+          $installedBuildInfoHash = (Get-FileHash (Join-Path $dest 'BUILD_INFO.txt') -Algorithm SHA256).Hash
+          if ($installedBuildInfoHash -ne $packagedBuildInfoHash) { throw 'Installed BUILD_INFO.txt differs from verified release metadata' }
+          $uninstaller = Join-Path $dest 'unins000.exe'
+          if (!(Test-Path $uninstaller)) { throw 'Missing Inno Setup uninstaller' }
+          $uninstall = Start-Process -FilePath $uninstaller -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART') -Wait -PassThru
+          if ($uninstall.ExitCode -ne 0) { throw "Uninstaller failed with code $($uninstall.ExitCode)" }
+          if (Test-Path (Join-Path $dest 'CADTBT360.exe')) { throw 'Uninstaller left main executable behind' }
+
+      - name: Verify portable archive, create SHA256 checksums
+        id: portable_smoke
+        shell: pwsh
+        run: |
+          $zip = 'dist/v1026/CADTBT360_V1.026_Portable_Windows_x64.zip'
+          $tmp = Join-Path $env:RUNNER_TEMP 'CADTBT360_V1026_PortableTest'
+          Expand-Archive $zip -DestinationPath $tmp -Force
+          foreach ($n in @('CADTBT360.exe', 'CADTBT360_CLI.exe', 'BUILD_INFO.txt', 'Tools/Poppler/bin/pdftoppm.exe', 'HUONG_DAN_AI_TU_ANH_THANH_CAD.md', 'HUONG_DAN_AI_TU_ANH_THANH_CAD.docx', 'GIAO_TRINH_TONG_HOP_CAD360.docx', 'GIAO_TRINH_CAD_360_CHO_NGUOI_MOI.docx')) {
+            if (!(Test-Path (Join-Path $tmp $n))) { throw "Portable archive missing $n" }
+          }
+          python scripts/verify_ai_pdf_renderer.py (Join-Path $tmp 'Tools/Poppler/bin/pdftoppm.exe')
+          if ($LASTEXITCODE -ne 0) { throw 'Portable AI PDF renderer cannot convert a real PDF to PNG' }
+          $guideHash = (Get-FileHash (Join-Path $tmp 'HUONG_DAN_AI_TU_ANH_THANH_CAD.md') -Algorithm SHA256).Hash
+          $sourceGuideHash = (Get-FileHash 'docs/user-guide/CAD360_V1.026_AI_LARGE_IMAGE.md' -Algorithm SHA256).Hash
+          $docxHash = (Get-FileHash (Join-Path $tmp 'HUONG_DAN_AI_TU_ANH_THANH_CAD.docx') -Algorithm SHA256).Hash
+          $releaseDocxHash = (Get-FileHash 'dist/v1026/CADTBT360_V1.026_HUONG_DAN_AI_TU_ANH_THANH_CAD.docx' -Algorithm SHA256).Hash
+          if ($docxHash -ne $releaseDocxHash) { throw 'Portable Word manual differs from the packaged release manual' }
+          $fullGuideSource = 'dist/v1026/CADTBT360_V1.026_GIAO_TRINH_TONG_HOP.docx'
+          $fullGuidePortable = Join-Path $tmp 'GIAO_TRINH_TONG_HOP_CAD360.docx'
+          if ((Get-FileHash $fullGuideSource -Algorithm SHA256).Hash -ne (Get-FileHash $fullGuidePortable -Algorithm SHA256).Hash) { throw 'Full-product user guide in Portable differs from published guide' }
+          $beginnerSource = 'dist/v1026/CADTBT360_V1.026_GIAO_TRINH_NGUOI_MOI.docx'
+          $beginnerPortable = Join-Path $tmp 'GIAO_TRINH_CAD_360_CHO_NGUOI_MOI.docx'
+          if ((Get-FileHash $beginnerSource -Algorithm SHA256).Hash -ne (Get-FileHash $beginnerPortable -Algorithm SHA256).Hash) { throw 'Beginner Word guide in Portable differs from release document' }
+          python -c "import sys,zipfile,xml.etree.ElementTree as ET; z=zipfile.ZipFile(sys.argv[1]); assert z.testzip() is None; x=ET.fromstring(z.read('word/document.xml')); assert len(z.read('word/document.xml')) > 8000" $fullGuidePortable
+          if ($LASTEXITCODE -ne 0) { throw 'Whole-product Word curriculum is damaged or empty' }
+          # Run the same structural and curriculum gate on the extracted Portable document as on Setup.
+          # ZIP/XML readability alone cannot catch missing lessons, missing tables, or mangled Windows filenames.
+          python scripts/validate_word_guide.py $fullGuidePortable
+          if ($LASTEXITCODE -ne 0) { throw 'Portable full-product Word manual failed curriculum validation' }
+          python -c "import sys,zipfile,xml.etree.ElementTree as ET; p=sys.argv[1]; z=zipfile.ZipFile(p); assert z.testzip() is None; ET.fromstring(z.read('word/document.xml')); assert len(z.read('word/document.xml')) > 1500" (Join-Path $tmp 'HUONG_DAN_AI_TU_ANH_THANH_CAD.docx')
+          if ($LASTEXITCODE -ne 0) { throw 'Portable Word manual is damaged or invalid' }
+          if ($guideHash -ne $sourceGuideHash) { throw 'Portable user guide differs from release source' }
+          $portableGuiHash = (Get-FileHash (Join-Path $tmp 'CADTBT360.exe') -Algorithm SHA256).Hash
+          $portableCliHash = (Get-FileHash (Join-Path $tmp 'CADTBT360_CLI.exe') -Algorithm SHA256).Hash
+          $nativeGuiHash = (Get-FileHash 'CADTBT360_V1.000/target/release/cadcraft.exe' -Algorithm SHA256).Hash
+          $nativeCliHash = (Get-FileHash 'CADTBT360_V1.000/target/release/cadcraft-cli.exe' -Algorithm SHA256).Hash
+          if ($portableGuiHash -ne $nativeGuiHash -or $portableCliHash -ne $nativeCliHash) { throw 'Portable executables do not match freshly compiled release' }
+          & ./scripts/verify_mcp_executable.ps1 -Exe (Join-Path $tmp 'CADTBT360_CLI.exe')
+          if ($LASTEXITCODE -ne 0) { throw 'Portable MCP stdio smoke failed' }
+          $portableInfoHash = (Get-FileHash (Join-Path $tmp 'BUILD_INFO.txt') -Algorithm SHA256).Hash
+          $releaseInfoHash = (Get-FileHash 'dist/v1026/BUILD_INFO.txt' -Algorithm SHA256).Hash
+          if ($portableInfoHash -ne $releaseInfoHash) { throw 'Portable BUILD_INFO.txt does not match the Setup release metadata' }
+          $portableBuildInfo = Get-Content (Join-Path $tmp 'BUILD_INFO.txt')
+          if ($portableBuildInfo -notcontains 'Release=CADTBT360_V1.026' -or $portableBuildInfo -notcontains "SourceCommit=$env:GITHUB_SHA" -or $portableBuildInfo -notcontains 'NativeBuild=true') {
+            throw "Portable archive metadata does not identify this native release commit: $($portableBuildInfo -join '; ')"
+          }
+          $portableCli = Join-Path $tmp 'CADTBT360_CLI.exe'
+          $portableVersion = & $portableCli --version
+          if ($LASTEXITCODE -ne 0 -or $portableVersion -notmatch '^cadcraft-cli [0-9]+[.][0-9]+[.][0-9]+') { throw "Portable CLI startup failed: $portableVersion" }
+          # Run the executable extracted from the ZIP, not the build-tree or installed
+          # CLI. Require it to create a real DXF, convert that DXF to DWG R2018,
+          # and reopen both without losing editable CAD entities.
+          $portableDxf = Join-Path $tmp 'Portable Roundtrip Test.dxf'
+          $portableDwg = Join-Path $tmp 'Portable Roundtrip Test.dwg'
+          & $portableCli sample bracket $portableDxf | Out-Host
+          if ($LASTEXITCODE -ne 0 -or !(Test-Path $portableDxf)) { throw 'Portable CLI cannot create DXF from sample' }
+          & $portableCli convert $portableDxf $portableDwg | Out-Host
+          if ($LASTEXITCODE -ne 0 -or !(Test-Path $portableDwg)) { throw 'Portable CLI cannot convert DXF to DWG' }
+          $portableDwgBytes = [System.IO.File]::ReadAllBytes($portableDwg)
+          if ($portableDwgBytes.Length -lt 64 -or [System.Text.Encoding]::ASCII.GetString($portableDwgBytes, 0, 6) -ne 'AC1032') {
+            throw 'Portable CLI did not produce an R2018 DWG'
+          }
+          $portableDxfInfo = & $portableCli info $portableDxf
+          if ($LASTEXITCODE -ne 0) { throw 'Portable CLI cannot reopen its DXF' }
+          $portableDwgInfo = & $portableCli info $portableDwg
+          if ($LASTEXITCODE -ne 0) { throw 'Portable CLI cannot reopen its DWG' }
+          $portableDxfDrawing = ($portableDxfInfo -join [char]10) | ConvertFrom-Json
+          $portableDwgDrawing = ($portableDwgInfo -join [char]10) | ConvertFrom-Json
+          if ($portableDxfDrawing.entityCount -le 0 -or $portableDwgDrawing.entityCount -ne $portableDxfDrawing.entityCount) {
+            throw "Portable DXF/DWG entity roundtrip mismatch: DXF=$($portableDxfDrawing.entityCount), DWG=$($portableDwgDrawing.entityCount)"
+          }
+          # Release exactly the same committed source as the binaries and guide,
+          # rather than leaving users to reconstruct a moving branch snapshot.
+          $sourceZip = 'dist/v1026/CADTBT360_V1.026_Full_Source.zip'
+          $headSha = (git rev-parse HEAD).Trim()
+          if ($LASTEXITCODE -ne 0 -or $headSha -ne $env:GITHUB_SHA) { throw 'Source checkout SHA differs from release build' }
+          python scripts/verify_source_bundle.py --build $sourceZip
+          if ($LASTEXITCODE -ne 0 -or !(Test-Path $sourceZip)) { throw 'Full source ZIP generation from exact Git blobs or SHA verification failed' }
+          python scripts/verify_source_bundle.py $sourceZip
+          if ($LASTEXITCODE -ne 0) { throw 'Full source ZIP missing files or differs from the exact release SHA' }
+          $hashes = @()
+          foreach ($name in @('CADTBT360_V1.026_Setup_Windows_x64.exe', 'CADTBT360_V1.026_Portable_Windows_x64.zip', 'CADTBT360_V1.026_Full_Source.zip')) {
+            $h = Get-FileHash (Join-Path 'dist/v1026' $name) -Algorithm SHA256
+            $hashes += "$($h.Hash)  $name"
+          }
+          $hashes | Set-Content dist/v1026/SHA256SUMS.txt -Encoding ascii
+
+      - name: Upload V1.026 Windows Setup and Portable
+        uses: actions/upload-artifact@v4
+        with:
+          name: CADTBT360_V1.026_Windows_x64_Setup_Portable
+          path: |
+            dist/v1026/CADTBT360_V1.026_Setup_Windows_x64.exe
+            dist/v1026/CADTBT360_V1.026_Portable_Windows_x64.zip
+            dist/v1026/CADTBT360_V1.026_Full_Source.zip
+            dist/v1026/BUILD_INFO.txt
+            dist/v1026/SHA256SUMS.txt
+            dist/v1026/HUONG_DAN_AI_TU_ANH_THANH_CAD.md
+            dist/v1026/CADTBT360_V1.026_HUONG_DAN_AI_TU_ANH_THANH_CAD.docx
+            dist/v1026/CADTBT360_V1.026_GIAO_TRINH_TONG_HOP.docx
+            dist/v1026/CADTBT360_V1.026_GIAO_TRINH_NGUOI_MOI.docx
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish verified Setup and Portable to GitHub prereleases
+        if: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/feature/CADTBT360_V1.026_AI_LARGE_IMAGE' }}
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $tag = "CADTBT360_V1.026_B$($env:GITHUB_RUN_NUMBER)_A$($env:GITHUB_RUN_ATTEMPT)"
+          $assets = @(
+            'dist/v1026/CADTBT360_V1.026_Setup_Windows_x64.exe',
+            'dist/v1026/CADTBT360_V1.026_Portable_Windows_x64.zip',
+            'dist/v1026/CADTBT360_V1.026_Full_Source.zip',
+            'dist/v1026/BUILD_INFO.txt',
+            'dist/v1026/SHA256SUMS.txt',
+            'dist/v1026/HUONG_DAN_AI_TU_ANH_THANH_CAD.md',
+            'dist/v1026/CADTBT360_V1.026_HUONG_DAN_AI_TU_ANH_THANH_CAD.docx',
+            'dist/v1026/CADTBT360_V1.026_GIAO_TRINH_TONG_HOP.docx',
+            'dist/v1026/CADTBT360_V1.026_GIAO_TRINH_NGUOI_MOI.docx'
+          )
+          foreach ($asset in $assets) { if (!(Test-Path $asset)) { throw "Verified release asset missing: $asset" } }
+          $notes = "CAD 360 Viet Nam V1.026 Windows x64 - verified automated build `nSource commit: $env:GITHUB_SHA`nRun: $env:GITHUB_RUN_ID`nSetup install/uninstall, CLI DXF/DWG roundtrips, real-PNG IMAGE attachment with supplied trace vertices, and Portable hashes checked. Setup/Portable MCP smoke checks real-PNG LINE recognition, grouped Undo, and save/reopen of AI-generated DXF/DWG R2018 using the shipped CLI. The release also bundles a full-source ZIP from the exact build commit and the editable Vietnamese Word user guide. Independent AutoCAD interoperability, real-world AI accuracy and manual GUI acceptance are not verified."
+          gh release create $tag @assets --title "CAD 360 Viet Nam V1.026 - Build $env:GITHUB_RUN_NUMBER" --target $env:GITHUB_SHA --prerelease --notes $notes
+          if ($LASTEXITCODE -ne 0) { throw "Failed to publish verified Windows prerelease $tag" }
+          # Verify what GitHub actually accepted, not just the local files and
+          # gh upload exit code. Every release asset must exist with the same
+          # nonzero byte length; the tag must identify the build's exact SHA.
+          $releaseJson = gh release view $tag --json tagName,targetCommitish,isPrerelease,assets
+          if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace(($releaseJson -join ''))) { throw "Cannot verify newly published Windows release $tag" }
+          $published = ($releaseJson -join [char]10) | ConvertFrom-Json
+          if ($published.tagName -ne $tag -or $published.targetCommitish -ne $env:GITHUB_SHA -or $published.isPrerelease -ne $true) {
+            throw "GitHub release identity does not match expected tag, exact source commit and prerelease status: $tag"
+          }
+          foreach ($asset in $assets) {
+            $name = Split-Path $asset -Leaf
+            $expectedSize = (Get-Item $asset).Length
+            $match = @($published.assets | Where-Object { $_.name -eq $name })
+            if ($expectedSize -le 0 -or $match.Count -ne 1 -or [long]$match[0].size -ne $expectedSize) {
+              throw "GitHub release $tag is missing or has an invalid uploaded asset: $name (expected $expectedSize bytes)"
+            }
+          }
+          Write-Host "Verified GitHub prerelease $tag with all $($assets.Count) assets, matching sizes and source commit"
+          "GitHub prerelease: https://github.com/$env:GITHUB_REPOSITORY/releases/tag/$tag" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+
+      - name: Save failed or cancelled build diagnostics for V1.026
+        if: ${{ failure() || cancelled() }}
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist/v1026/diagnostics | Out-Null
+          Write-Host 'Preparing diagnostic artifact for failed or cancelled Windows release'
+          $lines = @(
+            'Release=CADTBT360_V1.026',
+            "SourceCommit=$env:GITHUB_SHA",
+            "RunId=$env:GITHUB_RUN_ID",
+            "RunAttempt=$env:GITHUB_RUN_ATTEMPT",
+            "RunnerOS=$env:RUNNER_OS",
+            'FixtureValidation=${{ steps.validate_fixture.outcome }}',
+            'FullManuals=${{ steps.manuals.outcome }}',
+            'Preflight=${{ steps.preflight.outcome }}',
+            'TestDiscovery=${{ steps.discover.outcome }}',
+            'CliJsonContract=${{ steps.cli_contract.outcome }}',
+            'ImageMCPTests=${{ steps.ai_tests.outcome }}',
+            'XrefDWGTests=${{ steps.cad_tests.outcome }}',
+            'ReleaseBuild=${{ steps.release_build.outcome }}',
+            'InstallerPrepare=${{ steps.prepare_installer.outcome }}',
+            'Package=${{ steps.package.outcome }}',
+            'InstalledSmoke=${{ steps.installed_smoke.outcome }}',
+            'PortableSmoke=${{ steps.portable_smoke.outcome }}'
+          )
+          $lines | Set-Content dist/v1026/diagnostics/CI_FAILURE.txt -Encoding utf8
+          rustc --version 2>&1 | Out-File dist/v1026/diagnostics/RUST_VERSION.txt -Encoding utf8
+          cargo --version 2>&1 | Out-File dist/v1026/diagnostics/CARGO_VERSION.txt -Encoding utf8
+          Get-ChildItem dist/v1026 -File -ErrorAction SilentlyContinue | Select-Object Name,Length,LastWriteTimeUtc | Format-Table -AutoSize | Out-String | Set-Content dist/v1026/diagnostics/DIST_FILES.txt -Encoding utf8
+          $lines | ForEach-Object { Write-Host $_ }
+          "### CAD 360 V1.026 - failed Windows release" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          ($lines -join "`n") | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+
+      - name: Upload V1.026 diagnostics on failed or cancelled build
+        if: ${{ failure() || cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: CADTBT360_V1.026_Windows_x64_Failure_Diagnostics
+          path: dist/v1026/diagnostics/
+          if-no-files-found: warn
+          retention-days: 30

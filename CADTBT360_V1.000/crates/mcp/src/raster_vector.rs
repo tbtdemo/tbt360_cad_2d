@@ -8,9 +8,9 @@ use image::GrayImage;
 use serde_json::{Value, json};
 use std::path::Path;
 
-const MAX_FILE_BYTES: u64 = 16 * 1024 * 1024;
-const MAX_IMAGE_SIDE: u32 = 4096;
-const MAX_IMAGE_PIXELS: u64 = 12_000_000;
+const MAX_FILE_BYTES: u64 = 64 * 1024 * 1024;
+const MAX_IMAGE_SIDE: u32 = 8192;
+const MAX_IMAGE_PIXELS: u64 = 36_000_000;
 
 #[derive(Clone, Copy, Debug)]
 struct Stroke {
@@ -161,8 +161,14 @@ fn arbitrary_angle_strokes(img: &GrayImage, threshold: u8, min_length: u32) -> V
             let mut queue = VecDeque::new();
             queue.push_back((x,y));
             let mut pts: Vec<(f64,f64)> = Vec::new();
+            // A solid hatch/fill can occupy millions of pixels. Still walk
+            // the component to mark every pixel visited, but never retain
+            // more than the PCA fitting budget in memory. An oversized
+            // component is unverified geometry and must be rejected.
             while let Some((cx,cy)) = queue.pop_front() {
-                pts.push((f64::from(cx)+0.5, f64::from(cy)+0.5));
+                if pts.len() <= 200_000 {
+                    pts.push((f64::from(cx)+0.5, f64::from(cy)+0.5));
+                }
                 for dy in -1_i32..=1 {
                     for dx in -1_i32..=1 {
                         if dx == 0 && dy == 0 { continue; }
@@ -263,35 +269,186 @@ struct RectangleOutline {
 /// Missing walls, gaps or intersections are deliberately not inferred.
 /// Detection is capped to prevent quadratic growth on large drawings.
 fn closed_rectangles(lines: &[Line]) -> Vec<RectangleOutline> {
-    if lines.len() > 1000 { return Vec::new(); }
-    let mut result = Vec::new();
-    let mut used = vec![false; lines.len()];
+    use std::collections::HashMap;
     let near = |a: f64, b: f64| (a-b).abs() <= 1.5;
-    for (top_idx, top) in lines.iter().enumerate() {
-        if used[top_idx] || !near(top.y0, top.y1) || top.x1-top.x0 < 4.0 { continue; }
-        for (bottom_idx, bottom) in lines.iter().enumerate().skip(top_idx+1) {
-            if used[bottom_idx] || !near(bottom.y0, bottom.y1) || bottom.x1-bottom.x0 < 4.0 { continue; }
-            if !near(top.x0,bottom.x0) || !near(top.x1,bottom.x1) || (bottom.y0-top.y0).abs() < 4.0 { continue; }
-            let (lo_y,hi_y) = if top.y0 <= bottom.y0 { (top.y0,bottom.y0) } else { (bottom.y0,top.y0) };
-            let lo_x = (top.x0+bottom.x0)/2.0;
-            let hi_x = (top.x1+bottom.x1)/2.0;
-            let vertical = |x: f64| lines.iter().enumerate().find(|(i,l)| {
-                !used[*i] && *i != top_idx && *i != bottom_idx
-                    && near(l.x0,l.x1) && near(l.x0,x)
-                    && near(l.y0,lo_y) && near(l.y1,hi_y)
-            }).map(|(i,_)|i);
-            let (Some(left_idx),Some(right_idx)) = (vertical(lo_x),vertical(hi_x)) else { continue };
-            if left_idx == right_idx { continue; }
-            used[top_idx] = true; used[bottom_idx] = true;
-            used[left_idx] = true; used[right_idx] = true;
+    // Buckets are for candidate indexing only: final geometric comparisons
+    // always use the original full-precision pixel coordinates.
+    const CELL: f64 = 3.0;
+    let bucket = |v:f64| (v/CELL).floor() as i64;
+    let mut horizontals: HashMap<(i64,i64),Vec<usize>> = HashMap::new();
+    let mut verticals: HashMap<i64,Vec<usize>> = HashMap::new();
+    for (i,l) in lines.iter().enumerate() {
+        if near(l.y0,l.y1) && l.x1-l.x0>=4.0 {
+            horizontals.entry((bucket(l.x0),bucket(l.x1))).or_default().push(i);
+        }
+        if near(l.x0,l.x1) && l.y1-l.y0>=4.0 {
+            verticals.entry(bucket(l.x0)).or_default().push(i);
+        }
+    }
+    let mut result=Vec::new();
+    // A real partition stroke can bound TWO adjacent rooms, horizontally
+    // or vertically. Do not consume source edges. A candidate's upper/lower
+    // roles are decided by Y coordinates, NOT incoming source index order.
+    for (top_idx,top) in lines.iter().enumerate() {
+        if !near(top.y0,top.y1) || top.x1-top.x0<4.0 {continue;}
+        let (ax,bx)=(bucket(top.x0),bucket(top.x1));
+        let mut bottom_indices=Vec::new();
+        for dx in -1..=1 {
+            for dy in -1..=1 {
+                if let Some(indices)=horizontals.get(&(ax+dx,bx+dy)) {
+                    bottom_indices.extend(indices.iter().copied().filter(|i|*i!=top_idx));
+                }
+            }
+        }
+        bottom_indices.sort_unstable();
+        bottom_indices.dedup();
+        // Nearest complete lower boundary wins; never span through an
+        // already observed smaller closed room to invent a larger one.
+        bottom_indices.retain(|&idx|lines[idx].y0>top.y0+4.0);
+        bottom_indices.sort_by(|&i,&j|lines[i].y0.total_cmp(&lines[j].y0)
+            .then_with(||i.cmp(&j)));
+        for bottom_idx in bottom_indices {
+            let bottom=&lines[bottom_idx];
+            if !near(bottom.y0,bottom.y1) || bottom.x1-bottom.x0<4.0 {continue;}
+            if !near(top.x0,bottom.x0) || !near(top.x1,bottom.x1)
+                || bottom.y0-top.y0<4.0 {continue;}
+            let (lo_y,hi_y)=if top.y0<=bottom.y0 {
+                (top.y0,bottom.y0)
+            } else {(bottom.y0,top.y0)};
+            let lo_x=(top.x0+bottom.x0)/2.0;
+            let hi_x=(top.x1+bottom.x1)/2.0;
+            let vertical = |x:f64| -> Option<usize> {
+                let key=bucket(x);
+                (key-1..=key+1)
+                    .flat_map(|bucket|verticals.get(&bucket).into_iter().flatten())
+                    .copied()
+                    .filter(|i|*i!=top_idx && *i!=bottom_idx)
+                    .filter(|i|{
+                        let l=&lines[*i];
+                        near(l.x0,l.x1) && near(l.x0,x)
+                            && near(l.y0,lo_y) && near(l.y1,hi_y)
+                    }).min()
+            };
+            let (Some(left_idx),Some(right_idx))=(vertical(lo_x),vertical(hi_x)) else {continue};
+            if left_idx==right_idx {continue;}
             result.push(RectangleOutline {
                 edges:[top_idx,bottom_idx,left_idx,right_idx],
                 corners:[[lo_x,lo_y],[hi_x,lo_y],[hi_x,hi_y],[lo_x,hi_y]]
             });
+            if result.len()>=128 {return result;}
             break;
         }
     }
     result
+}
+
+/// Read-only topology: two independently closed regions are adjacent only
+/// when they use the SAME observed original boundary stroke. Never infer
+/// adjacency from image proximity or bridge doorway gaps. Room indices are
+/// indices into the filtered roomCandidates array, not closedRectangles.
+fn observed_room_adjacencies(rooms: &[Value]) -> Vec<Value> {
+    use std::collections::BTreeMap;
+    let mut by_edge: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
+    for (room_idx, room) in rooms.iter().enumerate() {
+        let Some(edges)=room["sourceEdgeIndices"].as_array() else {continue};
+        if edges.len()!=4 {continue;}
+        let Some(indices)=edges.iter().map(|v|v.as_u64().and_then(|n|usize::try_from(n).ok()))
+            .collect::<Option<Vec<_>>>() else {continue};
+        for edge in indices {
+            by_edge.entry(edge).or_default().push(room_idx);
+        }
+    }
+    let mut results=Vec::new();
+    for (source_edge,room_indices) in by_edge {
+        if room_indices.len()!=2 || room_indices[0]==room_indices[1] {continue;}
+        results.push(json!({
+            "roomIndices":room_indices,
+            "sourceEdgeIndex":source_edge,
+            "kind":"observed-shared-complete-boundary",
+            "passageConfirmed":false,
+            "requiresHumanReview":true
+        }));
+        if results.len()>=256 {break;}
+    }
+    results
+}
+
+/// Associate an already observed *paired* gap with at most two closed
+/// regions when the opening's midpoint lies on a measured room boundary.
+/// A gap can be scan damage, a window or a door; this is proximity evidence,
+/// never a confirmed route or permission to create a CAD door.
+fn observed_opening_room_contacts(rooms:&[Value], openings:&[Value]) -> Vec<Value> {
+    let mut output=Vec::new();
+    for (opening_index,opening) in openings.iter().enumerate() {
+        let Some(points)=opening["outlinePixels"].as_array() else {continue};
+        if points.len()!=4 {continue;}
+        let coords=points.iter().map(|p|{
+            let a=p.as_array().filter(|a|a.len()==2)?;
+            let x=a[0].as_f64()?;let y=a[1].as_f64()?;
+            (x.is_finite()&&y.is_finite()).then_some([x,y])
+        }).collect::<Option<Vec<_>>>();
+        let Some(coords)=coords else {continue};
+        let mid=[coords.iter().map(|p|p[0]).sum::<f64>()/4.0,
+            coords.iter().map(|p|p[1]).sum::<f64>()/4.0];
+        let Some(thickness)=opening["wallThicknessPixels"].as_f64() else {continue};
+        if !thickness.is_finite()||!(1.0..=80.0).contains(&thickness) {continue;}
+        // Validate the observed quadrilateral before assigning rooms.
+        // An opening on a vertical wall must have its SHORT axis across the
+        // wall thickness (X); for a horizontal wall the short axis is Y.
+        let minx=coords.iter().map(|p|p[0]).fold(f64::INFINITY,f64::min);
+        let maxx=coords.iter().map(|p|p[0]).fold(f64::NEG_INFINITY,f64::max);
+        let miny=coords.iter().map(|p|p[1]).fold(f64::INFINITY,f64::min);
+        let maxy=coords.iter().map(|p|p[1]).fold(f64::NEG_INFINITY,f64::max);
+        let w=maxx-minx;let h=maxy-miny;
+        if w<1.0 || h<1.0 || w*h>1e12 {continue;}
+        let valid_corners=[[minx,miny],[maxx,miny],[maxx,maxy],[minx,maxy]]
+            .iter().all(|corner|coords.iter().any(|p|
+                (p[0]-corner[0]).abs()<=0.75 && (p[1]-corner[1]).abs()<=0.75));
+        if !valid_corners {continue;}
+        let parallel_vertical=(w-thickness).abs()<=2.0 && h>=3.0;
+        let parallel_horizontal=(h-thickness).abs()<=2.0 && w>=3.0;
+        if !parallel_vertical && !parallel_horizontal {continue;}
+        let tolerance=thickness*0.5+2.0;
+        let mut touching=Vec::new();
+        for (room_index,room) in rooms.iter().enumerate() {
+            let Some(corners)=room["outlinePixels"].as_array() else {continue};
+            if corners.len()!=4 {continue;}
+            let rect=corners.iter().map(|p|{
+                let a=p.as_array().filter(|a|a.len()==2)?;
+                Some([a[0].as_f64()?,a[1].as_f64()?])
+            }).collect::<Option<Vec<_>>>();
+            let Some(rect)=rect else {continue};
+            let x0=rect.iter().map(|p|p[0]).fold(f64::INFINITY,f64::min);
+            let x1=rect.iter().map(|p|p[0]).fold(f64::NEG_INFINITY,f64::max);
+            let y0=rect.iter().map(|p|p[1]).fold(f64::INFINITY,f64::min);
+            let y1=rect.iter().map(|p|p[1]).fold(f64::NEG_INFINITY,f64::max);
+            if !(x0<x1&&y0<y1) {continue;}
+            // The opening must be aligned with a room side AND project into
+            // that side's span. A midpoint close only to a room corner is not
+            // sufficient to assign an entrance.
+            let on_left=parallel_vertical && (mid[0]-x0).abs()<=tolerance
+                && mid[1]>y0+tolerance && mid[1]<y1-tolerance;
+            let on_right=parallel_vertical && (mid[0]-x1).abs()<=tolerance
+                && mid[1]>y0+tolerance && mid[1]<y1-tolerance;
+            let on_top=parallel_horizontal && (mid[1]-y0).abs()<=tolerance
+                && mid[0]>x0+tolerance && mid[0]<x1-tolerance;
+            let on_bottom=parallel_horizontal && (mid[1]-y1).abs()<=tolerance
+                && mid[0]>x0+tolerance && mid[0]<x1-tolerance;
+            if on_left||on_right||on_top||on_bottom {touching.push(room_index);}
+            if touching.len()>2 {break;}
+        }
+        if touching.is_empty()||touching.len()>2 {continue;}
+        output.push(json!({
+            "openingIndex":opening_index,
+            "roomIndices":touching,
+            "midpointPixels":mid,
+            "classification":"paired-gap-near-observed-room-edge-unverified",
+            "isDoor":false,"passageConfirmed":false,
+            "requiresHumanReview":true
+        }));
+        if output.len()>=64 {break;}
+    }
+    output
 }
 
 /// A conservative column-like motif: a small near-square closed outline with
@@ -335,29 +492,55 @@ fn column_hatch_candidates(rects: &[RectangleOutline], lines: &[Line]) -> Vec<Va
 /// Conservative geometric parallel-edge hints; not semantic wall recognition.
 /// Pair only axis-aligned segments of similar span with substantial overlap.
 fn parallel_wall_candidates(lines: &[Line], min_spacing: f64, max_spacing: f64) -> Vec<Value> {
-    if lines.len() > 1000 || !(min_spacing > 0.0 && max_spacing >= min_spacing) { return Vec::new(); }
-    let mut candidates = Vec::new();
-    let horizontal = |l: &Line| (l.y0-l.y1).abs() < 0.25 && l.x1-l.x0 >= 16.0;
-    let vertical = |l: &Line| (l.x0-l.x1).abs() < 0.25 && l.y1-l.y0 >= 16.0;
-    for (i,a) in lines.iter().enumerate() {
-        for (j,b) in lines.iter().enumerate().skip(i+1) {
-            let same_h = horizontal(a) && horizontal(b);
-            let same_v = vertical(a) && vertical(b);
-            if !same_h && !same_v { continue; }
-            let spacing = if same_h { (a.y0-b.y0).abs() } else { (a.x0-b.x0).abs() };
-            if spacing < min_spacing || spacing > max_spacing { continue; }
-            let (a0,a1,b0,b1) = if same_h { (a.x0,a.x1,b.x0,b.x1) } else { (a.y0,a.y1,b.y0,b.y1) };
-            let start = a0.max(b0); let end = a1.min(b1);
-            let shorter = (a1-a0).min(b1-b0);
-            if shorter <= 0.0 || end-start < 16.0 || (end-start)/shorter < 0.8 { continue; }
-            // Only a suggestion with two source indices. The user chooses whether
-            // they are indeed a wall; no geometry is created or discarded here.
-            candidates.push(json!({"edges":[i,j],"orientation":if same_h {"horizontal"} else {"vertical"},
-                "spacingPixels":spacing,"overlapPixels":end-start}));
-            if candidates.len() >= 128 { return candidates; }
+    if !(min_spacing > 0.0 && max_spacing >= min_spacing) { return Vec::new(); }
+    // Sort each orientation by its perpendicular coordinate and only compare
+    // lines within the plausible wall-thickness band. Unlike all-pairs O(n²),
+    // this scales to thousands of unrelated strokes without scanning every
+    // possible pair. Indices always refer to the full original raster source.
+    let mut horizontal = Vec::<(f64,usize)>::new();
+    let mut vertical = Vec::<(f64,usize)>::new();
+    for (i,l) in lines.iter().enumerate() {
+        if (l.y0-l.y1).abs()<0.25 && l.x1-l.x0>=16.0 {
+            horizontal.push((l.y0,i));
+        }
+        if (l.x0-l.x1).abs()<0.25 && l.y1-l.y0>=16.0 {
+            vertical.push((l.x0,i));
         }
     }
-    candidates
+    horizontal.sort_by(|a,b|a.0.total_cmp(&b.0));
+    vertical.sort_by(|a,b|a.0.total_cmp(&b.0));
+    let mut result = Vec::new();
+    for (oriented,is_horizontal) in [(&horizontal,true),(&vertical,false)] {
+        for (position,&(coord,i)) in oriented.iter().enumerate() {
+            let a=lines[i];
+            // Binary-search the minimum spacing. Thousands of independent
+            // lines on exactly the same Y/X coordinate should not cause a
+            // quadratic walk over impossible zero-spacing matches.
+            let remaining=&oriented[position+1..];
+            let first=remaining.partition_point(|(other_coord,_)|
+                *other_coord-coord < min_spacing);
+            for &(other_coord,j) in &remaining[first..] {
+                let spacing=other_coord-coord;
+                if spacing>max_spacing { break; }
+                let b=lines[j];
+                let (a0,a1,b0,b1)=if is_horizontal {
+                    (a.x0,a.x1,b.x0,b.x1)
+                } else {
+                    (a.y0,a.y1,b.y0,b.y1)
+                };
+                let start=a0.max(b0);let end=a1.min(b1);
+                let shorter=(a1-a0).min(b1-b0);
+                if shorter<=0.0 || end-start<16.0 || (end-start)/shorter<0.8 {continue;}
+                let (first,second)=if i<j {(i,j)} else {(j,i)};
+                result.push(json!({"edges":[first,second],
+                    "orientation":if is_horizontal {"horizontal"} else {"vertical"},
+                    "spacingPixels":spacing,"overlapPixels":end-start}));
+                // Bounded output; no automatic geometry/semantic claim.
+                if result.len()>=128 {return result;}
+            }
+        }
+    }
+    result
 }
 
 /// Conservative drafting panels from observed pairs only; never bridge missing wall edges.
@@ -907,11 +1090,122 @@ fn reference_line_benchmark(detected:&[Value],reference:&Value,tolerance:f64)->R
         "warning":"Requires human-labelled reference CAD lines. No guarantee of element classification or two-way AutoCAD acceptance."}))
 }
 
+/// One-to-one supervised benchmark of closed room *geometry*. No semantic
+/// building-element accuracy is claimed: both reference and candidate must have
+/// all four observed boundaries. Explicit CAD-space rectangles [xmin,ymin,xmax,ymax].
+fn reference_room_geometry_benchmark(detected:&[Value], references:&Value, tolerance:f64)
+    -> Result<Value,String> {
+    let refs=references.as_array()
+        .ok_or("referenceRoomRectsCAD must be an array of [xmin,ymin,xmax,ymax]")?;
+    if refs.is_empty() || refs.len()>512 {
+        return Err("referenceRoomRectsCAD requires 1..512 annotated rectangles".into());
+    }
+    if !tolerance.is_finite() || tolerance<=0.0 || tolerance>1.0e9 {
+        return Err("referenceRoomToleranceCAD must be finite and >0, <=1e9".into());
+    }
+    let parse_rect=|v:&Value|->Result<[f64;4],String> {
+        let arr=v.as_array().ok_or("reference room must be four CAD coordinates")?;
+        if arr.len()!=4 {return Err("reference room needs exactly four CAD coordinates".into());}
+        let vals=arr.iter().map(|x|x.as_f64()).collect::<Option<Vec<_>>>()
+            .ok_or("reference room has non-numeric values")?;
+        if vals.iter().any(|x|!x.is_finite()||x.abs()>1.0e12) ||
+            vals[0]>=vals[2] || vals[1]>=vals[3] {
+            return Err("reference room has inverted/unsafe CAD bounds".into());
+        }
+        Ok([vals[0],vals[1],vals[2],vals[3]])
+    };
+    let target=refs.iter().map(&parse_rect).collect::<Result<Vec<_>,_>>()?;
+    let mut found=Vec::new();
+    for item in detected {
+        let Some(corners)=item["outlineCAD"].as_array() else {continue};
+        if corners.len()!=4 {continue;}
+        // A malformed or skewed four-point polygon is not evidence for a
+        // rectangular room. Reject the WHOLE candidate: skipping one invalid
+        // corner would inflate precision/recall from partial source geometry.
+        let Some(points)=corners.iter().map(|p|{
+            let a=p.as_array().filter(|a|a.len()==2)?;
+            let (x,y)=(a[0].as_f64()?,a[1].as_f64()?);
+            (x.is_finite() && y.is_finite() && x.abs()<=1e12 && y.abs()<=1e12)
+                .then_some([x,y])
+        }).collect::<Option<Vec<_>>>() else {continue};
+        let lowx=points.iter().map(|p|p[0]).fold(f64::INFINITY,f64::min);
+        let lowy=points.iter().map(|p|p[1]).fold(f64::INFINITY,f64::min);
+        let highx=points.iter().map(|p|p[0]).fold(f64::NEG_INFINITY,f64::max);
+        let highy=points.iter().map(|p|p[1]).fold(f64::NEG_INFINITY,f64::max);
+        if !(lowx<highx && lowy<highy) {continue;}
+        let corners_ok=[[lowx,lowy],[highx,lowy],[highx,highy],[lowx,highy]]
+            .iter().all(|corner|points.iter().any(|p|
+                (p[0]-corner[0]).abs()<=1e-7 && (p[1]-corner[1]).abs()<=1e-7));
+        if corners_ok {found.push([lowx,lowy,highx,highy]);}
+    }
+    let mut matched=0usize;
+    let mut used=vec![false;found.len()];
+    for reference in &target {
+        let candidate=found.iter().enumerate().filter(|(i,_)|!used[*i])
+            .map(|(i,rect)|{
+                let error=(0..4).map(|d| (rect[d]-reference[d]).abs())
+                    .fold(0.0_f64,f64::max);
+                (i,error)
+            }).filter(|(_,error)|*error<=tolerance)
+            .min_by(|a,b|a.1.total_cmp(&b.1));
+        if let Some((i,_))=candidate { used[i]=true;matched+=1; }
+    }
+    let precision=if found.is_empty(){0.0}else{matched as f64/found.len() as f64};
+    let recall=matched as f64/target.len() as f64;
+    let f1=if precision+recall>0.0 {2.0*precision*recall/(precision+recall)} else {0.0};
+    Ok(json!({"method":"supervised-closed-rectangle-geometry-only",
+        "referenceRoomCount":target.len(),"candidateRoomCount":found.len(),
+        "matchedRoomCount":matched,"precision":precision,"recall":recall,
+        "f1":f1,"toleranceCAD":tolerance,
+        "warning":"NOT semantic room recognition: only complete four-edge geometric rectangles are compared to human-labelled CAD bounds"}))
+}
+
+/// Bounded 1024px region inventory without allocating a second full-size image.
+/// Each vector keeps its original global pixel coordinates. Crossing vectors
+/// are referenced by both regions, never translated or duplicated in the CAD
+/// output. These are *diagnostics*, not semantic room/door recognition.
+fn raster_tile_diagnostics(img: &GrayImage, vectors: &[Line], threshold: u8) -> Vec<Value> {
+    const TILE: u32 = 1024;
+    let (width,height)=img.dimensions();
+    let mut tiles=Vec::new();
+    for top in (0..height).step_by(TILE as usize) {
+        for left in (0..width).step_by(TILE as usize) {
+            let right=(left+TILE).min(width);
+            let bottom=(top+TILE).min(height);
+            let mut dark=0_u64;
+            // Only aggregate source darkness. No per-tile GrayImage allocation.
+            for y in top..bottom {
+                for x in left..right {
+                    if img.get_pixel(x,y)[0]<=threshold {dark+=1;}
+                }
+            }
+            let x0=f64::from(left);let x1=f64::from(right);
+            let y0=f64::from(top);let y1=f64::from(bottom);
+            let touching:Vec<usize>=vectors.iter().enumerate().filter(|(_,v)| {
+                let minx=v.x0.min(v.x1);let maxx=v.x0.max(v.x1);
+                let miny=v.y0.min(v.y1);let maxy=v.y0.max(v.y1);
+                maxx>=x0 && minx<x1 && maxy>=y0 && miny<y1
+            }).map(|(index,_)|index).collect();
+            tiles.push(json!({
+                "boundsPixels":[left,top,right,bottom],
+                "darkPixels":dark,"threshold":threshold,
+                "vectorCount":touching.len(),
+                // Avoid a multi-megabyte preview when the page has thousands
+                // of crossing vectors; indices still refer to global vectors.
+                "vectorIndices":if touching.len()<=256 {json!(touching)} else {Value::Null},
+                "indicesTruncated":touching.len()>256,
+                "classification":"source-region-diagnostic-not-semantic"
+            }));
+        }
+    }
+    tiles
+}
+
 pub fn preview(args: &Value) -> Result<Value, String> {
     let path = args["path"].as_str().filter(|s| !s.trim().is_empty()).ok_or("path is required")?;
     let file = Path::new(path);
     let metadata = std::fs::metadata(file).map_err(|e| format!("Cannot inspect raster source: {e}"))?;
-    if !metadata.is_file() || metadata.len() > MAX_FILE_BYTES { return Err("Raster must be a file of at most 16 MiB".into()); }
+    if !metadata.is_file() || metadata.len() > MAX_FILE_BYTES { return Err("Raster must be a file of at most 64 MiB".into()); }
     let bytes = std::fs::read(file).map_err(|e| format!("Cannot read raster source: {e}"))?;
     // Read the image header first: rejecting oversized compressed images AFTER
     // decoding could allocate huge buffers for a small, malicious PNG/JPEG file.
@@ -920,15 +1214,18 @@ pub fn preview(args: &Value) -> Result<Value, String> {
     let reader = image::ImageReader::with_format(std::io::Cursor::new(&bytes), format);
     let (width, height) = reader.into_dimensions().map_err(|e| format!("Cannot read image dimensions: {e}"))?;
     if width == 0 || height == 0 || width > MAX_IMAGE_SIDE || height > MAX_IMAGE_SIDE || u64::from(width) * u64::from(height) > MAX_IMAGE_PIXELS {
-        return Err("Raster dimensions must be 1..4096 with at most 12 million pixels".into());
+        return Err("Raster dimensions must be 1..8192 with at most 36 million pixels".into());
     }
+    // Cap the decoded image before allocating pixels. This gives larger real-world
+    // drawings room while avoiding decompression bombs and unbounded RAM growth.
+    // The geometry is never resized: unitsPerPixel remains tied to original pixels.
     let decoded = image::load_from_memory_with_format(&bytes, format).map_err(|e| format!("Cannot decode PNG/JPEG raster: {e}"))?;
     let threshold = args["threshold"].as_u64().unwrap_or(160);
     if threshold > 254 { return Err("threshold must be 0..254".into()); }
     let min_length = args["minLengthPixels"].as_u64().unwrap_or(12);
     if !(2..=4096).contains(&min_length) { return Err("minLengthPixels must be 2..4096".into()); }
-    let max_lines = args["maxLines"].as_u64().unwrap_or(250);
-    if !(1..=1000).contains(&max_lines) { return Err("maxLines must be 1..1000".into()); }
+    let max_lines = args["maxLines"].as_u64().unwrap_or(500);
+    if !(1..=10_000).contains(&max_lines) { return Err("maxLines must be 1..10000".into()); }
     // Missing calibration is explicitly documented as 1 CAD unit/pixel; malformed supplied
     // calibration must never silently reset to 1.0 and produce geometry at the wrong scale.
     let scale = match args.get("unitsPerPixel") {
@@ -1201,11 +1498,31 @@ pub fn preview(args: &Value) -> Result<Value, String> {
         || max_wall_spacing < min_wall_spacing {
         return Err("Wall edge pixel spacing must satisfy 1 <= minimum <= maximum <= 80; no CAD changes made".into());
     }
+    // Several architectural detectors intentionally bound candidate pair search to
+    // 1000 strokes. Never silently return "zero walls/rooms" for a dense floorplan:
+    // make the limitation explicit so an operator can crop or filter first.
+    const SEMANTIC_HINT_KEYS: &[&str] = &[
+        "columnHatchHints",
+        "openingGapHints", "pairedWallOpeningHints", "wallPanelHints",
+        "createWallCenterlines", "doorLeafHints", "windowSashHints",
+    ];
+    if lines.len() > 1000 && SEMANTIC_HINT_KEYS.iter()
+        .any(|key| args[*key].as_bool().unwrap_or(false))
+    {
+        return Err(format!(
+            "Detected {} strokes; architectural candidate detection is bounded to 1000 strokes. Filter short strokes or process calibrated regions; no CAD changes made",
+            lines.len()
+        ));
+    }
     let wall_hints = if args["wallPairHints"].as_bool().unwrap_or(false) {
         parallel_wall_candidates(&lines, min_wall_spacing, max_wall_spacing)
     } else { Vec::new() };
     let column_hints=args["columnHatchHints"].as_bool().unwrap_or(false);
-    let all_rectangles=if args["closedRectangles"].as_bool().unwrap_or(false) || column_hints {closed_rectangles(&lines)} else {Vec::new()};
+    // Room boundary evidence is part of READ-ONLY Preview, independent from
+    // the user's opt-in to CREATE closed CAD polylines. The former must not
+    // silently return zero merely because "closedRectangles" is disabled.
+    // This never mutates CAD or invents a missing wall.
+    let all_rectangles=closed_rectangles(&lines);
     let mut column_candidates=if column_hints {column_hatch_candidates(&all_rectangles,&lines)} else {Vec::new()};
     // First conservative architectural-space hypothesis from four observed closed
     // boundaries, not inferred gaps. Reject small cross-hatched column rectangles.
@@ -1374,7 +1691,10 @@ pub fn preview(args: &Value) -> Result<Value, String> {
     }
     // Separate small JSON objects avoid serde_json::json! expansion beyond
     // Rust's default macro recursion limit as AI preview fields grow.
+    let region_diagnostics=raster_tile_diagnostics(&gray,&lines,threshold);
     let mut result=json!({
+        "rasterTileSizePixels":1024,
+        "rasterTiles":region_diagnostics,
         "preview":true,"recognition":"automatic-raster-line-strokes",
         "model":"deterministic-pixel-vectorization-not-neural-AI",
         "imageSize":[width,height],"strokes":count,"sourceStrokes":source_strokes,
@@ -1385,6 +1705,7 @@ pub fn preview(args: &Value) -> Result<Value, String> {
         "windowSashCandidateCount":paired_openings.iter().filter(|v|v["windowSashCandidate"]==true).count()
     });
     let opening_guides_preview=if create_opening_guides {paired_openings.iter().map(|v|v["outlineCAD"].clone()).collect::<Vec<_>>()} else {Vec::new()};
+    let opening_room_contacts=observed_opening_room_contacts(&room_candidates,&paired_openings);
     let architectural=json!({
         "pairedWallOpeningCandidates":paired_openings,
         "doorLeafHintsRequested":args["doorLeafHints"].as_bool().unwrap_or(false),
@@ -1412,7 +1733,32 @@ pub fn preview(args: &Value) -> Result<Value, String> {
             "areaCAD2":room["areaPixels2"].as_f64().unwrap_or(0.0)*scale*scale,
             "classification":room["classification"],"requiresHumanReview":true})
     }).collect();
-    let geometry=json!({
+    // The graph is only observable shared-stroke evidence. Expose its exact
+    // original CAD segment for manual checking/OSNAP inspection; no inferred
+    // passage, doorway or new entity is created.
+    let mut room_adjacencies=observed_room_adjacencies(&room_world);
+    for adjacency in &mut room_adjacencies {
+        let Some(index)=adjacency["sourceEdgeIndex"].as_u64()
+            .and_then(|i|usize::try_from(i).ok()) else {continue};
+        let Some(line)=lines.get(index) else {continue};
+        let to_cad=|x:f64,y:f64| [ox+x*scale,oy+(f64::from(height)-y)*scale];
+        let a=to_cad(line.x0,line.y0);
+        let b=to_cad(line.x1,line.y1);
+        let length=(a[0]-b[0]).hypot(a[1]-b[1]);
+        if a.iter().chain(b.iter()).all(|v|v.is_finite()&&v.abs()<=1e12)
+            && length.is_finite() && length>0.0 && length<=1e12 {
+            adjacency["sharedWallCAD"]=json!([a,b]);
+            adjacency["sharedWallLengthCAD"]=json!(length);
+            adjacency["canAutoCreateDoor"]=json!(false);
+        }
+    }
+    // Split JSON macro expansion into small flat blocks. A single growing
+    // json!({...}) hits Rust's default recursion limit on Windows CI.
+    let mut geometry=json!({
+        "openingRoomContactCount":opening_room_contacts.len(),
+        "openingRoomContacts":opening_room_contacts,
+        "roomAdjacencyCount":room_adjacencies.len(),
+        "roomAdjacencies":room_adjacencies,
         "roomCandidateCount":room_world.len(),"roomCandidates":room_world,
         "roomRecognitionStatus":"observed-closed-boundaries-only-needs-human-confirmation",
         "openingGuidePolylines":opening_guides_preview,
@@ -1421,7 +1767,9 @@ pub fn preview(args: &Value) -> Result<Value, String> {
         "wallPairCandidateCount":wall_hints.len(),"wallPairHints":wall_hints,
         "minWallSpacingPixels":min_wall_spacing,"maxWallSpacingPixels":max_wall_spacing,
         "wallCenterlinesProposed":axes.len(),"wallCenterlines":world_axes,
-        "wallCenterlineJunctionCount":junctions.len(),"wallCenterlineJunctions":junctions,
+        "wallCenterlineJunctionCount":junctions.len(),"wallCenterlineJunctions":junctions
+    });
+    let wall_geometry=json!({
         "wallPanelCandidateCount":wall_panels.len(),
         "wallPanelCandidates":wall_panels,
         "wallPanelHintsRequested":wall_panel_hints,
@@ -1431,7 +1779,9 @@ pub fn preview(args: &Value) -> Result<Value, String> {
         "wallBlockDraftCount":wall_block_drafts.len(),
         "wallBlockDrafts":wall_block_drafts,
         "wallBlocksRequested":create_wall_blocks,
-        "lines":world,"closedPolylines":world_rectangles,"rectanglesDetected":candidates.len(),
+        "lines":world,"closedPolylines":world_rectangles,"rectanglesDetected":candidates.len()
+    });
+    let column_geometry=json!({
         "columnHatchCandidateCount":column_candidates.len(),
         "columnHatchCandidates":column_candidates,
         "columnHatchHintsRequested":column_hints,
@@ -1445,6 +1795,10 @@ pub fn preview(args: &Value) -> Result<Value, String> {
         "editableEntitiesCreated":0,"source":path,
         "caution":"Review vectors before committing; line recognition is not semantic building interpretation"
     });
+    geometry.as_object_mut().expect("geometry object")
+        .extend(wall_geometry.as_object().expect("wall geometry object").clone());
+    geometry.as_object_mut().expect("geometry object")
+        .extend(column_geometry.as_object().expect("column geometry object").clone());
     // Provide CAD coordinates for selecting junctions in the native Preview.
     // These values are evidence only; they are never submitted as mutation commands.
     for junction in &mut wall_panel_junctions {
@@ -1481,6 +1835,12 @@ pub fn preview(args: &Value) -> Result<Value, String> {
     for extra in [architectural,geometry,topology] {
         let Value::Object(fields)=extra else {unreachable!("preview JSON section is an object")};
         dst.extend(fields);
+    }
+    if !args["referenceRoomRectsCAD"].is_null() {
+        let tolerance=args["referenceRoomToleranceCAD"].as_f64().unwrap_or(10.0);
+        result["roomGeometryBenchmark"]=reference_room_geometry_benchmark(
+            result["roomCandidates"].as_array().ok_or("Room candidates missing")?,
+            &args["referenceRoomRectsCAD"],tolerance)?;
     }
     if !args["referenceLinesCAD"].is_null() {
         let tolerance=args["referenceToleranceCAD"].as_f64().unwrap_or(10.0);
@@ -2829,6 +3189,387 @@ mod tests {
         assert!(pairs.iter().any(|p|p["edges"]==json!([270,271])));
         let panels=wall_panel_candidates(&lines,&pairs,&[],&[]);
         assert!(panels.iter().any(|p|p["sourceEdgeIndices"]==json!([270,271])));
+    }
+
+    #[test]
+    fn large_png_5000_by_3000_preserves_original_pixel_to_cad_calibration() {
+        // Larger than the old 4096-side / 12 MP thresholds. A sparse real PNG
+        // exercises the full decoder and vectorization, not a mocked dimension.
+        let mut img = GrayImage::from_pixel(5000, 3000, image::Luma([255]));
+        for x in 120..=4880 {
+            img.put_pixel(x, 1400, image::Luma([0]));
+        }
+        let stamp=std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let path=std::env::temp_dir().join(format!(
+            "cad360_large_{}_{}.png", std::process::id(), stamp
+        ));
+        img.save(&path).expect("write large PNG fixture");
+        drop(img);
+        let params=json!({"path":path.to_string_lossy(),"preview":true,
+            "maxLines":500,"minLengthPixels":100,"includeDiagonals":false,
+            "unitsPerPixel":2.0});
+        let result=preview(&params);
+        let _=std::fs::remove_file(&path);
+        let value=result.expect("15 MP must pass large-image guard");
+        assert_eq!(value["imageSize"],json!([5000,3000]));
+        assert!(value["strokes"].as_u64().unwrap_or(0)>=1);
+        assert_eq!(value["editableEntitiesCreated"],0);
+        let segments=value["lines"].as_array().unwrap();
+        assert!(segments.iter().any(|seg| {
+            let Some(a)=seg[0][0].as_f64() else {return false};
+            let Some(b)=seg[1][0].as_f64() else {return false};
+            (b-a).abs()>=9000.0
+        }),"pixel-space source length must become the calibrated CAD length");
+    }
+
+    #[test]
+    fn ai_tile_diagnostics_keep_global_vector_indices_across_seams() {
+        let mut img=GrayImage::from_pixel(2200,400,image::Luma([255]));
+        for x in 10..2100 {img.put_pixel(x,100,image::Luma([0]));}
+        let lines=strokes(&img,160,50,true);
+        assert_eq!(lines.len(),1);
+        let tiles=raster_tile_diagnostics(&img,&lines,160);
+        assert_eq!(tiles.len(),3);
+        assert_eq!(tiles[0]["boundsPixels"],json!([0,0,1024,400]));
+        assert_eq!(tiles[1]["boundsPixels"],json!([1024,0,2048,400]));
+        assert_eq!(tiles[2]["boundsPixels"],json!([2048,0,2200,400]));
+        for tile in &tiles {
+            assert_eq!(tile["vectorIndices"],json!([0]),
+                "one global native LINE must not be duplicated at tile seams");
+        }
+    }
+
+    #[test]
+    fn ai_room_geometry_benchmark_reports_missing_extra_and_malformed_refs() {
+        let candidates=vec![
+            json!({"outlineCAD":[[0,0],[100,0],[100,80],[0,80]]}),
+            json!({"outlineCAD":[[200,0],[300,0],[300,80],[200,80]]}),
+        ];
+        let truth=json!([[0,0,100,80],[400,0,500,80]]);
+        let result=reference_room_geometry_benchmark(&candidates,&truth,1.0).unwrap();
+        assert_eq!(result["referenceRoomCount"],2);
+        assert_eq!(result["candidateRoomCount"],2);
+        assert_eq!(result["matchedRoomCount"],1);
+        assert_eq!(result["precision"],0.5);
+        assert_eq!(result["recall"],0.5);
+        assert!(reference_room_geometry_benchmark(&candidates,&json!([[0,0,0,5]]),1.0).is_err());
+        assert!(reference_room_geometry_benchmark(&candidates,&truth,-1.0).is_err());
+    }
+
+    #[test]
+    fn ai_room_geometry_benchmark_excludes_missing_corner_and_skew_false_positive() {
+        let reference=json!([[0,0,100,80]]);
+        let invalid=vec![
+            json!({"outlineCAD":[[0,0],[100,0],[100,80],[null,80]]}),
+            json!({"outlineCAD":[[0,0],[100,0],[90,80],[0,80]]}),
+        ];
+        let bad=reference_room_geometry_benchmark(&invalid,&reference,0.5).unwrap();
+        assert_eq!(bad["candidateRoomCount"],0);
+        assert_eq!(bad["matchedRoomCount"],0);
+        assert_eq!(bad["recall"],0.0);
+        let correct=vec![json!({"outlineCAD":[[0,0],[100,0],[100,80],[0,80]]})];
+        let good=reference_room_geometry_benchmark(&correct,&reference,0.5).unwrap();
+        assert_eq!(good["matchedRoomCount"],1);
+        assert_eq!(good["precision"],1.0);
+    }
+
+    #[test]
+    fn ai_three_room_ground_truth_geometry_has_no_extra_closed_rooms() {
+        // Known labelled *geometric* rooms, not a semantic/BIM accuracy claim.
+        // Distractor strokes simulate annotations, dimensions and short hatches.
+        let mut source=Vec::new();
+        for i in 0..1800 {
+            let x=i as f64*2.0;
+            source.push(Line{x0:x,y0:1500.0,x1:x+1.0,y1:1500.0});
+        }
+        let start=source.len();
+        for (x0,y0,x1,y1) in [
+            (20.0,30.0,520.0,430.0),
+            (700.0,30.0,1100.0,430.0),
+            (1350.0,30.0,1700.0,530.0),
+        ] {
+            source.push(Line{x0,y0,x1,y1:y0});
+            source.push(Line{x0,y0:y1,x1,y1});
+            source.push(Line{x0,y0,x1:x0,y1});
+            source.push(Line{x0:x1,y0,x1,y1});
+        }
+        let candidates=closed_rectangles(&source);
+        assert_eq!(candidates.len(),3,
+            "three labelled closed geometries must produce three reviewed room outlines");
+        for index in 0..3 {
+            assert!(candidates.iter().any(|room|
+                room.edges[0]==start+index*4 && room.edges[1]==start+index*4+1),
+                "room source-line evidence must trace to original source indices");
+        }
+    }
+
+    #[test]
+    fn ai_preview_reports_closed_room_without_opt_in_to_create_rectangle() {
+        let mut img=GrayImage::from_pixel(360,320,image::Luma([255]));
+        for x in 40..=300 {
+            img.put_pixel(x,40,image::Luma([0]));
+            img.put_pixel(x,280,image::Luma([0]));
+        }
+        for y in 40..=280 {
+            img.put_pixel(40,y,image::Luma([0]));
+            img.put_pixel(300,y,image::Luma([0]));
+        }
+        let path=std::env::temp_dir().join(format!(
+            "cad360_room_preview_only_{}.png",std::process::id()));
+        img.save(&path).expect("write source room raster");
+        let result=preview(&json!({
+            "path":path.to_string_lossy(),
+            "preview":true,
+            "closedRectangles":false,
+            "minLengthPixels":15,
+            "includeDiagonals":false,
+            "unitsPerPixel":10.0
+        })).expect("read-only AI preview");
+        let _=std::fs::remove_file(path);
+        assert_eq!(result["roomCandidateCount"],1);
+        assert_eq!(result["roomCandidates"][0]["requiresHumanReview"],true);
+        assert_eq!(result["editableEntitiesCreated"],0);
+        assert_eq!(result["closedPolylines"],json!([]),
+            "Preview room evidence must not create closed CAD polylines");
+    }
+
+    #[test]
+    fn ai_room_topology_links_only_real_shared_source_edges_without_inventing_doors() {
+        let candidates=vec![
+            json!({"sourceEdgeIndices":[0,1,2,3]}),
+            json!({"sourceEdgeIndices":[4,5,3,6]}),
+            json!({"sourceEdgeIndices":[7,8,9,10]}),
+        ];
+        let links=observed_room_adjacencies(&candidates);
+        assert_eq!(links.len(),1);
+        assert_eq!(links[0]["roomIndices"],json!([0,1]));
+        assert_eq!(links[0]["sourceEdgeIndex"],3);
+        assert_eq!(links[0]["passageConfirmed"],false);
+        assert_eq!(links[0]["requiresHumanReview"],true);
+        assert!(observed_room_adjacencies(&[
+            json!({"sourceEdgeIndices":[0,1,2,3]}),
+            json!({"sourceEdgeIndices":[4,5,6,7]})
+        ]).is_empty(),"geometrically nearby rooms must not gain imaginary connections");
+    }
+
+    #[test]
+    fn ai_room_contact_rejects_crosswise_and_skewed_opening_shapes() {
+        let rooms=vec![
+            json!({"outlinePixels":[[0,0],[100,0],[100,100],[0,100]]}),
+            json!({"outlinePixels":[[100,0],[200,0],[200,100],[100,100]]}),
+        ];
+        // Both have a midpoint on the wall; neither is an admissible
+        // parallel paired-gap opening aligned to the vertical shared wall.
+        let crosswise=vec![json!({
+            "outlinePixels":[[90,45],[110,45],[110,55],[90,55]],
+            "wallThicknessPixels":10.0
+        })];
+        assert!(observed_opening_room_contacts(&rooms,&crosswise).is_empty(),
+            "crosswise span must not be marked as an opening on a vertical room side");
+        let skewed=vec![json!({
+            "outlinePixels":[[95,40],[105,40],[104,60],[95,60]],
+            "wallThicknessPixels":10.0
+        })];
+        assert!(observed_opening_room_contacts(&rooms,&skewed).is_empty(),
+            "nonrectangular scan candidate must not create room links");
+    }
+
+    #[test]
+    fn ai_paired_gap_near_two_room_boundaries_remains_unverified() {
+        let rooms=vec![
+            json!({"outlinePixels":[[0,0],[100,0],[100,100],[0,100]]}),
+            json!({"outlinePixels":[[100,0],[200,0],[200,100],[100,100]]}),
+            json!({"outlinePixels":[[300,0],[400,0],[400,100],[300,100]]}),
+        ];
+        let openings=vec![
+            json!({"outlinePixels":[[95,40],[105,40],[105,60],[95,60]],
+                "wallThicknessPixels":10.0}),
+            json!({"outlinePixels":[[250,40],[260,40],[260,60],[250,60]],
+                "wallThicknessPixels":10.0}),
+        ];
+        let contacts=observed_opening_room_contacts(&rooms,&openings);
+        assert_eq!(contacts.len(),1);
+        assert_eq!(contacts[0]["openingIndex"],0);
+        assert_eq!(contacts[0]["roomIndices"],json!([0,1]));
+        assert_eq!(contacts[0]["isDoor"],false);
+        assert_eq!(contacts[0]["passageConfirmed"],false);
+        assert!(observed_opening_room_contacts(&rooms,&[
+            json!({"outlinePixels":[[95,0],[105,0],[105,6],[95,6]],
+                "wallThicknessPixels":10.0})
+        ]).is_empty(),"corner contact alone is not a confirmed opening");
+    }
+
+    #[test]
+    fn ai_room_adjacency_shared_source_cannot_auto_create_a_door() {
+        // Topological adjacency alone is never evidence of a passable door.
+        let candidates=vec![
+            json!({"sourceEdgeIndices":[0,1,2,7]}),
+            json!({"sourceEdgeIndices":[3,4,7,6]})
+        ];
+        let links=observed_room_adjacencies(&candidates);
+        assert_eq!(links.len(),1);
+        assert_eq!(links[0]["sourceEdgeIndex"],7);
+        assert_eq!(links[0]["passageConfirmed"],false);
+        // The shared original edge must remain a reference, not a new CAD
+        // segment or any fabricated door hinge / swing candidate.
+        assert!(links[0].get("doorBlockDraft").is_none());
+        assert!(links[0].get("opening").is_none());
+    }
+
+    #[test]
+    fn ai_four_room_grid_keeps_shared_walls_and_exact_topology() {
+        // 2 x 2 real room grid: four distinct room outlines, four shared
+        // internal boundaries. No raster edits and no inferred door openings.
+        // Horizontal strokes include both left and right halves at y=300.
+        let mut lines=Vec::new();
+        for &(x0,x1) in &[(20.0,320.0),(320.0,620.0)] {
+            for &y in &[100.0,300.0,500.0] {
+                lines.push(Line{x0,y0:y,x1,y1:y});
+            }
+        }
+        for &x in &[20.0,320.0,620.0] {
+            for &(y0,y1) in &[(100.0,300.0),(300.0,500.0)] {
+                lines.push(Line{x0:x,y0,x1:x,y1});
+            }
+        }
+        // Real source order is not guaranteed to match geometric order.
+        lines.reverse();
+        let rooms=closed_rectangles(&lines);
+        assert_eq!(rooms.len(),4,"2x2 source grid must create 4 room candidates");
+        let room_json:Vec<Value>=rooms.iter().map(|r|
+            json!({"sourceEdgeIndices":r.edges})
+        ).collect();
+        let links=observed_room_adjacencies(&room_json);
+        assert_eq!(links.len(),4,
+            "four actual internal wall segments should give exactly four adjacencies");
+        assert!(links.iter().all(|link|link["passageConfirmed"]==false));
+        let mut locations=rooms.iter().map(|r|
+            (r.corners[0][0] as i32,r.corners[0][1] as i32)
+        ).collect::<Vec<_>>();
+        locations.sort_unstable();
+        assert_eq!(locations,vec![(20,100),(20,300),(320,100),(320,300)]);
+    }
+
+    #[test]
+    fn ai_stacked_rooms_share_one_horizontal_source_edge_even_if_lines_are_out_of_order() {
+        // Source index order is deliberately unrelated to top/bottom geometry.
+        // One y=300 stroke bounds BOTH independently observed rooms.
+        let lines=vec![
+            Line{x0:20.0,y0:500.0,x1:320.0,y1:500.0}, // bottom
+            Line{x0:20.0,y0:300.0,x1:320.0,y1:300.0}, // shared partition
+            Line{x0:20.0,y0:100.0,x1:320.0,y1:100.0}, // top
+            Line{x0:20.0,y0:100.0,x1:20.0,y1:300.0},
+            Line{x0:320.0,y0:100.0,x1:320.0,y1:300.0},
+            Line{x0:20.0,y0:300.0,x1:20.0,y1:500.0},
+            Line{x0:320.0,y0:300.0,x1:320.0,y1:500.0},
+        ];
+        let candidates=closed_rectangles(&lines);
+        assert_eq!(candidates.len(),2,
+            "a real shared horizontal source partition must close both stacked rooms");
+        assert!(candidates.iter().all(|room|room.edges.contains(&1)));
+        assert_eq!(candidates[0].corners[0][1],300.0);
+        assert_eq!(candidates[1].corners[0][1],100.0);
+    }
+
+    #[test]
+    fn ai_adjacent_rooms_share_true_partition_wall_without_fake_geometry() {
+        // Each 300x300 room has independent top/bottom source strokes and
+        // a shared 300px partition. The shared original index must appear
+        // in both room outlines rather than silently losing the second room.
+        let lines=vec![
+            Line{x0:20.0,y0:40.0,x1:320.0,y1:40.0},   // left top
+            Line{x0:20.0,y0:340.0,x1:320.0,y1:340.0}, // left bottom
+            Line{x0:20.0,y0:40.0,x1:20.0,y1:340.0},   // left exterior
+            Line{x0:320.0,y0:40.0,x1:320.0,y1:340.0}, // shared partition
+            Line{x0:320.0,y0:40.0,x1:620.0,y1:40.0},  // right top
+            Line{x0:320.0,y0:340.0,x1:620.0,y1:340.0},// right bottom
+            Line{x0:620.0,y0:40.0,x1:620.0,y1:340.0}, // right exterior
+        ];
+        let rooms=closed_rectangles(&lines);
+        assert_eq!(rooms.len(),2, "shared interior wall must close both rooms");
+        assert!(rooms.iter().all(|room|room.edges.contains(&3)),
+            "both rooms must keep the same real partition source index");
+        assert_eq!(rooms[0].corners[1][0],320.0);
+        assert_eq!(rooms[1].corners[0][0],320.0);
+    }
+
+    #[test]
+    fn ai_large_floorplan_room_detection_keeps_global_entity_indices() {
+        let mut source=Vec::new();
+        for i in 0..2400 {
+            let x=i as f64*2.0;
+            source.push(Line{x0:x,y0:1000.0,x1:x+1.0,y1:1000.0});
+        }
+        source[2390]=Line{x0:30.0,y0:20.0,x1:830.0,y1:20.0};
+        source[2391]=Line{x0:30.0,y0:420.0,x1:830.0,y1:420.0};
+        source[2392]=Line{x0:30.0,y0:20.0,x1:30.0,y1:420.0};
+        source[2393]=Line{x0:830.0,y0:20.0,x1:830.0,y1:420.0};
+        let rooms=closed_rectangles(&source);
+        assert!(rooms.iter().any(|r| r.edges==[2390,2391,2392,2393]),
+            "spatial indexing must not lose room indices in a dense full drawing");
+    }
+
+    #[test]
+    fn ai_large_drawing_wall_pairs_use_original_indices_after_spatial_sort() {
+        let mut source = Vec::new();
+        for i in 0..2500 {
+            let x=(i as f64)*10.0;
+            source.push(Line{x0:x,y0:2000.0,x1:x+1.0,y1:2000.0});
+        }
+        source[2490]=Line{x0:40.0,y0:100.0,x1:400.0,y1:100.0};
+        source[2491]=Line{x0:40.0,y0:120.0,x1:400.0,y1:120.0};
+        let pairs=parallel_wall_candidates(&source,8.0,30.0);
+        assert!(pairs.iter().any(|p|p["edges"]==json!([2490,2491])));
+        assert!(pairs.len()<=128,"preview output must stay bounded");
+    }
+
+    #[test]
+    fn ai_dense_hatch_component_is_skipped_without_unbounded_pca_points() {
+        let mut img=GrayImage::from_pixel(640,640,image::Luma([0]));
+        // 409,600 connected black pixels would otherwise create hundreds
+        // of thousands of f64 point pairs before checking the threshold.
+        assert!(arbitrary_angle_strokes(&img,160,24).is_empty());
+        img.put_pixel(0,0,image::Luma([255]));
+        assert!(arbitrary_angle_strokes(&img,160,24).is_empty());
+    }
+
+    #[test]
+    fn ai_36_megapixel_png_preview_preserves_full_resolution() {
+        // Exact advertised pixel ceiling: 6000 x 6000 == 36,000,000.
+        // No downsampling or uncalibrated tiling is permitted.
+        let mut img=GrayImage::from_pixel(6000,6000,image::Luma([255]));
+        for x in 300..5700 {
+            img.put_pixel(x,3000,image::Luma([0]));
+        }
+        let stamp=std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let path=std::env::temp_dir().join(format!(
+            "cad360_36mp_{}_{}.png",std::process::id(),stamp));
+        img.save(&path).expect("write 36MP PNG fixture");
+        drop(img);
+        let start=std::time::Instant::now();
+        let args=json!({"path":path.to_string_lossy(),"preview":true,
+            "maxLines":500,"minLengthPixels":200,"includeDiagonals":false,
+            "unitsPerPixel":1.0});
+        let result=preview(&args);
+        let _=std::fs::remove_file(&path);
+        let result=result.expect("36 million source pixels must be supported by the bounded decoder");
+        assert_eq!(result["imageSize"],json!([6000,6000]));
+        assert!(result["strokes"].as_u64().unwrap_or(0)>=1);
+        assert_eq!(result["editableEntitiesCreated"],0);
+        eprintln!("V1.026 36MP raster preview elapsed_ms={}",
+            start.elapsed().as_millis());
+    }
+
+    #[test]
+    fn ai_wall_sweep_ten_thousand_collinear_strokes_does_not_invent_walls() {
+        let mut lines=Vec::new();
+        for i in 0..10_000 {
+            let x=(i as f64)*3.0;
+            lines.push(Line{x0:x,y0:100.0,x1:x+25.0,y1:100.0});
+        }
+        assert!(parallel_wall_candidates(&lines,8.0,40.0).is_empty());
     }
 
     #[test]
