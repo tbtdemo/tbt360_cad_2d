@@ -355,7 +355,7 @@ fn render_pdf_page_cancellable(pdf:&std::path::Path,page:u32,cancel:&std::sync::
         return Err(format!("Không thể chuyển trang PDF {page}. Kiểm tra PDF có mật khẩu, bị hỏng hoặc trang không tồn tại (mã thoát: {status})."));
     }
     let size=std::fs::metadata(&png).map_err(|e|format!("Không tìm thấy ảnh trang PDF: {e}"))?.len();
-    if size==0 || size>80*1024*1024 { let _=std::fs::remove_file(&png); return Err("Ảnh PDF tạo ra rỗng hoặc quá 80 MB.".into()); }
+    if size==0 || size>64*1024*1024 { let _=std::fs::remove_file(&png); return Err("Ảnh PDF tạo ra rỗng hoặc quá 80 MB.".into()); }
     Ok(png)
 }
 
@@ -465,7 +465,7 @@ fn fingerprint_image(path:&str)->Result<(u64,u64),String> {
     use std::io::Read;
     let file=std::fs::File::open(path).map_err(|e|format!("Không đọc được ảnh nguồn AI: {e}"))?;
     let size=file.metadata().map_err(|e|e.to_string())?.len();
-    if size==0 || size>80*1024*1024 {return Err("Ảnh nguồn AI phải từ 1 byte đến 80 MB.".into());}
+    if size==0 || size>64*1024*1024 {return Err("Ảnh nguồn AI phải từ 1 byte đến 64 MiB.".into());}
     let mut reader=std::io::BufReader::new(file);
     let mut hasher=std::collections::hash_map::DefaultHasher::new();
     let mut total=0u64;
@@ -474,7 +474,7 @@ fn fingerprint_image(path:&str)->Result<(u64,u64),String> {
         let n=reader.read(&mut buffer).map_err(|e|format!("Lỗi đọc ảnh nguồn AI: {e}"))?;
         if n==0 {break;}
         total+=n as u64;
-        if total>80*1024*1024 {return Err("Ảnh nguồn AI vượt giới hạn 80 MB.".into());}
+        if total>64*1024*1024 {return Err("Ảnh nguồn AI vượt giới hạn 64 MiB.".into());}
         buffer[..n].hash(&mut hasher);
     }
     Ok((total,hasher.finish()))
@@ -807,12 +807,15 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
             }
             ui.horizontal(|ui| {
                 ui.label("Giới hạn nét tối đa");
-                if ui.add(egui::DragValue::new(&mut state.max_lines).speed(10).range(50..=1000)).changed() { state.preview=None; }
+                if ui.add(egui::DragValue::new(&mut state.max_lines).speed(10).range(50..=10_000)).changed() { state.preview=None; }
                 ui.label("Nét tối thiểu (px)");
                 if ui.add(egui::DragValue::new(&mut state.min_length).range(2..=4096)).changed() { state.preview = None; }
                 ui.label("Đơn vị CAD/pixel");
                 if ui.add(egui::DragValue::new(&mut state.scale).speed(0.01).range(0.000001..=1_000_000.0)).changed() { state.preview = None; }
             });
+            if state.max_lines > 1000 {
+                ui.small("Chế độ dữ liệu lớn: hỗ trợ tối đa 10.000 nét hình học; một số chức năng nhận dạng phòng/cửa/cột vẫn phải phân vùng để tránh sai và treo máy.");
+            }
             }
             if state.studio_tab==2 {
             ui.heading("Thiết lập nhận dạng nâng cao");
@@ -1116,7 +1119,7 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
             if ui.add_enabled(state.pdf_pending.is_none() && state.preview_task.is_none() && !state.path.is_empty(),
                 egui::Button::new("PHÂN TÍCH MẶT BẰNG KIẾN TRÚC - Tường / Cửa / Cột / Phòng")).clicked() {
                 let _=apply_ai_instruction(state,"nhận dạng toàn bộ mặt bằng");
-                state.max_lines=state.max_lines.max(500);
+                state.max_lines=state.max_lines.saturating_add(500).min(10_000);
                 state.reset_wall_junction_review();
                 start_image_preview(state,cad,ctx);
             }
@@ -1133,9 +1136,9 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
             if let Some(error)=&state.error {
                 ui.colored_label(egui::Color32::RED,error);
                 if error.contains("exceeding maxLines") {
-                    ui.label("Ảnh đang có nhiều nét hơn ngưỡng đã chọn. Có thể tăng giới hạn (tối đa 1000), tăng 'Nét tối thiểu' để bỏ nét nhiễu, hoặc cắt bớt vùng ảnh.");
-                    if ui.button("Tăng ngưỡng lên 500 nét và xem trước lại").clicked() {
-                        state.max_lines=state.max_lines.max(500);
+                    ui.label("Ảnh đang có nhiều nét hơn ngưỡng đã chọn. Có thể tăng giới hạn nét hình học (tối đa 10.000); phân tích ngữ nghĩa khác hiện còn giới hạn 1.000 nét, tăng 'Nét tối thiểu' để bỏ nét nhiễu, hoặc cắt bớt vùng ảnh.");
+                    if ui.button("Tăng giới hạn thêm 500 nét và thử lại").clicked() {
+                        state.max_lines=state.max_lines.saturating_add(500).min(10_000);
                         state.reset_wall_junction_review();
                         start_image_preview(state,cad,ctx);
                     }
