@@ -156,6 +156,7 @@ jobs:
           Copy-Item CADTBT360_V1.000/target/release/cadcraft.exe "$portable/CADTBT360.exe"
           Copy-Item CADTBT360_V1.000/target/release/cadcraft-cli.exe "$portable/CADTBT360_CLI.exe"
           Copy-Item dist/v1028/BUILD_INFO.txt $portable
+          Copy-Item docs/CAD360_V1028_HUONG_DAN_LENH_VA_CHUOT.md "$portable/HUONG_DAN_NHAP_LENH_V1028.md"
           Copy-Item dist/v1028/pdf-tools "$portable/Tools/Poppler" -Recurse -Force
           Copy-Item docs/user-guide/CADTBT360_V1.025_HUONG_DAN_AI_TU_ANH_THANH_CAD.md "$portable/HUONG_DAN_AI_TU_ANH_THANH_CAD.md"
           Copy-Item dist/v1028/CADTBT360_V1.028_HUONG_DAN_AI_TU_ANH_THANH_CAD.docx "$portable/HUONG_DAN_AI_TU_ANH_THANH_CAD.docx"
