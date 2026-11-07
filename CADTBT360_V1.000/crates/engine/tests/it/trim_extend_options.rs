@@ -201,3 +201,49 @@ fn json_forms_take_fence_crossing_edge_mode_and_mode() {
     assert_eq!(r["extended"], 1);
     assert_eq!(lines(&s), vec![((0.0, 0.0), (10.0, 0.0)), ((10.0, -5.0), (10.0, 5.0))]);
 }
+
+
+/// Regression for an architectural crossing: TRIM and EXTEND must preserve
+/// actual editable line endpoints through Undo, Redo and DXF serialization.
+#[test]
+fn architectural_trim_extend_undo_redo_and_dxf_reopen() {
+    let mut trim = ladder();
+    let original = lines(&trim);
+    trim.script("TRIM 5,0\n\n").expect("native quick TRIM");
+    assert!(trim.running.is_none());
+    let trimmed=with_edges(&[
+        ((-5.0,0.0),(0.0,0.0)),
+        ((-5.0,2.0),(15.0,2.0)),
+        ((10.0,0.0),(15.0,0.0)),
+    ]);
+    assert_eq!(lines(&trim),trimmed,"TRIM must remove only the picked run");
+    trim.undo().expect("Undo TRIM");
+    assert_eq!(lines(&trim),original,"Undo restores original crossing");
+    trim.redo().expect("Redo TRIM");
+    assert_eq!(lines(&trim),trimmed,"Redo restores exact trim endpoints");
+    let saved=cadcraft_io::write_dxf(trim.doc().unwrap());
+    let reopened=cadcraft_io::read_dxf(saved.as_bytes()).expect("reopen trimmed DXF");
+    let reopened_lines={
+        let mut found=reopened.model.iter().filter_map(|e|match &e.kind{
+            EntityKind::Line(l)=>Some(((r(l.a.x),r(l.a.y)),(r(l.b.x),r(l.b.y)))),
+            _=>None,
+        }).map(|(a,b)|if a<=b{(a,b)}else{(b,a)}).collect::<Vec<_>>();
+        found.sort_by(|a,b|a.partial_cmp(b).unwrap());
+        found
+    };
+    assert_eq!(reopened_lines,trimmed,"DXF must keep editable TRIM lines");
+
+    let mut extend=session(&["10,-5 10,5","0,0 4,0","0,2 4,2"]);
+    let before=lines(&extend);
+    extend.script("EXTEND F 3,-1 3,3\n\n\n").expect("native EXTEND fence");
+    let after=vec![
+        ((0.0,0.0),(10.0,0.0)),
+        ((0.0,2.0),(10.0,2.0)),
+        ((10.0,-5.0),(10.0,5.0)),
+    ];
+    assert_eq!(lines(&extend),after,"EXTEND must stop exactly at boundary");
+    extend.undo().expect("Undo EXTEND");
+    assert_eq!(lines(&extend),before);
+    extend.redo().expect("Redo EXTEND");
+    assert_eq!(lines(&extend),after);
+}
