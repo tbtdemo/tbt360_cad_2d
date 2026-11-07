@@ -31,10 +31,19 @@ if ($executables.Count -ne 1 -or !(Test-Path -LiteralPath $executables[0] -PathT
     throw "Expected one compiled cadcraft_mcp test EXE from Cargo JSON; got $($executables.Count)"
 }
 $exe = [string]$executables[0]
+# Rust test filtering succeeds with "0 tests" by default. For a trustworthy
+# benchmark require precisely the named test to exist and execute.
+$exactTest = "raster_vector::tests::$TestName"
+$listed = @(& $exe --list --format=terse)
+if ($LASTEXITCODE -ne 0) { throw "Cannot enumerate Rust tests in $exe" }
+$matches = @($listed | Where-Object { $_ -eq "$($exactTest): test" })
+if ($matches.Count -ne 1) {
+    throw "Benchmark requires one real test: $exactTest (found $($matches.Count))"
+}
 $timer = [System.Diagnostics.Stopwatch]::StartNew()
 $peakWorkingSet = [long]0
 $samples = 0
-$proc = Start-Process -FilePath $exe -ArgumentList @($TestName,'--nocapture') -PassThru -NoNewWindow
+$proc = Start-Process -FilePath $exe -ArgumentList @($exactTest,'--exact','--nocapture') -PassThru -NoNewWindow
 try {
     do {
         try {
