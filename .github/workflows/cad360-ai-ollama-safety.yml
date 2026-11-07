@@ -60,6 +60,8 @@ jobs:
         run: cargo test --locked -p cadcraft --bin cadcraft local_model_request_is_bounded_and_not_executed -- --nocapture
       - name: Confirm model proposed command cannot skip native CAD review
         run: cargo test --locked -p cadcraft --bin cadcraft ai_local_llm_is_optional_and_does_not_commit_native_cad_on_open -- --nocapture
+      - name: Verify one-click architecture preset activates reviewed wall door column and room detection
+        run: cargo test --locked -p cadcraft --bin cadcraft ai_architecture_one_click_preset_enables_walls_openings_columns_and_rooms_evidence -- --nocapture
       - name: Verify AI-generated geometry supports endpoint midpoint and center OSNAP
         run: cargo test --locked -p cadcraft-ui-egui ai_generated_native_cad_objects_are_real_endpoint_midpoint_and_center_snap_targets -- --nocapture
       - name: Verify 274-stroke plan still recognizes paired wall panels
