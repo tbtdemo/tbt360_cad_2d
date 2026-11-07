@@ -384,7 +384,7 @@ fn native_selection_kind(kinds:&[&cadcraft_doc::EntityKind])->SelectionKind {
         E::Hatch(_)=>SelectionKind::Hatch,
         _=>SelectionKind::Other,
     };
-    let Some(first)=kinds.first().map(classify) else{return SelectionKind::None;};
+    let Some(first)=kinds.first().map(|kind|classify(kind)) else{return SelectionKind::None;};
     if kinds.iter().skip(1).any(|kind|classify(kind)!=first){SelectionKind::Mixed}
     else{first}
 }
