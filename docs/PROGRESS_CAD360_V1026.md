@@ -222,6 +222,16 @@ Các tỷ lệ trên cố ý **không cộng điểm cho build đang Queued**. N
 
 **Tiến độ tổng vẫn 33% triển khai, 0% nghiệm thu phát hành.** Không tăng tỷ lệ khi Windows chưa qua đầy đủ phép thử.
 
+## Kiểm thử mặt bằng 4 phòng 2×2 — nhánh V1.026
+
+- [x] Bổ sung regression `ai_four_room_grid_keeps_shared_walls_and_exact_topology`: 2×2 phòng sử dụng 12 nét nguồn thực; đảo thứ tự nét để loại phụ thuộc dữ liệu đầu vào.
+- [x] Điều kiện: `closed_rectangles` trả đúng bốn ứng viên phòng, `observed_room_adjacencies` đúng bốn quan hệ chung tường; `passageConfirmed=false`, không tạo cửa giả.
+- [x] Gắn phép thử vào cả Windows AI Large Image Gate và Windows Setup/Portable Gate.
+- [ ] Windows CI trên SHA chứa test phải PASS; chưa dùng kết quả suy đoán để công bố AI nhận dạng phòng hoàn chỉnh.
+- [ ] Mặt bằng ảnh thật có tường hở, phòng đa giác, cửa, kích thước vật lý/OSNAP và xuất DWG AutoCAD vẫn thiếu nghiệm thu.
+
+**Tiến độ giữ 33% triển khai / 0% nghiệm thu phát hành.** Đây là kiểm thử hình học topology bằng nét tổng hợp, chưa phải benchmark thị giác với ảnh kiến trúc thực tế.
+
 ## Định hướng lần nâng cấp tiếp theo (theo thứ tự)
 
 1. **P0 – Gỡ lỗi CI Windows đúng SHA**: fix compile/test, chỉ ghi PASS khi kết quả hiện hữu. Không push liên tục làm nhiễu lượt kiểm thử.
