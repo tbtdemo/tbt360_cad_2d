@@ -611,11 +611,11 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
     poll_local_model(state,ctx);
     if !state.open { return; }
     let mut open = state.open;
-    egui::Window::new("CAD 360 | AI Drawing Studio")
-        .open(&mut open).resizable(true).default_width(780.0).min_width(610.0).default_height(720.0)
+    egui::Window::new("CAD 360  |  AI Studio")
+        .open(&mut open).resizable(true).default_width(960.0).min_width(690.0).default_height(660.0)
         .show(ctx, |ui| {
             egui::ScrollArea::vertical().id_salt("cad360.ai.studio.scroll").auto_shrink([false,false]).show(ui, |ui| {
-            ui.heading("AI DRAWING STUDIO");
+            ui.heading("AI STUDIO  |  CHUYỂN ẢNH & VẼ CAD");
             ui.small("Nguồn ảnh/PDF → Xem trước → Xác nhận CAD. Mọi thay đổi đều cần phê duyệt.");
             ui.horizontal_wrapped(|ui| {
                 for (index,label) in ["01  Ảnh / PDF","02  Vẽ bằng AI","03  Thiết lập nhận dạng","04  Kết nối & Hướng dẫn"].iter().enumerate() {
@@ -682,8 +682,9 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
                         ui.code(&command);
                         if ui.button("Chuyển lệnh sang AI Review để xem trước").clicked() {
                             cad.ai_review.open_with_prompt(&command);
-                            cad.set_status("Đã chuyển lệnh mô hình AI sang bộ kiểm duyệt và Preview CAD; chưa thực thi.");
+                            cad.set_status("Đã chuyển lệnh mô hình AI sang AI Review; chưa thực thi.");
                             state.local_command=None;
+                            state.open=false; // One focused review window, not two overlapping dialogs.
                         }
                     }
                 });
@@ -712,6 +713,7 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
                         egui::Button::new("Xem trước lệnh CAD trong AI Review")).clicked() {
                         cad.ai_review.open_with_prompt(&state.native_command_input);
                         cad.set_status("Đã mở AI Review. Kiểm tra và xác nhận Preview trước khi tạo CAD.");
+                        state.open=false; // Give the entire canvas to review instead of overlaying AI Studio.
                     }
                 });
 
@@ -730,6 +732,7 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
             if state.studio_tab==0 {
             ui.add_space(8.0);
             ui.heading("Nguồn bản vẽ");
+            ui.small("Bước 1: chọn ảnh hoặc PDF. Bước 2: kiểm tra tỷ lệ, giới hạn nét. Bước 3: nhận dạng để xem trước, rồi mới xác nhận ghi CAD.");
             ui.small("PNG/JPG hoặc PDF nhiều trang. PDF được đưa về PNG để AI nhận dạng; hỗ trợ Poppler đi kèm bộ cài hoặc công cụ trong PATH.");
             if ui.toggle_value(&mut state.show_help, "📖 Hướng dẫn từng bước").clicked() {
                 state.error = None;
@@ -1782,6 +1785,14 @@ mod tests {
         assert!(!state.matches_document(other_uid, revision, epoch), "switching documents invalidates the AI preview binding");
         assert!(!state.matches_document(original_uid, revision + 1, epoch), "editing the same drawing after preview also invalidates it");
         assert!(!state.matches_document(original_uid, revision, epoch + 1), "switch-away-and-back invalidates preview even without edits");
+    }
+
+    #[test]
+    fn ai_studio_primary_tab_is_image_workflow_and_advanced_settings_are_separate() {
+        let mut state=State::default();state.open();
+        assert_eq!(state.studio_tab,0);
+        assert!(state.max_lines>=274);
+        assert!(state.max_lines<=1000);
     }
 
     #[test]
