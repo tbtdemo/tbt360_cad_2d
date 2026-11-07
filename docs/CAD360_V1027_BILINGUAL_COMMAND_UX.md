@@ -116,3 +116,21 @@ Tab **04 Kết nối & Hướng dẫn** nay có các khối hướng dẫn: bắ
 - [ ] Phạm vi so sánh Autodesk AutoCAD 2027 vẫn là nhiệm vụ riêng: danh mục lệnh, biến hệ thống, phím tắt và workflow cần kiểm kê, chạy thử rồi báo sai khác theo từng nhóm.
 
 **Chú ý:** Chỉ gọi đây là tầng trợ giúp metadata cho toàn bộ *lệnh CAD 360 có đăng ký*. Không phải khẳng định CAD 360 có hoặc hỗ trợ hoàn chỉnh 100% lệnh AutoCAD 2027.
+
+## 11. Nâng cấp lớn: COMMAND HANDBOOK (Sổ tay lệnh) V1.027
+
+Thay cửa sổ Command Reference cũ (chỉ danh sách ID, tên, alias) thành tra cứu + hướng dẫn hai cột, không chỉnh engine. Mở bằng **F1** hoặc Help → Command Reference.
+
+- **Tìm Anh/Việt** có dấu/không dấu, lệnh đầy đủ, alias PGP, nhãn bản dịch, menu gốc và cụm ngôn ngữ tự nhiên đã được ánh xạ an toàn (`làm sạch bản vẽ` → `PURGE`, `vẽ đường thẳng` → `LINE`).
+- **Cột trái:** hiển thị các mã lệnh thật kèm phím viết tắt nếu registry có, hỗ trợ chọn từng lệnh mà chưa sửa bản vẽ.
+- **Cột phải:** hiển thị đúng ID gốc, tên tiếng Anh/Việt, tất cả alias, shortcut phím, nhóm menu, lệnh tương tác hay trực tiếp, tham số API nếu có.
+- **Ví dụ thực hành cụ thể** cho nhóm lệnh thông dụng (`LINE`, `PLINE`, `CIRCLE`, `RECTANG`, `ARC`, `DIST`, `ID`, `AREA`, `DIMLINEAR`, `DIMALIGNED`, `TRIM`, `EXTEND`, `COPY`, `MOVE`, `OFFSET`, `PURGE`, `AUDIT`, `LAYER`, `ZOOM`). Các lệnh chưa có ví dụ riêng vẫn có **STEP 1/2/3** dựa trên metadata thật + prompt engine.
+- **RUN (Thực hiện):** chỉ gọi `CadApp::start` gốc khi người dùng chủ động nhấn và lệnh đang được phép chạy; chọn dòng tra cứu không tự ghi đối tượng CAD.
+- **Đo bao phủ thực tế:** test `audit_native_cad_command_handbook_coverage` in số lệnh công khai trong registry, số có bản dịch, alias, menu, giao diện tương tác, ví dụ riêng và số thiếu bài hướng dẫn. Không công bố 100% bản dịch khi chưa có số liệu test.
+
+### Cổng nghiệm thu
+- [x] Đã thêm test `entire_public_command_registry_remains_searchable_in_handbook`: kiểm tra toàn bộ ID và tất cả alias đăng ký trong registry.
+- [x] Đã thêm test `vietnamese_search_and_examples_keep_native_identifiers`: tiếng Việt có dấu/không dấu, các cụm đầy đủ như `làm sạch bản vẽ` và ví dụ lệnh.
+- [x] Đã thêm test thống kê bao phủ ngôn ngữ/hướng dẫn.
+- [ ] Windows CI mới phải PASS. Cần ảnh chụp Windows EXE thật, thử gõ tiếng Việt qua bộ gõ IME, mở F1, nhấp/thoát, đối chiếu OSNAP và Undo.
+- [ ] Ma trận tương đương mọi lệnh AutoCAD 2027 chưa đạt; không dùng số lệnh CAD 360 làm chứng cứ tương đương Autodesk.
