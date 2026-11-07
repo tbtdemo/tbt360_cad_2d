@@ -18,6 +18,8 @@ pub struct CmdLine {
     typed_since_selection: bool,
     pub history: Vec<String>,
     pub history_pos: Option<usize>,
+    /// Highlighted autocomplete row; arrows navigate without changing the typed text.
+    pub suggestion_index: Option<usize>,
     /// What was typed at command prompts (not command names), oldest first: the in-command
     /// shortcut menu's Recent Input.
     pub recent_input: Vec<String>,
@@ -238,7 +240,7 @@ fn vietnamese_matches(text: &str) -> Vec<Suggestion> {
     let mut seen = HashSet::new();
     let mut results = Vec::new();
     for (phrase, command, label) in VI_COMMANDS {
-        if !phrase.starts_with(&folded) {continue;}
+        if !phrase.contains(&folded) {continue;}
         let Some(spec)=cadcraft_engine::cmd::find_command(command) else {continue};
         if seen.insert(spec.id) {
             results.push(Suggestion {
@@ -496,14 +498,33 @@ fn bilingual_label(command: &str) -> Option<&'static str> {
 /// A space after a Vietnamese natural-language verb is part of the query.
 /// A normal CAD alias (L, PL, C, REC, DI...) retains its traditional
 /// Space-to-Enter behaviour, and command prompts always preserve text input.
+/// Only a complete, unambiguous Vietnamese label becomes an executable
+/// native command. Incomplete or ambiguous text is never silently guessed.
+fn exact_vietnamese_command(text:&str)->Option<&'static str> {
+    let query=fold_vi(text);
+    if query.is_empty() {return None;}
+    let mut unique:Option<&'static str>=None;
+    let suffix=format!(" {query}");
+    for (phrase,command,_) in VI_COMMANDS {
+        if *phrase!=query && !phrase.ends_with(suffix.as_str()) {continue;}
+        if cadcraft_engine::cmd::find_command(command).is_none() {continue;}
+        if unique.is_some_and(|old|old!=*command) {return None;}
+        unique=Some(*command);
+    }
+    unique
+}
+
 fn vietnamese_query_continues(buffer:&str)->bool {
     let normalized=fold_vi(buffer);
     // Native exact names and PGP aliases take precedence even if one happens
     // to spell the beginning of a Vietnamese word.
     let native=cadcraft_engine::cmd::resolve_alias(&normalized);
     if cadcraft_engine::cmd::find_command(&native).is_some() {return false;}
-    !normalized.is_empty() && VI_COMMANDS.iter()
-        .any(|(phrase,_,_)|phrase.starts_with(&(normalized.clone()+" ")))
+    !normalized.is_empty() && (
+        VI_COMMANDS.iter().any(|(phrase,_,_)|phrase.contains(&(normalized.clone()+" ")))
+        || translated_command_matches(buffer).iter().any(|s|
+            fold_vi(&crate::i18n::tr("vi",s.label)).contains(&(normalized.clone()+" ")))
+    )
 }
 
 fn active_command_guide(id:&str)->&'static str {
@@ -887,12 +908,14 @@ pub fn keyboard(app: &mut CadApp, ctx: &egui::Context) {
                 } else if t == " " && !text_prompt {
                     if !app.session.prompting() && vietnamese_query_continues(&app.cmd.buffer) {
                         app.cmd.buffer.push(' ');
+                        app.cmd.suggestion_index=None;
                     } else {
                         submit(app);
                     }
                 } else {
                     app.cmd.preedit.clear();
                     app.cmd.buffer.push_str(&t);
+                    app.cmd.suggestion_index=None;
                 }
             }
             // IME composition: the pre-edit is shown but stays out of the buffer; the commit is
@@ -903,14 +926,29 @@ pub fn keyboard(app: &mut CadApp, ctx: &egui::Context) {
                 app.cmd.preedit.clear();
                 if text != "\n" && text != "\r" {
                     app.cmd.buffer.push_str(&text);
+                    app.cmd.suggestion_index=None;
                 }
             }
             egui::Event::Ime(_) => {}
             egui::Event::Key { key, pressed: true, repeat, modifiers, .. } => match key {
-                Key::Enter => submit(app),
+                Key::Enter => {
+                    if !app.session.prompting() && !app.cmd.buffer.trim().is_empty() {
+                        if let Some(i)=app.cmd.suggestion_index {
+                            if let Some(suggestion)=suggestions(&app.cmd.buffer).get(i) {
+                                let command=suggestion.id.to_ascii_lowercase();
+                                app.cmd.suggestion_index=None;
+                                app.cmd.buffer.clear();
+                                app.start(&command);
+                                continue;
+                            }
+                        }
+                    }
+                    submit(app);
+                },
                 Key::Escape => {
                     app.cmd.buffer.clear();
                     app.cmd.preedit.clear();
+                    app.cmd.suggestion_index=None;
                     app.session.cancel();
                 }
                 Key::Backspace => {
@@ -927,9 +965,15 @@ pub fn keyboard(app: &mut CadApp, ctx: &egui::Context) {
                         let _ = app.run("erase.selection", serde_json::json!({}));
                     } else {
                         app.cmd.buffer.pop();
+                        app.cmd.suggestion_index=None;
                     }
                 }
                 Key::ArrowUp if !modifiers.any() => {
+                    if !app.session.prompting() && !app.cmd.buffer.is_empty() && !suggestions(&app.cmd.buffer).is_empty() {
+                        let n=suggestions(&app.cmd.buffer).len();
+                        app.cmd.suggestion_index=Some(app.cmd.suggestion_index.map_or(n-1,|i|i.checked_sub(1).unwrap_or(n-1)));
+                        continue;
+                    }
                     if !app.cmd.history.is_empty() {
                         let n = app.cmd.history.len();
                         let pos = app.cmd.history_pos.map(|p| p.saturating_sub(1)).unwrap_or(n - 1);
@@ -938,6 +982,11 @@ pub fn keyboard(app: &mut CadApp, ctx: &egui::Context) {
                     }
                 }
                 Key::ArrowDown if !modifiers.any() => {
+                    if !app.session.prompting() && !app.cmd.buffer.is_empty() && !suggestions(&app.cmd.buffer).is_empty() {
+                        let n=suggestions(&app.cmd.buffer).len();
+                        app.cmd.suggestion_index=Some(app.cmd.suggestion_index.map_or(0,|i|(i+1)%n));
+                        continue;
+                    }
                     if !options_key(app, 1)
                         && let Some(p) = app.cmd.history_pos
                     {
@@ -980,6 +1029,7 @@ pub fn submit(app: &mut CadApp) {
         }
     }
     let text = std::mem::take(&mut app.cmd.buffer);
+    app.cmd.suggestion_index=None;
     app.cmd.locked_second = None;
     app.cmd.history_pos = None;
     if !text.trim().is_empty() && !app.session.prompting() {
@@ -997,11 +1047,11 @@ pub fn submit(app: &mut CadApp) {
     }
     // Translate only a full, exact Vietnamese command phrase. Partial words
     // never trigger a command, preserving user review of suggestions.
-    let query=fold_vi(&text);
+    // Translate a complete Vietnamese command phrase, including unambiguous
+    // shortened natural labels like "Đường Thẳng" (without "Vẽ"). Native
+    // English command IDs/aliases still take priority in the regular engine.
     if !app.session.prompting() {
-        if let Some((_,command,_))=VI_COMMANDS.iter().find(|(phrase,_,_)|*phrase==query)
-            && cadcraft_engine::cmd::find_command(command).is_some()
-        {
+        if let Some(command)=exact_vietnamese_command(&text) {
             app.cmdline(command);
             return;
         }
@@ -1306,8 +1356,9 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui, canvas: Rect) {
             for (i, s) in sug.iter().enumerate() {
                 let r = Rect::from_min_size(pos2(lr.left(), lr.top() + rh * i as f32), vec2(lr.width(), rh));
                 let resp = ui.interact(r, ui.scope_id().with(("sug", i)), Sense::click());
-                if resp.hovered() || i == 0 {
-                    p.rect_filled(r.shrink(1.0), 2.0, if resp.hovered() { t.cmd_keyword_hover } else { t.list_row });
+                if resp.hovered() || app.cmd.suggestion_index == Some(i) || (app.cmd.suggestion_index.is_none() && i == 0) {
+                    p.rect_filled(r.shrink(1.0), 2.0,
+                        if resp.hovered() || app.cmd.suggestion_index == Some(i) { t.cmd_keyword_hover } else { t.list_row });
                 }
                 p.text(Pos2::new(r.left() + 8.0, r.center().y), egui::Align2::LEFT_CENTER, &s.display, crate::theme::body(), t.text);
                 p.text(
@@ -1318,6 +1369,7 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui, canvas: Rect) {
                     t.text_faint,
                 );
                 if resp.clicked() {
+                    app.cmd.suggestion_index=None;
                     app.cmd.buffer.clear();
                     app.start(&s.id.to_ascii_lowercase());
                 }
@@ -1368,8 +1420,14 @@ fn zones(app: &CadApp, canvas: Rect, bar: Rect) -> Zones {
 /// the top edge sets how many lines show (`ui.cmdline.lines`).
 fn history(app: &mut CadApp, ui: &mut egui::Ui, canvas: Rect, bar: Rect) {
     let z = zones(app, canvas, bar);
-    let resp = ui.interact(z.all, ui.scope_id().with("cmdline"), Sense::click_and_drag());
-    let at = resp.hover_pos().or(resp.interact_pointer_pos());
+    // Only the 6-pixel resize grip owns a drag. The old all-area
+    // click_and_drag() captured the pointer over autocomplete/history and
+    // caused a stuck cursor or a phantom selection when returning to canvas.
+    let resp = ui.interact(bar, ui.scope_id().with("cmdline"), Sense::click());
+    let line_resp = z.lines.map(|r| ui.interact(r, ui.scope_id().with("cmd_history_lines"), Sense::click()));
+    let grip_resp = ui.interact(z.grip, ui.scope_id().with("cmdline_grip"), Sense::drag());
+    let at = grip_resp.hover_pos().or(resp.hover_pos())
+        .or_else(|| line_resp.as_ref().and_then(|r|r.hover_pos()));
     let on_grip = |p: Pos2| z.grip.contains(p) && z.window.is_none();
     let on_toggle = |p: Pos2| z.chevron.contains(p) || z.lines.is_some_and(|r| r.contains(p));
     if app.cmd.resize_from.is_some() || at.is_some_and(on_grip) {
@@ -1377,14 +1435,14 @@ fn history(app: &mut CadApp, ui: &mut egui::Ui, canvas: Rect, bar: Rect) {
     } else if at.is_some_and(on_toggle) {
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }
-    if resp.drag_started()
+    if grip_resp.drag_started() && z.window.is_none()
         && let Some(o) = ui.input(|i| i.pointer.press_origin())
         && on_grip(o)
     {
         app.cmd.resize_from = Some((o.y, visible_lines(app, canvas, bar)));
     }
     if let Some((y0, n0)) = app.cmd.resize_from {
-        if let (true, Some(p)) = (resp.dragged(), resp.interact_pointer_pos()) {
+        if let (true, Some(p)) = (grip_resp.dragged(), grip_resp.interact_pointer_pos()) {
             let n = (n0 as f32 + (y0 - p.y) / LINE_H).round().clamp(0.0, MAX_LINES as f32) as usize;
             if n != app.ui.history_lines {
                 let _ = app.run("ui.cmdline.lines", serde_json::json!({ "lines": n }));
@@ -1393,13 +1451,40 @@ fn history(app: &mut CadApp, ui: &mut egui::Ui, canvas: Rect, bar: Rect) {
             app.cmd.resize_from = None;
         }
     }
-    if resp.clicked() && resp.interact_pointer_pos().is_some_and(on_toggle) {
+    if (resp.clicked() && resp.interact_pointer_pos().is_some_and(on_toggle))
+        || line_resp.as_ref().is_some_and(|r|r.clicked()) {
         let _ = app.run("ui.toggle.history", serde_json::json!({}));
     }
     crate::shortcut_menus::attach(app, &resp, crate::shortcut_menus::command_line_entries);
     if let Some(r) = zones(app, canvas, bar).window {
         history_window(app, ui, r);
     }
+}
+
+/// Reject canvas gestures if the pointer is over an interactive command
+/// overlay. This is computed BEFORE the command line is painted, so relying
+/// solely on egui's topmost layer is too late within the frame.
+pub(super) fn overlay_hit(app:&CadApp, canvas:Rect, pos:Pos2)->bool {
+    if !app.ui.show_command_line || !canvas.contains(pos) {return false;}
+    let w=(canvas.width()*0.48).clamp(360.0,760.0).min((canvas.width()-8.0).max(0.0));
+    let bar=Rect::from_min_size(pos2(canvas.center().x-w/2.0,canvas.bottom()-34.0),vec2(w,24.0));
+    let z=zones(app,canvas,bar);
+    if bar.contains(pos) || z.grip.contains(pos) || z.lines.is_some_and(|r|r.contains(pos))
+        || z.window.is_some_and(|r|r.contains(pos)) {return true;}
+    if !app.session.prompting() {
+        let k=suggestions(&app.cmd.buffer).len();
+        if k>0 {
+            let above=if z.lines.is_some() {
+                let n=visible_lines(app,canvas,bar).min(app.session.log.len());
+                if n>0 {LINE_H*n as f32+6.0} else {0.0}
+            } else {0.0};
+            let rect=Rect::from_min_size(
+                pos2(bar.left()+24.0,bar.top()-6.0-20.0*k as f32-above),
+                vec2((bar.width()-24.0).max(0.0),20.0*k as f32));
+            if rect.contains(pos) {return true;}
+        }
+    }
+    false
 }
 
 /// The expanded history: the whole command log, scrollable, newest at the bottom.
@@ -1430,6 +1515,71 @@ mod tests {
     use super::*;
     use cadcraft_engine::Session;
     use egui::{Event, PointerButton};
+
+    #[test]
+    fn v1028_complete_vietnamese_labels_resolve_only_unique_real_commands() {
+        assert_eq!(exact_vietnamese_command("Đường Thẳng"),Some("line"));
+        assert_eq!(exact_vietnamese_command("vẽ đường thẳng"),Some("line"));
+        assert_eq!(exact_vietnamese_command("Đường Tròn"),Some("circle"));
+        assert_eq!(exact_vietnamese_command("đường"),None);
+        assert_eq!(exact_vietnamese_command("nội dung không có lệnh"),None);
+    }
+
+    #[test]
+    fn v1028_vietnamese_spaced_command_suggestions_keep_native_engine_ids() {
+        let want = ["đường", "đường thẳng", "vẽ đường thẳng", "duong thang"];
+        for query in want {
+            let options = suggestions(query);
+            assert!(options.iter().any(|s|s.id=="LINE"),
+                "Vietnamese spaced search {query:?} must suggest native LINE: {options:?}");
+        }
+        assert!(vietnamese_query_continues("đường"),
+            "space after Đường must extend the search, not prematurely execute");
+        assert!(vietnamese_query_continues("vẽ đường"),
+            "space after Vẽ Đường must extend the search");
+        assert!(!vietnamese_query_continues("L"),"native L + Space is still LINE");
+        assert!(!vietnamese_query_continues("C"),"native C + Space is still CIRCLE");
+        assert_eq!(fold_vi("Đường Thẳng"),"duong thang");
+    }
+
+    #[test]
+    fn v1028_autocomplete_arrows_select_real_native_command_without_rewriting_input() {
+        let mut app=CadApp::new(Session::new(),crate::Services::default());
+        let query="đường".to_string();
+        app.cmd.buffer=query.clone();
+        let options=suggestions(&query);
+        assert!(options.len()>=2,"multi-choice Vietnamese list required");
+        let ctx=egui::Context::default();
+        let key=|key| Event::Key {key,physical_key:None,pressed:true,repeat:false,modifiers:egui::Modifiers::NONE};
+        frame(&mut app,&ctx,vec![key(Key::ArrowDown)]);
+        assert_eq!(app.cmd.suggestion_index,Some(0));
+        assert_eq!(app.cmd.buffer,query);
+        frame(&mut app,&ctx,vec![key(Key::ArrowDown)]);
+        assert_eq!(app.cmd.suggestion_index,Some(1));
+        assert_eq!(app.cmd.buffer,query);
+        frame(&mut app,&ctx,vec![key(Key::ArrowUp)]);
+        assert_eq!(app.cmd.suggestion_index,Some(0));
+        frame(&mut app,&ctx,vec![key(Key::Enter)]);
+        assert!(app.session.running.as_ref().is_some_and(|cmd|
+            cmd.id.eq_ignore_ascii_case(&options[0].id)),
+            "Enter must invoke the highlighted native CAD command");
+        assert!(app.cmd.buffer.is_empty());
+        assert_eq!(app.cmd.suggestion_index,None);
+    }
+
+    #[test]
+    fn v1028_command_overlay_has_precise_hit_regions_not_a_large_drag_capture() {
+        let mut app=CadApp::new(Session::new(),crate::Services::default());
+        app.ui.show_command_line=true;
+        app.cmd.buffer="đường".into();
+        let canvas=Rect::from_min_size(Pos2::ZERO,vec2(1200.0,800.0));
+        assert!(overlay_hit(&app,canvas,pos2(600.0,775.0)),
+            "command text bar is interactive");
+        assert!(!overlay_hit(&app,canvas,pos2(600.0,400.0)),
+            "middle of drawing must remain available for snapping and dragging");
+        assert!(!overlay_hit(&app,canvas,pos2(100.0,765.0)),
+            "canvas beside the command bar remains a normal CAD viewport");
+    }
 
     #[test]
     fn compact_canvas_contains_history_controls_without_changing_line_preference() {

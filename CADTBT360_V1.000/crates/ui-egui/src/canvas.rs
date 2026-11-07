@@ -527,7 +527,9 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui) {
     // counts the canvas. Over those the OS cursor stays visible and the crosshair stays put, as
     // over the menu bar (#1701).
     // Use actual pointer position and topmost layer: hovered() may be false on the first press while egui transfers focus.
-    let inside = hover_pos.is_some_and(|p| rect.contains(p) && ui.ctx().layer_id_at(p) == Some(ui.layer_id()));
+    let inside = hover_pos.is_some_and(|p| rect.contains(p)
+        && ui.ctx().layer_id_at(p) == Some(ui.layer_id())
+        && !crate::cmdline::overlay_hit(app, full, p));
     // The menus the canvas paints itself (selection cycling's rows, Dynamic Input's options) are
     // menus too, but they share the canvas's layer: `layer_id_at` reports the drawing under them,
     // so only their rectangles tell them apart from it ([`over_canvas_menu`]). They are excluded
@@ -711,7 +713,8 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui) {
     // allocation and repeated UI layer probes on idle hover/zoom/selection.
     let point_releases = if point_prompt {
         eligible_point_releases(&releases, |pos| {
-            rect.contains(pos) && ui.ctx().layer_id_at(pos) == Some(ui.layer_id()) && !over_canvas_menu(app, pos)
+            rect.contains(pos) && ui.ctx().layer_id_at(pos) == Some(ui.layer_id())
+                && !over_canvas_menu(app, pos) && !crate::cmdline::overlay_hit(app, full, pos)
         })
     } else {
         Vec::new()
@@ -893,7 +896,8 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui) {
         i.focused,
         i.pointer.interact_pos(),
     ));
-    let release_is_canvas = release_pos.is_some_and(|p| rect.contains(p) && ui.ctx().layer_id_at(p) == Some(ui.layer_id()) && !over_canvas_menu(app, p));
+    let release_is_canvas = release_pos.is_some_and(|p| rect.contains(p) && ui.ctx().layer_id_at(p) == Some(ui.layer_id())
+        && !over_canvas_menu(app, p) && !crate::cmdline::overlay_hit(app, full, p));
     if should_cancel_drag_window(app.canvas.drag_window, escape, window_focused, primary_released, release_is_canvas) {
         app.canvas.drag_window = false;
         app.session.pending_window = None;
@@ -917,6 +921,7 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui) {
         && rect.contains(origin)
         && ui.ctx().layer_id_at(origin) == Some(ui.layer_id())
         && !over_canvas_menu(app, origin)
+        && !crate::cmdline::overlay_hit(app, full, origin)
         && grip_at(app, &xf, Some(origin)).is_none()
         && crate::arraygrips::at(app, &xf, Some(origin)).is_none()
         && crate::dyngrips::at(app, &xf, Some(origin)).is_none()
