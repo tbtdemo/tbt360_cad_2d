@@ -144,3 +144,14 @@ Thay cửa sổ Command Reference cũ (chỉ danh sách ID, tên, alias) thành 
 - [ ] Chạy Windows CI trên commit mới nhất. Kiểm thử thực tế UI với tiếng Việt/IME, đánh dấu bộ lọc, mở F1, nhấp RUN và xem prompt. Chưa thể coi là kiểm chứng chức năng 100% AutoCAD 2027.
 
 **Kỷ luật phát hành:** Sổ tay song ngữ chỉ được coi là đạt nghiệm thu khi kiểm thử Windows và thao tác trên EXE thực tế thành công; các kiểm thử unit chứng minh phạm vi hẹp theo đăng ký/metadata.
+
+## 13. Gợi ý theo vùng chọn và mở rộng vốn từ tiếng Việt
+
+- [x] `selection_aware_next_commands`: khi có đối tượng được chọn, ưu tiên các thao tác gốc đã đăng ký như MOVE, COPY, ROTATE, LIST, ERASE, PROPERTIES. Khi không chọn gì, ưu tiên LINE, PLINE, CIRCLE, RECTANG, DIST, ID. Lịch sử thao tác vẫn được xét; chỉ các `CommandSpec` thật mới được gợi ý. **Không tự thực thi khi click chọn đối tượng**.
+- [x] Bổ sung hơn 50 cụm tìm lệnh tiếng Việt cho OFFSET, FILLET, CHAMFER, MIRROR, SCALE, STRETCH, HATCH, DIMRADIUS, DIMDIAMETER, DIMANGULAR, SAVEAS, PURGE/RECOVER, PLOT, LAYER, BLOCK/INSERT, OSNAP/DSETTINGS, FIND và nhiều công cụ khác. Tất cả được kiểm chứng `find_command` trước khi hiển thị; nếu engine chưa có lệnh, từ khóa không tạo được lệnh ảo.
+- [x] Kiểm thử `selection_context_prioritizes_only_real_native_edit_commands` và `expanded_vietnamese_command_vocabulary_resolves_only_existing_engine_commands`; đưa vào Windows CI gate.
+- [ ] Chưa có xác nhận build Windows cho commit cuối, chưa nghiệm thu thao tác chuột với vùng chọn có đối tượng thật, chưa đo hiệu quả dự đoán sử dụng trong thực tế.
+- [ ] Cần bổ sung gợi ý theo **loại thực thể CAD** (Line, Arc, Circle, Polyline, Hatch, Block, Dimension...) với vòng đời chọn/không chọn/undo; giai đoạn hiện tại mới ưu tiên theo số lượng đối tượng được chọn.
+- [ ] Cần mở rộng bao phủ bản dịch tiếng Việt qua thống kê CI của toàn bộ CommandSpec, dịch Properties/Settings, và đo bộ hồ sơ AutoCAD 2027 độc lập.
+
+**Giới hạn nghiệm thu:** Tầng gợi ý là trợ lý thao tác theo quy tắc và lịch sử phiên; không phải mô hình AI tự học đã qua huấn luyện. Không thay đổi CAD engine và không bảo đảm chức năng AutoCAD 2027 chưa kiểm thử.
