@@ -273,3 +273,14 @@ Các bài test đã được khai báo là bắt buộc trong `cad360-v1027-comm
 - [ ] Đối chiếu DWG hai chiều với AutoCAD độc lập; DXF regression không phải bằng chứng tương đương DWG hoặc AutoCAD 2027 hoàn chỉnh.
 
 **Trạng thái:** đã commit mã nguồn, yêu cầu kiểm thử Windows và thao tác thực tế vẫn là cổng nghiệm thu bắt buộc.
+
+## 24. V1.027 — TRIM/EXTEND hình học thực tế, Undo/Redo và DXF
+
+- [x] Tại `crates/engine/tests/it/trim_extend_options.rs`, thêm kiểm thử `architectural_trim_extend_undo_redo_and_dxf_reopen` trên sơ đồ thanh ngang giao với hai trục đứng: `TRIM 5,0` phải giữ đúng các đoạn ngoài biên, Undo phục hồi toàn bộ, Redo tái tạo chính xác các đầu mút.
+- [x] Xuất DXF sau TRIM, mở lại bằng `cadcraft_io::read_dxf`, kiểm tra các đoạn **vẫn là thực thể LINE có thể chỉnh sửa**, số lượng và tọa độ không đổi.
+- [x] `EXTEND F` kéo hai đoạn ngang đến đúng trục x=10; Undo trả lại đoạn ban đầu, Redo tạo lại các điểm cuối tại biên.
+- [x] Đã thêm bài kiểm thử này vào Windows CI V1.027 với tên step riêng và điều kiện thất bại rõ ràng.
+- [ ] **Chưa xác nhận PASS** cho commit cuối; chỉ dựa vào CI khi workflow thực sự trả `success`.
+- [ ] Cần thao tác kiểm nghiệm trực tiếp bằng EXE Windows: click TRIM/EXTEND trong canvas, xem selection/aperture/OSNAP, so sánh kết quả trước và sau với bản vẽ thật, đối chiếu AutoCAD và DWG 2 chiều.
+
+**Giới hạn:** kiểm thử trực tiếp trên engine bằng script native và DXF; chưa đại diện cho mọi cấu kiện kiến trúc, mọi trường hợp TRIM/EXTEND, UI Windows và DWG.
