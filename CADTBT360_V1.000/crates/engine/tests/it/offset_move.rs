@@ -71,6 +71,44 @@ fn offset_json_erase_and_layer() {
     assert_eq!(lines(&s), vec![l((0.0, 2.0), (10.0, 2.0), "Other")]);
 }
 
+/// End-to-end native geometry workflow, tested through engine edits and
+/// serialization rather than checking only that command names are registered.
+#[test]
+fn architectural_move_copy_offset_undo_redo_and_dxf_reopen() {
+    let mut s=one_line();
+    let handle=s.doc().unwrap().model.iter().next().unwrap().handle.hex();
+    s.execute("move",&json!({"handles":[handle],"delta":[5,2]})).unwrap();
+    assert_eq!(lines(&s),vec![l((5.0,2.0),(15.0,2.0),"0")]);
+
+    s.execute("copy",&json!({"handles":[handle],"delta":[0,4]})).unwrap();
+    assert_eq!(lines(&s),vec![
+        l((5.0,2.0),(15.0,2.0),"0"),
+        l((5.0,6.0),(15.0,6.0),"0"),
+    ]);
+
+    s.execute("offset",&json!({"handle":handle,"distance":2,"side":[10,5]})).unwrap();
+    let completed=vec![
+        l((5.0,2.0),(15.0,2.0),"0"),
+        l((5.0,4.0),(15.0,4.0),"0"),
+        l((5.0,6.0),(15.0,6.0),"0"),
+    ];
+    assert_eq!(lines(&s),completed,"OFFSET must create a true parallel CAD line");
+    s.undo().unwrap();
+    assert_eq!(lines(&s).len(),2,"Undo must remove only the most recent OFFSET");
+    s.redo().unwrap();
+    assert_eq!(lines(&s),completed,"Redo must recover original CAD coordinates");
+
+    let dxf=cadcraft_io::write_dxf(s.doc().unwrap());
+    let reopened=cadcraft_io::read_dxf(dxf.as_bytes()).expect("reopen edited native CAD geometry");
+    let mut actual=reopened.model.iter().filter_map(|entity|match &entity.kind {
+        EntityKind::Line(line)=>Some((
+            (line.a.x,line.a.y),(line.b.x,line.b.y),entity.common.layer.clone())),
+        _=>None,
+    }).collect::<Vec<_>>();
+    actual.sort_by(|a,b|a.0.1.total_cmp(&b.0.1));
+    assert_eq!(actual,completed,"MOVE/COPY/OFFSET geometry must remain editable after DXF reopen");
+}
+
 #[test]
 fn move_displacement() {
     // The Displacement keyword asks for the displacement directly.
