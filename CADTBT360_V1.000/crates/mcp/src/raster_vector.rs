@@ -390,6 +390,22 @@ fn observed_opening_room_contacts(rooms:&[Value], openings:&[Value]) -> Vec<Valu
             coords.iter().map(|p|p[1]).sum::<f64>()/4.0];
         let Some(thickness)=opening["wallThicknessPixels"].as_f64() else {continue};
         if !thickness.is_finite()||!(1.0..=80.0).contains(&thickness) {continue;}
+        // Validate the observed quadrilateral before assigning rooms.
+        // An opening on a vertical wall must have its SHORT axis across the
+        // wall thickness (X); for a horizontal wall the short axis is Y.
+        let minx=coords.iter().map(|p|p[0]).fold(f64::INFINITY,f64::min);
+        let maxx=coords.iter().map(|p|p[0]).fold(f64::NEG_INFINITY,f64::max);
+        let miny=coords.iter().map(|p|p[1]).fold(f64::INFINITY,f64::min);
+        let maxy=coords.iter().map(|p|p[1]).fold(f64::NEG_INFINITY,f64::max);
+        let w=maxx-minx;let h=maxy-miny;
+        if w<1.0 || h<1.0 || w*h>1e12 {continue;}
+        let valid_corners=[[minx,miny],[maxx,miny],[maxx,maxy],[minx,maxy]]
+            .iter().all(|corner|coords.iter().any(|p|
+                (p[0]-corner[0]).abs()<=0.75 && (p[1]-corner[1]).abs()<=0.75));
+        if !valid_corners {continue;}
+        let parallel_vertical=(w-thickness).abs()<=2.0 && h>=3.0;
+        let parallel_horizontal=(h-thickness).abs()<=2.0 && w>=3.0;
+        if !parallel_vertical && !parallel_horizontal {continue;}
         let tolerance=thickness*0.5+2.0;
         let mut touching=Vec::new();
         for (room_index,room) in rooms.iter().enumerate() {
@@ -408,13 +424,13 @@ fn observed_opening_room_contacts(rooms:&[Value], openings:&[Value]) -> Vec<Valu
             // The opening must be aligned with a room side AND project into
             // that side's span. A midpoint close only to a room corner is not
             // sufficient to assign an entrance.
-            let on_left=(mid[0]-x0).abs()<=tolerance
+            let on_left=parallel_vertical && (mid[0]-x0).abs()<=tolerance
                 && mid[1]>y0+tolerance && mid[1]<y1-tolerance;
-            let on_right=(mid[0]-x1).abs()<=tolerance
+            let on_right=parallel_vertical && (mid[0]-x1).abs()<=tolerance
                 && mid[1]>y0+tolerance && mid[1]<y1-tolerance;
-            let on_top=(mid[1]-y0).abs()<=tolerance
+            let on_top=parallel_horizontal && (mid[1]-y0).abs()<=tolerance
                 && mid[0]>x0+tolerance && mid[0]<x1-tolerance;
-            let on_bottom=(mid[1]-y1).abs()<=tolerance
+            let on_bottom=parallel_horizontal && (mid[1]-y1).abs()<=tolerance
                 && mid[0]>x0+tolerance && mid[0]<x1-tolerance;
             if on_left||on_right||on_top||on_bottom {touching.push(room_index);}
             if touching.len()>2 {break;}
@@ -3323,6 +3339,28 @@ mod tests {
             json!({"sourceEdgeIndices":[0,1,2,3]}),
             json!({"sourceEdgeIndices":[4,5,6,7]})
         ]).is_empty(),"geometrically nearby rooms must not gain imaginary connections");
+    }
+
+    #[test]
+    fn ai_room_contact_rejects_crosswise_and_skewed_opening_shapes() {
+        let rooms=vec![
+            json!({"outlinePixels":[[0,0],[100,0],[100,100],[0,100]]}),
+            json!({"outlinePixels":[[100,0],[200,0],[200,100],[100,100]]}),
+        ];
+        // Both have a midpoint on the wall; neither is an admissible
+        // parallel paired-gap opening aligned to the vertical shared wall.
+        let crosswise=vec![json!({
+            "outlinePixels":[[90,45],[110,45],[110,55],[90,55]],
+            "wallThicknessPixels":10.0
+        })];
+        assert!(observed_opening_room_contacts(&rooms,&crosswise).is_empty(),
+            "crosswise span must not be marked as an opening on a vertical room side");
+        let skewed=vec![json!({
+            "outlinePixels":[[95,40],[105,40],[104,60],[95,60]],
+            "wallThicknessPixels":10.0
+        })];
+        assert!(observed_opening_room_contacts(&rooms,&skewed).is_empty(),
+            "nonrectangular scan candidate must not create room links");
     }
 
     #[test]
