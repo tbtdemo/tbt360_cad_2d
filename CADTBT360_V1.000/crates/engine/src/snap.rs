@@ -1124,6 +1124,28 @@ mod tests {
     }
 
     #[test]
+    fn snapped_native_line_survives_dxf_save_and_reopen_editably() {
+        let source=drawing();
+        let start=osnap(&source,&Space::Model,Vec2::new(0.1,0.1),
+            0.5,mode::END,None,false).expect("snap start").point;
+        let end=osnap(&source,&Space::Model,Vec2::new(20.1,0.1),
+            0.5,mode::CEN,None,false).expect("snap end").point;
+        let mut session=crate::Session::new();
+        session.start("line").unwrap();
+        session.input(crate::Input::Point(start)).unwrap();
+        session.input(crate::Input::Point(end)).unwrap();
+        session.input(crate::Input::Enter).unwrap();
+        let dxf=cadcraft_io::write_dxf(session.doc().unwrap());
+        let restored=cadcraft_io::read_dxf(dxf.as_bytes()).expect("reopen native DXF");
+        let matching=restored.model.iter().filter(|entity|match &entity.kind {
+            EntityKind::Line(line)=>
+                line.a.xy().near(start,1e-9)&&line.b.xy().near(end,1e-9),
+            _=>false,
+        }).count();
+        assert_eq!(matching,1,"snapped LINE must reopen as an editable CAD line");
+    }
+
+    #[test]
     fn osnap_never_invents_a_pick_outside_aperture_or_when_disabled() {
         let d=drawing();
         for mask in [mode::END,mode::MID,mode::CEN,mode::INT] {
