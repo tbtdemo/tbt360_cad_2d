@@ -1181,6 +1181,16 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
             }
             if room_count>0 {
                 ui.small("Phòng chỉ là giả thuyết từ 4 cạnh khép kín quan sát được; chưa tự xác định tên phòng hoặc công năng.");
+                let adjacent=proposal["roomAdjacencyCount"].as_u64().unwrap_or(0);
+                ui.small(format!("Có {adjacent} cặp vùng chung cạnh tường NGUỒN thực tế; không suy diễn cửa ra vào hoặc lối thông."));
+                if let Some(links)=proposal["roomAdjacencies"].as_array() {
+                    for link in links.iter().take(12) {
+                        let a=link["roomIndices"][0].as_u64().unwrap_or(0)+1;
+                        let b=link["roomIndices"][1].as_u64().unwrap_or(0)+1;
+                        let edge=link["sourceEdgeIndex"].as_u64().unwrap_or(0);
+                        ui.small(format!("Vùng {a} ↔ {b}: cùng nét nguồn #{edge} · chưa xác nhận lối thông"));
+                    }
+                }
                 if let Some(rooms)=proposal["roomCandidates"].as_array() {
                     for (index,room) in rooms.iter().take(12).enumerate() {
                         let w=room["widthCAD"].as_f64().unwrap_or(0.0);
