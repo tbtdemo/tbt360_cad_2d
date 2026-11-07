@@ -366,6 +366,70 @@ fn next_command_habits(current:&str, history:&[String])->Vec<String> {
 /// Offers native editing commands for the actual current selection. These
 /// suggestions are context-specific but intentionally do NOT inspect, mutate
 /// or predict the geometry. They only make existing CAD actions discoverable.
+/// Classify the native selected EntityKind; no raster inference or guessed
+/// geometry. Mixed selections use general edit commands rather than pretending
+/// the whole selection consists of a line, circle or text.
+#[derive(Clone,Copy,Debug,PartialEq,Eq)]
+enum SelectionKind {None,Line,Curve,Polyline,Text,Block,Dimension,Hatch,Mixed,Other}
+
+fn native_selection_kind(kinds:&[cadcraft_doc::EntityKind])->SelectionKind {
+    use cadcraft_doc::EntityKind as E;
+    let classify=|kind:&E|match kind {
+        E::Line(_) | E::Ray(_) | E::XLine(_)=>SelectionKind::Line,
+        E::Circle(_) | E::Arc(_) | E::Ellipse(_) | E::Spline(_)=>SelectionKind::Curve,
+        E::LwPolyline(_) | E::Polyline3d(_) | E::MLine(_)=>SelectionKind::Polyline,
+        E::Text(_) | E::MText(_)|E::AttDef(_)=>SelectionKind::Text,
+        E::Insert(_)=>SelectionKind::Block,
+        E::Dimension(_) | E::Leader(_) | E::MLeader(_)=>SelectionKind::Dimension,
+        E::Hatch(_)=>SelectionKind::Hatch,
+        _=>SelectionKind::Other,
+    };
+    let Some(first)=kinds.first().map(classify) else{return SelectionKind::None;};
+    if kinds.iter().skip(1).any(|kind|classify(kind)!=first){SelectionKind::Mixed}
+    else{first}
+}
+
+fn selected_native_context(app:&CadApp)->SelectionKind {
+    let handles=app.session.selection();
+    if handles.is_empty(){return SelectionKind::None;}
+    let Ok(st)=app.session.state() else {return SelectionKind::Other};
+    let kinds=handles.iter().filter_map(|handle|
+        st.doc.entity(*handle).map(|entity|entity.kind.clone())).collect::<Vec<_>>();
+    if kinds.len()!=handles.len() {return SelectionKind::Other;}
+    native_selection_kind(&kinds)
+}
+
+fn contextual_native_candidates(kind:SelectionKind)->&'static [&'static str] {
+    match kind {
+        SelectionKind::None=>&["line","pline","circle","rectang","dist","id"],
+        SelectionKind::Line=>&["offset","trim","extend","fillet","dist","dimlinear","move"],
+        SelectionKind::Curve=>&["trim","offset","dimradius","dimdiameter","dist","move"],
+        SelectionKind::Polyline=>&["pedit","offset","area","hatch","dist","move"],
+        SelectionKind::Text=>&["ddedit","textedit","style","move","copy","properties"],
+        SelectionKind::Block=>&["bedit","explode","insert","move","copy","properties"],
+        SelectionKind::Dimension=>&["dimedit","dimstyle","dimcontinue","move","properties"],
+        SelectionKind::Hatch=>&["hatchedit","hatch","area","move","properties"],
+        SelectionKind::Mixed|SelectionKind::Other=>&["move","copy","rotate","list","erase","properties"],
+    }
+}
+
+/// Never suggest a command that is missing in the real engine registry.
+fn selection_kind_next_commands(kind:SelectionKind,previous:Option<&str>,history:&[String])->Vec<String> {
+    let mut names=Vec::<String>::new();
+    for candidate in contextual_native_candidates(kind) {
+        if cadcraft_engine::cmd::find_command(candidate).is_some() {
+            names.push((*candidate).to_owned());
+        }
+    }
+    if let Some(previous)=previous {
+        for id in next_command_habits(previous,history) {
+            if !names.contains(&id) {names.push(id);}
+        }
+    }
+    names.truncate(5);
+    names
+}
+
 fn selection_aware_next_commands(selection_count:usize,previous:Option<&str>,history:&[String])->Vec<String> {
     let mut names=Vec::<String>::new();
     if selection_count>0 {
@@ -921,7 +985,12 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui, canvas: Rect) {
         let previous=app.cmd.history.last()
             .and_then(|text|command_from_history(text));
         let selected_count=app.session.selection().len();
-        let related=selection_aware_next_commands(selected_count,previous.as_deref(),&app.cmd.history);
+        let kind=selected_native_context(app);
+        let related=if selected_count>0 {
+            selection_kind_next_commands(kind,previous.as_deref(),&app.cmd.history)
+        } else {
+            selection_aware_next_commands(0,previous.as_deref(),&app.cmd.history)
+        };
         if !related.is_empty() {
                 let hint=Rect::from_min_size(
                     pos2(bar.left(),(bar.top()-23.0-n as f32*16.0
@@ -1444,6 +1513,30 @@ mod autocomplete_tests {
         assert!(trim.contains("TRIM / TR"));
         let number=active_prompt_help(&cadcraft_engine::Prompt::new("Radius",cadcraft_engine::Accept::NUMBER));
         assert!(number.contains("Enter number"));
+    }
+
+    #[test]
+    fn native_entity_kind_guides_related_commands_without_inventing_geometry() {
+        use cadcraft_doc::{EntityKind as E,Line,Circle};
+        let line=E::Line(Line::default());
+        let circle=E::Circle(Circle::default());
+        assert_eq!(native_selection_kind(&[]),SelectionKind::None);
+        assert_eq!(native_selection_kind(&[line.clone()]),SelectionKind::Line);
+        assert_eq!(native_selection_kind(&[circle.clone()]),SelectionKind::Curve);
+        assert_eq!(native_selection_kind(&[line,circle]),SelectionKind::Mixed);
+        let line_commands=selection_kind_next_commands(SelectionKind::Line,None,&[]);
+        assert!(line_commands.iter().any(|id|id=="offset"||id=="trim"));
+        let circle_commands=selection_kind_next_commands(SelectionKind::Curve,None,&[]);
+        assert!(circle_commands.iter().any(|id|id=="trim"||id=="offset"));
+        let mixed=selection_kind_next_commands(SelectionKind::Mixed,None,&[]);
+        assert_eq!(mixed.first().map(String::as_str),Some("move"));
+        for kind in [SelectionKind::None,SelectionKind::Line,SelectionKind::Curve,
+                     SelectionKind::Polyline,SelectionKind::Text,SelectionKind::Block,
+                     SelectionKind::Dimension,SelectionKind::Hatch,SelectionKind::Mixed] {
+            let candidates=selection_kind_next_commands(kind,None,&[]);
+            assert!(candidates.iter().all(|id|
+                cadcraft_engine::cmd::find_command(id).is_some()));
+        }
     }
 
     #[test]
