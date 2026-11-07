@@ -1183,6 +1183,18 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
                 ui.small("Phòng chỉ là giả thuyết từ 4 cạnh khép kín quan sát được; chưa tự xác định tên phòng hoặc công năng.");
                 let adjacent=proposal["roomAdjacencyCount"].as_u64().unwrap_or(0);
                 ui.small(format!("Có {adjacent} cặp vùng chung cạnh tường NGUỒN thực tế; không suy diễn cửa ra vào hoặc lối thông."));
+                let contact_count=proposal["openingRoomContactCount"].as_u64().unwrap_or(0);
+                ui.small(format!("{contact_count} khoảng mở có hai mép tường gần biên phòng: chỉ là ứng viên cần duyệt, KHÔNG phải cửa đi đã xác nhận."));
+                if let Some(contacts)=proposal["openingRoomContacts"].as_array() {
+                    for contact in contacts.iter().take(12) {
+                        let rooms=contact["roomIndices"].as_array()
+                            .map(|v|v.iter().filter_map(Value::as_u64)
+                                .map(|i|(i+1).to_string()).collect::<Vec<_>>().join(", "))
+                            .unwrap_or_default();
+                        let opening=contact["openingIndex"].as_u64().unwrap_or(0)+1;
+                        ui.small(format!("Khoảng mở #{opening} gần vùng [{rooms}] · chưa xác nhận loại cửa/lối thông"));
+                    }
+                }
                 if let Some(links)=proposal["roomAdjacencies"].as_array() {
                     for link in links.iter().take(12) {
                         let a=link["roomIndices"][0].as_u64().unwrap_or(0)+1;
