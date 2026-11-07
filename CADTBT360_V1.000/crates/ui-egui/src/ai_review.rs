@@ -1834,6 +1834,33 @@ mod tests {
     }
 
     #[test]
+    fn ai_generated_native_cad_objects_are_real_endpoint_midpoint_and_center_snap_targets() {
+        use cadcraft_engine::snap::{self,mode};
+        use cadcraft_doc::Space;
+        use cadcraft_geom::Vec2;
+        let mut session=Session::default();
+        let text="vẽ đường thẳng từ 0,0 đến 100,0 | vẽ hình tròn tâm 300,100 bán kính 50";
+        let (steps,description)=plan_from_text(text).unwrap();
+        let st=session.state().unwrap();
+        let preview=Preview {uid:st.uid,epoch:session.doc_epoch,revision:st.revision,
+            text:text.into(),steps,description,image_evidence:None,selected_opening_guide:None,
+            selected_door_arc:None,replace_handles:None,replace_snapshot:None,
+            review_token:None,image_controls:None,owned_entities:None};
+        assert_eq!(commit_steps(&mut session,&preview).unwrap().len(),2);
+        let doc=session.doc().unwrap();
+        let near=|p:Vec2,mode_bits|snap::osnap(doc,&Space::Model,p,2.0,mode_bits,None,false);
+        let end=near(Vec2::new(0.2,0.2),mode::END).expect("AI native line endpoint should snap");
+        assert_eq!(end.mode,mode::END);
+        assert!(end.point.near(Vec2::new(0.0,0.0),1e-6));
+        let mid=near(Vec2::new(50.1,0.1),mode::MID).expect("AI native line midpoint should snap");
+        assert_eq!(mid.mode,mode::MID);
+        assert!(mid.point.near(Vec2::new(50.0,0.0),1e-6));
+        let center=near(Vec2::new(300.1,100.1),mode::CEN).expect("AI native circle center should snap");
+        assert_eq!(center.mode,mode::CEN);
+        assert!(center.point.near(Vec2::new(300.0,100.0),1e-6));
+    }
+
+    #[test]
     fn ai_multi_object_plan_commits_three_editable_entities_and_one_undo_group() {
         let mut session=Session::default();
         let text="vẽ phòng rộng 6000 dài 4000 tại 0,0 | vẽ đường thẳng từ 0,0 đến 6000,0 | vẽ hình tròn tâm 3000,2000 bán kính 250";
