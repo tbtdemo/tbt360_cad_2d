@@ -504,8 +504,9 @@ fn exact_vietnamese_command(text:&str)->Option<&'static str> {
     let query=fold_vi(text);
     if query.is_empty() {return None;}
     let mut unique:Option<&'static str>=None;
+    let suffix=format!(" {query}");
     for (phrase,command,_) in VI_COMMANDS {
-        if *phrase!=query && !phrase.ends_with(&format!(" {query}")) {continue;}
+        if *phrase!=query && !phrase.ends_with(suffix.as_str()) {continue;}
         if cadcraft_engine::cmd::find_command(command).is_none() {continue;}
         if unique.is_some_and(|old|old!=*command) {return None;}
         unique=Some(*command);
