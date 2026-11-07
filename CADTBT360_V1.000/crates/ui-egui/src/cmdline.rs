@@ -566,11 +566,23 @@ fn active_prompt_help(prompt:&cadcraft_engine::Prompt)->String {
         "Follow command prompt (Xem yêu cầu ở dòng lệnh)"
     };
     let mut result=format!("WAITING (Đang chờ): {action}");
+    if prompt.accept.point && !prompt.picks_objects() {
+        result.push_str(" · X,Y example (Ví dụ): 1000,2000");
+        if prompt.base.is_some() {
+            result.push_str(" · Relative (Tương đối): @1000,0");
+        }
+    }
     if !prompt.keywords.is_empty() {
         let options=prompt.keywords.iter().take(3)
             .map(|k|bilingual_keyword_caption(k)).collect::<Vec<_>>().join(" / ");
         result.push_str(&format!(" · Options (Tùy chọn): {options}"));
-    } else if prompt.accept.enter {
+        if prompt.keywords.len()>3 {
+            result.push_str(" · See OPTIONS (Xem tất cả tùy chọn)");
+        }
+    }
+    // Enter is valid even when keywords are present; report the engine's
+    // actual accept flag instead of guessing from the menu contents.
+    if prompt.accept.enter {
         result.push_str(" · Enter (Mặc định/kết thúc theo bước)");
     }
     result.push_str(" · Esc (Hủy)");
@@ -1669,6 +1681,22 @@ mod autocomplete_tests {
                 "native CAD command disappeared from search: {}",spec.id);
         }
         assert!(count>100,"engine command registry was unexpectedly empty");
+    }
+
+    #[test]
+    fn prompt_guidance_respects_enter_and_real_point_input_context() {
+        let first=cadcraft_engine::Prompt::new("Specify first point",cadcraft_engine::Accept::POINT);
+        let first_help=active_prompt_help(&first);
+        assert!(first_help.contains("1000,2000"));
+        assert!(!first_help.contains("@1000,0"));
+        let next=cadcraft_engine::Prompt::new("Specify next point",cadcraft_engine::Accept::POINT)
+            .base(cadcraft_geom::Vec2::new(0.0,0.0))
+            .kw(&["Undo","Close","Arc","Width","Length"]);
+        let next_help=active_prompt_help(&next);
+        assert!(next_help.contains("@1000,0"));
+        assert!(next_help.contains("See OPTIONS"));
+        assert!(next_help.contains("Undo (Hoàn tác)"));
+        assert!(!next_help.contains("Enter (Mặc định"));
     }
 
     #[test]
