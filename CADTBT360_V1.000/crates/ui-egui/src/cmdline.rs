@@ -613,9 +613,29 @@ fn bilingual_keyword_caption(keyword:&str)->String {
 
 /// Every native prompt option gets a bilingual *display*, but retains its
 /// exact engine keyword for mouse dispatch; no truncation to the first 3.
+/// Shortcuts come from Prompt::match_keyword (the original CAD keyword
+/// resolver), never guessed from translated Vietnamese or shown if ambiguous.
+fn native_keyword_shortcut(prompt:&cadcraft_engine::Prompt,keyword:&str)->Option<String> {
+    let upper=keyword.chars()
+        .filter(|c|c.is_ascii_uppercase()||c.is_ascii_digit())
+        .collect::<String>();
+    let candidate=if upper.is_empty() {
+        keyword.chars().next()?.to_ascii_uppercase().to_string()
+    } else {
+        upper
+    };
+    (prompt.match_keyword(&candidate).as_deref()==Some(keyword))
+        .then_some(candidate)
+}
+
 fn native_bilingual_options(prompt:&cadcraft_engine::Prompt)->Vec<(String,String)> {
-    prompt.keywords.iter().map(|keyword|
-        (keyword.clone(),bilingual_keyword_caption(keyword))).collect()
+    prompt.keywords.iter().map(|keyword|{
+        let mut caption=bilingual_keyword_caption(keyword);
+        if let Some(alias)=native_keyword_shortcut(prompt,keyword) {
+            caption.push_str(&format!(" · [{alias}]"));
+        }
+        (keyword.clone(),caption)
+    }).collect()
 }
 
 /// Matching command names/aliases for AutoComplete.
@@ -1697,6 +1717,20 @@ mod autocomplete_tests {
         assert!(next_help.contains("See OPTIONS"));
         assert!(next_help.contains("Undo (Hoàn tác)"));
         assert!(!next_help.contains("Enter (Mặc định"));
+    }
+
+    #[test]
+    fn keyword_abbreviation_is_verified_with_native_prompt_parser() {
+        let prompt=cadcraft_engine::Prompt::new("Choose",cadcraft_engine::Accept::POINT)
+            .kw(&["Undo","Close","Arc","Width","Length","eXit"]);
+        assert_eq!(native_keyword_shortcut(&prompt,"Undo").as_deref(),Some("U"));
+        assert_eq!(native_keyword_shortcut(&prompt,"Close").as_deref(),Some("C"));
+        assert_eq!(native_keyword_shortcut(&prompt,"eXit").as_deref(),Some("X"));
+        let opts=native_bilingual_options(&prompt);
+        assert_eq!(opts[0].0,"Undo");
+        assert!(opts[0].1.contains("[U]"));
+        assert!(opts[1].1.contains("[C]"));
+        assert!(opts.iter().all(|(keyword,_)|prompt.keywords.contains(keyword)));
     }
 
     #[test]
