@@ -335,7 +335,7 @@ fn column_hatch_candidates(rects: &[RectangleOutline], lines: &[Line]) -> Vec<Va
 /// Conservative geometric parallel-edge hints; not semantic wall recognition.
 /// Pair only axis-aligned segments of similar span with substantial overlap.
 fn parallel_wall_candidates(lines: &[Line], min_spacing: f64, max_spacing: f64) -> Vec<Value> {
-    if lines.len() > 256 || !(min_spacing > 0.0 && max_spacing >= min_spacing) { return Vec::new(); }
+    if lines.len() > 1000 || !(min_spacing > 0.0 && max_spacing >= min_spacing) { return Vec::new(); }
     let mut candidates = Vec::new();
     let horizontal = |l: &Line| (l.y0-l.y1).abs() < 0.25 && l.x1-l.x0 >= 16.0;
     let vertical = |l: &Line| (l.x0-l.x1).abs() < 0.25 && l.y1-l.y0 >= 16.0;
@@ -362,7 +362,7 @@ fn parallel_wall_candidates(lines: &[Line], min_spacing: f64, max_spacing: f64) 
 
 /// Conservative drafting panels from observed pairs only; never bridge missing wall edges.
 fn wall_panel_candidates(lines: &[Line], pairs: &[Value], openings: &[Value], columns: &[Value]) -> Vec<Value> {
-    if lines.len()>256 || pairs.len()>128 {return Vec::new();}
+    if lines.len()>1000 || pairs.len()>128 {return Vec::new();}
     let mut used=vec![0usize;lines.len()];
     for pair in pairs {
         let (Some(i),Some(j))=(pair["edges"][0].as_u64().and_then(|v|usize::try_from(v).ok()),
@@ -2755,6 +2755,22 @@ mod tests {
         let x0 = points[0][0].as_f64().expect("start x");
         let x1 = points[1][0].as_f64().expect("end x");
         assert!((x1-x0-500.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn ai_architecture_wall_pair_recognition_keeps_candidates_above_256_strokes() {
+        let mut lines=Vec::new();
+        for i in 0..274 {
+            let x=i as f64 * 2.0;
+            lines.push(Line{x0:x,y0:1000.0,x1:x+1.0,y1:1000.0});
+        }
+        // Two genuine parallel, long wall edges among 274 total detected strokes.
+        lines[270]=Line{x0:20.0,y0:100.0,x1:400.0,y1:100.0};
+        lines[271]=Line{x0:20.0,y0:114.0,x1:400.0,y1:114.0};
+        let pairs=parallel_wall_candidates(&lines,8.0,25.0);
+        assert!(pairs.iter().any(|p|p["edges"]==json!([270,271])));
+        let panels=wall_panel_candidates(&lines,&pairs,&[],&[]);
+        assert!(panels.iter().any(|p|p["sourceEdgeIndices"]==json!([270,271])));
     }
 
     #[test]
