@@ -322,3 +322,14 @@ Các bài test đã được khai báo là bắt buộc trong `cad360-v1027-comm
 - [ ] Chưa nghiệm thu bằng chuột trên EXE, các góc polyline có bulge, cung cong, đa lớp và DXF/DWG hai chiều với AutoCAD.
 
 **Nguyên tắc:** Không thay đổi lệnh nguyên bản; các test bảo vệ semantics của engine, độ chính xác tọa độ và tính chỉnh sửa của thực thể CAD.
+
+
+## 28. V1.027 — FILLET/CHAMFER POLYLINE có cung và cổng hồi quy đầy đủ
+
+- [x] Thêm bài kiểm thử `architectural_closed_polyline_fillet_bulge_undo_redo_dxf_roundtrip` trong module `fillet_chamfer.rs`. Khởi tạo POLYLINE chữ nhật 6000×4000 bằng lệnh gốc, gọi `fillet` native (`polyline=true`, `radius=100`) và yêu cầu bốn góc được bo.
+- [x] Xác nhận POLYLINE vẫn `closed`, có 8 đỉnh và 4 giá trị `bulge` khác không; Undo trả về 4 đỉnh thẳng, Redo phục hồi hình học bo góc.
+- [x] DXF roundtrip bắt buộc giữ `LwPolyline` với 8 đỉnh, 4 cung biểu diễn bằng `bulge`; không rasterize/flatten thành ảnh.
+- [x] Windows CI V1.027 bổ sung chạy toàn bộ nhóm `fillet_chamfer::`: Trim/No Trim, Multiple, Undo, Angle/Distance, Polyline, JSON và ca kiểm thử bulge mới.
+- [ ] Windows CI của commit mới nhất chưa được xác nhận `success`. Kiểm thử GUI bằng chuột/OSNAP và DWG hai chiều với AutoCAD vẫn là mục nghiệm thu riêng.
+
+**Giới hạn:** đã ghi mã hồi quy và cấu hình workflow, chưa coi là PASS cho đến khi GitHub Actions hoàn tất.
