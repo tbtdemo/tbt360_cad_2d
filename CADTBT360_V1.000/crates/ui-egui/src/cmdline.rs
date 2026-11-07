@@ -995,14 +995,19 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui, canvas: Rect) {
         let expected=app.session.current_prompt()
             .map(|prompt|active_prompt_help(&prompt))
             .unwrap_or_else(||"ACTIVE (Đang thực hiện lệnh) · Esc (Hủy)".to_owned());
-        let y=(bar.top()-46.0-n as f32*16.0
+        // Long bilingual instructions must wrap instead of drawing past the
+        // right edge of the canvas or covering the caret / command history.
+        let text_width=(w-14.0).max(20.0);
+        let expected_galley=p.layout(expected,egui::FontId::proportional(11.0),t.accent,text_width);
+        let guide_galley=p.layout(guide,egui::FontId::proportional(11.0),t.text,text_width);
+        let height=expected_galley.size().y+guide_galley.size().y+12.0;
+        let y=(bar.top()-height-5.0-n as f32*16.0
             -if lines.is_empty(){0.0}else{6.0}).max(canvas.top()+3.0);
-        let hint=Rect::from_min_size(pos2(bar.left(),y),vec2(w,40.0));
+        let hint=Rect::from_min_size(pos2(bar.left(),y),vec2(w,height));
         p.rect_filled(hint,3.0,t.cmd_history);
-        p.text(pos2(hint.left()+7.0,hint.top()+4.0),egui::Align2::LEFT_TOP,
-            expected,egui::FontId::proportional(11.0),t.accent);
-        p.text(pos2(hint.left()+7.0,hint.top()+21.0),egui::Align2::LEFT_TOP,
-            guide,egui::FontId::proportional(11.0),t.text);
+        p.galley(pos2(hint.left()+7.0,hint.top()+4.0),expected_galley,t.accent);
+        p.galley(pos2(hint.left()+7.0,hint.top()+7.0+expected_galley.size().y),
+            guide_galley,t.text);
     }
     // Contextual next-command hints appear after the previous command, not
     // while entering geometry. Existing CAD command input is never hijacked.
