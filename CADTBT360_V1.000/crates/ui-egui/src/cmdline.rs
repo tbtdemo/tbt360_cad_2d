@@ -498,6 +498,21 @@ fn bilingual_label(command: &str) -> Option<&'static str> {
 /// A space after a Vietnamese natural-language verb is part of the query.
 /// A normal CAD alias (L, PL, C, REC, DI...) retains its traditional
 /// Space-to-Enter behaviour, and command prompts always preserve text input.
+/// Only a complete, unambiguous Vietnamese label becomes an executable
+/// native command. Incomplete or ambiguous text is never silently guessed.
+fn exact_vietnamese_command(text:&str)->Option<&'static str> {
+    let query=fold_vi(text);
+    if query.is_empty() {return None;}
+    let mut unique:Option<&'static str>=None;
+    for (phrase,command,_) in VI_COMMANDS {
+        if *phrase!=query && !phrase.ends_with(&format!(" {query}")) {continue;}
+        if cadcraft_engine::cmd::find_command(command).is_none() {continue;}
+        if unique.is_some_and(|old|old!=*command) {return None;}
+        unique=Some(*command);
+    }
+    unique
+}
+
 fn vietnamese_query_continues(buffer:&str)->bool {
     let normalized=fold_vi(buffer);
     // Native exact names and PGP aliases take precedence even if one happens
@@ -892,6 +907,7 @@ pub fn keyboard(app: &mut CadApp, ctx: &egui::Context) {
                 } else if t == " " && !text_prompt {
                     if !app.session.prompting() && vietnamese_query_continues(&app.cmd.buffer) {
                         app.cmd.buffer.push(' ');
+                        app.cmd.suggestion_index=None;
                     } else {
                         submit(app);
                     }
@@ -1030,11 +1046,11 @@ pub fn submit(app: &mut CadApp) {
     }
     // Translate only a full, exact Vietnamese command phrase. Partial words
     // never trigger a command, preserving user review of suggestions.
-    let query=fold_vi(&text);
+    // Translate a complete Vietnamese command phrase, including unambiguous
+    // shortened natural labels like "Đường Thẳng" (without "Vẽ"). Native
+    // English command IDs/aliases still take priority in the regular engine.
     if !app.session.prompting() {
-        if let Some((_,command,_))=VI_COMMANDS.iter().find(|(phrase,_,_)|*phrase==query)
-            && cadcraft_engine::cmd::find_command(command).is_some()
-        {
+        if let Some(command)=exact_vietnamese_command(&text) {
             app.cmdline(command);
             return;
         }
@@ -1498,6 +1514,15 @@ mod tests {
     use super::*;
     use cadcraft_engine::Session;
     use egui::{Event, PointerButton};
+
+    #[test]
+    fn v1028_complete_vietnamese_labels_resolve_only_unique_real_commands() {
+        assert_eq!(exact_vietnamese_command("Đường Thẳng"),Some("line"));
+        assert_eq!(exact_vietnamese_command("vẽ đường thẳng"),Some("line"));
+        assert_eq!(exact_vietnamese_command("Đường Tròn"),Some("circle"));
+        assert_eq!(exact_vietnamese_command("đường"),None);
+        assert_eq!(exact_vietnamese_command("nội dung không có lệnh"),None);
+    }
 
     #[test]
     fn v1028_vietnamese_spaced_command_suggestions_keep_native_engine_ids() {
