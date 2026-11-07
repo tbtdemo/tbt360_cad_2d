@@ -298,3 +298,15 @@ Các bài test đã được khai báo là bắt buộc trong `cad360-v1027-comm
 - [ ] Chưa đạt mục tiêu AI nhận diện mặt bằng kiến trúc và dựng bản vẽ CAD hoàn chỉnh.
 
 **Phân biệt trạng thái:** `đã commit` = mã và workflow đã lưu GitHub; `CI PASS` = đã chạy thành công Windows test; `nghiệm thu EXE` = kiểm chứng thực tế qua chuột, màn hình, DXF/DWG và AutoCAD. Không đánh đồng ba trạng thái.
+
+
+## 26. V1.027 — FILLET/CHAMFER kiến trúc, Undo/Redo và DXF
+
+- [x] Bổ sung regression `architectural_fillet_chamfer_native_geometry_undo_redo_and_dxf` tại `crates/engine/tests/it/trim_extend_options.rs`.
+- [x] FILLET: tạo góc vuông bằng hai LINE thật, thực thi engine `fillet` với bán kính 2, kiểm tra hình học LINE thay đổi, có đúng một ARC, Undo phục hồi LINE ban đầu, Redo khôi phục và DXF lưu/mở lại vẫn có ARC.
+- [x] CHAMFER: thực thi `chamfer` với khoảng vát 2 và 3, `trim=false`; giữ nguyên hai LINE nguồn và tạo thêm LINE vát, Undo/Redo và DXF vẫn giữ đủ ba LINE.
+- [x] Bài mới nằm trong `trim_extend_options::`, hiện đã được Windows Gate V1.027 gọi theo cả module (không giới hạn một tên test).
+- [ ] Windows CI run #176 tại commit `22989329ad6f99fe30730dc126eefd14019f11e7` đang chờ kiểm chứng; chưa được công bố PASS.
+- [ ] Chưa nghiệm thu hình học FILLET/CHAMFER nhiều tuyến cong, polyline bulge, các trường hợp không giao nhau, thao tác chuột trong Windows EXE và tương thích DWG hai chiều với AutoCAD.
+
+**Chú ý:** kiểm thử native engine và DXF là điều kiện cần, không thay thế đo tọa độ sau click OSNAP hoặc nghiệm thu tương thích DWG thực tế.
