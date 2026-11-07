@@ -1,0 +1,76 @@
+name: CAD 360 V1.027 - Native Command and Bilingual UX Windows Gate
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/CADTBT360_V1.027_BILINGUAL_COMMAND_UX
+    paths:
+      - 'CADTBT360_V1.000/crates/ui-egui/**'
+      - '.github/workflows/cad360-v1027-command-ux.yml'
+      - 'docs/CAD360_V1027_BILINGUAL_COMMAND_UX.md'
+  pull_request:
+    paths:
+      - 'CADTBT360_V1.000/crates/ui-egui/**'
+      - '.github/workflows/cad360-v1027-command-ux.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cad360-v1027-commands-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  command-ux:
+    runs-on: windows-latest
+    timeout-minutes: 70
+    defaults:
+      run:
+        shell: pwsh
+        working-directory: CADTBT360_V1.000
+    steps:
+      - name: Checkout exact V1.027 source
+        uses: actions/checkout@v4
+      - name: Rust stable
+        uses: dtolnay/rust-toolchain@stable
+      - name: Cache cargo dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: CADTBT360_V1.000
+          key: v1027-native-bilingual-ui
+      - name: Compile CAD engine, native UI and desktop
+        run: |
+          $ErrorActionPreference = 'Stop'
+          cargo check --locked -p cadcraft-engine -p cadcraft-ui-egui -p cadcraft
+          if ($LASTEXITCODE -ne 0) { throw 'CAD V1.027 native command/desktop compilation failed' }
+      - name: Discover original CAD and bilingual command UX tests
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $listing = @(cargo test --locked -p cadcraft-ui-egui --lib cmdline::autocomplete_tests:: -- --list 2>&1)
+          if ($LASTEXITCODE -ne 0) { $listing | Out-Host; throw 'Cannot list V1.027 command UX tests' }
+          foreach ($required in @(
+            'vietnamese_command_suggestions_accept_accents_and_plain_text',
+            'space_keeps_vietnamese_phrase_but_not_native_cad_alias',
+            'every_public_native_command_remains_searchable_by_full_id',
+            'native_alias_space_dispatch_is_never_replaced_by_translation',
+            'bilingual_ui_keeps_english_first_and_actual_aliases',
+            'original_english_prompts_preserved_with_vietnamese_in_parentheses',
+            'exact_alias_is_first_suggestion_with_alias_display'
+          )) {
+            $matches = @($listing | Where-Object { $_ -match ('::' + [regex]::Escape($required) + ': test$') })
+            if ($matches.Count -ne 1) {
+              $listing | Out-Host
+              throw "Required original CAD / bilingual regression test missing: $required"
+            }
+          }
+          $listing | Where-Object { $_ -match ': test$' } | Out-Host
+      - name: Run all bilingual and native CAD command autocomplete regressions
+        run: |
+          $ErrorActionPreference = 'Stop'
+          cargo test --locked -p cadcraft-ui-egui --lib cmdline::autocomplete_tests:: -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'CAD V1.027 bilingual/native command UX tests failed' }
+      - name: Report verification boundary
+        run: |
+          Write-Host 'PASS here proves compile and command UX unit tests only.'
+          Write-Host 'Windows real-EXE OSNAP clicks, whole AutoCAD 2027 parity, screenshots and installers require separate acceptance.'
