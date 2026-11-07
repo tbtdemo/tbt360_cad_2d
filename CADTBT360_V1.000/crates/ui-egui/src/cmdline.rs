@@ -767,18 +767,45 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui, canvas: Rect) {
         let previous=app.cmd.history.last()
             .and_then(|text|command_from_history(text));
         if let Some(last)=previous {
-            let related=next_command_habits(&last,&app.cmd.history).iter()
-                .filter_map(|id|related_command_caption(id)).take(3)
-                .collect::<Vec<_>>();
+            let related=next_command_habits(&last,&app.cmd.history);
             if !related.is_empty() {
                 let hint=Rect::from_min_size(
                     pos2(bar.left(),(bar.top()-23.0-n as f32*16.0
                         -if lines.is_empty(){0.0}else{6.0}).max(canvas.top()+3.0)),
                     vec2(w,20.0));
                 p.rect_filled(hint,3.0,t.cmd_history);
-                let text=format!("NEXT (Lệnh tiếp): {} · Enter (Lặp lệnh trước) · Esc (Hủy)",related.join(" | "));
-                p.text(pos2(hint.left()+7.0,hint.center().y),egui::Align2::LEFT_CENTER,
-                    text,egui::FontId::proportional(10.0),t.text);
+                let title="NEXT (Lệnh tiếp): ";
+                let tx=hint.left()+7.0;
+                let font=egui::FontId::proportional(10.0);
+                let prefix=p.layout_no_wrap(title.to_owned(),font.clone(),t.text);
+                let mut x=tx+prefix.size().x;
+                p.galley(pos2(tx,hint.center().y-prefix.size().y/2.0),prefix,t.text);
+                for (i,id) in related.iter().take(3).enumerate() {
+                    let Some(caption)=related_command_caption(id) else {continue};
+                    let short=shortest_registered_alias(id).unwrap_or(id);
+                    let label=natural_language_command(id)
+                        .or_else(||cadcraft_engine::cmd::find_command(id).and_then(|spec|{
+                            let translated=crate::i18n::tr("vi",spec.label);
+                            (translated!=spec.label).then_some(translated)
+                        }));
+                    let button_text=label.map(|vi|format!("{} ({vi})",short.to_ascii_uppercase()))
+                        .unwrap_or_else(||short.to_ascii_uppercase());
+                    let galley=p.layout_no_wrap(button_text,font.clone(),t.text);
+                    let width=galley.size().x+10.0;
+                    if x+width>hint.right()-6.0 {break;}
+                    let r=Rect::from_min_size(pos2(x,hint.top()+1.0),vec2(width,18.0));
+                    let response=ui.interact(r,ui.scope_id().with(("next_command",i)),Sense::click())
+                        .on_hover_text(format!("{caption} · Click to start (Nhấn để chạy)"));
+                    if response.hovered() {p.rect_filled(r,3.0,t.cmd_keyword_hover);}
+                    p.galley(pos2(r.left()+5.0,r.center().y-galley.size().y/2.0),
+                        galley,t.text);
+                    if response.clicked() && !app.session.prompting() {
+                        // A deliberate click uses the same native dispatch path
+                        // as command line selection. Suggestions never auto-run.
+                        app.start(id);
+                    }
+                    x+=width+4.0;
+                }
             }
         }
     }
@@ -1219,6 +1246,20 @@ mod autocomplete_tests {
         assert!(!vietnamese_query_continues("lam sach ban ve"));
         assert_eq!(fold_vi("Làm Sạch BẢN VẼ"),"lam sach ban ve");
         assert!(active_command_guide("pline").contains("đỉnh"));
+    }
+
+    #[test]
+    fn next_command_suggestions_are_registry_backed_and_have_actual_shortcuts() {
+        let history=vec!["l".to_string(),"di".to_string(),"l".to_string()];
+        for id in next_command_habits("line",&history) {
+            assert!(cadcraft_engine::cmd::find_command(&id).is_some(),
+                "cannot suggest nonexistent CAD command: {id}");
+            let caption=related_command_caption(&id).expect("registered command caption");
+            assert!(!caption.is_empty());
+        }
+        assert_eq!(shortest_registered_alias("line"),Some("l"));
+        assert_eq!(shortest_registered_alias("pline"),Some("pl"));
+        assert_eq!(shortest_registered_alias("dist"),Some("di"));
     }
 
     #[test]
