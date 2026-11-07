@@ -186,6 +186,24 @@ pub(super) fn effective_point(app: &mut CadApp, raw: Vec2, xf: &Xf, ctx: &egui::
     r.point
 }
 
+/// Dispatch one of the earlier physical releases from a slow UI frame.  Each
+/// release needs its OWN point-prompt OSNAP/ortho/track resolution: sending the
+/// raw pointer world coordinate bypasses snaps, while reusing the final hover
+/// hit would collapse several fast clicks onto the same vertex.
+pub(super) fn input_earlier_snapped_point(app: &mut CadApp, raw: Vec2, xf: &Xf, ctx: &egui::Context) -> cadcraft_engine::Result<()> {
+    let p = effective_point(app, raw, xf, ctx);
+    app.canvas.cursor = Some(p);
+    app.session.cursor = p;
+    app.session.cursor_deferred = app.canvas.snap.and_then(|h| h.deferred);
+    // Match the normal click path, including single-pick END/NON overrides
+    // and Tab cycling, rather than trusting the final cursor in the batch.
+    override_cursor(app, raw, xf);
+    match app.canvas.snap {
+        Some(hit) => app.session.input_snapped(hit),
+        None => app.session.input(Input::Point(app.canvas.cursor.unwrap_or(p))),
+    }
+}
+
 fn tooltip(p: &egui::Painter, at: Pos2, text: &str) {
     let galley = p.layout_no_wrap(text.to_string(), crate::theme::small(), Color32::from_rgb(0x20, 0x20, 0x20));
     let r = Rect::from_min_size(at, galley.size() + vec2(8.0, 4.0));
