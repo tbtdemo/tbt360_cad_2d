@@ -148,7 +148,7 @@ const VI_COMMANDS: &[(&str, &str, &str)] = &[
     ("quan ly lop", "layer", "Quản lý lớp"),
 ];
 
-fn fold_vi(text: &str) -> String {
+pub(crate) fn fold_vi(text: &str) -> String {
     text.to_lowercase().chars().filter_map(|ch| {
         let plain = match ch {
             'à'|'á'|'ả'|'ã'|'ạ'|'ă'|'ằ'|'ắ'|'ẳ'|'ẵ'|'ặ'|'â'|'ầ'|'ấ'|'ẩ'|'ẫ'|'ậ' => 'a',
