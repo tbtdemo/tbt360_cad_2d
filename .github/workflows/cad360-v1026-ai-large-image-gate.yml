@@ -48,6 +48,9 @@ jobs:
       - name: Large PNG real decode and calibrated CAD coordinate test
         shell: pwsh
         run: |
+          # Simulate a stale failure from a previous native command. An actual
+          # passing benchmark script must clear LASTEXITCODE for its caller.
+          $global:LASTEXITCODE = 77
           & ../scripts/profile_ai_raster.ps1 -TestName 'large_png_5000_by_3000_preserves_original_pixel_to_cad_calibration'
           if ($LASTEXITCODE -ne 0) { throw 'V1.026 15 MP AI image regression failed' }
           & ../scripts/profile_ai_raster.ps1 -TestName 'ai_36_megapixel_png_preview_preserves_full_resolution'
