@@ -132,6 +132,17 @@ Các tỷ lệ trên cố ý **không cộng điểm cho build đang Queued**. N
 
 **Tiến độ:** giữ **33% theo checklist code** và **0% nghiệm thu phát hành**. Kiểm thử benchmark là bảo đảm chất lượng số liệu, không là bằng chứng thêm về AI semantic.
 
+## Windows 15 MP — sửa lỗi profiler dựa trên log thật
+
+- **Bằng chứng:** Job Windows `42325024481 / 128258852022` đã biên dịch được GUI, MCP/CLI; test `large_png_5000_by_3000_preserves_original_pixel_to_cad_calibration` báo **1 passed; 0 failed**. Tuy nhiên workflow FAIL tại bước kiểm tra `$LASTEXITCODE` sau script, **không phải do test 15 MP không đạt**.
+- **Lỗi kế tiếp:** Script `scripts/profile_ai_raster.ps1` chạy `Start-Process cargo`, nhưng không cập nhật `$LASTEXITCODE` của PowerShell gọi. Giá trị lỗi cũ làm gate báo FAIL.
+- [x] Khi test exit code = 0, cập nhật rõ `$global:LASTEXITCODE = 0` để workflow không đọc mã thoát lỗi cũ.
+- [x] Chuyển `cargo test --no-run` ra ngoài stopwatch; số đo mới ghi `cargo_test_wall_ms_after_precompile`, **không gọi là thời gian suy luận AI thuần**.
+- [x] Thêm regression đặt `$LASTEXITCODE=77` trước khi gọi profiler trong CI; test PASS bắt buộc trả về 0.
+- **Không có kết quả RAM hợp lệ** ở lần chạy này: worker kết thúc nhanh hơn chu kỳ lấy mẫu; cần benchmark process sống lâu hơn/đo memory chuyên dụng.
+- [ ] Lượt Windows mới phải PASS bài 15 MP và 36 MP đúng SHA. Chưa có Setup/Portable V1.026 nghiệm thu.
+- **% tổng giữ 33%; phát hành nghiệm thu 0%.** Có bằng chứng PASS một test đơn lẻ trên commit trước, chưa thể áp dụng cho commit mới.
+
 ## Định hướng lần nâng cấp tiếp theo (theo thứ tự)
 
 1. **P0 – Gỡ lỗi CI Windows đúng SHA**: fix compile/test, chỉ ghi PASS khi kết quả hiện hữu. Không push liên tục làm nhiễu lượt kiểm thử.
