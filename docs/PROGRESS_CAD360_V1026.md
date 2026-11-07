@@ -232,6 +232,15 @@ Các tỷ lệ trên cố ý **không cộng điểm cho build đang Queued**. N
 
 **Tiến độ giữ 33% triển khai / 0% nghiệm thu phát hành.** Đây là kiểm thử hình học topology bằng nét tổng hợp, chưa phải benchmark thị giác với ảnh kiến trúc thực tế.
 
+## AI Studio V1.026 — thể hiện phòng ngay trên bản Preview
+
+- [x] Giao diện `ai_raster_panel.rs` vẽ đường bao phòng quan sát đủ bốn cạnh bằng màu xanh lục nhạt và đánh số `P1..P128` ngay trong Preview.
+- [x] Giữ phân biệt với PLINE kín màu xanh lam: đường bao phòng chỉ là bằng chứng **xem trước**, không tự tạo CAD geometry, không làm tăng số LINE/PLINE trong Undo hoặc DWG.
+- [x] Kiểm tra tọa độ hữu hạn và đủ bốn đỉnh trước khi vẽ lên giao diện; không suy đoán phòng đa giác, loại phòng hoặc công năng.
+- [ ] Chưa có Windows CI PASS cho bản sửa GUI; cần kiểm tra render và đối chiếu bằng ảnh chụp EXE thực tế, không dùng hình minh họa giả làm screenshot.
+
+**Giữ 33% triển khai và 0% nghiệm thu phát hành.**
+
 ## Định hướng lần nâng cấp tiếp theo (theo thứ tự)
 
 1. **P0 – Gỡ lỗi CI Windows đúng SHA**: fix compile/test, chỉ ghi PASS khi kết quả hiện hữu. Không push liên tục làm nhiễu lượt kiểm thử.
