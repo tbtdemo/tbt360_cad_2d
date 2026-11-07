@@ -9,10 +9,10 @@ on:
       - 'CADTBT360_V1.000/crates/ui-egui/**'
       - 'CADTBT360_V1.000/crates/engine/**'
       - '.github/workflows/cad360-v1027-command-ux.yml'
-      - 'docs/CAD360_V1027_BILINGUAL_COMMAND_UX.md'
   pull_request:
     paths:
       - 'CADTBT360_V1.000/crates/ui-egui/**'
+      - 'CADTBT360_V1.000/crates/engine/**'
       - '.github/workflows/cad360-v1027-command-ux.yml'
 
 permissions:
@@ -20,7 +20,7 @@ permissions:
 
 concurrency:
   group: cad360-v1027-commands-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   command-ux:
@@ -161,9 +161,15 @@ jobs:
       - name: Verify native architectural editing does not regress when engine changes
         run: |
           $ErrorActionPreference = 'Stop'
-          cargo test --locked -p cadcraft-engine --test it -- --list | Select-String -Pattern 'trim_extend_options::|offset_move::' | Out-Host
-          if ($LASTEXITCODE -ne 0) { throw 'Could not enumerate the native architectural editing regression suite' }
+          $listing = @(cargo test --locked -p cadcraft-engine --test it -- --list 2>&1)
+          if ($LASTEXITCODE -ne 0) { $listing | Out-Host; throw 'Could not enumerate the native architectural editing regression suite' }
+          foreach ($suite in @('trim_extend_options::','offset_move::','fillet_chamfer::')) {
+            if (-not @($listing | Where-Object { $_ -match [regex]::Escape($suite) }).Count) {
+              throw "Required architectural CAD regression suite not registered: $suite"
+            }
+          }
+          $listing | Where-Object { $_ -match 'trim_extend_options::|offset_move::|fillet_chamfer::' } | Out-Host
       - name: Report verification boundary
         run: |
-          Write-Host 'PASS here proves compile and command UX unit tests only.'
+          Write-Host 'PASS verifies compilation and the listed native CAD engine/UI unit and integration tests, not Windows GUI mouse acceptance.'
           Write-Host 'Windows real-EXE OSNAP clicks, whole AutoCAD 2027 parity, screenshots and installers require separate acceptance.'
