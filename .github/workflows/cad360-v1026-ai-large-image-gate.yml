@@ -70,6 +70,12 @@ jobs:
           New-Item -ItemType Directory -Force dist/v1026 | Out-Null
           python docs/user-guide/build_word_guide.py docs/user-guide/CAD360_V1.026_AI_LARGE_IMAGE.md dist/v1026/CAD360_V1.026_AI_LARGE_IMAGE_GUIDE.docx
           if ($LASTEXITCODE -ne 0) { throw 'Cannot build V1.026 Word AI guide' }
+          python scripts/validate_full_user_guide.py docs/user-guide/CADTBT360_V1.025_GIAO_TRINH_TONG_HOP_TAT_CA_TINH_NANG.md
+          if ($LASTEXITCODE -ne 0) { throw 'Full-product user guide source validation failed' }
+          python docs/user-guide/build_word_guide.py docs/user-guide/CADTBT360_V1.025_GIAO_TRINH_TONG_HOP_TAT_CA_TINH_NANG.md dist/v1026/CAD360_FULL_PRODUCT_GUIDE_BASE_V1025.docx
+          if ($LASTEXITCODE -ne 0) { throw 'Full-product Word guide generation failed' }
+          python scripts/validate_word_guide.py dist/v1026/CAD360_FULL_PRODUCT_GUIDE_BASE_V1025.docx
+          if ($LASTEXITCODE -ne 0) { throw 'Full-product Word guide is invalid or incomplete' }
           python scripts/verify_source_bundle.py --build dist/v1026/CADTBT360_V1.026_Full_Source.zip
           if ($LASTEXITCODE -ne 0) { throw 'Cannot build exact-source bundle' }
           python scripts/verify_source_bundle.py dist/v1026/CADTBT360_V1.026_Full_Source.zip
@@ -85,6 +91,7 @@ jobs:
           path: |
             dist/v1026/CADTBT360_V1.026_Full_Source.zip
             dist/v1026/CAD360_V1.026_AI_LARGE_IMAGE_GUIDE.docx
+            dist/v1026/CAD360_FULL_PRODUCT_GUIDE_BASE_V1025.docx
             dist/v1026/BUILD_INFO.txt
             dist/v1026/SHA256SUMS.txt
           if-no-files-found: error
