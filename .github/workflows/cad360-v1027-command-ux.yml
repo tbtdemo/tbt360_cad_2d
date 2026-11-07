@@ -74,6 +74,11 @@ jobs:
           $ErrorActionPreference = 'Stop'
           cargo test --locked -p cadcraft-ui-egui --lib cmdline::autocomplete_tests:: -- --nocapture
           if ($LASTEXITCODE -ne 0) { throw 'CAD V1.027 bilingual/native command UX tests failed' }
+      - name: Verify bilingual full command handbook covers native registry
+        run: |
+          $ErrorActionPreference = 'Stop'
+          cargo test --locked -p cadcraft-ui-egui --lib dialogs::command_handbook_tests:: -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'V1.027 bilingual native Command Handbook test failed' }
       - name: Report verification boundary
         run: |
           Write-Host 'PASS here proves compile and command UX unit tests only.'
