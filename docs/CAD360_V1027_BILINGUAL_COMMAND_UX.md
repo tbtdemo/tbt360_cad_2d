@@ -368,3 +368,14 @@ Các bài test đã được khai báo là bắt buộc trong `cad360-v1027-comm
 - [ ] Chờ CI mới nhất kết luận `success`; test đơn vị xác nhận đường đi nhập liệu nhưng chưa thay thế nghiệm thu trực tiếp bằng chuột, monitor DPI, zoom và DWG/AutoCAD.
 
 **Tác động:** sửa mất OSNAP theo chuỗi click nhanh trong cùng frame; các chế độ bắt điểm gốc vẫn do engine quyết định.
+
+
+## 32. V1.027 — OSNAP nhấp nhanh, bắt điểm độc lập và độ ổn định theo zoom
+
+- [x] Chỉnh sửa nhánh `point_releases` trong `ui-egui/src/canvas.rs`: sự kiện nhấp chuột trước cùng frame không được phép bỏ qua OSNAP. Mỗi lần phải tính độc lập qua `effective_point` → `override_cursor` → `session.input_snapped` nếu có SnapHit; không sử dụng snap của điểm cuối cho các điểm trước.
+- [x] Thêm kiểm thử `batched_physical_clicks_each_use_their_own_native_endpoint_snap` cho LINE tạo từ hai release gần hai endpoint gốc. Xác nhận hình học đúng (10,0) → (0,0), thay vì (9.9,0.1) → (0.1,0.1).
+- [x] Thêm kiểm thử `fast_click_osnap_aperture_is_screen_pixel_stable_across_zoom_levels` tại scale 5/20/100, với độ lệch 3 pixel ở cả hai lần nhấp, kiểm tra END vẫn được đưa về đúng tọa độ engine theo từng mức zoom.
+- [x] Cả hai regression được Windows Gate gọi qua `snap_label_layout_tests::` đã có.
+- [ ] Chờ kết quả toàn bộ CI tại HEAD mới nhất để xác nhận build/test. Chưa thay thế nghiệm thu trực tiếp GUI trên Windows/HiDPI nhiều màn hình, góc nhìn xoay, các điểm INT/PER/TAN, DXF/DWG hai chiều hoặc AI dựng mặt bằng.
+
+**Ưu tiên kế tiếp:** nếu CI lỗi thì sửa ngay lỗi có log. Sau đó xác minh zoom/HiDPI, xem marker/cursor/snap và điểm đi vào CAD engine có khớp trong ứng dụng EXE thật.
