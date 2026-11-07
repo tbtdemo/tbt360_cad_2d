@@ -8,9 +8,9 @@ use image::GrayImage;
 use serde_json::{Value, json};
 use std::path::Path;
 
-const MAX_FILE_BYTES: u64 = 16 * 1024 * 1024;
-const MAX_IMAGE_SIDE: u32 = 4096;
-const MAX_IMAGE_PIXELS: u64 = 12_000_000;
+const MAX_FILE_BYTES: u64 = 64 * 1024 * 1024;
+const MAX_IMAGE_SIDE: u32 = 8192;
+const MAX_IMAGE_PIXELS: u64 = 36_000_000;
 
 #[derive(Clone, Copy, Debug)]
 struct Stroke {
@@ -911,7 +911,7 @@ pub fn preview(args: &Value) -> Result<Value, String> {
     let path = args["path"].as_str().filter(|s| !s.trim().is_empty()).ok_or("path is required")?;
     let file = Path::new(path);
     let metadata = std::fs::metadata(file).map_err(|e| format!("Cannot inspect raster source: {e}"))?;
-    if !metadata.is_file() || metadata.len() > MAX_FILE_BYTES { return Err("Raster must be a file of at most 16 MiB".into()); }
+    if !metadata.is_file() || metadata.len() > MAX_FILE_BYTES { return Err("Raster must be a file of at most 64 MiB".into()); }
     let bytes = std::fs::read(file).map_err(|e| format!("Cannot read raster source: {e}"))?;
     // Read the image header first: rejecting oversized compressed images AFTER
     // decoding could allocate huge buffers for a small, malicious PNG/JPEG file.
@@ -920,14 +920,17 @@ pub fn preview(args: &Value) -> Result<Value, String> {
     let reader = image::ImageReader::with_format(std::io::Cursor::new(&bytes), format);
     let (width, height) = reader.into_dimensions().map_err(|e| format!("Cannot read image dimensions: {e}"))?;
     if width == 0 || height == 0 || width > MAX_IMAGE_SIDE || height > MAX_IMAGE_SIDE || u64::from(width) * u64::from(height) > MAX_IMAGE_PIXELS {
-        return Err("Raster dimensions must be 1..4096 with at most 12 million pixels".into());
+        return Err("Raster dimensions must be 1..8192 with at most 36 million pixels".into());
     }
+    // Cap the decoded image before allocating pixels. This gives larger real-world
+    // drawings room while avoiding decompression bombs and unbounded RAM growth.
+    // The geometry is never resized: unitsPerPixel remains tied to original pixels.
     let decoded = image::load_from_memory_with_format(&bytes, format).map_err(|e| format!("Cannot decode PNG/JPEG raster: {e}"))?;
     let threshold = args["threshold"].as_u64().unwrap_or(160);
     if threshold > 254 { return Err("threshold must be 0..254".into()); }
     let min_length = args["minLengthPixels"].as_u64().unwrap_or(12);
     if !(2..=4096).contains(&min_length) { return Err("minLengthPixels must be 2..4096".into()); }
-    let max_lines = args["maxLines"].as_u64().unwrap_or(250);
+    let max_lines = args["maxLines"].as_u64().unwrap_or(500);
     if !(1..=1000).contains(&max_lines) { return Err("maxLines must be 1..1000".into()); }
     // Missing calibration is explicitly documented as 1 CAD unit/pixel; malformed supplied
     // calibration must never silently reset to 1.0 and produce geometry at the wrong scale.
@@ -1244,6 +1247,11 @@ pub fn preview(args: &Value) -> Result<Value, String> {
         wall_panel_junction_qa(&wall_panels,&paired_openings,&column_candidates)
     } else {Vec::new()};
     let count = lines.len();
+    if count > 1000 && args["wallPairHints"].as_bool().unwrap_or(false) {
+        return Err(format!(
+            "Detected {count} strokes. Wall pairing needs at most 1000 source strokes to avoid expensive ambiguous combinations. Select a region or increase minLengthPixels; no CAD changes made"
+        ));
+    }
     if count > max_lines as usize {
         return Err(format!("Found {count} strokes, exceeding maxLines={max_lines}; increase minLengthPixels or limit the input region, no CAD changes made"));
     }
@@ -2829,6 +2837,37 @@ mod tests {
         assert!(pairs.iter().any(|p|p["edges"]==json!([270,271])));
         let panels=wall_panel_candidates(&lines,&pairs,&[],&[]);
         assert!(panels.iter().any(|p|p["sourceEdgeIndices"]==json!([270,271])));
+    }
+
+    #[test]
+    fn large_png_5000_by_3000_preserves_original_pixel_to_cad_calibration() {
+        // Larger than the old 4096-side / 12 MP thresholds. A sparse real PNG
+        // exercises the full decoder and vectorization, not a mocked dimension.
+        let mut img = GrayImage::from_pixel(5000, 3000, image::Luma([255]));
+        for x in 120..=4880 {
+            img.put_pixel(x, 1400, image::Luma([0]));
+        }
+        let path=std::env::temp_dir().join(format!(
+            "cad360_large_{}_{}.png", std::process::id(),
+            std::thread::current().name().unwrap_or("regression").replace(' ', "_")
+        ));
+        img.save(&path).expect("write large PNG fixture");
+        drop(img);
+        let params=json!({"path":path.to_string_lossy(),"preview":true,
+            "maxLines":500,"minLengthPixels":100,"includeDiagonals":false,
+            "unitsPerPixel":2.0});
+        let result=preview(&params);
+        let _=std::fs::remove_file(&path);
+        let value=result.expect("15 MP must pass large-image guard");
+        assert_eq!(value["imageSize"],json!([5000,3000]));
+        assert!(value["strokes"].as_u64().unwrap_or(0)>=1);
+        assert_eq!(value["editableEntitiesCreated"],0);
+        let segments=value["lines"].as_array().unwrap();
+        assert!(segments.iter().any(|seg| {
+            let Some(a)=seg[0][0].as_f64() else {return false};
+            let Some(b)=seg[1][0].as_f64() else {return false};
+            (b-a).abs()>=9000.0
+        }),"pixel-space source length must become the calibrated CAD length");
     }
 
     #[test]
