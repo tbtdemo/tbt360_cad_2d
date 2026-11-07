@@ -539,6 +539,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'V1.026 room adjacency must not infer doorway from shared source wall' }
           cargo test --locked -p cadcraft-mcp --lib ai_room_topology_links_only_real_shared_source_edges_without_inventing_doors -- --nocapture
           if ($LASTEXITCODE -ne 0) { throw 'V1.026 AI room adjacency graph shared-source evidence regression failed' }
+          cargo test --locked -p cadcraft-mcp --lib ai_four_room_grid_keeps_shared_walls_and_exact_topology -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'V1.026 2x2 floorplan rooms and four shared-wall contacts failed' }
           cargo test --locked -p cadcraft-mcp --lib ai_stacked_rooms_share_one_horizontal_source_edge_even_if_lines_are_out_of_order -- --nocapture
           if ($LASTEXITCODE -ne 0) { throw 'V1.026 stacked rooms with a shared horizontal source partition failed' }
           cargo test --locked -p cadcraft-mcp --lib ai_adjacent_rooms_share_true_partition_wall_without_fake_geometry -- --nocapture
