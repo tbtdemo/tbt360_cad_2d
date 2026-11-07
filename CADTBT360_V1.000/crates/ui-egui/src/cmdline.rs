@@ -1000,13 +1000,14 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui, canvas: Rect) {
         let text_width=(w-14.0).max(20.0);
         let expected_galley=p.layout(expected,egui::FontId::proportional(11.0),t.accent,text_width);
         let guide_galley=p.layout(guide,egui::FontId::proportional(11.0),t.text,text_width);
-        let height=expected_galley.size().y+guide_galley.size().y+12.0;
+        let expected_height=expected_galley.size().y;
+        let height=expected_height+guide_galley.size().y+12.0;
         let y=(bar.top()-height-5.0-n as f32*16.0
             -if lines.is_empty(){0.0}else{6.0}).max(canvas.top()+3.0);
         let hint=Rect::from_min_size(pos2(bar.left(),y),vec2(w,height));
         p.rect_filled(hint,3.0,t.cmd_history);
         p.galley(pos2(hint.left()+7.0,hint.top()+4.0),expected_galley,t.accent);
-        p.galley(pos2(hint.left()+7.0,hint.top()+7.0+expected_galley.size().y),
+        p.galley(pos2(hint.left()+7.0,hint.top()+7.0+expected_height),
             guide_galley,t.text);
     }
     // Contextual next-command hints appear after the previous command, not
