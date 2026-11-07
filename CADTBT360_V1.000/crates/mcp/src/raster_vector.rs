@@ -335,29 +335,50 @@ fn column_hatch_candidates(rects: &[RectangleOutline], lines: &[Line]) -> Vec<Va
 /// Conservative geometric parallel-edge hints; not semantic wall recognition.
 /// Pair only axis-aligned segments of similar span with substantial overlap.
 fn parallel_wall_candidates(lines: &[Line], min_spacing: f64, max_spacing: f64) -> Vec<Value> {
-    if lines.len() > 1000 || !(min_spacing > 0.0 && max_spacing >= min_spacing) { return Vec::new(); }
-    let mut candidates = Vec::new();
-    let horizontal = |l: &Line| (l.y0-l.y1).abs() < 0.25 && l.x1-l.x0 >= 16.0;
-    let vertical = |l: &Line| (l.x0-l.x1).abs() < 0.25 && l.y1-l.y0 >= 16.0;
-    for (i,a) in lines.iter().enumerate() {
-        for (j,b) in lines.iter().enumerate().skip(i+1) {
-            let same_h = horizontal(a) && horizontal(b);
-            let same_v = vertical(a) && vertical(b);
-            if !same_h && !same_v { continue; }
-            let spacing = if same_h { (a.y0-b.y0).abs() } else { (a.x0-b.x0).abs() };
-            if spacing < min_spacing || spacing > max_spacing { continue; }
-            let (a0,a1,b0,b1) = if same_h { (a.x0,a.x1,b.x0,b.x1) } else { (a.y0,a.y1,b.y0,b.y1) };
-            let start = a0.max(b0); let end = a1.min(b1);
-            let shorter = (a1-a0).min(b1-b0);
-            if shorter <= 0.0 || end-start < 16.0 || (end-start)/shorter < 0.8 { continue; }
-            // Only a suggestion with two source indices. The user chooses whether
-            // they are indeed a wall; no geometry is created or discarded here.
-            candidates.push(json!({"edges":[i,j],"orientation":if same_h {"horizontal"} else {"vertical"},
-                "spacingPixels":spacing,"overlapPixels":end-start}));
-            if candidates.len() >= 128 { return candidates; }
+    if !(min_spacing > 0.0 && max_spacing >= min_spacing) { return Vec::new(); }
+    // Sort each orientation by its perpendicular coordinate and only compare
+    // lines within the plausible wall-thickness band. Unlike all-pairs O(n²),
+    // this scales to thousands of unrelated strokes without scanning every
+    // possible pair. Indices always refer to the full original raster source.
+    let mut horizontal = Vec::<(f64,usize)>::new();
+    let mut vertical = Vec::<(f64,usize)>::new();
+    for (i,l) in lines.iter().enumerate() {
+        if (l.y0-l.y1).abs()<0.25 && l.x1-l.x0>=16.0 {
+            horizontal.push((l.y0,i));
+        }
+        if (l.x0-l.x1).abs()<0.25 && l.y1-l.y0>=16.0 {
+            vertical.push((l.x0,i));
         }
     }
-    candidates
+    horizontal.sort_by(|a,b|a.0.total_cmp(&b.0));
+    vertical.sort_by(|a,b|a.0.total_cmp(&b.0));
+    let mut result = Vec::new();
+    for (oriented,is_horizontal) in [(&horizontal,true),(&vertical,false)] {
+        for (position,&(coord,i)) in oriented.iter().enumerate() {
+            let a=lines[i];
+            for &(other_coord,j) in oriented.iter().skip(position+1) {
+                let spacing=other_coord-coord;
+                if spacing>max_spacing { break; }
+                if spacing<min_spacing { continue; }
+                let b=lines[j];
+                let (a0,a1,b0,b1)=if is_horizontal {
+                    (a.x0,a.x1,b.x0,b.x1)
+                } else {
+                    (a.y0,a.y1,b.y0,b.y1)
+                };
+                let start=a0.max(b0);let end=a1.min(b1);
+                let shorter=(a1-a0).min(b1-b0);
+                if shorter<=0.0 || end-start<16.0 || (end-start)/shorter<0.8 {continue;}
+                let (first,second)=if i<j {(i,j)} else {(j,i)};
+                result.push(json!({"edges":[first,second],
+                    "orientation":if is_horizontal {"horizontal"} else {"vertical"},
+                    "spacingPixels":spacing,"overlapPixels":end-start}));
+                // Bounded output; no automatic geometry/semantic claim.
+                if result.len()>=128 {return result;}
+            }
+        }
+    }
+    result
 }
 
 /// Conservative drafting panels from observed pairs only; never bridge missing wall edges.
@@ -931,7 +952,7 @@ pub fn preview(args: &Value) -> Result<Value, String> {
     let min_length = args["minLengthPixels"].as_u64().unwrap_or(12);
     if !(2..=4096).contains(&min_length) { return Err("minLengthPixels must be 2..4096".into()); }
     let max_lines = args["maxLines"].as_u64().unwrap_or(500);
-    if !(1..=1000).contains(&max_lines) { return Err("maxLines must be 1..1000".into()); }
+    if !(1..=10_000).contains(&max_lines) { return Err("maxLines must be 1..10000".into()); }
     // Missing calibration is explicitly documented as 1 CAD unit/pixel; malformed supplied
     // calibration must never silently reset to 1.0 and produce geometry at the wrong scale.
     let scale = match args.get("unitsPerPixel") {
@@ -1208,7 +1229,7 @@ pub fn preview(args: &Value) -> Result<Value, String> {
     // 1000 strokes. Never silently return "zero walls/rooms" for a dense floorplan:
     // make the limitation explicit so an operator can crop or filter first.
     const SEMANTIC_HINT_KEYS: &[&str] = &[
-        "wallPairHints", "closedRectangles", "columnHatchHints",
+        "closedRectangles", "columnHatchHints",
         "openingGapHints", "pairedWallOpeningHints", "wallPanelHints",
         "createWallCenterlines", "doorLeafHints", "windowSashHints",
     ];
@@ -2880,6 +2901,20 @@ mod tests {
             let Some(b)=seg[1][0].as_f64() else {return false};
             (b-a).abs()>=9000.0
         }),"pixel-space source length must become the calibrated CAD length");
+    }
+
+    #[test]
+    fn ai_large_drawing_wall_pairs_use_original_indices_after_spatial_sort() {
+        let mut source = Vec::new();
+        for i in 0..2500 {
+            let x=(i as f64)*10.0;
+            source.push(Line{x0:x,y0:2000.0,x1:x+1.0,y1:2000.0});
+        }
+        source[2490]=Line{x0:40.0,y0:100.0,x1:400.0,y1:100.0};
+        source[2491]=Line{x0:40.0,y0:120.0,x1:400.0,y1:120.0};
+        let pairs=parallel_wall_candidates(&source,8.0,30.0);
+        assert!(pairs.iter().any(|p|p["edges"]==json!([2490,2491])));
+        assert!(pairs.len()<=128,"preview output must stay bounded");
     }
 
     #[test]
