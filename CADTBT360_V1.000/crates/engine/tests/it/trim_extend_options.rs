@@ -247,3 +247,55 @@ fn architectural_trim_extend_undo_redo_and_dxf_reopen() {
     extend.redo().expect("Redo EXTEND");
     assert_eq!(lines(&extend),after);
 }
+
+
+/// Regression for the native FILLET/CHAMFER commands on an architectural
+/// right-angle corner; validates real editable geometry, undo and DXF reload.
+/// Existing command semantics are exercised, not replaced by a mock.
+#[test]
+fn architectural_fillet_chamfer_native_geometry_undo_redo_and_dxf() {
+    let mut s = session(&["0,0 10,0", "10,0 10,10"]);
+    let handles = s.doc().unwrap().model.iter().map(|e| e.handle.hex()).collect::<Vec<_>>();
+    assert_eq!(handles.len(), 2);
+    let before = lines(&s);
+    s.execute("fillet", &json!({
+        "h1": handles[0], "h2": handles[1],
+        "p1": [2,0], "p2": [10,8], "radius": 2.0,
+        "trim": true
+    })).expect("native FILLET on two perpendicular LINEs");
+    let filleted = lines(&s);
+    assert_ne!(filleted, before, "FILLET must trim original line geometry");
+    assert_eq!(s.doc().unwrap().model.iter()
+        .filter(|e| matches!(&e.kind, EntityKind::Arc(_))).count(), 1,
+        "FILLET must create a native editable ARC");
+    s.undo().expect("Undo FILLET");
+    assert_eq!(lines(&s), before);
+    s.redo().expect("Redo FILLET");
+    assert_eq!(lines(&s), filleted);
+    let dxf = cadcraft_io::write_dxf(s.doc().unwrap());
+    let reopened = cadcraft_io::read_dxf(dxf.as_bytes()).expect("FILLET DXF roundtrip");
+    assert_eq!(reopened.model.iter()
+        .filter(|e| matches!(&e.kind, EntityKind::Arc(_))).count(), 1,
+        "FILLET arc must remain a native CAD entity after DXF reopen");
+
+    let mut c = session(&["0,0 10,0", "10,0 10,10"]);
+    let handles = c.doc().unwrap().model.iter().map(|e| e.handle.hex()).collect::<Vec<_>>();
+    let original = lines(&c);
+    c.execute("chamfer", &json!({
+        "h1": handles[0], "h2": handles[1],
+        "p1": [2,0], "p2": [10,8], "d1": 2.0, "d2": 3.0,
+        "trim": false
+    })).expect("native CHAMFER with No trim");
+    assert_eq!(lines(&c).len(), 3, "CHAMFER must produce an editable LINE");
+    for segment in original.iter() {
+        assert!(lines(&c).contains(segment), "No trim must preserve source lines");
+    }
+    c.undo().expect("Undo CHAMFER");
+    assert_eq!(lines(&c), original);
+    c.redo().expect("Redo CHAMFER");
+    assert_eq!(lines(&c).len(), 3);
+    let dxf = cadcraft_io::write_dxf(c.doc().unwrap());
+    let reloaded = cadcraft_io::read_dxf(dxf.as_bytes()).expect("CHAMFER DXF roundtrip");
+    assert_eq!(reloaded.model.iter()
+        .filter(|e| matches!(&e.kind, EntityKind::Line(_))).count(), 3);
+}
