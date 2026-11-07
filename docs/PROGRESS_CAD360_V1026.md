@@ -104,6 +104,15 @@ Các tỷ lệ trên cố ý **không cộng điểm cho build đang Queued**. N
 
 **Báo cáo % đợt này:** **Giữ 33% triển khai, 0% nghiệm thu phát hành**. Benchmark QA bổ sung chất lượng nhưng chưa hoàn thành mốc định lượng trên dữ liệu thật; không tăng % thiếu bằng chứng.
 
+## Đợt sửa lỗi CI V1.026 — Windows run 42323719615
+
+- **Kết quả thực tế:** Windows Setup/Portable #42323719615 **FAIL** tại step `Build and validate both Word manuals before Rust compile`. Log xác định `ValueError: User guide is incomplete: missing ['Bước 1', 'Bước 2', 'Bước 3']` khi tạo Word AI V1.026; đây **không phải** lỗi Rust. Các bước biên dịch, đóng gói, cài–gỡ phía sau bị bỏ qua.
+- [x] Bổ sung mục giáo trình ba bước thực hành thật cho người mới: mở CAD, LINE + DIST 5.000 mm, SAVEAS/mở lại, rồi mới vào AI Preview.
+- [x] Sửa metadata Word từ nhãn V1.025 hardcoded sang ưu tiên phiên bản **tệp DOCX đầu ra**; dự phòng đọc nội dung nguồn nếu cần.
+- [ ] Kiểm tra kết quả workflow Windows trên commit chứa sửa lỗi; **chưa được công nhận PASS** nếu vẫn pending.
+- [ ] Kiểm tra in Word 34 bài có ảnh thật và mục lục số trang, không tính sơ đồ thay ảnh chụp EXE đã nghiệm thu.
+- **% kỹ thuật giữ 33%, nghiệm thu phát hành 0%.** Hoàn tất sửa một lỗi làm dừng pipeline không đồng nghĩa đạt các mốc nghiệm thu độc lập.
+
 ## Định hướng lần nâng cấp tiếp theo (theo thứ tự)
 
 1. **P0 – Gỡ lỗi CI Windows đúng SHA**: fix compile/test, chỉ ghi PASS khi kết quả hiện hữu. Không push liên tục làm nhiễu lượt kiểm thử.
