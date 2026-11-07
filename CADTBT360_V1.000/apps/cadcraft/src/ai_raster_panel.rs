@@ -1114,6 +1114,15 @@ pub fn window(ctx: &egui::Context, cad: &mut CadApp, state: &mut State) {
             ui.separator();
             ui.heading("Nhận dạng và kiểm tra kết quả");
             if ui.add_enabled(state.pdf_pending.is_none() && state.preview_task.is_none() && !state.path.is_empty(),
+                egui::Button::new("PHÂN TÍCH MẶT BẰNG KIẾN TRÚC - Tường / Cửa / Cột / Phòng")).clicked() {
+                let _=apply_ai_instruction(state,"nhận dạng toàn bộ mặt bằng");
+                state.max_lines=state.max_lines.max(500);
+                state.reset_wall_junction_review();
+                start_image_preview(state,cad,ctx);
+            }
+            ui.small("Một lần nhấn chạy đầy đủ nhóm dò hình học. Hệ thống chỉ đề xuất; mọi cấu kiện và phép ghi CAD phải qua Preview.");
+
+            if ui.add_enabled(state.pdf_pending.is_none() && state.preview_task.is_none() && !state.path.is_empty(),
                 egui::Button::new("1. Nhận dạng và xem trước")).clicked() {
                 state.reset_wall_junction_review();
                 start_image_preview(state,cad,ctx);
@@ -1827,6 +1836,20 @@ mod tests {
         assert_eq!(state.studio_tab,0);
         assert!(state.max_lines>=274);
         assert!(state.max_lines<=1000);
+    }
+
+    #[test]
+    fn ai_architecture_one_click_preset_enables_walls_openings_columns_and_rooms_evidence() {
+        let mut state=State::default();state.open();
+        apply_ai_instruction(&mut state,"nhận dạng toàn bộ mặt bằng").unwrap();
+        let args=state.params();
+        for key in ["wallPairHints","wallPanelHints","openingGapHints","pairedWallOpeningHints","doorLeafHints","windowSashHints","columnHatchHints"] {
+            assert_eq!(args[key],true,"architecture preset should enable {key}");
+        }
+        assert_eq!(args["preview"],true);
+        assert_eq!(args["createDoorBlocks"],false);
+        assert_eq!(args["createWallBlocks"],false);
+        assert_eq!(args["createColumnBlocks"],false);
     }
 
     #[test]
